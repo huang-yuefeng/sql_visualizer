@@ -20,8 +20,9 @@ export async function getScript(scriptId) {
   return res.json();
 }
 
-export async function getGraph(scriptId) {
-  const res = await fetch(`${API_BASE}/scripts/${scriptId}/graph`);
+export async function getGraph(scriptId, withSnippets = true) {
+  const url = withSnippets ? `${API_BASE}/scripts/${scriptId}/graph?snippets=true` : `${API_BASE}/scripts/${scriptId}/graph`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error('Graph not found');
   return res.json();
 }

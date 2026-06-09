@@ -365,17 +365,17 @@ class _RoleBasedExtractor:
         for join in (select.args.get("joins") or []):
             self._walk_join(join, context)
 
-        # WHERE / HAVING conditions — columns used
+        # SELECT expressions — process FIRST so aggregates are registered
+        # before HAVING/ORDER BY references are encountered
+        raw_exprs = select.expressions or []
+        for expr in raw_exprs:
+            self._walk_select_expression(expr, context, is_cte)
+
+        # WHERE / HAVING conditions — after SELECT so bare refs dedup against aggregates
         for key in ("where", "having"):
             cond = select.args.get(key)
             if cond:
                 self._walk_columns_in_expr(cond, context, defined_in=key.upper())
-
-        # SELECT expressions
-        raw_exprs = select.expressions or []
-        # Unwrap Star-expanded columns from * if needed
-        for expr in raw_exprs:
-            self._walk_select_expression(expr, context, is_cte)
 
         # GROUP BY / ORDER BY — column references
         for key, label in [("group", "GROUP BY"), ("order", "ORDER BY")]:
@@ -478,6 +478,17 @@ class _RoleBasedExtractor:
         col_name = _clean(col.name or "")
         if not col_name:
             return
+        # For bare column names (no table prefix): skip if a defined variable
+        # with the same name already exists (aggregate, window, case, function,
+        # intermediate). This prevents HAVING/ORDER BY references from creating
+        # duplicate nodes. The REFERENCES edge handles the semantic connection.
+        if not table:
+            for existing in self.result.variables:
+                if existing.name == col_name and existing.variable_type in (
+                    VariableType.AGGREGATE, VariableType.WINDOW_RESULT,
+                    VariableType.CASE_RESULT, VariableType.FUNCTION_RESULT,
+                    VariableType.INTERMEDIATE, VariableType.CTE_COLUMN):
+                    return  # already defined — don't create duplicate
         full = f"{table}.{col_name}" if table else col_name
         self._add(full, VariableType.TABLE_COLUMN,
                   sql_expr=_sql(col),

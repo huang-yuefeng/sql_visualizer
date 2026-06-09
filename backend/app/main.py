@@ -14,6 +14,13 @@ from fastapi.staticfiles import StaticFiles
 from app.config import CORS_ORIGINS, DEBUG, CACHE_DIR
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+VERSION_FILE = Path(__file__).resolve().parent.parent.parent / "VERSION"
+
+def _read_version() -> str:
+    try:
+        return VERSION_FILE.read_text().strip()
+    except Exception:
+        return "0.0.0"
 
 
 @asynccontextmanager
@@ -26,7 +33,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="GPS SQL Data Flow Visualizer",
     description="Extract, classify, and visualize variables from GPS financial SQL scripts",
-    version="0.1.0",
+    version=_read_version(),
     lifespan=lifespan,
 )
 
@@ -42,7 +49,7 @@ app.add_middleware(
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": _read_version()}
 
 
 # Import and register routers

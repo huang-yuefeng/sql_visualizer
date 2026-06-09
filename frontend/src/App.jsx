@@ -12,8 +12,8 @@ const C = {
 };
 const EC = {BELONGS_TO:'#8AB4F8',ALIAS_OF:'#1ABC9C',FEEDS_INTO:'#2ECC71',DIRECT_REFERENCE:'#9AA0A6',AGGREGATION:'#37BC9B',TRANSFORMATION:'#F0AD4E',WINDOW:'#967ADC',COMPUTED_FROM:'#D770AD',REFERENCES:'#5DADE2',OPERATES_ON:'#E74C3C',COMPONENT_LINK:'#E67E22'};
 
-const VT = [{value:'',label:'All Types'},{value:'database_table',label:'DB Table'},{value:'table_column',label:'Table Column'},{value:'cte_table',label:'CTE Table'},{value:'cte_column',label:'CTE Column'},{value:'intermediate',label:'Intermediate'},{value:'window_result',label:'Window Result'},{value:'aggregate',label:'Aggregate'},{value:'case_result',label:'CASE Result'},{value:'function_result',label:'Function Result'},{value:'merge_target',label:'Merge Target'},{value:'union_branch',label:'Union Branch'},{value:'subquery_result',label:'Subquery Result'},{value:'virtual_table',label:'Virtual Table'}];
-const ET = [{value:'',label:'All Edges'},{value:'BELONGS_TO',label:'Belongs To'},{value:'ALIAS_OF',label:'Alias Of'},{value:'FEEDS_INTO',label:'Feeds Into'},{value:'DIRECT_REFERENCE',label:'Direct Reference'},{value:'AGGREGATION',label:'Aggregation'},{value:'TRANSFORMATION',label:'Transformation'},{value:'WINDOW',label:'Window'},{value:'COMPUTED_FROM',label:'Computed From'},{value:'REFERENCES',label:'References'},{value:'OPERATES_ON',label:'Operates On'},{value:'COMPONENT_LINK',label:'Component Link'}];
+const VT = [{value:'',label:'All Types'},{value:'database_table',label:'Table',desc:'Physical table or alias from FROM/JOIN'},{value:'table_column',label:'Column',desc:'A column read from a table'},{value:'cte_table',label:'CTE',desc:'Temporary result set (WITH ... AS)'},{value:'cte_column',label:'CTE Col',desc:'Column inside a CTE definition'},{value:'intermediate',label:'Computed',desc:'Expression like (a+b) AS total'},{value:'window_result',label:'Window',desc:'ROW_NUMBER, RANK, LAG, SUM OVER'},{value:'aggregate',label:'Aggregate',desc:'SUM, COUNT, AVG, MIN, MAX'},{value:'case_result',label:'If-Then',desc:'CASE WHEN ... THEN ... END'},{value:'function_result',label:'Function',desc:'COALESCE, CAST, CONCAT result'},{value:'literal',label:'Constant',desc:'String or number literal'},{value:'merge_target',label:'Merge',desc:'Target table in MERGE INTO'},{value:'union_branch',label:'Union',desc:'One arm of UNION ALL'},{value:'subquery_result',label:'Subquery',desc:'Scalar subquery result'},{value:'virtual_table',label:'Output',desc:'Result of a SELECT statement'}];
+const ET = [{value:'',label:'All Edges'},{value:'BELONGS_TO',label:'Owns',desc:'Table owns this column'},{value:'ALIAS_OF',label:'Alias',desc:'Alias → original table name'},{value:'FEEDS_INTO',label:'Input',desc:'Table feeds into SELECT output'},{value:'DIRECT_REFERENCE',label:'Ref',desc:'Direct column reference'},{value:'AGGREGATION',label:'Agg',desc:'Column → SUM/COUNT/AVG'},{value:'TRANSFORMATION',label:'Xform',desc:'Column → function result'},{value:'WINDOW',label:'Window',desc:'Column → window function'},{value:'COMPUTED_FROM',label:'Compute',desc:'Column → CASE expression'},{value:'REFERENCES',label:'NameRef',desc:'HAVING ref → SELECT definition'},{value:'OPERATES_ON',label:'DML',desc:'Column → INSERT/UPDATE/DELETE'},{value:'COMPONENT_LINK',label:'Bridge',desc:'Cross-scope connection'}];
 
 export default function App() {
   const [scripts, setScripts] = useState([]);
@@ -25,22 +25,32 @@ export default function App() {
   const cyR = useRef(null); const ctR = useRef(null); const flR = useRef(null);
   const [panel, setPanel] = useState(null);
   const viR = useRef({}); const diR = useRef({});
-  const sqlR = useRef(''); const lmR = useRef({});
+  const [tip, setTip] = useState({show:false,x:0,y:0,text:''});
+  const tipDesc = Object.fromEntries(VT.map(t=>[t.value,t.desc||'']));
+  const edgeDesc = Object.fromEntries(ET.map(t=>[t.value,t.desc||'']));
+  const sqlR = useRef(''); const lmR = useRef({}); const snipR = useRef({});
   const [showSQL, setShowSQL] = useState(false);
+  const [version, setVersion] = useState('');
   const [ioGraph, setIoGraph] = useState(null);
   const [ioPaths, setIoPaths] = useState([]);
   const ioRef = useRef(null);
+  const [csvName, setCsvName] = useState('');
+  const [csvContent, setCsvContent] = useState('');
   const [viewMode, setViewMode] = useState('full'); // 'full' | 'compact' | 'tables'
+  const [multiView, setMultiView] = useState(null);  // multi-script meta-graph
+  const multiRef = useRef(null);
+  const [multiDetail, setMultiDetail] = useState(null); // selected sub-script detail
 
-  useEffect(() => { api.listScripts().then(setScripts).catch(()=>{}); }, []);
+  useEffect(() => { api.listScripts().then(setScripts).catch(()=>{}); fetch('/api/health').then(r=>r.json()).then(d=>setVersion(d.version)).catch(()=>{}); }, []);
 
   const load = useCallback(async (s) => {
     if (!s) return;
     setLoading(true); setProg({s:'Loading...',p:10});
     try {
-      const d = await api.getGraph(s.script_id);
+      const d = await api.getGraph(s.script_id, true);
       setGd(d); setProg({s:'',p:0});
       const vi={}; d.nodes.forEach(n=>{vi[n.data.id]=n.data;}); viR.current=vi;
+      snipR.current = (d.snippets||{});
       const di={}; d.edges.forEach(e=>{di[`${e.data.source}→${e.data.target}`]=e.data;}); diR.current=di;
       sqlR.current = d.sql_text||''; lmR.current = d.line_map||{};
     } catch { setProg({s:'Failed',p:0}); }
@@ -49,23 +59,33 @@ export default function App() {
   useEffect(()=>{if(sel)load(sel);},[sel,load]);
 
   useEffect(() => {
-    const data = ioGraph || gd;
+    // Multi-script view: render meta-graph or detail
+    let data = ioGraph || gd;
+    if (multiView && !multiDetail) {
+      data = {nodes: multiView.meta_nodes, edges: multiView.meta_edges};
+    } else if (multiDetail) {
+      data = multiDetail.graph;  // full graph of selected sub-script
+    }
     if (!data || !ctR.current) return;
     if (cyR.current) cyR.current.destroy();
 
-    const renderNodes = [...data.nodes];
+    const renderNodes = data.nodes.map(n => ({...n, data: {...n.data}}));
     const renderEdges = [...data.edges];
 
-    // Compact mode: hide column children, show only table parents
-    if (viewMode === 'compact' || viewMode === 'tables') {
-      const parentIds = new Set();
+    // Compact mode: hide column children, show only parent tables + non-column nodes
+    if (viewMode === 'compact') {
       for (const n of renderNodes) {
-        if (n.data.parent) parentIds.add(n.data.parent);
-        if (viewMode === 'tables' && n.data.variable_type !== 'database_table' && n.data.variable_type !== 'cte_table' && n.data.variable_type !== 'virtual_table') {
+        if (n.data.parent || n.data.variable_type === 'table_column') {
           n.classes = 'hidden-node';
         }
       }
-      // In compact mode, show parent tables with their columns hidden inside
+    } else if (viewMode === 'tables') {
+      // Hide everything except table/CTE/VT nodes
+      for (const n of renderNodes) {
+        if (n.data.variable_type !== 'database_table' && n.data.variable_type !== 'cte_table' && n.data.variable_type !== 'virtual_table') {
+          n.classes = 'hidden-node';
+        }
+      }
     }
 
     const cy = cytoscape({
@@ -80,13 +100,17 @@ export default function App() {
       hideEdgesOnViewport: viewMode==='full',
       hideLabelsOnViewport: viewMode==='full',
     });
-    cy.on('mouseover','node',e=>{e.target.closedNeighborhood().removeClass('dimmed');cy.elements().not(e.target.closedNeighborhood()).addClass('dimmed');});
-    cy.on('mouseout','node',()=>cy.elements().removeClass('dimmed'));
+    cy.on('mouseover','node',e=>{e.target.closedNeighborhood().removeClass('dimmed');cy.elements().not(e.target.closedNeighborhood()).addClass('dimmed');const vt=e.target.data('variable_type');if(vt){const d=tipDesc[vt]||vt;setTip({show:true,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10,text:d});}});
+    cy.on('mousemove','node',e=>{if(tip.show)setTip(t=>({...t,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10}));});
+    cy.on('mouseout','node',()=>{cy.elements().removeClass('dimmed');setTip({show:false,x:0,y:0,text:''});});
     cy.on('tap','node',e=>{
       const id=e.target.id(); const eds=(data?.edges||[]).filter(x=>x.data.source===id||x.data.target===id);
       const vi=ioGraph?{}:viR.current;
       setPanel({type:'node',id,node:vi[id]||{label:id},edges:eds.map(x=>({sid:x.data.source,tid:x.data.target,rel:x.data.relationship})),title:vi[id]?.label||id});
     });
+    cy.on('mouseover','edge',e=>{const r=e.target.data('relationship');if(r){const d=edgeDesc[r]||r;setTip({show:true,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10,text:d});}});
+    cy.on('mousemove','edge',e=>{if(tip.show)setTip(t=>({...t,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10}));});
+    cy.on('mouseout','edge',()=>{setTip({show:false,x:0,y:0,text:''});});
     cy.on('tap','edge',e=>{
       const sid=e.target.data('source'),tid=e.target.data('target');
       if (ioGraph) {
@@ -101,9 +125,16 @@ export default function App() {
         setPanel({type:'edge',sid,tid,edge:edge||{source:sid,target:tid,relationship:'',operation:''},src:viR.current[sid],tgt:viR.current[tid],title:`${viR.current[sid]?.label||sid} → ${viR.current[tid]?.label||tid}`});
       }
     });
+    // Meta-graph: click a script node to see its detail
+    if (multiView && !multiDetail) {
+      cy.on('tap','node',async e=>{
+        const sid=e.target.id(); const sc=multiView.scripts.find(s=>s.script_id===sid);
+        if(sc){ setLoading(true); try{ const g=await api.getGraph(sid,true); setMultiDetail({...sc,graph:g}); }catch{} finally{setLoading(false);} }
+      });
+    }
     cyR.current=cy;
     return ()=>{cy.destroy();};
-  },[gd,ioGraph,ioPaths]);
+  },[gd,ioGraph,ioPaths,viewMode,multiView,multiDetail]);
 
   const upload = async e => {
     const f=e.target.files?.[0]; if(!f) return;
@@ -131,17 +162,31 @@ export default function App() {
   return (
     <div className="app-container">
       <header className="app-header">
-        <h1>GPS SQL Data Flow Visualizer</h1>
+        <h1>GPS SQL Data Flow Visualizer {version && <span style={{fontSize:'0.6rem',color:'#666',fontWeight:400}}>v{version}</span>}</h1>
         <div className="header-actions">
           <label className="btn btn-primary" style={{cursor:'pointer'}}>Upload SQL<input ref={flR} type="file" accept=".sql,.txt" onChange={upload} hidden/></label>
           <button className="btn btn-secondary" onClick={paste}>Paste SQL</button>
           <button className="btn btn-outline" onClick={()=>{if(cyR.current)cyR.current.fit(undefined,50)}}>Fit</button>
+          <label className="btn btn-outline" style={{cursor:'pointer'}}>Multi<input ref={multiRef} type="file" accept=".sql,.txt" multiple onChange={async e=>{
+            const fs=[...e.target.files]; if(fs.length<2) return;
+            setLoading(true); setProg({s:'Analyzing scripts...',p:30});
+            try{
+              const fd=new FormData(); fs.forEach(f=>fd.append('files',f));
+              const r=await fetch('/api/analyze_multi',{method:'POST',body:fd});
+              const d=await r.json(); setMultiView(d); setMultiDetail(null);
+              setProg({s:'',p:0});
+            }catch{setProg({s:'',p:0});}
+            finally{setLoading(false);}
+            e.target.value='';
+          }} hidden/></label>
           {sel && <button className="btn btn-outline" onClick={()=>setShowSQL(!showSQL)}>{showSQL?'Hide SQL':'Show SQL'}</button>}
           {sel && <select className="type-select" style={{width:'auto',marginTop:0,padding:'4px 8px'}} value={viewMode} onChange={e=>setViewMode(e.target.value)}>
             <option value="full">Full</option><option value="compact">Compact</option><option value="tables">Tables</option>
           </select>}
           {sel && <label className="btn btn-outline" style={{cursor:'pointer'}}>IO Graph<input ref={ioRef} type="file" accept=".csv" onChange={async e=>{
             const f=e.target.files?.[0];if(!f)return;
+            setCsvName(f.name);setCsvContent(await f.text());
+            setIoGraph(null);setIoPaths([]); // clear old graph before loading new
             const fd=new FormData();fd.append('csv_file',f);
             setLoading(true);setProg({s:'Building IO graph...',p:50});
             try{
@@ -150,8 +195,11 @@ export default function App() {
               setProg({s:'',p:0});
             }catch{setProg({s:'',p:0});}
             finally{setLoading(false);}
+            e.target.value=''; // reset so same file can be re-selected
           }} hidden/></label>}
-          {ioGraph && <button className="btn btn-outline" onClick={()=>{setIoGraph(null);setIoPaths([])}}>Full Graph</button>}
+          {multiView && <button className="btn btn-outline" onClick={()=>setMultiDetail(null)}>Overview</button>}
+          {multiView && <button className="btn btn-outline" onClick={()=>{setMultiView(null);setMultiDetail(null)}}>Exit Multi</button>}
+          {ioGraph && <button className="btn btn-outline" onClick={()=>{setIoGraph(null);setIoPaths([]);setCsvName('');setCsvContent('')}}>Exit IO View</button>}
         </div>
       </header>
       {pshow&&<div className="progress-bar-wrap"><div className="progress-bar-fill" style={{width:`${prog.p}%`}}/><span className="progress-label">{prog.s}</span></div>}
@@ -163,16 +211,19 @@ export default function App() {
             {scripts.length===0&&<div className="empty-state">Upload a SQL script to begin</div>}
           </div>
           {sel&&<div className="filter-panel"><h3>Filter Nodes</h3><input type="text" placeholder="Search..." value={sq} onChange={e=>setSq(e.target.value)} className="search-input"/><select value={tf} onChange={e=>setTf(e.target.value)} className="type-select">{VT.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</select><h3 style={{marginTop:8}}>Filter Edges</h3><select value={ef} onChange={e=>setEf(e.target.value)} className="type-select">{ET.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</select></div>}
-          <div className="legend-panel"><h3>Nodes</h3>{VT.filter(t=>t.value).map(t=><div key={t.value} className="legend-item"><span className="legend-color" style={{background:C[t.value]||'#999'}}/><span className="legend-label">{t.label}</span></div>)}<h3 style={{marginTop:10}}>Edges</h3>{ET.filter(t=>t.value).map(t=><div key={t.value} className="legend-item"><span className="legend-color" style={{background:EC[t.value]||'#555'}}/><span className="legend-label">{t.label}</span></div>)}</div>
+          <div className="legend-panel"><h3>Nodes <span style={{fontSize:'0.6rem',color:'#666'}}>hover for info</span></h3>{VT.filter(t=>t.value).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><LegendIcon type={t.value}/><span className="legend-label">{t.label}</span></span>)}<h3 style={{marginTop:10}}>Edges</h3>{ET.filter(t=>t.value).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><span className="legend-color" style={{background:EC[t.value]||'#555',width:14,height:3,borderRadius:1,marginLeft:4}}/><span className="legend-label">{t.label}</span></span>)}</div>
         </aside>
         <main className="main-area">
-          {!sel&&!loading&&<div className="welcome"><h2>GPS SQL Data Flow Visualizer</h2><p>Upload SQL to see variables as an interactive graph.</p><p>Click nodes/edges for full analysis details.</p></div>}
+          {multiView&&!multiDetail&&<div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'6px 12px',borderRadius:4,fontSize:'0.7rem',color:'#F39C12',zIndex:5}}>Overview — {multiView.scripts.length} scripts, {Object.keys(multiView.shared_vars).length} shared vars</div>}
+          {!sel&&!loading&&!multiView&&<div className="welcome"><h2>GPS SQL Data Flow Visualizer</h2><p>Upload SQL to see variables as an interactive graph.</p><p>Use <b>Multi</b> to compare scripts sharing variables.</p></div>}
+          {multiView&&multiDetail&&<div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'6px 12px',borderRadius:4,fontSize:'0.7rem',color:'#4A90D9',zIndex:5}}>Detail — {multiDetail.script_name} ({multiDetail.total_variables}v {multiDetail.total_dependencies}e)</div>}
           {loading&&<div className="loading-overlay">{prog.s||'Loading...'}</div>}
           <div ref={ctR} className="graph-container" style={{display:(sel&&(gd||ioGraph)&&!loading)?'block':'none'}}/>
-          {ioGraph && <div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'4px 10px',borderRadius:4,fontSize:'0.7rem',color:'#2ECC71',zIndex:5}}>IO View — {ioGraph.input_count} inputs, {ioGraph.output_count} outputs, {ioGraph.path_count} paths</div>}
+          {ioGraph && <div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'8px 12px',borderRadius:4,fontSize:'0.7rem',color:'#2ECC71',zIndex:5,maxWidth:300}}><b>IO View</b> — {ioGraph.input_count} inputs, {ioGraph.output_count} outputs, {ioGraph.path_count} paths{csvContent && <pre style={{margin:'4px 0 0',fontSize:'0.6rem',color:'#aaa',maxHeight:120,overflow:'auto',whiteSpace:'pre'}}>{csvContent}</pre>}</div>}
         </main>
-        {panel&&<aside className="detail-panel"><div className="detail-header"><h3>{panel.title}</h3><button onClick={()=>setPanel(null)} className="close-btn">X</button></div><div className="detail-content">{panel.type==='node'?<NodePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current}/>:panel.type==='io_path'?<IOPathPanel p={panel}/>:<EdgePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current}/>}</div></aside>}
+        {panel&&<aside className="detail-panel"><div className="detail-header"><h3>{panel.title}</h3><button onClick={()=>setPanel(null)} className="close-btn">X</button></div><div className="detail-content">{panel.type==='node'?<NodePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current}/>:panel.type==='io_path'?<IOPathPanel p={panel}/>:<EdgePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>}</div></aside>}
       </div>
+      {tip.show && <div className="graph-tooltip" style={{left:tip.x,top:tip.y}}>{tip.text}</div>}
       {showSQL && sqlR.current && (
         <div className="sql-panel">
           <div className="sql-panel-header">
@@ -187,7 +238,7 @@ export default function App() {
 }
 
 // ── Node Detail Panel ──────────────────────────────────────────────────
-function NodePanel({p,vi,lm,sql}) {
+function NodePanel({p,vi,lm,sql,snip}) {
   const n=p.node||{}; const ls=lm[n.id]||[0,0];
   const srcLines=sql?sql.split('\n').slice(Math.max(0,ls[0]-1),ls[1]).join('\n'):'';
   const upstream=p.edges.filter(e=>e.tid===p.id);
@@ -210,12 +261,13 @@ function NodePanel({p,vi,lm,sql}) {
       {upstream.length>0&&<div className="detail-section"><div className="ds-title">Depends On ({upstream.length})</div>{upstream.map((e,i)=><div key={i} className="dep-row"><span className="dep-arrow" style={{color:EC[e.rel]||'#555'}}>↑</span><span style={{color:C[vi[e.sid]?.variable_type]||'#ccc'}}>{vi[e.sid]?.label||e.sid}</span><span className="dep-rel">[{e.rel}]</span></div>)}</div>}
       {downstream.length>0&&<div className="detail-section"><div className="ds-title">Used By ({downstream.length})</div>{downstream.map((e,i)=><div key={i} className="dep-row"><span className="dep-arrow" style={{color:EC[e.rel]||'#555'}}>↓</span><span style={{color:C[vi[e.tid]?.variable_type]||'#ccc'}}>{vi[e.tid]?.label||e.tid}</span><span className="dep-rel">[{e.rel}]</span></div>)}</div>}
       {!n.sql_expression&&!upstream.length&&!downstream.length&&<div className="ds-empty">No additional data available for this node.</div>}
+      {snip?.node_snippets?.[p.id]&&<div className="detail-section"><div className="ds-title">Resolved SQL</div><pre className="sql-expr" style={{maxHeight:200}}>{snip.node_snippets[p.id]}</pre></div>}
     </div>
   );
 }
 
 // ── Edge Detail Panel ──────────────────────────────────────────────────
-function EdgePanel({p,vi,lm,sql}) {
+function EdgePanel({p,vi,lm,sql,snip}) {
   const s=p.src||{}, t=p.tgt||{}, e=p.edge||{};
   const sl=lm[p.sid]||[0,0], tl=lm[p.tid]||[0,0];
   const srcSQL=sql?sql.split('\n').slice(Math.max(0,sl[0]-1),sl[1]).join('\n'):'';
@@ -247,6 +299,7 @@ function EdgePanel({p,vi,lm,sql}) {
         {tgtSQL&&<pre className="sql-expr" style={{borderLeft:`3px solid ${EC[e.relationship]||'#555'}`}}>{tgtSQL}</pre>}
       </div>
       {ctxLines.length>0&&<div className="detail-section"><div className="ds-title">Connecting SQL (lines {sl[0]}–{tl[1]})</div><pre className="sql-expr">{ctxLines.join('\n')}</pre></div>}
+      {snip?.edge_snippets?.[`${p.sid}->${p.tid}`]&&<div className="detail-section"><div className="ds-title">Resolved SQL Segment</div><pre className="sql-expr">{snip.edge_snippets[`${p.sid}->${p.tid}`]}</pre></div>}
     </div>
   );
 }
@@ -280,6 +333,20 @@ function IOPathPanel({p}) {
       </div>}
     </div>
   );
+}
+
+const NODE_SHAPES={database_table:'rect',table_column:'ellipse',cte_table:'roundrect',cte_column:'tri',intermediate:'diamond',window_result:'hex',aggregate:'tri',case_result:'pentagon',function_result:'rhomboid',literal:'ellipse',merge_target:'rect',union_branch:'vee',subquery_result:'diamond',virtual_table:'roundrect'};
+function LegendIcon({type}) {
+  const s=NODE_SHAPES[type]||'ellipse';const c=C[type]||'#999';const sz=10;
+  if(s==='rect') return <svg width={sz+4} height={sz}><rect x={2} y={0} width={sz} height={sz} fill={c} rx={1}/></svg>;
+  if(s==='roundrect') return <svg width={sz+4} height={sz}><rect x={2} y={0} width={sz} height={sz} fill={c} rx={3}/></svg>;
+  if(s==='diamond') return <svg width={sz+2} height={sz+2}><polygon points={`${(sz+2)/2},0 ${sz+2},${(sz+2)/2} ${(sz+2)/2},${sz+2} 0,${(sz+2)/2}`} fill={c}/></svg>;
+  if(s==='tri') return <svg width={sz} height={sz}><polygon points={`${sz/2},0 ${sz},${sz} 0,${sz}`} fill={c}/></svg>;
+  if(s==='hex') return <svg width={sz+2} height={sz+2}><polygon points={`${(sz+2)*0.25},0 ${(sz+2)*0.75},0 ${sz+2},${(sz+2)/2} ${(sz+2)*0.75},${sz+2} ${(sz+2)*0.25},${sz+2} 0,${(sz+2)/2}`} fill={c}/></svg>;
+  if(s==='pentagon') return <svg width={sz+2} height={sz+2}><polygon points={`${(sz+2)/2},0 ${sz+2},${(sz+2)*0.4} ${(sz+2)*0.8},${sz+2} ${(sz+2)*0.2},${sz+2} 0,${(sz+2)*0.4}`} fill={c}/></svg>;
+  if(s==='rhomboid') return <svg width={sz+4} height={sz}><polygon points={`3,0 ${sz+4},0 ${sz+1},${sz} 0,${sz}`} fill={c}/></svg>;
+  if(s==='vee') return <svg width={sz} height={sz}><polygon points={`${sz/2},0 ${sz},${sz} 0,${sz}`} fill={c} opacity={0.5}/></svg>;
+  return <svg width={sz+2} height={sz+2}><ellipse cx={(sz+2)/2} cy={(sz+2)/2} rx={(sz+2)/2} ry={(sz+2)/2} fill={c}/></svg>;
 }
 
 function Row({k,v,small,children}) {

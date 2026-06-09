@@ -41,23 +41,28 @@ COPY backend/tests/       ./backend/tests/
 # -------------------------------------------------------------------
 
 # -------------------------------------------------------------------
-# 4. Copy sample SQL files (optional, useful for demos)
+# 4. Copy version file (displayed in the frontend header)
+# -------------------------------------------------------------------
+COPY VERSION              ./VERSION
+
+# -------------------------------------------------------------------
+# 5. Copy sample SQL files (optional, useful for demos)
 # -------------------------------------------------------------------
 COPY samples/             ./samples/
 
 # -------------------------------------------------------------------
-# 5. Create writable cache directory
+# 6. Create writable cache directory
 # -------------------------------------------------------------------
 RUN mkdir -p /app/backend/analysis_cache && chmod 777 /app/backend/analysis_cache
 
 # -------------------------------------------------------------------
-# 6. Startup script (uses uvicorn.Server programmatic API — the CLI
+# 7. Startup script (uses uvicorn.Server programmatic API — the CLI
 #    entry point in uvicorn 0.48.0 does not bind a socket reliably)
 # -------------------------------------------------------------------
 COPY backend/start.py      ./backend/start.py
 
 # -------------------------------------------------------------------
-# 7. Runtime configuration
+# 8. Runtime configuration
 # -------------------------------------------------------------------
 EXPOSE 8000
 

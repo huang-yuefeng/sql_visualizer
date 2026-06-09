@@ -203,19 +203,17 @@ def build_dependency_graph(
                         sql_context=f"CTE {v.name} → {inner.name}",
                     ))
 
-    # ── Pass 3: BELONGS_TO from VIRTUAL_TABLE → its columns ──────────
-    # Every SELECT creates a VIRTUAL_TABLE. All variables defined in that
-    # SELECT (non-empty sql_expression) belong to this virtual output.
+    # ── Pass 3: BELONGS_TO from VIRTUAL_TABLE → output columns ────────
+    # Only connect to variables explicitly in the SELECT clause (is_output=True).
+    # WHERE/HAVING condition columns are NOT output columns — they are inputs.
     for vt in all_vts:
         for v in variables:
             if (v.context or "TOP") != (vt.context or "TOP"):
                 continue
-            # Skip structural nodes — only connect to actual column/expression vars
+            if not v.is_output:
+                continue
             if v.variable_type in (VariableType.DATABASE_TABLE, VariableType.CTE_TABLE,
                                     VariableType.VIRTUAL_TABLE, VariableType.UNION_BRANCH):
-                continue
-            # Must have a meaningful SQL expression (defined in this SELECT)
-            if not v.sql_expression:
                 continue
             ek = (vt.id, v.id)
             if ek not in seen_edges:
