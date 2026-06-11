@@ -12,7 +12,7 @@ const C = {
 };
 const EC = {BELONGS_TO:'#8AB4F8',ALIAS_OF:'#1ABC9C',FEEDS_INTO:'#2ECC71',DIRECT_REFERENCE:'#9AA0A6',AGGREGATION:'#37BC9B',TRANSFORMATION:'#F0AD4E',WINDOW:'#967ADC',COMPUTED_FROM:'#D770AD',REFERENCES:'#5DADE2',OPERATES_ON:'#E74C3C',COMPONENT_LINK:'#E67E22'};
 
-const VT = [{value:'',label:'All Types'},{value:'database_table',label:'Table',desc:'Physical table or alias from FROM/JOIN'},{value:'table_column',label:'Column',desc:'A column read from a table'},{value:'cte_table',label:'CTE',desc:'Temporary result set (WITH ... AS)'},{value:'cte_column',label:'CTE Col',desc:'Column inside a CTE definition'},{value:'intermediate',label:'Computed',desc:'Expression like (a+b) AS total'},{value:'window_result',label:'Window',desc:'ROW_NUMBER, RANK, LAG, SUM OVER'},{value:'aggregate',label:'Aggregate',desc:'SUM, COUNT, AVG, MIN, MAX'},{value:'case_result',label:'If-Then',desc:'CASE WHEN ... THEN ... END'},{value:'function_result',label:'Function',desc:'COALESCE, CAST, CONCAT result'},{value:'literal',label:'Constant',desc:'String or number literal'},{value:'merge_target',label:'Merge',desc:'Target table in MERGE INTO'},{value:'union_branch',label:'Union',desc:'One arm of UNION ALL'},{value:'subquery_result',label:'Subquery',desc:'Scalar subquery result'},{value:'virtual_table',label:'Output',desc:'Result of a SELECT statement'}];
+const VT = [{value:'',label:'All Types'},{value:'database_table',label:'Table',desc:'Physical table or alias'},{value:'cte_table',label:'CTE',desc:'Temporary result set (WITH ... AS)'},{value:'virtual_table',label:'Output',desc:'Result of a SELECT statement'},{value:'merge_target',label:'Merge',desc:'Target table in MERGE INTO'},{value:'union_branch',label:'Union',desc:'One arm of UNION ALL'},{value:'table_column',label:'Column',desc:'A column read from a table'},{value:'cte_column',label:'CTE Col',desc:'Column inside a CTE definition'},{value:'aggregate',label:'Aggregate',desc:'SUM, COUNT, AVG, MIN, MAX'},{value:'window_result',label:'Window',desc:'ROW_NUMBER, RANK, LAG, SUM OVER'},{value:'case_result',label:'If-Then',desc:'CASE WHEN ... THEN ... END'},{value:'function_result',label:'Function',desc:'COALESCE, CAST, CONCAT result'},{value:'intermediate',label:'Computed',desc:'Expression like (a+b) AS total'},{value:'subquery_result',label:'Subquery',desc:'Scalar subquery result'},{value:'literal',label:'Constant',desc:'String or number literal'}];
 const ET = [{value:'',label:'All Edges'},{value:'BELONGS_TO',label:'Owns',desc:'Table owns this column'},{value:'ALIAS_OF',label:'Alias',desc:'Alias → original table name'},{value:'FEEDS_INTO',label:'Input',desc:'Table feeds into SELECT output'},{value:'DIRECT_REFERENCE',label:'Ref',desc:'Direct column reference'},{value:'AGGREGATION',label:'Agg',desc:'Column → SUM/COUNT/AVG'},{value:'TRANSFORMATION',label:'Xform',desc:'Column → function result'},{value:'WINDOW',label:'Window',desc:'Column → window function'},{value:'COMPUTED_FROM',label:'Compute',desc:'Column → CASE expression'},{value:'REFERENCES',label:'NameRef',desc:'HAVING ref → SELECT definition'},{value:'OPERATES_ON',label:'DML',desc:'Column → INSERT/UPDATE/DELETE'},{value:'COMPONENT_LINK',label:'Bridge',desc:'Cross-scope connection'}];
 
 export default function App() {
@@ -125,11 +125,16 @@ export default function App() {
         setPanel({type:'edge',sid,tid,edge:edge||{source:sid,target:tid,relationship:'',operation:''},src:viR.current[sid],tgt:viR.current[tid],title:`${viR.current[sid]?.label||sid} → ${viR.current[tid]?.label||tid}`});
       }
     });
-    // Meta-graph: click a script node to see its detail
+    // Meta-graph: click a script node to see its detail in side panel
     if (multiView && !multiDetail) {
       cy.on('tap','node',async e=>{
         const sid=e.target.id(); const sc=multiView.scripts.find(s=>s.script_id===sid);
         if(sc){ setLoading(true); try{ const g=await api.getGraph(sid,true); setMultiDetail({...sc,graph:g}); }catch{} finally{setLoading(false);} }
+      });
+      // Double-click to open full view
+      cy.on('dbltap','node',e=>{
+        const sid=e.target.id(); const sc=multiView.scripts.find(s=>s.script_id===sid);
+        if(sc && multiDetail) setMultiDetail(null);  // toggle off
       });
     }
     cyR.current=cy;
@@ -221,7 +226,17 @@ export default function App() {
           <div ref={ctR} className="graph-container" style={{display:(sel&&(gd||ioGraph)&&!loading)?'block':'none'}}/>
           {ioGraph && <div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'8px 12px',borderRadius:4,fontSize:'0.7rem',color:'#2ECC71',zIndex:5,maxWidth:300}}><b>IO View</b> — {ioGraph.input_count} inputs, {ioGraph.output_count} outputs, {ioGraph.path_count} paths{csvContent && <pre style={{margin:'4px 0 0',fontSize:'0.6rem',color:'#aaa',maxHeight:120,overflow:'auto',whiteSpace:'pre'}}>{csvContent}</pre>}</div>}
         </main>
-        {panel&&<aside className="detail-panel"><div className="detail-header"><h3>{panel.title}</h3><button onClick={()=>setPanel(null)} className="close-btn">X</button></div><div className="detail-content">{panel.type==='node'?<NodePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current}/>:panel.type==='io_path'?<IOPathPanel p={panel}/>:<EdgePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>}</div></aside>}
+        <aside className="detail-panel">
+          <div className="detail-header"><h3>{panel?panel.title:'Overview'}</h3>{panel&&<button onClick={()=>setPanel(null)} className="close-btn">X</button>}</div>
+          <div className="detail-content">
+            {!panel&&sel&&<div className="detail-scroll">
+              <div className="detail-section"><div className="ds-title">Script</div><Row k="Name" v={sel.script_name}/><Row k="Variables" v={gd?.total_variables+' variables'}/><Row k="Edges" v={gd?.total_dependencies+' edges'}/></div>
+              <div className="detail-section"><div className="ds-title">How to Explore</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Click any <b>node</b> to see its variable details.<br/>Click any <b>edge</b> to see the data flow between variables.<br/>Use the <b>search</b> and <b>filter</b> to find specific variables.</div></div>
+            </div>}
+            {!panel&&!sel&&<div className="detail-scroll"><div className="detail-section"><div className="ds-title">Welcome</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Upload a SQL script to begin.<br/>The graph and details will appear here.</div></div></div>}
+            {panel&&(panel.type==='node'?<NodePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>:panel.type==='io_path'?<IOPathPanel p={panel}/>:<EdgePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>)}
+          </div>
+        </aside>
       </div>
       {tip.show && <div className="graph-tooltip" style={{left:tip.x,top:tip.y}}>{tip.text}</div>}
       {showSQL && sqlR.current && (

@@ -71,11 +71,11 @@ def _clean(name: str) -> str:
 
 
 def _sql(expr) -> str:
-    """Safe SQL rendering."""
+    """Safe SQL rendering with pretty-print for readability."""
     if expr is None:
         return ""
     try:
-        return expr.sql(dialect="mysql")
+        return expr.sql(dialect="mysql", pretty=True)
     except Exception:
         return ""
 
