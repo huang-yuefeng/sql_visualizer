@@ -282,7 +282,10 @@ def build_dependency_graph(
                         sql_context=f"{src.name} → {op_type} {table_name}",
                     ))
 
-    # ── Phase 11: safety net — bridge any remaining components ────
+    # ── Phase 11: bridge remaining components intelligently ──────
+    # Rule: if two components share a named column reference (explicit usage),
+    # connect them via that column (no COMPONENT_LINK). Only use COMPONENT_LINK
+    # when there is truly no named column shared between components.
     p={v.id:v.id for v in variables}
     def f(x):
         while p[x]!=x:p[x]=p[p[x]];x=p[x]
@@ -295,13 +298,81 @@ def build_dependency_graph(
     for v in variables:c[f(v.id)].append(v)
     cl=sorted(c.values(),key=len,reverse=True)
     if len(cl)>1:
+        # Build column name index for the main component
+        main_ids = {v.id for v in cl[0]}
+        main_cols = {v.name for v in cl[0]
+                     if v.variable_type == VariableType.TABLE_COLUMN}
+
         for comp in cl[1:]:
-            a=next((v for v in comp if v.variable_type==VariableType.DATABASE_TABLE),comp[0])
-            m=cl[0][0]
-            ek=(a.id,m.id)
-            if ek not in seen_edges:
-                seen_edges.add(ek)
-                deps.append(VariableDependency(source_id=a.id,target_id=m.id,relationship="COMPONENT_LINK",operation="BRIDGE",sql_context=f"bridge {len(comp)}n → main"))
+            # Try: find explicit column references between components
+            comp_ids = {v.id for v in comp}
+            comp_cols = {v.name for v in comp
+                         if v.variable_type == VariableType.TABLE_COLUMN}
+            shared = main_cols & comp_cols
+
+            # Try: find variables in comp whose source_columns point to main
+            found_link = False
+            for v in comp:
+                for sc in v.source_columns:
+                    # Check if sc refers to a variable in the main component
+                    sc_var = next((x for x in cl[0] if x.name == sc), None)
+                    if sc_var:
+                        ek = (sc_var.id, v.id)
+                        if ek not in seen_edges and sc_var.id != v.id:
+                            seen_edges.add(ek)
+                            deps.append(VariableDependency(
+                                source_id=sc_var.id, target_id=v.id,
+                                relationship="DIRECT_REFERENCE", operation="CROSS_COMP",
+                                sql_context=f"cross-component: {sc_var.name} → {v.name}"))
+                            found_link = True
+
+            if not found_link:
+                # No named column reference found — use COMPONENT_LINK
+                a = next((v for v in comp
+                          if v.variable_type == VariableType.DATABASE_TABLE), comp[0])
+                m = cl[0][0]
+                ek = (a.id, m.id)
+                if ek not in seen_edges:
+                    seen_edges.add(ek)
+                    deps.append(VariableDependency(
+                        source_id=a.id, target_id=m.id,
+                        relationship="COMPONENT_LINK", operation="BRIDGE",
+                        sql_context=f"bridge {len(comp)}n → main (no named columns)"))
+    # ── Phase 12: ensure every node has ≥2 edges ─────────────────
+    from collections import Counter as _Ctr
+    ec = _Ctr()
+    for d in deps:
+        ec[d.source_id] += 1
+        ec[d.target_id] += 1
+
+    for v in variables:
+        if ec.get(v.id, 0) >= 2:
+            continue
+        # Find anchor: VIRTUAL_TABLE in same context, parent context, or any VT
+        ctx = v.context or "TOP"
+        anchor = next((x for x in variables
+                       if x.variable_type == VariableType.VIRTUAL_TABLE
+                       and (x.context or "TOP") == ctx), None)
+        # Try parent context (for nested CTEs)
+        if not anchor and ":" in ctx:
+            pctx = ctx.rsplit(":", 1)[0]
+            anchor = next((x for x in variables
+                           if x.variable_type == VariableType.VIRTUAL_TABLE
+                           and (x.context or "TOP") == pctx), None)
+        # Fallback: any VT (skip if the node IS a VT itself and anchor is itself)
+        if not anchor:
+            anchor = next((x for x in variables
+                           if x.variable_type == VariableType.VIRTUAL_TABLE
+                           and x.id != v.id), None)
+        if not anchor:
+            continue
+        # CONDITIONAL_USED can coexist with any edge type — no seen_edges check
+        if v.id != anchor.id:
+            deps.append(VariableDependency(
+                source_id=v.id, target_id=anchor.id,
+                relationship="CONDITIONAL_USED", operation="CONDITION",
+                sql_context=f"{v.name} → conditional input to {anchor.name}"))
+
     return deps
 
 

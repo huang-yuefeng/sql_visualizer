@@ -96,7 +96,9 @@ def build_graph_data(analysis: dict) -> dict:
         "OPERATES_ON":      "#E74C3C",   # red
         "FEEDS_INTO":       "#2ECC71",   # green
         "COMPONENT_LINK":   "#E67E22",   # dark orange
+        "CONDITIONAL_USED": "#3498DB",   # blue
         "COMPONENT_LINK":   "#E67E22",   # dark orange
+        "CONDITIONAL_USED": "#3498DB",   # blue
     }
     edges = []
     for d in dependencies:

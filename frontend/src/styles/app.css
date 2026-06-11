@@ -140,3 +140,11 @@
 
 /* ── Legend Tooltip Fix ─────────────────────────────────────────── */
 .legend-item svg { pointer-events: none; }
+
+/* ── Legend Category Headers ───────────────────────────────────── */
+.legend-cat {
+  font-size: 0.6rem; color: #555; text-transform: uppercase;
+  letter-spacing: 1px; padding: 6px 0 2px 0; margin-top: 2px;
+  border-top: 1px solid #222;
+}
+.legend-cat:first-of-type { border-top: none; margin-top: 0; }

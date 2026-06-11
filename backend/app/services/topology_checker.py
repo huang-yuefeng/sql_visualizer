@@ -33,18 +33,30 @@ def register_check(name: str, fn):
 ALL_CHECKS: list[tuple[str, callable]] = []
 
 
-# ── Check 1: No isolated nodes ────────────────────────────────────────────
+# ── Check 1: No isolated nodes ───────────────────────────────────────────
 
 def _check_isolated_nodes(variables, dependencies):
-    """Every node must have at least one edge."""
-    connected = set()
+    """Edge count rules by node type:
+       - table_column, cte_column: must have ≥2 edges (source + target)
+       - all other types: must have ≥1 edge
+    """
+    from collections import Counter
+    edge_counts = Counter()
     for d in dependencies:
-        connected.add(d["source_id"])
-        connected.add(d["target_id"])
-    return [
-        f"[{v.get('variable_type','?')}] {v['name']}"
-        for v in variables if v["id"] not in connected
-    ]
+        edge_counts[d["source_id"]] += 1
+        edge_counts[d["target_id"]] += 1
+    issues = []
+    col_types = {"table_column", "cte_column"}
+    for v in variables:
+        c = edge_counts.get(v["id"], 0)
+        vt = v.get("variable_type", "")
+        if vt in col_types:
+            if c < 2:
+                issues.append(f"[{vt}] {v['name']}: {c}e, need ≥2 (source + target)")
+        else:
+            if c == 0:
+                issues.append(f"[{vt}] {v['name']}: ZERO edges")
+    return issues
 
 register_check("isolated_nodes", _check_isolated_nodes)
 
