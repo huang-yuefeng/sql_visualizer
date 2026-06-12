@@ -37,13 +37,13 @@ class TestDoubleEntryTransfer:
     def test_has_subquery_for_fx(self, sql):
         """Correlated subquery for FX rate lookup should be detected."""
         result = extract_variables_from_sql(sql, "fin_query9")
-        subq = [v for v in result.variables if v.variable_type == VariableType.SUBQUERY_RESULT]
+        subq = [v for v in result.variables if v.variable_type == VariableType.SUBQUERY]
         assert len(subq) >= 1, f"FX rate subquery should be detected, got {len(subq)}"
 
     def test_has_case_validation(self, sql):
         """Validation CASE expression should be CASE_RESULT."""
         result = extract_variables_from_sql(sql, "fin_query9")
-        cases = [v for v in result.variables if v.variable_type == VariableType.CASE_RESULT]
+        cases = [v for v in result.variables if v.variable_type == VariableType.CASE]
         assert len(cases) >= 2, f"Should have validation + alert CASE, got {len(cases)}"
 
     def test_cte_with_balance_snapshots(self, sql):
@@ -72,7 +72,7 @@ class TestFraudDetection:
     def test_has_window_results(self, sql):
         """PERCENTILE_CONT, LEAD, LAG, COUNT OVER should be WINDOW_RESULT."""
         result = extract_variables_from_sql(sql, "fin_query10")
-        windows = [v for v in result.variables if v.variable_type == VariableType.WINDOW_RESULT]
+        windows = [v for v in result.variables if v.variable_type == VariableType.WINDOW]
         assert len(windows) >= 8, \
             f"Should have >=8 window_result (PERCENTILE_CONT + LEAD + LAG + COUNT), got {len(windows)}"
 
@@ -86,7 +86,7 @@ class TestFraudDetection:
     def test_has_case_classification(self, sql):
         """Amount classification and fraud decision CASE should be detected."""
         result = extract_variables_from_sql(sql, "fin_query10")
-        cases = [v for v in result.variables if v.variable_type == VariableType.CASE_RESULT]
+        cases = [v for v in result.variables if v.variable_type == VariableType.CASE]
         assert len(cases) >= 5, \
             f"Should have >=5 CASE results (amount_class + fraud_decision + rapid_flags), got {len(cases)}"
 
@@ -95,7 +95,7 @@ class TestFraudDetection:
         result = extract_variables_from_sql(sql, "fin_query10")
         # TIMESTAMPDIFF is wrapped in CASE WHEN, so classified as CASE_RESULT
         ts_diff_vars = [v for v in result.variables
-                        if "gap_minutes" in v.name and v.variable_type == VariableType.CASE_RESULT]
+                        if "gap_minutes" in v.name and v.variable_type == VariableType.CASE]
         assert len(ts_diff_vars) >= 2, \
             f"TIMESTAMPDIFF gap vars should be detected as CASE_RESULT, found: {[v.name for v in ts_diff_vars]}"
 

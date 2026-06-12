@@ -1,5 +1,8 @@
 """
 Analysis Service — manages analysis results with file-based caching.
+
+Includes version-based cache invalidation: when the project VERSION changes,
+all cached results are automatically invalidated and re-analyzed.
 """
 
 import hashlib
@@ -11,9 +14,21 @@ from app.config import CACHE_DIR
 from app.extractor.adapter import run_full_analysis
 
 
+def _current_version() -> str:
+    """Read the current project version from the VERSION file."""
+    version_path = CACHE_DIR.parent.parent / "VERSION"
+    try:
+        return version_path.read_text().strip()
+    except (FileNotFoundError, OSError):
+        return "0.0.0"
+
+
 def _script_key(script_name: str, sql_text: str) -> str:
-    """Generate a deterministic cache key for a script."""
-    content = f"{script_name}:{sql_text}"
+    """Generate a deterministic cache key including version.
+
+    When the version changes, old cache keys become invalid automatically.
+    """
+    content = f"{script_name}:{sql_text}:v{_current_version()}"
     return hashlib.md5(content.encode()).hexdigest()[:12]
 
 
@@ -31,6 +46,7 @@ def analyze_sql(sql_text: str, script_name: str = "unnamed.sql") -> dict:
     result = run_full_analysis(sql_text, script_name)
     result["script_id"] = key
     result["analyzed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    result["_cache_version"] = _current_version()
 
     # Cache to file
     cache_path = CACHE_DIR / f"{key}.json"
@@ -40,19 +56,36 @@ def analyze_sql(sql_text: str, script_name: str = "unnamed.sql") -> dict:
 
 
 def get_script(script_id: str) -> dict | None:
-    """Retrieve a cached analysis result by script ID."""
+    """Retrieve a cached analysis result by script ID.
+
+    Returns None if the cache is missing or from an older version.
+    """
     cache_path = CACHE_DIR / f"{script_id}.json"
     if not cache_path.exists():
         return None
-    return json.loads(cache_path.read_text())
+    try:
+        data = json.loads(cache_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    # Version check: if the cached data is from an older version, invalidate it
+    cached_version = data.get("_cache_version", "0.0.0")
+    if cached_version != _current_version():
+        cache_path.unlink(missing_ok=True)
+        return None
+    return data
 
 
 def list_scripts() -> list[dict]:
-    """List all cached analysis results."""
+    """List all cached analysis results (current version only)."""
     scripts = []
+    current_ver = _current_version()
     for path in sorted(CACHE_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
         try:
             data = json.loads(path.read_text())
+            # Skip stale caches from older versions
+            if data.get("_cache_version", "0.0.0") != current_ver:
+                path.unlink(missing_ok=True)
+                continue
             scripts.append({
                 "script_id": data.get("script_id", path.stem),
                 "script_name": data.get("script_name", "unknown"),
@@ -60,6 +93,6 @@ def list_scripts() -> list[dict]:
                 "total_dependencies": data.get("total_dependencies", 0),
                 "analyzed_at": data.get("analyzed_at", ""),
             })
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, OSError):
             continue
     return scripts

@@ -1,428 +1,269 @@
-# Requirements Implemented
+# Requirements Implemented — v2.4.0
 
-> Detailed log of all features, fixes, and improvements built during development.
-> Each entry includes: function description, solution approach, files modified, test coverage.
-
----
-
-## R1 — Core Variable Extraction & Classification
-
-**Description:** Parse SQL scripts and extract every named variable (table names, column references, aliases, computed expressions). Classify each variable into one of 14 types.
-
-**Solution:** Built `variable_extractor_v2.py` using a **role-based Identifier walking** approach. Instead of checking for every possible SQL syntax structure (the v1 approach), the extractor walks ALL `Identifier` AST nodes produced by sqlglot and classifies based on **parent node role**:
-
-- `Identifier` inside `Column` → `table_column`
-- `Identifier` inside `Table` → `database_table`
-- `Identifier` inside `TableAlias` → alias (also `database_table`)
-- `Identifier` inside `Alias` → check the aliased expression for detailed type
-
-This approach automatically handles any new SQL construct that sqlglot can parse — no code changes needed.
-
-**Files modified:**
-- `backend/app/extractor/variable_extractor_v2.py` (611 lines) — core extractor
-- `backend/app/extractor/variable_extractor.py` (769 lines) — v1 (kept for reference)
-- `backend/app/models/variable.py` (50 lines) — VariableType enum, VariableDefinition model
-- `backend/app/extractor/adapter.py` (97 lines) — pipeline orchestration
-
-**Test coverage:** `test_variable_extractor.py` (17 tests) — validates all 14 types across basic SQL patterns
+> Current state of all features, fixes, and improvements.
 
 ---
 
-## R2 — Dependency Graph Construction
+## Architecture
 
-**Description:** Build directed edges between variables to represent data flow (table→column, column→aggregate, alias→original name).
+```
+SQL Text → sqlglot parse → variable_extractor_v2 → dependency_graph
+    → graph_service (Cytoscape JSON) → FastAPI → React + Cytoscape.js
+```
 
-**Solution:** 11-phase edge creation in `dependency_graph.py`. Each phase handles a specific relationship pattern:
-
-| Phase | Edge Type | What it connects |
-|---|---|---|
-| 1 | AGGREGATION/WINDOW/TRANSFORMATION/COMPUTED_FROM/DIRECT_REFERENCE | source_columns → their consumers |
-| 2 | ALIAS_OF | alias → original table name |
-| 3 | FEEDS_INTO | table aliases → VIRTUAL_TABLE |
-| 4 | BELONGS_TO | table/CTE/VT entries → columns |
-| 5 | BELONGS_TO | CTE tables → inner variables |
-| 6 | BELONGS_TO | VIRTUAL_TABLE → its output columns |
-| 7 | REFERENCES | bare column name → defined variable |
-| 8 | OPERATES_ON | column → DML target table |
-| 9 | COMPONENT_LINK | cross-scope bridge (safety net) |
-
-Phase 10 was merged into Phase 9. Phase 11 (Union-Find merge) consolidates all disconnected subgraphs.
-
-**Files modified:**
-- `backend/app/extractor/dependency_graph.py` (327 lines) — all edge creation logic
-- `backend/app/services/graph_service.py` (127 lines) — Cytoscape JSON with edge colors
-- `frontend/src/utils/graphStyles.js` (92 lines) — edge color/width/dash styles
-- `frontend/src/App.jsx` (257 lines) — edge type filter dropdown + legend
-
-**Test coverage:** `test_dependency_graph.py` (6 tests) — validates edge types, no self-loops, no dupes
+- **Backend**: FastAPI + sqlglot (MySQL dialect)
+- **Frontend**: React + Vite + Cytoscape.js
+- **Tests**: 254 tests in `backend/tests/`
+- **Version**: See `/VERSION`
 
 ---
 
-## R3 — Interactive Graph Visualization (Frontend)
+## R1 — Variable Extraction (15 types)
 
-**Description:** Render the dependency graph in a browser as an interactive force-directed graph with click-to-inspect, search, and type filters.
+**Description:** Parse SQL and classify every named variable by its role in data flow.
 
-**Solution:** React + Vite + Cytoscape.js single-page application. Three-panel layout:
-- **Left sidebar:** Script list, node type filter, edge type filter, legend (14 node types + 9 edge types)
-- **Center:** Cytoscape.js canvas with `cose` layout, hover highlighting, click handlers
-- **Right:** Slide-out detail panel showing variable metadata, SQL expressions, source tables, dependency lists
+**Node types** (aligned with SQL data objects):
 
-Search dims non-matching nodes. Progress bar shows upload/analysis stages.
+| Category | Types |
+|----------|-------|
+| Script | `script` (multi-view only — entire SQL file) |
+| Tables | `table`, `view`, `virtual_table`, `cte`, `subquery`, `merge_target`, `union_branch` |
+| Columns | `column`, `cte_column` |
+| Computed | `aggregate`, `window`, `case`, `transform`, `expression`, `literal` |
 
-**Files modified:**
-- `frontend/src/App.jsx` (257 lines) — main component
-- `frontend/src/main.jsx` (10 lines) — entry point
-- `frontend/src/api/client.js` (40 lines) — fetch wrapper
-- `frontend/src/utils/graphStyles.js` (92 lines) — Cytoscape stylesheet
-- `frontend/src/styles/app.css` (130 lines) — dark-theme UI
-- `frontend/index.html` — shell
-- `frontend/vite.config.js` (15 lines) — Vite + proxy config
-- `frontend/package.json` — dependencies
+**Solution:** Role-based Identifier walking — every `Identifier` AST node is classified by its parent node role. Handles any SQL sqlglot can parse.
 
-**Test coverage:** Manual verification with all 22 SQL samples
+**Files:** `backend/app/extractor/variable_extractor_v2.py`, `backend/app/models/variable.py`, `backend/app/models/sql_model.py`
 
 ---
 
-## R4 — File Upload & Auto-Visualization
+## R2 — Dependency Graph (13 edge types)
 
-**Description:** User uploads a SQL file → system analyzes it → graph renders automatically, no manual steps.
+**Description:** Build directed edges showing data flow between variables.
 
-**Solution:** File input with `.sql`/`.txt` accept filter. On change, reads file text client-side, POSTs to `/api/analyze`, refreshes script list, auto-selects the new script. The `useEffect` watching `selectedScript` triggers graph loading. Progress bar shows 3 stages: Analyzing SQL (30%) → Loading graph (10%) → Done.
+**Edge types:**
 
-Also supports "Paste SQL" via prompt for quick testing.
+| Edge | Direction | Meaning |
+|------|-----------|---------|
+| `TABLE_FLOW` | table alias → output container | Table feeds SELECT/CTE output |
+| `ALIAS` | original → alias | Name reference (users → u) |
+| `REF` | column → expression | Direct column reference |
+| `AGGREGATE` | column → aggregate | SUM/COUNT/AVG |
+| `TRANSFORM` | column → function | COALESCE/CAST/CONCAT |
+| `WINDOW` | column → window | ROW_NUMBER/RANK/LAG |
+| `COMPUTED` | column → CASE | CASE WHEN result |
+| `SCHEMA` | table/CTE/VT → column | Structural ownership |
+| `INDIRECT` | defined var → bare ref | HAVING→SELECT name match |
+| `FILTER` | WHERE/JOIN ON column → anchor | Row filtering |
+| `DML` | source → target table | INSERT/UPDATE/DELETE/MERGE |
+| `SET_OP` | union branch → parent | UNION/INTERSECT/EXCEPT |
+| `SUBSET` | component → main | Safety net bridge |
 
-**Files modified:**
-- `frontend/src/App.jsx` — `handleUpload` and `handlePaste` functions
-- `frontend/src/styles/app.css` — progress bar styles
+**Construction order (top-down):**
+1. TABLE_FLOW — table-to-table connections (high-level skeleton)
+2. ALIAS — name resolution
+3. Column edges — REF/AGGREGATE/TRANSFORM/WINDOW/COMPUTED
+4. SCHEMA — structural ownership
+5. INDIRECT — bare name references
+6. FILTER — WHERE/HAVING conditions
+7. SUBSET — disconnected component bridge
 
----
-
-## R5 — Natural Language Explanation (Claude API)
-
-**Description:** AI-powered explanations of variables and data flow using Claude Opus 4.8.
-
-**Solution:** `claude_service.py` sends variable metadata to Claude API with a GPS financial domain system prompt. Claude returns structured JSON with: Business Meaning, Computation, Data Lineage, Dependencies, Business Significance. Response streamed token-by-token via SSE to frontend.
-
-**Files modified:**
-- `backend/app/services/claude_service.py` (117 lines) — API integration
-- `backend/app/routers/variables.py` — `/explain` and `/explain_edge` endpoints
-
-**Status:** **Temporarily disabled** — removed buttons from UI and endpoints to simplify debugging. Ready to re-enable by restoring the router endpoints and button components.
-
----
-
-## R6 — Offline Deployment Bundle
-
-**Description:** Deploy without internet access — no pip install or npm install at runtime.
-
-**Solution:**
-- Python dependencies pre-downloaded to `backend/vendor/` (31 wheels, 7.3 MB) for `pip install --no-index --find-links=vendor/`
-- Frontend pre-built into `backend/app/static/` (served by FastAPI `StaticFiles`)
-- Single `uvicorn` command serves API + frontend from one process
-- `start.py` uses programmatic `uvicorn.Server` for clean Docker shutdown
-
-**Files modified:**
-- `backend/vendor/` — 31 pre-downloaded wheels
-- `backend/app/static/` — pre-built frontend assets
-- `backend/start.py` (31 lines) — production entry point
-- `backend/app/main.py` (58 lines) — StaticFiles mount
-- `Dockerfile` — container build
-- `README.md` — offline install instructions
+**Files:** `backend/app/extractor/dependency_graph.py`, `backend/app/services/graph_service.py`
 
 ---
 
-## R7 — Test Suite (193 Tests)
+## R3 — Frontend Visualization
 
-**Description:** Comprehensive automated testing to verify correctness after every change.
+**Description:** Interactive Cytoscape.js graph with dark-theme UI.
 
-**Solution:** 6 test files covering 22 SQL sample files plus TPC-DS queries:
+**Three-panel layout:**
+- **Left sidebar:** Script list, node/edge type filters, legend (16 node + 13 edge types)
+- **Center:** `cose` layout graph with hover/click/dim highlighting
+- **Right:** Detail panel showing variable metadata, SQL expressions, dependencies
+
+**Legend ordering (by conceptual breadth):**
+- ── Script ── (multi-view)
+- ── Tables ──
+- ── Columns ──
+- ── Computed ──
+
+**View modes:** Tables (default, shows table-level flow) / Full (shows all nodes/edges)
+
+**Files:** `frontend/src/App.jsx`, `frontend/src/utils/graphStyles.js`, `frontend/src/styles/app.css`
+
+---
+
+## R4 — Single-Script Upload & Analysis
+
+**Description:** Upload SQL → auto-analyze → render graph.
+
+**Buttons:** `[Multi SQL] [Single SQL] [Paste SQL] [Filter] [Show SQL] [Tables▼] [Fit]`
+
+- **Single SQL**: Upload one `.sql` file, auto-renders graph
+- **Paste SQL**: Quick testing via prompt
+- **Filter**: CSV for IO graph path finding (single-script) or table name filtering (multi-script)
+- **Show SQL**: Toggle bottom panel with original SQL source
+
+---
+
+## R5 — Multi-Script View
+
+**Description:** Upload multiple SQL files → compound meta-graph showing data lineage between scripts.
+
+**Features:**
+- Script circles (110×65px ellipses) with dashed gold border
+- `data_lineage` edges (bright green `#00FF88`): producer script → consumer script, with table names as labels
+- `shared_input` edges (bright blue `#5DADE2`): scripts sharing the same source table
+- **Click** any script circle → opens as single-script view with pre-built graph
+- **Filter** button: upload table name list → only scripts containing those tables shown
+- **Multi tag** in sidebar: persists for easy switching between multi and single views
+- **Progress bar**: Shows elapsed time during multi-script analysis
+
+**Backend:** Input/output table classification per script (`_classify_tables`), alias filtering on edge labels (`_originals`), data lineage detection (output→input table matching).
+
+**Files:** `backend/app/services/multi_script_service.py`, `frontend/src/App.jsx`, `frontend/src/utils/graphStyles.js`
+
+---
+
+## R6 — Topological Integrity Checks (10 checks)
+
+**Description:** Automatic verification that every generated graph is well-formed.
+
+| Check | Type | What it verifies |
+|-------|------|-----------------|
+| `isolated_nodes` | Hard error | Every node has edges (≥2 for columns, ≥1 for tables) |
+| `disconnected_components` | Hard error | Graph is one connected piece |
+| `duplicate_nodes` | Hard error | No (name, type) duplicates |
+| `duplicate_edges` | Hard error | No (source, target, relationship) duplicates |
+| `duplicate_table_names` | Hard error | CTE and TABLE don't coexist for same name |
+| `column_connectivity` | Hard error | Table-prefixed columns have SCHEMA from their table |
+| `component_link_usage` | Info | Reports table→table SUBSET edges |
+| `node_name_uniqueness` | Info | (name, type) dedup verification |
+| `ambiguous_base_names` | Info | Same base name across different types (e.g., CTE + its VT) |
+| `alias_edges` | Info | Table aliases have ALIAS edge to original |
+
+**Files:** `backend/app/services/topology_checker.py`
+
+---
+
+## R7 — Edge Validity Tests (30 tests)
+
+**Description:** Every edge must correspond to a real data flow — no spurious edges.
+
+| Test class | Tests | What it checks |
+|------------|-------|---------------|
+| `TestNoFilterOnSelectSources` | 7 | SELECT expression sources never get bogus FILTER edges |
+| `TestSyntheticEdges` | 2 | SUBSET edges are safety-net, not data flow |
+| `TestEdgeTypeValidity` | 6 | Each edge type connects appropriate node types |
+| `TestAllEdgesValidAcrossSamples` | 15 | All 5 core samples: no bogus FILTER, valid endpoints, TABLE_FLOW ≥ FROM count |
+
+**Files:** `backend/tests/test_edge_validity.py`
+
+---
+
+## R8 — Type Styling Coverage (11 tests)
+
+**Description:** Every node type must have styling in both backend and frontend.
+
+| Test | What it checks |
+|------|---------------|
+| `test_all_types_in_node_styles` | `graph_service.py` NODE_STYLES has all 15 types |
+| `test_all_types_in_cytoscape_selectors` | `graphStyles.js` has selector for every type |
+| `test_all_types_in_frontend_colors` | `App.jsx` color map covers all types |
+| `test_all_types_in_frontend_node_shapes` | `App.jsx` NODE_SHAPES covers all types |
+| `test_all_types_in_frontend_filter` | `App.jsx` VT filter has all types |
+| Plus shape name validity, size constraints | |
+
+**Files:** `backend/tests/test_type_styling.py`
+
+---
+
+## R9 — Workflow Tests (17 tests)
+
+**Description:** End-to-end ETL pipeline tests with real multi-script scenarios.
+
+**Test data:** 5-step ETL pipeline (`samples/multi_workflow/`):
+```
+step1_load_orders → step2_enrich_customers → step3_join → step4_aggregate → step5_report
+```
+
+| Test class | Tests | What it checks |
+|------------|-------|---------------|
+| `TestSingleScriptTableFlow` | 3 | Every FROM alias has TABLE_FLOW, no isolated tables, correct direction |
+| `TestSingleScriptColumnFlow` | 2 | Every column ≥2 edges, output columns have SCHEMA from VT |
+| `TestEdgeDirection` | 4 | AGGREGATE/DML/ALIAS/FILTER follow data flow direction |
+| `TestMultiScriptWorkflow` | 6 | Data lineage chain, edge labels, direction, I/O classification |
+| `TestProgressTracking` | 2 | Performance benchmarks |
+
+**Files:** `backend/tests/test_workflow.py`, `samples/multi_workflow/`
+
+---
+
+## R10 — Node Type Per-Type Coverage (53 tests)
+
+**Description:** Every one of the 15 variable types must be reachable from real SQL.
+
+Each type has a dedicated test class with SQL that produces it. Also tests SELECT INTO, CTAS, DML targets, INSERT VALUES.
+
+**Files:** `backend/tests/test_node_types.py`
+
+---
+
+## R11 — Edge Type Per-Type Coverage (36 tests)
+
+**Description:** Every one of the 13 edge types must appear across test files.
+
+Each edge type has dedicated tests verifying its creation, plus regression tests for fixed bugs (CTE dedup, bare column dedup, CASE source columns, EXISTS tables, JOIN edges, MERGE DML).
+
+**Files:** `backend/tests/test_edge_types.py`
+
+---
+
+## R12 — Key Bug Fixes
+
+| Bug | Fix |
+|-----|-----|
+| INSERT target `defined_in="FROM"` instead of `"INSERT"` | Rewrote `_walk_insert()` with explicit INSERT marking |
+| UPDATE/DELETE DML edges missing | DML phase now finds source columns from any variable type |
+| CTE VT naming collision (`⟐ customer_total_return` duplicate) | CTE SELECTs skip VT creation — CTE node serves as container |
+| Tables view hiding multi-script nodes | View mode filter skips meta-graph (`!multiView` guard) |
+| ALIAS direction wrong (alias→original) | Reversed to original→alias (data source direction) |
+| Container `display:none` preventing Cytoscape init | Changed to `opacity:0` with `pointer-events:none` |
+| Layout flash on first render | `cy.batch()` adds elements + runs layout atomically |
+| Stale cache with old type names | Version-based cache key invalidation |
+| Subquery NOT IN columns isolated | Subquery inner SELECT fully walked |
+
+---
+
+## R13 — Sample Library
+
+**Basic queries (5):** `query1-5.sql`
+
+**GPS financial queries (16):** `fin_query1-16.sql`
+
+**TPC-DS benchmark (99):** `q1-99.sql` in `samples/tpcds/`
+
+**Multi-script workflow (5):** `step1-5.sql` in `samples/multi_workflow/`
+
+**IO CSVs:** `samples/financial/io_csv/`, `samples/tpcds/io_csv/`
+
+---
+
+## Test Summary
 
 | File | Tests | Focus |
-|---|---|---|
-| `test_graph_integrity.py` | 110 | 5 topological checks × 22 files |
-| `test_variable_extractor.py` | 17 | Variable type classification |
-| `test_dependency_graph.py` | 6 | Edge creation + no self-loops |
-| `test_complex_samples.py` | 23 | GPS financial queries (fin_query6-8) |
-| `test_github_inspired_samples.py` | 17 | GitHub-sourced patterns (fin_query9-10) |
-| `test_analytical_samples.py` | 20 | Cohort/RFM/waterfall (fin_query11-13) |
-
-**Files modified:**
-- `backend/tests/conftest.py` (65 lines) — shared fixtures
-- `backend/tests/test_graph_integrity.py` (117 lines)
-- `backend/tests/test_variable_extractor.py` (242 lines)
-- `backend/tests/test_dependency_graph.py` (95 lines)
-- `backend/tests/test_complex_samples.py` (285 lines)
-- `backend/tests/test_github_inspired_samples.py` (192 lines)
-- `backend/tests/test_analytical_samples.py` (187 lines)
-- `backend/tests/test_data/` — 6 SQL test fixtures
-
-**Run:** `python -m pytest tests/ -q` → 193 passed
-
----
-
-## R8 — Topological Integrity Checks
-
-**Description:** Automatic verification that every generated graph is well-formed — no structural defects.
-
-**Solution:** 5 parameterized tests run against all 22 SQL files:
-
-1. **No duplicate nodes** — every `(name, variable_type)` pair is unique
-2. **No duplicate edges** — every `(source_id, target_id, relationship)` triple is unique
-3. **No duplicate table names** — no CTE_TABLE also appearing as DATABASE_TABLE
-4. **No isolated nodes** — every node has ≥1 edge (source or target of at least one dependency)
-5. **Single connected component** — the entire graph is one piece (no subgraphs)
-
-Each test uses Union-Find for component detection and reports specific offending nodes.
-
-**Files modified:**
-- `backend/tests/test_graph_integrity.py` (117 lines)
-
----
-
-## R9 — ALIAS_OF Edges
-
-**Description:** Explicit edges from table alias to original table name. `FROM users u` → edge `u → users`.
-
-**Solution:** Phase 2 in `dependency_graph.py` iterates all `database_table` variables. Those with `source_tables` populated (aliases) get an ALIAS_OF edge to the original table entry with the matching name.
-
-**Files modified:**
-- `backend/app/extractor/dependency_graph.py` — Phase 2
-- `backend/app/services/graph_service.py` — color `#1ABC9C`
-- `frontend/src/App.jsx` — filter + legend entry
-
----
-
-## R10 — VIRTUAL_TABLE & FEEDS_INTO
-
-**Description:** Every SELECT creates a virtual output table. Input tables feed into it. Output columns belong to it.
-
-**Solution:** 
-- New variable type `VIRTUAL_TABLE` created in `_walk_select()` for every SELECT (including CTE inner SELECTs, subquery SELECTs, main SELECT)
-- Phase 3 creates `FEEDS_INTO` edges from table aliases → VIRTUAL_TABLE (only aliases, not original names)
-- Phase 6 creates `BELONGS_TO` edges from VIRTUAL_TABLE → its output columns
-- Nested VIRTUAL_TABLEs (subqueries → parent) connected via same-context matching
-
-**Files modified:**
-- `backend/app/models/variable.py` — added `VIRTUAL_TABLE` type
-- `backend/app/extractor/variable_extractor_v2.py` — `_walk_select()` creates VT
-- `backend/app/extractor/dependency_graph.py` — Phase 3 + Phase 6
-- `backend/app/services/graph_service.py` — color `#2ECC71`, node style
-- `frontend/src/App.jsx` — filter + legend entry
-
----
-
-## R11 — CTE_TABLE Merging
-
-**Description:** CTE tables referenced in FROM clauses should not appear as separate DATABASE_TABLE entries alongside their CTE_TABLE definition.
-
-**Solution:** In `_add()`, when adding a `DATABASE_TABLE`, check if a `CTE_TABLE` with the same name already exists. If so, return None (skip). This eliminated 54 duplicate table nodes.
-
-**Files modified:**
-- `backend/app/extractor/variable_extractor_v2.py` — `_add()` method, lines 249-254
-
----
-
-## R12 — Subquery & EXISTS Table Registration
-
-**Description:** Tables inside subqueries (`SELECT ... FROM payments p`) and EXISTS (`EXISTS(SELECT ... FROM audit_log at3)`) should be registered with their aliases.
-
-**Solution:** 
-- `_walk_columns_in_expr()` walks INTO Subquery nodes to extract FROM/JOIN table aliases
-- Added `_walk_select_tables()` helper for both `exp.Subquery` and `exp.Exists`
-- EXISTS wraps `Select` directly (not `Subquery`), so both node types need explicit handling
-
-**Files modified:**
-- `backend/app/extractor/variable_extractor_v2.py` — `_walk_columns_in_expr()`, `_walk_select_tables()`
-
----
-
-## R13 — CASE & Subquery Source Column Extraction
-
-**Description:** CASE expressions and scalar subqueries must have `source_columns` populated so edges can be created.
-
-**Solution:** Removed `exp.Case` and `exp.Subquery` from the prune list in `_extract_source_columns()`. Previously these were pruned (their inner columns were invisible). Now the walker enters them and extracts all Column references.
-
-**Files modified:**
-- `backend/app/extractor/variable_extractor_v2.py` — `_extract_source_columns()`
-
----
-
-## R14 — COMPUTED_FROM Rename
-
-**Description:** Rename edge type `CASE_BRANCH` → `COMPUTED_FROM` — clearer semantics.
-
-**Solution:** "Computed From" better expresses that the result is derived from input columns. "CASE Branch" was confusing and implied the edge represented a branch of a CASE rather than the derivation relationship.
-
-**Files modified:**
-- `backend/app/extractor/dependency_graph.py` — `_classify_relationship()`
-- `backend/app/services/graph_service.py` — EDGE_COLORS
-- `frontend/src/App.jsx` — EC, ET
-- `frontend/src/utils/graphStyles.js` — edge styles
-
----
-
-## R15 — OPERATES_ON (DML Targets)
-
-**Description:** INSERT/UPDATE/DELETE/MERGE target tables should have edges showing data flow into the operation.
-
-**Solution:** Phase 9 identifies DML target tables by their `defined_in` field (INSERT INTO, DELETE FROM, UPDATE, MERGE). For each, finds columns in the same context and creates OPERATES_ON edges from feeding columns to the target table.
-
-**Files modified:**
-- `backend/app/extractor/dependency_graph.py` — Phase 9
-- `backend/app/services/graph_service.py` — color `#E74C3C`
-- `frontend/src/App.jsx` — filter + legend
-
----
-
-## R16 — REFERENCES (Bare Column Name Resolution)
-
-**Description:** Bare column names in HAVING/ORDER BY (like `total_orders` in `HAVING total_orders >= 3`) should reference their SELECT definition.
-
-**Solution:** Phase 7 matches bare `table_column` variables (no source_columns, no table prefix) against defined variables (aggregates, window results, CASE results, etc.) with the same name. Creates REFERENCES edges from the defined variable → the bare reference.
-
-**Files modified:**
-- `backend/app/extractor/dependency_graph.py` — Phase 7
-- `backend/app/services/graph_service.py` — color `#5DADE2`
-- `frontend/src/App.jsx` — filter + legend
-
----
-
-## R17 — COMPONENT_LINK Safety Net
-
-**Description:** Ensure every graph is a single connected component, even when SQL has genuinely separate scopes (different statements, correlated subqueries with no shared tables).
-
-**Solution:** Phase 11 runs Union-Find across all edges. If multiple components exist, it bridges each small component to the largest one via COMPONENT_LINK edges. The bridge connects the small component's best anchor node (preferring database_table) to any node in the main component.
-
-**Files modified:**
-- `backend/app/extractor/dependency_graph.py` — Phase 11
-- `backend/app/services/graph_service.py` — color `#E67E22`
-- `frontend/src/App.jsx` — filter + legend
-
----
-
-## R18 — Global Node Deduplication
-
-**Description:** The same column must appear only once in the graph, regardless of how many places it's referenced (multiple CTE contexts, WHERE + SELECT + GROUP BY).
-
-**Solution:** Changed the dedup key in `_add()` from `(name, variable_type, context)` to `(name, variable_type)`. The first occurrence registers the node; subsequent references update the existing node. Eliminated 157 duplicate nodes across all test cases.
-
-**Files modified:**
-- `backend/app/extractor/variable_extractor_v2.py` — `_add()` method, key change
-
----
-
-## R19 — Large Graph Performance Optimization
-
-**Description:** Graphs with thousands of nodes/edges must remain smooth for pan, zoom, and interaction.
-
-**Solution:** Three-tier approach:
-1. **Compound nodes** — columns assigned as children of parent tables (via `parent` field). Collapsible.
-2. **3 view modes** — Full (all nodes), Compact (tables visible, columns hidden), Tables (only table/CTE/VT nodes). Dropdown selector in header.
-3. **Render optimizations** — `pixelRatio: 1`, `textureOnViewport: true`, `hideLabelsOnViewport: true`, `hideEdgesOnViewport: true`
-
-**Files modified:**
-- `backend/app/services/graph_service.py` — `parent` field assignment
-- `frontend/src/App.jsx` — view mode state + dropdown
-- `frontend/src/utils/graphStyles.js` — render config
-
----
-
-## R20 — Input-Output Graph (Post-Processing)
-
-**Description:** Show only data flow from input columns (pure table reads) to user-defined output columns. Find all paths between them.
-
-**Solution:** 
-- `POST /api/scripts/{id}/io_graph` endpoint accepts CSV (table_name, data_type, column_name, explanation)
-- Backend parses CSV → finds input columns (table_column with empty source_columns) → BFS through dependency graph → matches output columns by name → returns simplified graph + path details
-- Frontend: "IO Graph" button uploads CSV, "Full Graph" button switches back
-- Edge click in IO view shows ordered path nodes with table names in parentheses
-
-**Files modified:**
-- `backend/app/services/io_graph_service.py` (240 lines) — BFS path finding
-- `backend/app/routers/graph.py` — POST endpoint
-- `frontend/src/App.jsx` — IO Graph button + IOPathPanel component
-- `samples/financial/io_csv/` — 20 CSV files for existing samples
-- `samples/tpcds/io_csv/` — 96 CSV files for TPC-DS queries
-
----
-
-## R21 — Pipeline Logging
-
-**Description:** Docker-compatible logging to track pipeline execution and debug failures.
-
-**Solution:** `logger.py` outputs to stderr at 5 key checkpoints:
-- `PIPELINE START` — script name, byte count
-- `extract` — variable, table, CTE counts
-- `deps` — edge count, breakdown by type
-- `graph` — final node/edge counts
-- `PIPELINE DONE` — elapsed milliseconds
-- API request logging on each endpoint call
-
-**Files modified:**
-- `backend/app/services/logger.py` (50 lines) — structured logging
-- `backend/app/extractor/adapter.py` — integrated log calls
-
----
-
-## R22 — SQL Source Viewer
-
-**Description:** Show the original SQL script alongside the graph for manual comparison.
-
-**Solution:** Toggleable bottom panel (max 40% viewport height) with monospace pre-formatted SQL text. "Show SQL"/"Hide SQL" button in header, appears when a script is loaded.
-
-**Files modified:**
-- `frontend/src/App.jsx` — toggle state + panel component
-- `frontend/src/styles/app.css` — `.sql-panel` styles
-
----
-
-## R23 — SQL Sample Library
-
-**Description:** 22 diverse SQL test cases plus 99 TPC-DS benchmark queries covering real-world patterns.
-
-**Basic queries (6):** `query1_select_where.sql`, `query2_joins_complex.sql`, `query3_subqueries_case.sql`, `query4_update_delete.sql`, `query5_nested.sql`, `tables.sql`
-
-**GPS financial queries (16):** `fin_query1_reconciliation.sql` through `fin_query16_lateral_complex.sql`
-
-**TPC-DS benchmark (99):** `q1.sql` through `q99.sql` in `samples/tpcds/`
-
-**Real-world sources:** pg-ledger, Borghi97/fraud-detection-sql, iPay, TheLook Ecommerce, SaaS MRR Retention, RFM Analysis, Apache DataFusion TPC-DS
-
-**Files:**
-- `samples/*.sql` — 6 basic queries
-- `samples/financial/tables_financial.sql` — 8 GPS tables
-- `samples/financial/tables_financial_v2.sql` — enhanced schema with double-entry
-- `samples/financial/fin_query1-16.sql` — GPS financial queries
-- `samples/tpcds/q1-99.sql` — TPC-DS benchmark queries
-- `samples/financial/io_csv/*.csv` — 20 IO CSV files
-- `samples/tpcds/io_csv/*.csv` — 96 IO CSV files
-
----
-
-## Summary
-
-| # | Requirement | Files | Tests |
-|---|---|---|---|
-| R1 | Core variable extraction | `variable_extractor_v2.py`, `models/variable.py` | 17 |
-| R2 | Dependency graph (10 edge types) | `dependency_graph.py`, `graph_service.py` | 6 |
-| R3 | Interactive frontend | `App.jsx`, `graphStyles.js`, `app.css` | manual |
-| R4 | File upload & auto-visualization | `App.jsx`, `app.css` | manual |
-| R5 | Claude NL explanation | `claude_service.py` | (disabled) |
-| R6 | Offline deployment | `vendor/`, `static/`, `start.py`, `Dockerfile` | manual |
-| R7 | Test suite (193 tests) | 6 test files | 193 |
-| R8 | Topological integrity (5 checks) | `test_graph_integrity.py` | 110 |
-| R9 | ALIAS_OF edges | `dependency_graph.py` | — |
-| R10 | VIRTUAL_TABLE + FEEDS_INTO | `models/variable.py`, `variable_extractor_v2.py`, `dependency_graph.py` | — |
-| R11 | CTE_TABLE merging | `variable_extractor_v2.py` | — |
-| R12 | Subquery & EXISTS tables | `variable_extractor_v2.py` | — |
-| R13 | CASE & Subquery source cols | `variable_extractor_v2.py` | — |
-| R14 | COMPUTED_FROM rename | `dependency_graph.py`, `graph_service.py`, `App.jsx` | — |
-| R15 | OPERATES_ON (DML targets) | `dependency_graph.py` | — |
-| R16 | REFERENCES (bare column refs) | `dependency_graph.py` | — |
-| R17 | COMPONENT_LINK safety net | `dependency_graph.py` | — |
-| R18 | Global node deduplication | `variable_extractor_v2.py` | — |
-| R19 | Large graph performance | `graph_service.py`, `App.jsx`, `graphStyles.js` | — |
-| R20 | Input-Output graph | `io_graph_service.py`, `routers/graph.py`, `App.jsx` | — |
-| R21 | Pipeline logging | `logger.py`, `adapter.py` | — |
-| R22 | SQL source viewer | `App.jsx`, `app.css` | — |
-| R23 | SQL sample library | `samples/` (22 + 99 files + 116 CSVs) | — |
+|------|-------|-------|
+| `test_node_types.py` | 53 | Per-type coverage |
+| `test_edge_types.py` | 36 | Per-edge coverage + regression |
+| `test_edge_validity.py` | 30 | No spurious edges |
+| `test_type_styling.py` | 11 | Frontend/backend style coverage |
+| `test_workflow.py` | 17 | ETL pipeline + data flow direction |
+| `test_graph_integrity.py` | 22 | Topology checks × all samples |
+| `test_variable_extractor.py` | 17 | Core extraction |
+| `test_dependency_graph.py` | 6 | Edge creation |
+| `test_complex_samples.py` | 30 | DWH analytics (13 scripts) |
+| `test_analytical_samples.py` | 10 | TPC-DS analytical |
+| `test_github_inspired_samples.py` | 22 | Real-world GPS patterns |
+| **Total** | **254** | |
+
+**Run:** `cd backend && ./venv/bin/python -m pytest tests/ -q`

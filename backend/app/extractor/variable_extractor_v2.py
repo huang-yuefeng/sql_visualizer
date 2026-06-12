@@ -101,16 +101,16 @@ def _classify_aliased_expression(aliased_expr: exp.Expression) -> VariableType:
     """
     # Window functions
     if isinstance(aliased_expr, exp.Window):
-        return VariableType.WINDOW_RESULT
+        return VariableType.WINDOW
 
     # Check for window inside (e.g. SUM(...) OVER (...))
     has_window = any(isinstance(n, exp.Window) for n in aliased_expr.walk() if n is not aliased_expr)
     if has_window:
-        return VariableType.WINDOW_RESULT
+        return VariableType.WINDOW
 
     # Subquery
     if isinstance(aliased_expr, exp.Subquery):
-        return VariableType.SUBQUERY_RESULT
+        return VariableType.SUBQUERY
 
     # Aggregate functions (Sum, Count, Avg, Min, Max, AggFunc)
     if isinstance(aliased_expr, exp.AggFunc):
@@ -120,26 +120,26 @@ def _classify_aliased_expression(aliased_expr: exp.Expression) -> VariableType:
 
     # CASE expression
     if isinstance(aliased_expr, exp.Case):
-        return VariableType.CASE_RESULT
+        return VariableType.CASE
 
     # Check if it's an aggregate by sql_name
     fname = _func_name(aliased_expr)
     if fname in _AGGREGATE_NAMES:
         return VariableType.AGGREGATE
     if fname in _WINDOW_ONLY_NAMES:
-        return VariableType.WINDOW_RESULT
+        return VariableType.WINDOW
 
     # Known transformation functions
     if fname in _KNOWN_FUNCTIONS:
-        return VariableType.FUNCTION_RESULT
+        return VariableType.TRANSFORM
     if isinstance(aliased_expr, (exp.Coalesce, exp.Cast, exp.Concat, exp.JSONExtract,
                                   exp.If, exp.Nullif, exp.Greatest, exp.Least,
                                   exp.DateAdd, exp.DateSub, exp.DateDiff)):
-        return VariableType.FUNCTION_RESULT
+        return VariableType.TRANSFORM
 
     # Generic function (Func subclass but not a known aggregate)
     if isinstance(aliased_expr, exp.Func) and not isinstance(aliased_expr, exp.Column):
-        return VariableType.FUNCTION_RESULT
+        return VariableType.TRANSFORM
 
     # Literal
     if isinstance(aliased_expr, exp.Literal):
@@ -147,10 +147,10 @@ def _classify_aliased_expression(aliased_expr: exp.Expression) -> VariableType:
 
     # Bare column reference
     if isinstance(aliased_expr, exp.Column):
-        return VariableType.TABLE_COLUMN
+        return VariableType.COLUMN
 
     # Default: computed expression
-    return VariableType.INTERMEDIATE
+    return VariableType.EXPRESSION
 
 
 # ── Source column extraction ────────────────────────────────────────────
@@ -254,9 +254,9 @@ class _RoleBasedExtractor:
 
         # CTE tables referenced in FROM clauses also appear as DATABASE_TABLE.
         # Merge them: if a CTE_TABLE with the same name exists, skip the DB version.
-        if var_type == VariableType.DATABASE_TABLE:
+        if var_type == VariableType.TABLE:
             for existing in self.result.variables:
-                if existing.variable_type == VariableType.CTE_TABLE and existing.name == name:
+                if existing.variable_type == VariableType.CTE and existing.name == name:
                     return None  # already exists as CTE_TABLE
 
         key = (name, var_type.value)  # global unique — same column = one node
@@ -329,7 +329,7 @@ class _RoleBasedExtractor:
             self._cte_names.add(alias)
 
             # CTE table variable
-            self._add(alias, VariableType.CTE_TABLE,
+            self._add(alias, VariableType.CTE,
                       sql_expr=_sql(cte_def),
                       defined_in=f"CTE:{alias}", context="TOP")
 
@@ -344,17 +344,26 @@ class _RoleBasedExtractor:
 
     def _walk_select(self, select: exp.Select, context: str, is_cte: bool = False):
         """Walk a SELECT/UPDATE/DELETE and classify every Identifier found."""
-        # Create a VIRTUAL_TABLE for this SELECT's output
-        label = context.split(":")[-1] if ":" in context else "output"
-        vt_name = f"⟐ {label}"
-        self._add(vt_name, VariableType.VIRTUAL_TABLE,
-                  sql_expr=_sql(select)[:200],
-                  defined_in=context, context=context)
+        # Create a VIRTUAL_TABLE for this SELECT's output.
+        # Exception: inside a CTE, the CTE node itself serves as the output
+        # container — no separate VT needed. The CTE IS the named result set.
+        if not is_cte:
+            label = context.split(":")[-1] if ":" in context else "output"
+            vt_name = f"⟐ {label}"
+            self._add(vt_name, VariableType.VIRTUAL_TABLE,
+                      sql_expr=_sql(select)[:200],
+                      defined_in=context, context=context)
+
+        # Detect statement type for DML marking
+        stmt_type = type(select).__name__.upper()
+        dml_mark = ""
+        if stmt_type in ("UPDATE", "DELETE"):
+            dml_mark = stmt_type
 
         # Main table (UPDATE/DELETE use 'this', SELECT uses 'from')
         main_table = select.args.get("this")
         if main_table and isinstance(main_table, exp.Table):
-            self._register_table(main_table, context)
+            self._register_table(main_table, context, dml=dml_mark)
 
         # FROM clause — table names and aliases
         from_exp = select.args.get("from") or select.args.get("from_")
@@ -364,6 +373,22 @@ class _RoleBasedExtractor:
         # JOIN clauses
         for join in (select.args.get("joins") or []):
             self._walk_join(join, context)
+
+        # USING clause (DELETE ... USING / MERGE USING)
+        using_tables = select.args.get("using") or []
+        if isinstance(using_tables, exp.Expression):
+            using_tables = [using_tables]
+        for ut in using_tables:
+            if isinstance(ut, exp.Table):
+                self._register_table(ut, context)
+            elif isinstance(ut, exp.Subquery):
+                sub_alias = _clean(ut.alias or "")
+                if sub_alias:
+                    self._add(sub_alias, VariableType.SUBQUERY,
+                              sql_expr=_sql(ut.this),
+                              defined_in="USING", context=context)
+                if isinstance(ut.this, exp.Select):
+                    self._walk_select(ut.this, context, is_cte=False)
 
         # SELECT expressions — process FIRST so aggregates are registered
         # before HAVING/ORDER BY references are encountered
@@ -384,6 +409,17 @@ class _RoleBasedExtractor:
                 for e in (clause.expressions if hasattr(clause, 'expressions') else [clause]):
                     self._walk_columns_in_expr(e, context, defined_in=label)
 
+        # SELECT INTO — creates a new table from the SELECT result
+        into = select.args.get("into")
+        if into:
+            into_table = into.this if isinstance(into, exp.Into) else into
+            if isinstance(into_table, exp.Table):
+                into_name = _clean(into_table.name or "")
+                if into_name:
+                    self._add(into_name, VariableType.TABLE,
+                              sql_expr=f"SELECT INTO {into_name}",
+                              defined_in="SELECT INTO", context=context)
+
     # ── FROM / JOIN walkers ─────────────────────────────────────────
 
     def _walk_from(self, from_exp, context: str):
@@ -394,7 +430,17 @@ class _RoleBasedExtractor:
         if isinstance(from_exp, exp.Table):
             self._register_table(from_exp, context)
         elif isinstance(from_exp, exp.Subquery):
-            self._walk_select(from_exp.this, context, is_cte=False)
+            # FROM (SELECT ...) AS alias — register alias as subquery type
+            sub_alias = _clean(from_exp.alias or "")
+            sub_ctx = f"{context}:subq:{sub_alias}" if sub_alias else f"{context}:subq"
+            if sub_alias:
+                self._add(sub_alias, VariableType.SUBQUERY,
+                          sql_expr=_sql(from_exp.this),
+                          defined_in=f"FROM:{context}", context=sub_ctx)
+            if isinstance(from_exp.this, exp.Select):
+                self._walk_select(from_exp.this, sub_ctx, is_cte=False)
+            elif isinstance(from_exp.this, (exp.Union, exp.Intersect, exp.Except)):
+                self._walk_setop(from_exp.this, type(from_exp.this).__name__.upper(), sub_ctx)
 
     def _walk_join(self, join, context: str):
         """Extract from a JOIN clause (including LATERAL)."""
@@ -407,19 +453,21 @@ class _RoleBasedExtractor:
             join_expr = join_expr.this
 
         if isinstance(join_expr, exp.Table):
-            self._register_table(join_expr, context)
+            # Register JOIN tables with "JOIN" prefix in defined_in
+            self._register_table(join_expr, context, join_table=True)
         elif isinstance(join_expr, exp.Subquery):
             # JOIN (SELECT ...) AS alias
             sub_alias = _clean(join_expr.alias or lateral_alias or "")
+            sub_ctx = f"{context}:join:{sub_alias}" if sub_alias else f"{context}:join_subq"
             if sub_alias:
-                self._add(sub_alias, VariableType.SUBQUERY_RESULT,
+                self._add(sub_alias, VariableType.SUBQUERY,
                           sql_expr=_sql(join_expr.this),
-                          defined_in=f"JOIN:{context}", context=context)
+                          defined_in=f"JOIN:{context}", context=sub_ctx)
             if isinstance(join_expr.this, exp.Select):
-                self._walk_select(join_expr.this, context, is_cte=False)
+                self._walk_select(join_expr.this, sub_ctx, is_cte=False)
         elif lateral_alias and isinstance(join_expr, exp.Select):
             # LATERAL SELECT without Subquery wrapper
-            self._add(lateral_alias, VariableType.SUBQUERY_RESULT,
+            self._add(lateral_alias, VariableType.SUBQUERY,
                       sql_expr=_sql(join_expr),
                       defined_in=f"LATERAL:{context}", context=context)
             self._walk_select(join_expr, context, is_cte=False)
@@ -429,21 +477,27 @@ class _RoleBasedExtractor:
         if on_expr:
             self._walk_columns_in_expr(on_expr, context, defined_in="JOIN ON")
 
-    def _register_table(self, table: exp.Table, context: str):
+    def _register_table(self, table: exp.Table, context: str, join_table: bool = False, dml: str = ""):
         """Register a database table and its alias."""
         name = _clean(table.name or "")
         alias = _clean(table.alias_or_name or "")
         if not name:
             return
+        if dml:
+            defined_in = dml  # "UPDATE" or "DELETE"
+        elif join_table:
+            defined_in = "JOIN"
+        else:
+            defined_in = "FROM"
 
-        self._add(name, VariableType.DATABASE_TABLE,
-                  sql_expr=name, defined_in="FROM", context=context)
+        self._add(name, VariableType.TABLE,
+                  sql_expr=name, defined_in=defined_in, context=context)
 
         if alias and alias != name:
             self._table_aliases[alias] = name
-            self._add(alias, VariableType.DATABASE_TABLE,
+            self._add(alias, VariableType.TABLE,
                       sql_expr=f"{name} AS {alias}",
-                      defined_in="FROM", context=context,
+                      defined_in=defined_in, context=context,
                       source_tables=[name])
 
     # ── Column walker ───────────────────────────────────────────────
@@ -455,12 +509,14 @@ class _RoleBasedExtractor:
         for node in expr.walk(prune=lambda n: isinstance(n, (exp.CTE,))):
             if isinstance(node, exp.Column):
                 self._register_column(node, context, defined_in)
-            # Walk INTO subqueries and EXISTS to register their FROM tables
+            # Walk INTO subqueries — fully process inner SELECT
             elif isinstance(node, exp.Subquery):
-                self._walk_select_tables(node.this, f"{context}:subq")
+                if isinstance(node.this, exp.Select):
+                    self._walk_select(node.this, f"{context}:subq", is_cte=False)
             elif isinstance(node, exp.Exists):
                 # EXISTS wraps a Select directly (not a Subquery)
-                self._walk_select_tables(node.this, f"{context}:exists")
+                if isinstance(node.this, exp.Select):
+                    self._walk_select(node.this, f"{context}:exists", is_cte=False)
 
     def _walk_select_tables(self, select_node, context: str):
         """Extract table references from a Select node inside subquery/EXISTS."""
@@ -485,12 +541,12 @@ class _RoleBasedExtractor:
         if not table:
             for existing in self.result.variables:
                 if existing.name == col_name and existing.variable_type in (
-                    VariableType.AGGREGATE, VariableType.WINDOW_RESULT,
-                    VariableType.CASE_RESULT, VariableType.FUNCTION_RESULT,
-                    VariableType.INTERMEDIATE, VariableType.CTE_COLUMN):
+                    VariableType.AGGREGATE, VariableType.WINDOW,
+                    VariableType.CASE, VariableType.TRANSFORM,
+                    VariableType.EXPRESSION, VariableType.CTE_COLUMN):
                     return  # already defined — don't create duplicate
         full = f"{table}.{col_name}" if table else col_name
-        self._add(full, VariableType.TABLE_COLUMN,
+        self._add(full, VariableType.COLUMN,
                   sql_expr=_sql(col),
                   defined_in=defined_in or "condition", context=context)
 
@@ -530,8 +586,8 @@ class _RoleBasedExtractor:
         src_tables = _extract_table_names(inner)
         var_type = _classify_aliased_expression(inner)
 
-        # CTE context: only bare "intermediate" becomes cte_column
-        if is_cte and var_type == VariableType.INTERMEDIATE:
+        # CTE context: only bare "expression" becomes cte_column
+        if is_cte and var_type == VariableType.EXPRESSION:
             var_type = VariableType.CTE_COLUMN
 
         defined_in = context
@@ -587,7 +643,13 @@ class _RoleBasedExtractor:
             if isinstance(using, exp.Table):
                 self._register_table(using, context)
             elif isinstance(using, exp.Subquery):
-                self._walk_select(using.this, f"MERGE USING:{context}", is_cte=False)
+                # Walk in SAME context so DML phase finds source columns
+                sub_alias = _clean(using.alias or "")
+                if sub_alias:
+                    self._add(sub_alias, VariableType.SUBQUERY,
+                              sql_expr=_sql(using.this),
+                              defined_in="MERGE USING", context=context)
+                self._walk_select(using.this, context, is_cte=False)
 
         # ON condition
         on_expr = merge.args.get("on")
@@ -602,21 +664,68 @@ class _RoleBasedExtractor:
     # ── INSERT / CREATE walkers ─────────────────────────────────────
 
     def _walk_insert(self, insert: exp.Insert, context: str):
-        """Walk an INSERT statement."""
+        """Walk an INSERT statement (INSERT INTO ... SELECT/VALUES)."""
         into = insert.args.get("into") or insert.args.get("this")
         if isinstance(into, exp.Schema):
             into = into.this
         if isinstance(into, exp.Table):
-            self._register_table(into, context)
+            # Register target with INSERT marking (not default "FROM")
+            name = _clean(into.name or "")
+            alias = _clean(into.alias_or_name or "")
+            if name:
+                self._add(name, VariableType.TABLE,
+                          sql_expr=name, defined_in="INSERT", context=context)
+                if alias and alias != name:
+                    self._add(alias, VariableType.TABLE,
+                              sql_expr=f"{name} AS {alias}",
+                              defined_in="INSERT", context=context,
+                              source_tables=[name])
+        # Walk the source SELECT (INSERT INTO ... SELECT)
         expr = insert.args.get("expression")
         if expr and isinstance(expr, (exp.Select, exp.Union)):
             self.process_statement(expr, context)
+        else:
+            # VALUES-based INSERT — create a minimal VT anchor so the target
+            # table isn't isolated (the DML phase can connect VT → target)
+            self._add("⟐ insert", VariableType.VIRTUAL_TABLE,
+                      sql_expr="INSERT VALUES", defined_in="INSERT", context=context)
+            # Also extract target columns if present in Schema
+            if isinstance(into, exp.Schema):
+                for col_expr in (into.expressions or []):
+                    if isinstance(col_expr, exp.Column):
+                        col_name = _clean(col_expr.name or "")
+                        if col_name:
+                            self._add(col_name, VariableType.COLUMN,
+                                      sql_expr=_sql(col_expr),
+                                      defined_in="INSERT", context=context)
 
     def _walk_create(self, create: exp.Create, context: str):
-        """Walk a CREATE statement."""
-        if str(create.args.get("kind", "")).upper() == "TABLE":
-            table_expr = create.args.get("this")
-            if table_expr and isinstance(table_expr, exp.Table):
-                name = _clean(table_expr.name or "")
-                self._add(name, VariableType.DATABASE_TABLE,
+        """Walk a CREATE statement (TABLE, VIEW, MATERIALIZED VIEW, CTAS)."""
+        kind = str(create.args.get("kind", "")).upper()
+        table_expr = create.args.get("this")
+        name = _clean(table_expr.name or "") if table_expr and isinstance(table_expr, exp.Table) else ""
+
+        if kind == "VIEW":
+            # CREATE VIEW / CREATE MATERIALIZED VIEW
+            if name:
+                self._add(name, VariableType.VIEW,
+                          sql_expr=_sql(create), defined_in="CREATE VIEW", context=context)
+            # Walk the inner SELECT defining the view
+            inner = create.args.get("expression")
+            if inner and isinstance(inner, exp.Select):
+                self._walk_select(inner, f"VIEW:{name}" if name else context, is_cte=False)
+            elif inner and isinstance(inner, (exp.Union, exp.Intersect, exp.Except)):
+                self._walk_setop(inner, type(inner).__name__.upper(),
+                                 f"VIEW:{name}" if name else context)
+
+        elif kind == "TABLE":
+            if name:
+                self._add(name, VariableType.TABLE,
                           sql_expr=_sql(create), defined_in="CREATE TABLE", context=context)
+            # CTAS: CREATE TABLE ... AS SELECT — walk the inner SELECT
+            inner = create.args.get("expression")
+            if inner and isinstance(inner, exp.Select):
+                self._walk_select(inner, f"CTAS:{name}" if name else context, is_cte=False)
+            elif inner and isinstance(inner, (exp.Union, exp.Intersect, exp.Except)):
+                self._walk_setop(inner, type(inner).__name__.upper(),
+                                 f"CTAS:{name}" if name else context)

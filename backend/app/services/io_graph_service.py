@@ -76,7 +76,7 @@ def find_input_columns(variables: list[dict]) -> list[dict]:
     """Input columns = table_column vars with NO source_columns (pure reads)."""
     inputs = []
     for v in variables:
-        if v.get("variable_type") == "table_column" and not v.get("source_columns"):
+        if v.get("variable_type") == "column" and not v.get("source_columns"):
             inputs.append(v)
     return inputs
 

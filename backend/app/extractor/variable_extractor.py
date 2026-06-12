@@ -127,29 +127,29 @@ def _classify_select_expression(expr: exp.Expression) -> list[VariableType]:
     """
     # Subquery takes highest priority — it wraps anything else inside
     if isinstance(expr, exp.Subquery):
-        return [VariableType.SUBQUERY_RESULT]
+        return [VariableType.SUBQUERY]
 
     is_agg, is_win = _is_aggregate_or_window(expr)
 
     if is_win:
-        return [VariableType.WINDOW_RESULT]
+        return [VariableType.WINDOW]
 
     if is_agg:
         return [VariableType.AGGREGATE]
 
     if isinstance(expr, exp.Case):
-        return [VariableType.CASE_RESULT]
+        return [VariableType.CASE]
 
     if isinstance(expr, (exp.Coalesce, exp.Cast, exp.Concat, exp.JSONExtract,
                           exp.If, exp.Nullif, exp.Greatest, exp.Least,
                           exp.DateAdd, exp.DateSub, exp.DateDiff,
                           exp.TsOrDsAdd, exp.TsOrDsDiff)):
-        return [VariableType.FUNCTION_RESULT]
+        return [VariableType.TRANSFORM]
 
     if isinstance(expr, exp.Anonymous):
         name = (expr.name or "").upper()
         if name not in _AGGREGATE_FUNCTIONS and name not in _WINDOW_ONLY_FUNCTIONS:
-            return [VariableType.FUNCTION_RESULT]
+            return [VariableType.TRANSFORM]
 
     # Generic function (Func but not a known specific type)
     if isinstance(expr, exp.Func) and not isinstance(expr, (
@@ -158,17 +158,17 @@ def _classify_select_expression(expr: exp.Expression) -> list[VariableType]:
         exp.DateAdd, exp.DateSub, exp.DateDiff, exp.TsOrDsAdd, exp.TsOrDsDiff,
         exp.Column,  # Column inherits from Func in some sqlglot versions
     )):
-        return [VariableType.FUNCTION_RESULT]
+        return [VariableType.TRANSFORM]
 
     if isinstance(expr, exp.Literal):
         return [VariableType.LITERAL]
 
     # Bare column reference
     if isinstance(expr, exp.Column):
-        return [VariableType.TABLE_COLUMN]
+        return [VariableType.COLUMN]
 
     # Default: computed / intermediate
-    return [VariableType.INTERMEDIATE]
+    return [VariableType.EXPRESSION]
 
 
 def _extract_source_columns(expr: exp.Expression) -> list[str]:
@@ -382,7 +382,7 @@ class _StatementVariableExtractor:
                 if sub_alias:
                     self._add_variable(
                         name=sub_alias,
-                        var_type=VariableType.SUBQUERY_RESULT,
+                        var_type=VariableType.SUBQUERY,
                         sql_expression=_try_sql(inner_select),
                         defined_in=f"JOIN:{context}",
                         context=context,
@@ -458,7 +458,7 @@ class _StatementVariableExtractor:
                 # Preserve detailed type even inside CTEs.
                 # CTE context is captured in defined_in / context fields.
                 actual_type = vt
-                if is_cte and vt == VariableType.INTERMEDIATE:
+                if is_cte and vt == VariableType.EXPRESSION:
                     # "Bare" intermediate inside a CTE → CTE_COLUMN
                     actual_type = VariableType.CTE_COLUMN
 
@@ -482,7 +482,7 @@ class _StatementVariableExtractor:
                 for c in cols:
                     self._add_variable(
                         name=c,
-                        var_type=VariableType.TABLE_COLUMN,
+                        var_type=VariableType.COLUMN,
                         sql_expression=_try_sql(inner),
                         defined_in="GROUP BY",
                         context=context,
@@ -498,7 +498,7 @@ class _StatementVariableExtractor:
                 for c in cols:
                     self._add_variable(
                         name=c,
-                        var_type=VariableType.TABLE_COLUMN,
+                        var_type=VariableType.COLUMN,
                         sql_expression=_try_sql(inner),
                         defined_in="ORDER BY",
                         context=context,
@@ -531,7 +531,7 @@ class _StatementVariableExtractor:
                 # Physical database table
                 self._add_variable(
                     name=name,
-                    var_type=VariableType.DATABASE_TABLE,
+                    var_type=VariableType.TABLE,
                     sql_expression=name,
                     defined_in="FROM",
                     context=context,
@@ -539,7 +539,7 @@ class _StatementVariableExtractor:
                 if alias and alias != name:
                     self._add_variable(
                         name=f"{alias}",
-                        var_type=VariableType.DATABASE_TABLE,
+                        var_type=VariableType.TABLE,
                         sql_expression=f"{name} AS {alias}",
                         defined_in="FROM",
                         context=context,
@@ -558,7 +558,7 @@ class _StatementVariableExtractor:
                 full = f"{table}.{col_name}" if table else col_name
                 self._add_variable(
                     name=full,
-                    var_type=VariableType.TABLE_COLUMN,
+                    var_type=VariableType.COLUMN,
                     sql_expression=sql,
                     defined_in="condition",
                     context=context,
@@ -582,7 +582,7 @@ class _StatementVariableExtractor:
                 # Add CTE_TABLE variable
                 self._add_variable(
                     name=alias,
-                    var_type=VariableType.CTE_TABLE,
+                    var_type=VariableType.CTE,
                     sql_expression=_try_sql(cte_def),
                     defined_in=f"CTE:{alias}",
                     context="TOP",
@@ -684,7 +684,7 @@ class _StatementVariableExtractor:
                 src_name = _clean_name(using.name or "")
                 self._add_variable(
                     name=src_name,
-                    var_type=VariableType.DATABASE_TABLE,
+                    var_type=VariableType.TABLE,
                     sql_expression=_try_sql(using),
                     defined_in="MERGE USING",
                     context=context,
@@ -710,7 +710,7 @@ class _StatementVariableExtractor:
                 for c in cols:
                     self._add_variable(
                         name=c,
-                        var_type=VariableType.TABLE_COLUMN,
+                        var_type=VariableType.COLUMN,
                         sql_expression=_try_sql(inner),
                         defined_in=f"MERGE {'MATCHED' if when_matched else 'NOT MATCHED'} {action}",
                         context=context,
@@ -727,7 +727,7 @@ class _StatementVariableExtractor:
             name = _clean_name(into.name or "")
             self._add_variable(
                 name=name,
-                var_type=VariableType.DATABASE_TABLE,
+                var_type=VariableType.TABLE,
                 sql_expression=_try_sql(into),
                 defined_in="INSERT INTO",
                 context=context,
@@ -746,7 +746,7 @@ class _StatementVariableExtractor:
                 name = _clean_name(table_expr.name or "")
                 self._add_variable(
                     name=name,
-                    var_type=VariableType.DATABASE_TABLE,
+                    var_type=VariableType.TABLE,
                     sql_expression=_try_sql(create),
                     defined_in="CREATE TABLE",
                     context=context,
@@ -761,7 +761,7 @@ class _StatementVariableExtractor:
                 if name and name not in self._cte_aliases:
                     self._add_variable(
                         name=name,
-                        var_type=VariableType.DATABASE_TABLE,
+                        var_type=VariableType.TABLE,
                         sql_expression=_try_sql(node),
                         defined_in="statement",
                         context=context,

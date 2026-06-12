@@ -56,7 +56,7 @@ class TestMerchantCohortRetention:
     def test_has_lag_for_volume_change(self, sql):
         """LAG window function for MoM volume change should be detected."""
         result = extract_variables_from_sql(sql, "fin_query11")
-        window_vars = [v for v in result.variables if v.variable_type == VariableType.WINDOW_RESULT]
+        window_vars = [v for v in result.variables if v.variable_type == VariableType.WINDOW]
         assert len(window_vars) >= 1, f"Should have LAG window, got {len(window_vars)}"
 
 
@@ -131,7 +131,7 @@ class TestRFMSegmentation:
     def test_has_rfm_segments(self, sql):
         """RFM segment labels (CHAMPIONS, LOYAL, AT_RISK, etc.) should be CASE_RESULT."""
         result = extract_variables_from_sql(sql, "fin_query13")
-        case_vars = [v for v in result.variables if v.variable_type == VariableType.CASE_RESULT]
+        case_vars = [v for v in result.variables if v.variable_type == VariableType.CASE]
         assert len(case_vars) >= 3, \
             f"Should have rfm_segment + churn_risk + revenue_tier CASEs, got {len(case_vars)}"
 
@@ -160,7 +160,7 @@ class TestAnalyticalConstructs:
         result = extract_variables_from_sql(sql, "test")
         ntile_vars = [v for v in result.variables
                       if "NTILE" in v.sql_expression.upper()
-                      and v.variable_type == VariableType.WINDOW_RESULT]
+                      and v.variable_type == VariableType.WINDOW]
         assert len(ntile_vars) >= 3
 
     def test_date_add_parsed_as_function(self):
@@ -182,6 +182,6 @@ class TestAnalyticalConstructs:
         sql = _read("financial/fin_query12_revenue_waterfall.sql")
         result = extract_variables_from_sql(sql, "test")
         yoy_vars = [v for v in result.variables
-                    if v.variable_type == VariableType.WINDOW_RESULT
+                    if v.variable_type == VariableType.WINDOW
                     and ", 12)" in v.sql_expression]
         assert len(yoy_vars) >= 1

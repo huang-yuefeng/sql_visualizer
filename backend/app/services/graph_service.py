@@ -6,31 +6,34 @@ from app.models.variable import VariableType
 
 # Node color/shape styling by variable type
 NODE_STYLES = {
-    VariableType.DATABASE_TABLE.value: {
+    VariableType.TABLE.value: {
         "shape": "rectangle", "color": "#4A90D9", "size": 50,
     },
-    VariableType.TABLE_COLUMN.value: {
+    VariableType.VIEW.value: {
+        "shape": "rectangle", "color": "#5DADE2", "size": 50,
+    },
+    VariableType.COLUMN.value: {
         "shape": "ellipse", "color": "#A8D4FF", "size": 30,
     },
-    VariableType.CTE_TABLE.value: {
+    VariableType.CTE.value: {
         "shape": "round-rectangle", "color": "#5CB85C", "size": 45,
     },
     VariableType.CTE_COLUMN.value: {
         "shape": "triangle", "color": "#8FD98F", "size": 30,
     },
-    VariableType.INTERMEDIATE.value: {
+    VariableType.EXPRESSION.value: {
         "shape": "diamond", "color": "#F0AD4E", "size": 35,
     },
-    VariableType.WINDOW_RESULT.value: {
+    VariableType.WINDOW.value: {
         "shape": "hexagon", "color": "#967ADC", "size": 35,
     },
     VariableType.AGGREGATE.value: {
         "shape": "triangle", "color": "#37BC9B", "size": 35,
     },
-    VariableType.CASE_RESULT.value: {
+    VariableType.CASE.value: {
         "shape": "pentagon", "color": "#D770AD", "size": 35,
     },
-    VariableType.FUNCTION_RESULT.value: {
+    VariableType.TRANSFORM.value: {
         "shape": "parallelogram", "color": "#FFCE54", "size": 35,
     },
     VariableType.LITERAL.value: {
@@ -42,7 +45,7 @@ NODE_STYLES = {
     VariableType.UNION_BRANCH.value: {
         "shape": "vee", "color": "#E6E9ED", "size": 40,
     },
-    VariableType.SUBQUERY_RESULT.value: {
+    VariableType.SUBQUERY.value: {
         "shape": "diamond", "color": "#AC92EC", "size": 35,
     },
     VariableType.VIRTUAL_TABLE.value: {
@@ -85,20 +88,21 @@ def build_graph_data(analysis: dict) -> dict:
         })
 
     EDGE_COLORS = {
-        "BELONGS_TO":       "#8AB4F8",   # light blue
-        "ALIAS_OF":         "#1ABC9C",   # teal-green
-        "DIRECT_REFERENCE": "#9AA0A6",   # grey
-        "AGGREGATION":      "#37BC9B",   # teal
-        "TRANSFORMATION":   "#F0AD4E",   # orange
-        "WINDOW":           "#967ADC",   # purple
-        "COMPUTED_FROM":    "#D770AD",   # pink
-        "REFERENCES":       "#5DADE2",   # steel blue
-        "OPERATES_ON":      "#E74C3C",   # red
-        "FEEDS_INTO":       "#2ECC71",   # green
-        "COMPONENT_LINK":   "#E67E22",   # dark orange
-        "CONDITIONAL_USED": "#3498DB",   # blue
-        "COMPONENT_LINK":   "#E67E22",   # dark orange
-        "CONDITIONAL_USED": "#3498DB",   # blue
+        "TABLE_FLOW":       "#2ECC71",   # green       — table-to-table data flow
+        "SCHEMA":           "#8AB4F8",   # light blue  — column belongs to table
+        "ALIAS":            "#1ABC9C",   # teal-green  — alias → original name
+        "SELECT":           "#2ECC71",   # green       — table feeds into SELECT output
+        "JOIN":             "#E91E63",   # pink-red    — JOIN operation data flow
+        "REF":              "#9AA0A6",   # grey        — direct column reference
+        "AGGREGATE":        "#37BC9B",   # teal        — SUM/COUNT/AVG
+        "TRANSFORM":        "#F0AD4E",   # orange      — COALESCE/CAST function
+        "WINDOW":           "#967ADC",   # purple      — ROW_NUMBER/RANK/LAG
+        "COMPUTED":         "#D770AD",   # pink        — CASE WHEN result
+        "INDIRECT":         "#5DADE2",   # steel blue  — HAVING→SELECT name ref
+        "FILTER":           "#3498DB",   # blue        — WHERE/HAVING condition
+        "DML":              "#E74C3C",   # red         — INSERT/UPDATE/DELETE/MERGE
+        "SUBSET":           "#E67E22",   # dark orange — subquery/CTE boundary
+        "SET_OP":           "#9B59B6",   # amethyst   — UNION/INTERSECT/EXCEPT
     }
     edges = []
     for d in dependencies:
@@ -118,15 +122,15 @@ def build_graph_data(analysis: dict) -> dict:
     # Build compound nodes: group columns under their parent table
     # Table nodes become parents, column nodes become children (nested inside)
     table_ids = {v["id"] for v in variables
-                 if v.get("variable_type") in ("database_table","cte_table","merge_target",
-                                                "virtual_table","subquery_result")}
+                 if v.get("variable_type") in ("table","view","cte","merge_target",
+                                                "virtual_table","subquery")}
     for v in variables:
         vt = v.get("variable_type", "")
-        if vt == "table_column" and "." in v.get("name", ""):
+        if vt == "column" and "." in v.get("name", ""):
             prefix = v["name"].split(".", 1)[0]
             # Find the table node with this prefix
             for tv in variables:
-                if tv.get("variable_type") in ("database_table","cte_table") and tv["name"] == prefix:
+                if tv.get("variable_type") in ("table","view","cte") and tv["name"] == prefix:
                     v["parent"] = tv["id"]
                     break
 

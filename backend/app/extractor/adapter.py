@@ -32,9 +32,9 @@ def run_full_analysis(sql_text: str, script_name: str) -> dict:
     extract_result = extract_variables_from_sql(sql_text, script_name)
     from app.models.variable import VariableType
     tables = [v for v in extract_result.variables
-              if v.variable_type == VariableType.DATABASE_TABLE]
+              if v.variable_type == VariableType.TABLE]
     ctes = [v for v in extract_result.variables
-            if v.variable_type == VariableType.CTE_TABLE]
+            if v.variable_type == VariableType.CTE]
     stage_extract(len(extract_result.variables), len(tables), len(ctes))
 
     # Phase 2: Dependency graph

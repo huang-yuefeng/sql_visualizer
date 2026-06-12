@@ -1,32 +1,40 @@
 """
 Dependency Graph Builder — build variable dependency edges from extraction results.
 
-Connects variables based on column references in their SQL expressions,
-tracking data flow through CTE chains, aggregations, and transformations.
+Phases are ordered top-down: table-level connections first, then column-level
+details, then structural edges. This matches how data flows in SQL:
+  tables → table-to-table flows → columns carry data between tables.
 """
 
-import re
 from collections import defaultdict
 
 from app.models.variable import VariableDefinition, VariableDependency, VariableType
 from app.extractor.variable_extractor_v2 import ExtractionResult
 
 
+# ── Table-like types that participate in table-level data flow ──────────
+_TABLE_TYPES = {
+    VariableType.TABLE, VariableType.VIEW, VariableType.CTE,
+    VariableType.SUBQUERY, VariableType.VIRTUAL_TABLE,
+    VariableType.MERGE_TARGET, VariableType.UNION_BRANCH,
+}
+
+
 def build_dependency_graph(
     result: ExtractionResult, sql_text: str = ""
 ) -> list[VariableDependency]:
-    """Build a list of VariableDependency edges from extracted variables.
+    """Build dependency edges from extracted variables.
 
-    For each variable with source_columns (e.g. ["sb.amount"]), we look
-    for upstream variables whose name matches the source column, creating
-    a dependency edge.
-
-    Args:
-        result: The extraction result from variable_extractor.
-        sql_text: Original SQL (unused currently, reserved for future use).
-
-    Returns:
-        List of VariableDependency objects representing directed edges.
+    Phase order (top-down):
+      1. TABLE_FLOW — adjacent table-to-table data flow
+      2. ALIAS      — alias → original table name
+      3. Column edges — REF / AGGREGATE / TRANSFORM / WINDOW / COMPUTED
+      4. SCHEMA     — column belongs to table / CTE / VT
+      5. INDIRECT   — bare name reference (HAVING → SELECT)
+      6. DML        — INSERT / UPDATE / DELETE / MERGE targets
+      7. SET_OP     — UNION / INTERSECT / EXCEPT branch → VT
+      8. FILTER     — WHERE / HAVING condition → VT
+      9. SUBSET     — safety net for remaining disconnected components
     """
     variables = result.variables
     if not variables:
@@ -35,343 +43,304 @@ def build_dependency_graph(
     deps: list[VariableDependency] = []
     seen_edges: set[tuple[str, str]] = set()
 
-    # Build lookup by name for resolving source_column references
+    # ── Indexes ──────────────────────────────────────────────────────
     name_index: dict[str, list[VariableDefinition]] = defaultdict(list)
     for v in variables:
         name_index[v.name].append(v)
 
-    # Build lookup: variable name → variable (only index by OWN name, not source columns)
     full_col_index: dict[str, VariableDefinition] = {}
     for v in variables:
-        if v.variable_type in (VariableType.TABLE_COLUMN, VariableType.CTE_COLUMN,
-                                VariableType.INTERMEDIATE, VariableType.AGGREGATE,
-                                VariableType.WINDOW_RESULT, VariableType.CASE_RESULT,
-                                VariableType.FUNCTION_RESULT):
+        if v.variable_type in (VariableType.COLUMN, VariableType.CTE_COLUMN,
+                                VariableType.EXPRESSION, VariableType.AGGREGATE,
+                                VariableType.WINDOW, VariableType.CASE,
+                                VariableType.TRANSFORM):
             full_col_index[v.name] = v
 
-    # ── Phase 1: column → aggregate/window/function edges ──────────────
+    # ── Table anchor index (VTs + CTEs as output containers) ─────────
+    vt_map: dict[str, list[VariableDefinition]] = defaultdict(list)
+    all_anchors: list[VariableDefinition] = []
+    for v in variables:
+        if v.variable_type == VariableType.VIRTUAL_TABLE:
+            vt_map[v.context or "TOP"].append(v)
+            all_anchors.append(v)
+        elif v.variable_type == VariableType.CTE:
+            cte_ctx = f"CTE:{v.name}"
+            vt_map[cte_ctx].append(v)
+            all_anchors.append(v)
+            # CTE is only an output anchor for its inner context.
+            # Do NOT add to vt_map[TOP] — that causes FROM aliases
+            # like 'ctr1' to get TABLE_FLOW → CTE, blocking ALIAS edges.
+
+    # ══════════════════════════════════════════════════════════════════
+    # Phase 1: TABLE_FLOW — adjacent table-to-table data flow
+    # ══════════════════════════════════════════════════════════════════
+    # Two table-like nodes are "adjacent" when data flows directly from
+    # one to the other without passing through any intermediate table.
+    # This is the high-level view: what tables feed what other tables.
+
+    def _add_edge(src, tgt, rel, op="", ctx=""):
+        ek = (src.id, tgt.id)
+        if ek not in seen_edges and src.id != tgt.id:
+            seen_edges.add(ek)
+            deps.append(VariableDependency(
+                source_id=src.id, target_id=tgt.id,
+                relationship=rel, operation=op,
+                sql_context=ctx or f"{src.name} → {tgt.name}",
+            ))
+
+    # 1a: FROM / JOIN table alias → its context anchor (VT or CTE)
+    #     This shows "table u feeds the SELECT / CTE output"
+    for v in variables:
+        if v.variable_type not in (VariableType.TABLE, VariableType.VIEW):
+            continue
+        if not v.source_tables:  # skip original names — only aliases
+            continue
+        ctx = v.context or "TOP"
+        for anchor in vt_map.get(ctx, []):
+            _add_edge(v, anchor, "TABLE_FLOW", "FROM")
+
+    # 1b: Nested anchors → parent context (subquery VT → parent VT)
+    #     Shows "inner SELECT output flows into outer query"
+    for anchor in all_anchors:
+        ctx = anchor.context or "TOP"
+        if ":" in ctx:
+            parent_ctx = ctx.rsplit(":", 1)[0]
+            for parent in vt_map.get(parent_ctx, []):
+                _add_edge(anchor, parent, "TABLE_FLOW", "SUBSELECT")
+
+    # 1c: DML targets — data flows from source columns to target table
+    dml_entries: list[tuple[VariableDefinition, str]] = []
+    for v in variables:
+        if v.variable_type == VariableType.MERGE_TARGET:
+            dml_entries.append((v, "MERGE"))
+        elif v.variable_type == VariableType.TABLE:
+            di = (v.defined_in or "").upper()
+            for kw in ("INSERT", "UPDATE", "DELETE"):
+                if kw in di:
+                    dml_entries.append((v, kw))
+                    break
+
+    for tbl_var, op_type in dml_entries:
+        ctx = tbl_var.context or "TOP"
+        ctx_vars = [v for v in variables if (v.context or "TOP") == ctx]
+        src_vars = [v for v in ctx_vars
+                    if v.source_columns and v.id != tbl_var.id]
+        if src_vars:
+            for src in src_vars[:30]:
+                _add_edge(src, tbl_var, "DML", op_type)
+        else:
+            ctx_anchor = next((v for v in ctx_vars
+                              if v.variable_type in _TABLE_TYPES
+                              and v.id != tbl_var.id), None)
+            if ctx_anchor:
+                _add_edge(ctx_anchor, tbl_var, "DML", op_type)
+
+    # 1d: UNION branch → parent context VT
+    for v in variables:
+        if v.variable_type != VariableType.UNION_BRANCH:
+            continue
+        ctx = v.context or "TOP"
+        for anchor in vt_map.get(ctx, []):
+            _add_edge(v, anchor, "TABLE_FLOW", "SET")
+
+    # ══════════════════════════════════════════════════════════════════
+    # Phase 2: ALIAS — original table → alias
+    # Data flows FROM the real table/CTE TO its alias reference:
+    #   FROM users u        → users ──ALIAS──→ u
+    #   FROM customer_total_return ctr1 → customer_total_return ──ALIAS──→ ctr1
+    for v in variables:
+        if v.variable_type == VariableType.TABLE and v.source_tables:
+            for orig_name in v.source_tables:
+                orig_vars = [x for x in variables
+                             if x.variable_type in (VariableType.TABLE, VariableType.CTE)
+                             and x.name == orig_name and not x.source_tables]
+                for orig_var in orig_vars:
+                    _add_edge(orig_var, v, "ALIAS", "ALIAS")
+
+    # ══════════════════════════════════════════════════════════════════
+    # Phase 3: Column edges — REF / AGGREGATE / TRANSFORM / WINDOW / COMPUTED
+    # ══════════════════════════════════════════════════════════════════
+    # Each column carrying data between the tables connected in Phase 1.
     for target_var in variables:
         for src_col in target_var.source_columns:
             if src_col in full_col_index:
                 src_var = full_col_index[src_col]
-                ek = (src_var.id, target_var.id)
-                if ek not in seen_edges and src_var.id != target_var.id:
-                    seen_edges.add(ek)
-                    deps.append(VariableDependency(
-                        source_id=src_var.id, target_id=target_var.id,
-                        relationship=_classify_relationship(src_var, target_var),
-                        operation="REFERENCE",
-                        sql_context=f"{src_var.name} -> {target_var.name}",
-                    ))
+                _add_edge(src_var, target_var,
+                         _classify_relationship(src_var, target_var),
+                         "REFERENCE")
                 continue
             # Fallback: match by bare column name
             col_name = src_col.rsplit(".", 1)[-1] if "." in src_col else src_col
             for src_var in name_index.get(col_name, []):
-                ek = (src_var.id, target_var.id)
-                if ek not in seen_edges and src_var.id != target_var.id:
-                    seen_edges.add(ek)
-                    deps.append(VariableDependency(
-                        source_id=src_var.id, target_id=target_var.id,
-                        relationship=_classify_relationship(src_var, target_var),
-                        operation="REFERENCE",
-                        sql_context=f"{src_var.name} -> {target_var.name}",
-                    ))
-                    break
+                _add_edge(src_var, target_var,
+                         _classify_relationship(src_var, target_var),
+                         "REFERENCE")
+                break
 
-    # ── Phase 2: ALIAS_OF — alias → original table name ───────────────
-    # E.g., "FROM users u" → u is alias of users
-    for v in variables:
-        if v.variable_type == VariableType.DATABASE_TABLE and v.source_tables:
-            for orig_name in v.source_tables:
-                orig_vars = [x for x in variables
-                             if x.variable_type == VariableType.DATABASE_TABLE
-                             and x.name == orig_name and not x.source_tables]
-                for orig_var in orig_vars:
-                    ek = (v.id, orig_var.id)
-                    if ek not in seen_edges and v.id != orig_var.id:
-                        seen_edges.add(ek)
-                        deps.append(VariableDependency(
-                            source_id=v.id, target_id=orig_var.id,
-                            relationship="ALIAS_OF", operation="ALIAS",
-                            sql_context=f"{v.name} → {orig_name}",
-                        ))
+    # ══════════════════════════════════════════════════════════════════
+    # Phase 4: SCHEMA — column belongs to table / CTE / VT
+    # ══════════════════════════════════════════════════════════════════
 
-    # ── Phase 3: FEEDS_INTO — input tables → VIRTUAL_TABLE (SELECT output) ─
-    vt_map: dict[str, list[VariableDefinition]] = defaultdict(list)
-    all_vts: list[VariableDefinition] = []
-    for v in variables:
-        if v.variable_type == VariableType.VIRTUAL_TABLE:
-            vt_map[v.context or "TOP"].append(v)
-            all_vts.append(v)
-
-    for v in variables:
-        if v.variable_type != VariableType.DATABASE_TABLE:
-            continue
-        # Skip original table names — only aliases feed into the output.
-        # E.g., "FROM users u" → only 'u' gets FEEDS_INTO, not 'users'.
-        # The ALIAS_OF edge (u → users) already expresses the relationship.
-        if not v.source_tables:
-            continue  # no source_tables = original name, not alias
-        ctx = v.context or "TOP"
-        for vt in vt_map.get(ctx, []):
-            ek = (v.id, vt.id)
-            if ek not in seen_edges and v.id != vt.id:
-                seen_edges.add(ek)
-                deps.append(VariableDependency(
-                    source_id=v.id, target_id=vt.id,
-                    relationship="FEEDS_INTO", operation="SELECT",
-                    sql_context=f"{v.name} → {vt.name}",
-                ))
-
-    # Connect nested VIRTUAL_TABLEs into a tree (child contexts → parent)
-    for vt in all_vts:
-        parent_ctx = "TOP"
-        ctx = vt.context or "TOP"
-        if ":" in ctx:
-            parent_ctx = ctx.rsplit(":", 1)[0]
-        if parent_ctx != ctx:
-            for parent_vt in vt_map.get(parent_ctx, []):
-                ek = (vt.id, parent_vt.id)
-                if ek not in seen_edges and vt.id != parent_vt.id:
-                    seen_edges.add(ek)
-                    deps.append(VariableDependency(
-                        source_id=vt.id, target_id=parent_vt.id,
-                        relationship="FEEDS_INTO", operation="SUBSELECT",
-                        sql_context=f"subquery {vt.name} → parent {parent_vt.name}",
-                    ))
-
-    # ── Phase 5: table → column edges (BELONGS_TO) ──────────────────
-    # Index: name → list of table-like variables (handles duplicates across contexts)
+    # Build table index
     table_index: dict[str, list[VariableDefinition]] = defaultdict(list)
-    alias_to_original: dict[str, str] = {}     # alias → original table name
-    cte_alias_to_table: dict[str, str] = {}     # CTE alias → CTE table name
     for v in variables:
-        if v.variable_type in (VariableType.DATABASE_TABLE, VariableType.CTE_TABLE,
-                                VariableType.MERGE_TARGET, VariableType.SUBQUERY_RESULT):
+        if v.variable_type in (VariableType.TABLE, VariableType.VIEW,
+                               VariableType.CTE, VariableType.MERGE_TARGET,
+                               VariableType.SUBQUERY):
             table_index[v.name].append(v)
-            if v.source_tables:
-                for orig in v.source_tables:
-                    alias_to_original[v.name] = orig
-                    # If the original is a CTE table, record the mapping
-                    if any(v2.variable_type == VariableType.CTE_TABLE and v2.name == orig
-                           for v2 in variables):
-                        cte_alias_to_table[v.name] = orig
 
-    # Pass 1: create BELONGS_TO from alias/CTE/VT → column (skip original names)
-    # An alias like 't' has source_tables=['gps_transactions'] — it's the active ref.
-    # The original name 'gps_transactions' has source_tables=[] — skip it.
-    # Only aliases, CTE tables, merge targets, subquery results, and virtual tables
-    # get BELONGS_TO edges, because those are the names actually used in the query.
+    # Pass 4a: alias/CTE/VT → columns (skip original table names)
     for v in variables:
-        if v.variable_type != VariableType.TABLE_COLUMN:
+        if v.variable_type != VariableType.COLUMN:
             continue
         if "." not in v.name:
             continue
         prefix = v.name.split(".", 1)[0]
         for tbl_var in table_index.get(prefix, []):
-            # Only aliases, CTE_TABLE, VIRTUAL_TABLE, MERGE_TARGET, SUBQUERY_RESULT
-            # — skip original table names (they have no source_tables and are not CTEs etc.)
-            is_original = (v.variable_type == VariableType.DATABASE_TABLE
+            is_original = (tbl_var.variable_type == VariableType.TABLE
                            and not tbl_var.source_tables)
             if is_original:
                 continue
-            ek = (tbl_var.id, v.id)
-            if ek not in seen_edges:
-                seen_edges.add(ek)
-                deps.append(VariableDependency(
-                    source_id=tbl_var.id, target_id=v.id,
-                    relationship="BELONGS_TO", operation="TABLE_COLUMN",
-                    sql_context=f"{prefix} → {v.name}",
-                ))
+            _add_edge(tbl_var, v, "SCHEMA", "TABLE_COLUMN")
 
-    # Pass 2: BELONGS_TO from CTE tables to their inner variables
+    # Pass 4b: CTE → inner variables
     for v in variables:
-        if v.variable_type != VariableType.CTE_TABLE:
+        if v.variable_type != VariableType.CTE:
             continue
-        # Find all variables defined inside this CTE
         cte_prefix = f"CTE:{v.name}"
         for inner in variables:
-            if inner.defined_in and (inner.defined_in == cte_prefix or inner.defined_in.startswith(cte_prefix)):
-                if inner.variable_type == VariableType.CTE_TABLE:
-                    continue  # skip the CTE itself
-                ek = (v.id, inner.id)
-                if ek not in seen_edges:
-                    seen_edges.add(ek)
-                    deps.append(VariableDependency(
-                        source_id=v.id, target_id=inner.id,
-                        relationship="BELONGS_TO", operation="TABLE_COLUMN",
-                        sql_context=f"CTE {v.name} → {inner.name}",
-                    ))
+            if inner.defined_in and (
+                inner.defined_in == cte_prefix
+                or inner.defined_in.startswith(cte_prefix)
+            ):
+                if inner.variable_type == VariableType.CTE:
+                    continue
+                _add_edge(v, inner, "SCHEMA", "TABLE_COLUMN")
 
-    # ── Pass 3: BELONGS_TO from VIRTUAL_TABLE → output columns ────────
-    # Only connect to variables explicitly in the SELECT clause (is_output=True).
-    # WHERE/HAVING condition columns are NOT output columns — they are inputs.
-    for vt in all_vts:
-        for v in variables:
-            if (v.context or "TOP") != (vt.context or "TOP"):
-                continue
-            if not v.is_output:
-                continue
-            if v.variable_type in (VariableType.DATABASE_TABLE, VariableType.CTE_TABLE,
-                                    VariableType.VIRTUAL_TABLE, VariableType.UNION_BRANCH):
-                continue
-            ek = (vt.id, v.id)
-            if ek not in seen_edges:
-                seen_edges.add(ek)
-                deps.append(VariableDependency(
-                    source_id=vt.id, target_id=v.id,
-                    relationship="BELONGS_TO", operation="OUTPUT",
-                    sql_context=f"output {vt.name} → {v.name}",
-                ))
+    # Pass 4c: Output-container → output columns
+    for ctx, anchors in vt_map.items():
+        for anchor in anchors:
+            for v in variables:
+                if (v.context or "TOP") != ctx:
+                    continue
+                if not v.is_output:
+                    continue
+                if v.variable_type in _TABLE_TYPES:
+                    continue
+                _add_edge(anchor, v, "SCHEMA", "OUTPUT")
 
-    # ── Phase 8: REFERENCES — bare column → defined variable ──────────
-    # Bare columns like "total_orders" in HAVING reference the aggregate
-    # "total_orders" defined in SELECT. Match by name and type.
+    # ══════════════════════════════════════════════════════════════════
+    # Phase 5: INDIRECT — bare column → defined variable (HAVING→SELECT)
+    # ══════════════════════════════════════════════════════════════════
     for v in variables:
-        if v.variable_type != VariableType.TABLE_COLUMN:
+        if v.variable_type != VariableType.COLUMN:
             continue
-        if v.source_columns:  # already has source — handled by Phase 1
+        if v.source_columns or "." in v.name:
             continue
-        if "." in v.name:     # qualified column — handled by BELONGS_TO
-            continue
-        # Find a defined variable with the same name (aggregate, window, case, etc.)
         for src in name_index.get(v.name, []):
-            if src.variable_type in (VariableType.AGGREGATE, VariableType.WINDOW_RESULT,
-                                      VariableType.CASE_RESULT, VariableType.FUNCTION_RESULT,
-                                      VariableType.INTERMEDIATE, VariableType.CTE_COLUMN):
-                ek = (src.id, v.id)
-                if ek not in seen_edges and src.id != v.id:
-                    seen_edges.add(ek)
-                    deps.append(VariableDependency(
-                        source_id=src.id, target_id=v.id,
-                        relationship="REFERENCES", operation="NAME_MATCH",
-                        sql_context=f"{src.name} → {v.name} (bare reference)",
-                    ))
-                    break  # one match is enough
+            if src.variable_type in (VariableType.AGGREGATE, VariableType.WINDOW,
+                                      VariableType.CASE, VariableType.TRANSFORM,
+                                      VariableType.EXPRESSION, VariableType.CTE_COLUMN):
+                _add_edge(src, v, "INDIRECT", "NAME_MATCH")
+                break
 
-    # ── Phase 9: OPERATES_ON — DML target table edges ─────────────────
-    # INSERT/UPDATE/DELETE/MERGE target tables should have edges from
-    # the columns that feed into the operation.
-    dml_tables = {}  # table_name → list of (table_var, operation_type)
+    # ══════════════════════════════════════════════════════════════════
+    # Phase 6: FILTER — WHERE/HAVING column → context anchor
+    # ══════════════════════════════════════════════════════════════════
+    # Only columns from WHERE, HAVING, or JOIN ON clauses. These influence
+    # which rows flow through without producing output data themselves.
+    # SELECT expression sources (like o.amount consumed by SUM) and
+    # general column references do NOT get FILTER edges.
+    _FILTER_CLAUSES = {"WHERE", "HAVING", "JOIN ON"}
     for v in variables:
-        if v.variable_type == VariableType.MERGE_TARGET:
-            dml_tables.setdefault(v.name, []).append((v, "MERGE"))
-        elif v.variable_type == VariableType.DATABASE_TABLE:
-            di = v.defined_in or ""
-            if "INSERT" in di.upper():
-                dml_tables.setdefault(v.name, []).append((v, "INSERT"))
-            elif "DELETE" in di.upper():
-                dml_tables.setdefault(v.name, []).append((v, "DELETE"))
-            elif "UPDATE" in di.upper():
-                dml_tables.setdefault(v.name, []).append((v, "UPDATE"))
+        if v.variable_type != VariableType.COLUMN:
+            continue
+        if v.is_output:
+            continue
+        if "." not in v.name:
+            continue
+        # Only columns from filter clauses
+        if (v.defined_in or "").upper().strip() not in _FILTER_CLAUSES:
+            continue
+        ctx = v.context or "TOP"
+        if ctx not in vt_map:
+            continue
+        anchor = vt_map[ctx][0]
+        _add_edge(v, anchor, "FILTER", "CONDITION")
 
-    for table_name, entries in dml_tables.items():
-        for tbl_var, op_type in entries:
-            # Find all columns that feed this operation (in same context)
-            ctx = tbl_var.context or "TOP"
-            ctx_vars = [v for v in variables if (v.context or "TOP") == ctx]
-            # Connect columns referenced in the same statement to the target
-            src_vars = [v for v in ctx_vars if v.variable_type == VariableType.TABLE_COLUMN and v.source_columns]
-            for src in src_vars[:30]:  # limit to avoid over-connecting
-                ek = (src.id, tbl_var.id)
-                if ek not in seen_edges and src.id != tbl_var.id:
-                    seen_edges.add(ek)
-                    deps.append(VariableDependency(
-                        source_id=src.id, target_id=tbl_var.id,
-                        relationship="OPERATES_ON", operation=op_type,
-                        sql_context=f"{src.name} → {op_type} {table_name}",
-                    ))
-
-    # ── Phase 11: bridge remaining components intelligently ──────
-    # Rule: if two components share a named column reference (explicit usage),
-    # connect them via that column (no COMPONENT_LINK). Only use COMPONENT_LINK
-    # when there is truly no named column shared between components.
-    p={v.id:v.id for v in variables}
-    def f(x):
-        while p[x]!=x:p[x]=p[p[x]];x=p[x]
+    # ══════════════════════════════════════════════════════════════════
+    # Phase 7: SUBSET — safety net for disconnected components
+    # ══════════════════════════════════════════════════════════════════
+    # Union-Find to find disconnected components, bridge them.
+    parent = {v.id: v.id for v in variables}
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
         return x
-    def u(a,b):
-        ra,rb=f(a),f(b)
-        if ra!=rb:p[ra]=rb
-    for d in deps:u(d.source_id,d.target_id)
-    c=defaultdict(list)
-    for v in variables:c[f(v.id)].append(v)
-    cl=sorted(c.values(),key=len,reverse=True)
-    if len(cl)>1:
-        # Build column name index for the main component
-        main_ids = {v.id for v in cl[0]}
-        main_cols = {v.name for v in cl[0]
-                     if v.variable_type == VariableType.TABLE_COLUMN}
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
 
-        for comp in cl[1:]:
-            # Try: find explicit column references between components
-            comp_ids = {v.id for v in comp}
-            comp_cols = {v.name for v in comp
-                         if v.variable_type == VariableType.TABLE_COLUMN}
-            shared = main_cols & comp_cols
+    for d in deps:
+        union(d.source_id, d.target_id)
 
-            # Try: find variables in comp whose source_columns point to main
-            found_link = False
+    comps = defaultdict(list)
+    for v in variables:
+        comps[find(v.id)].append(v)
+    comp_list = sorted(comps.values(), key=len, reverse=True)
+
+    if len(comp_list) > 1:
+        main_cols = {v.name for v in comp_list[0]
+                     if v.variable_type == VariableType.COLUMN}
+        for comp in comp_list[1:]:
+            found = False
             for v in comp:
                 for sc in v.source_columns:
-                    # Check if sc refers to a variable in the main component
-                    sc_var = next((x for x in cl[0] if x.name == sc), None)
+                    sc_var = next((x for x in comp_list[0] if x.name == sc), None)
                     if sc_var:
-                        ek = (sc_var.id, v.id)
-                        if ek not in seen_edges and sc_var.id != v.id:
-                            seen_edges.add(ek)
-                            deps.append(VariableDependency(
-                                source_id=sc_var.id, target_id=v.id,
-                                relationship="DIRECT_REFERENCE", operation="CROSS_COMP",
-                                sql_context=f"cross-component: {sc_var.name} → {v.name}"))
-                            found_link = True
-
-            if not found_link:
-                # No named column reference found — use COMPONENT_LINK
+                        _add_edge(sc_var, v, "REF", "CROSS_COMP")
+                        found = True
+            if not found:
                 a = next((v for v in comp
-                          if v.variable_type == VariableType.DATABASE_TABLE), comp[0])
-                m = cl[0][0]
-                ek = (a.id, m.id)
-                if ek not in seen_edges:
-                    seen_edges.add(ek)
-                    deps.append(VariableDependency(
-                        source_id=a.id, target_id=m.id,
-                        relationship="COMPONENT_LINK", operation="BRIDGE",
-                        sql_context=f"bridge {len(comp)}n → main (no named columns)"))
-    # ── Phase 12: ensure every node has ≥2 edges ─────────────────
+                         if v.variable_type == VariableType.TABLE), comp[0])
+                m = comp_list[0][0]
+                _add_edge(a, m, "SUBSET", "BRIDGE")
+
+    # ══════════════════════════════════════════════════════════════════
+    # Phase 8: Ensure ≥2 edges for non-table nodes
+    # ══════════════════════════════════════════════════════════════════
     from collections import Counter as _Ctr
     ec = _Ctr()
     for d in deps:
         ec[d.source_id] += 1
         ec[d.target_id] += 1
 
+    skip_if_connected = {VariableType.TABLE, VariableType.VIEW}
+
     for v in variables:
         if ec.get(v.id, 0) >= 2:
             continue
-        # Find anchor: VIRTUAL_TABLE in same context, parent context, or any VT
+        if v.variable_type in skip_if_connected and ec.get(v.id, 0) >= 1:
+            continue
         ctx = v.context or "TOP"
         anchor = next((x for x in variables
-                       if x.variable_type == VariableType.VIRTUAL_TABLE
-                       and (x.context or "TOP") == ctx), None)
-        # Try parent context (for nested CTEs)
+                       if x.variable_type in _TABLE_TYPES
+                       and (x.context or "TOP") == ctx
+                       and x.id != v.id), None)
         if not anchor and ":" in ctx:
             pctx = ctx.rsplit(":", 1)[0]
             anchor = next((x for x in variables
-                           if x.variable_type == VariableType.VIRTUAL_TABLE
-                           and (x.context or "TOP") == pctx), None)
-        # Fallback: any VT (skip if the node IS a VT itself and anchor is itself)
-        if not anchor:
-            anchor = next((x for x in variables
-                           if x.variable_type == VariableType.VIRTUAL_TABLE
+                           if x.variable_type in _TABLE_TYPES
+                           and (x.context or "TOP") == pctx
                            and x.id != v.id), None)
         if not anchor:
-            continue
-        # CONDITIONAL_USED can coexist with any edge type — no seen_edges check
-        if v.id != anchor.id:
-            deps.append(VariableDependency(
-                source_id=v.id, target_id=anchor.id,
-                relationship="CONDITIONAL_USED", operation="CONDITION",
-                sql_context=f"{v.name} → conditional input to {anchor.name}"))
+            anchor = next((x for x in variables
+                           if x.variable_type in _TABLE_TYPES
+                           and x.id != v.id), None)
+        if anchor:
+            _add_edge(v, anchor, "FILTER", "CONDITION")
 
     return deps
 
@@ -381,16 +350,16 @@ def _classify_relationship(
 ) -> str:
     """Classify the relationship type between two variables."""
     if target.variable_type in (VariableType.AGGREGATE,):
-        return "AGGREGATION"
-    if target.variable_type == VariableType.WINDOW_RESULT:
+        return "AGGREGATE"
+    if target.variable_type == VariableType.WINDOW:
         return "WINDOW"
-    if target.variable_type == VariableType.CASE_RESULT:
-        return "COMPUTED_FROM"
-    if target.variable_type == VariableType.FUNCTION_RESULT:
-        return "TRANSFORMATION"
+    if target.variable_type == VariableType.CASE:
+        return "COMPUTED"
+    if target.variable_type == VariableType.TRANSFORM:
+        return "TRANSFORM"
     if target.variable_type == VariableType.CTE_COLUMN and \
-       src.variable_type == VariableType.TABLE_COLUMN:
-        return "TRANSFORMATION"
-    if target.variable_type == VariableType.INTERMEDIATE:
-        return "TRANSFORMATION"
-    return "DIRECT_REFERENCE"
+       src.variable_type == VariableType.COLUMN:
+        return "TRANSFORM"
+    if target.variable_type == VariableType.EXPRESSION:
+        return "TRANSFORM"
+    return "REF"

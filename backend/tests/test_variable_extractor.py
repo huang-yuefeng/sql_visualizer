@@ -65,7 +65,7 @@ class TestSimpleVariableExtraction:
     def test_extract_database_tables(self, sql_simple):
         """Physical database tables should be identified."""
         result = extract_variables_from_sql(sql_simple, "test_simple")
-        tables = [v for v in result.variables if v.variable_type == VariableType.DATABASE_TABLE]
+        tables = [v for v in result.variables if v.variable_type == VariableType.TABLE]
         table_names = [t.name for t in tables]
         assert "gps_settlement_batches" in table_names, \
             f"Should find gps_settlement_batches, got: {table_names}"
@@ -75,7 +75,7 @@ class TestSimpleVariableExtraction:
         result = extract_variables_from_sql(sql_simple, "test_simple")
         # 'batch_total_amount' = sb.total_amount AS batch_total_amount → TABLE_COLUMN (bare column alias)
         # 'record_type' = 'SETTLEMENT' AS record_type → LITERAL
-        columns = [v for v in result.variables if v.variable_type == VariableType.TABLE_COLUMN]
+        columns = [v for v in result.variables if v.variable_type == VariableType.COLUMN]
         col_names = [v.name for v in columns]
         assert "batch_total_amount" in col_names, \
             f"Should find 'batch_total_amount' as TABLE_COLUMN, got: {col_names}"
@@ -113,7 +113,7 @@ class TestCTEVariableExtraction:
     def test_extract_cte_tables(self, sql_cte_chain):
         """CTE aliases should be identified as CTE_TABLE type."""
         result = extract_variables_from_sql(sql_cte_chain, "test_cte")
-        cte_tables = [v for v in result.variables if v.variable_type == VariableType.CTE_TABLE]
+        cte_tables = [v for v in result.variables if v.variable_type == VariableType.CTE]
         cte_names = [v.name for v in cte_tables]
         assert "batch_summary" in cte_names, f"Got CTE tables: {cte_names}"
         assert "recon_data" in cte_names, f"Got CTE tables: {cte_names}"
@@ -145,7 +145,7 @@ class TestWindowFunctionExtraction:
     def test_extract_window_results(self, sql_window):
         """Window functions should create WINDOW_RESULT variables."""
         result = extract_variables_from_sql(sql_window, "test_window")
-        windows = [v for v in result.variables if v.variable_type == VariableType.WINDOW_RESULT]
+        windows = [v for v in result.variables if v.variable_type == VariableType.WINDOW]
         window_names = [v.name for v in windows]
         for name in ["txn_row_num", "cumulative_amount", "prev_amount", "next_amount", "amount_rank"]:
             assert name in window_names, f"Should find '{name}' in {window_names}"
@@ -159,7 +159,7 @@ class TestCaseExtraction:
     def test_extract_case_results(self, sql_case_nested):
         """CASE expressions should create CASE_RESULT variables."""
         result = extract_variables_from_sql(sql_case_nested, "test_case")
-        cases = [v for v in result.variables if v.variable_type == VariableType.CASE_RESULT]
+        cases = [v for v in result.variables if v.variable_type == VariableType.CASE]
         case_names = [v.name for v in cases]
         assert "risk_category" in case_names, f"Got CASE results: {case_names}"
 
@@ -172,7 +172,7 @@ class TestFunctionResultExtraction:
     def test_extract_function_results(self, sql_case_nested):
         """COALESCE/CAST/JSON_EXTRACT should create FUNCTION_RESULT variables."""
         result = extract_variables_from_sql(sql_case_nested, "test_case")
-        funcs = [v for v in result.variables if v.variable_type == VariableType.FUNCTION_RESULT]
+        funcs = [v for v in result.variables if v.variable_type == VariableType.TRANSFORM]
         func_names = [v.name for v in funcs]
         assert "aml_review_status" in func_names, f"Got function results: {func_names}"
 
@@ -197,7 +197,7 @@ class TestUnionExtraction:
         """UNION ALL statements should be handled without error."""
         result = extract_variables_from_sql(sql_union, "test_union")
         assert len(result.variables) > 0, "Should extract variables from UNION query"
-        cte_tables = [v for v in result.variables if v.variable_type == VariableType.CTE_TABLE]
+        cte_tables = [v for v in result.variables if v.variable_type == VariableType.CTE]
         cte_names = [v.name for v in cte_tables]
         assert "merchant_activity" in cte_names or "combined_activity" in cte_names, \
             f"Should find CTEs, got: {cte_names}"

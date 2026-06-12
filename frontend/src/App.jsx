@@ -1,19 +1,22 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import cytoscape from 'cytoscape';
+import fcose from 'cytoscape-fcose';
+cytoscape.use(fcose);
 import * as api from './api/client';
 import { NODE_STYLES, LAYOUT_OPTIONS } from './utils/graphStyles';
 
 const C = {
-  database_table:'#4A90D9',table_column:'#A8D4FF',cte_table:'#5CB85C',
-  cte_column:'#8FD98F',intermediate:'#F0AD4E',window_result:'#967ADC',
-  aggregate:'#37BC9B',case_result:'#D770AD',function_result:'#FFCE54',
-  literal:'#CCCCCC',merge_target:'#DA4453',union_branch:'#E6E9ED',subquery_result:'#AC92EC',
+  script:'#F39C12',
+  table:'#4A90D9',view:'#5DADE2',column:'#A8D4FF',cte:'#5CB85C',
+  cte_column:'#8FD98F',expression:'#F0AD4E',window:'#967ADC',
+  aggregate:'#37BC9B',case:'#D770AD',transform:'#FFCE54',
+  literal:'#CCCCCC',merge_target:'#DA4453',union_branch:'#E6E9ED',subquery:'#AC92EC',
   virtual_table:'#2ECC71',
 };
-const EC = {BELONGS_TO:'#8AB4F8',ALIAS_OF:'#1ABC9C',FEEDS_INTO:'#2ECC71',DIRECT_REFERENCE:'#9AA0A6',AGGREGATION:'#37BC9B',TRANSFORMATION:'#F0AD4E',WINDOW:'#967ADC',COMPUTED_FROM:'#D770AD',REFERENCES:'#5DADE2',OPERATES_ON:'#E74C3C',COMPONENT_LINK:'#E67E22'};
+const EC = {TABLE_FLOW:'#2ECC71',SCHEMA:'#8AB4F8',ALIAS:'#1ABC9C',REF:'#9AA0A6',AGGREGATE:'#37BC9B',TRANSFORM:'#F0AD4E',WINDOW:'#967ADC',COMPUTED:'#D770AD',INDIRECT:'#5DADE2',DML:'#E74C3C',SUBSET:'#E67E22',FILTER:'#3498DB',SET_OP:'#9B59B6'};
 
-const VT = [{value:'',label:'All Types'},{value:'database_table',label:'Table',desc:'Physical table or alias'},{value:'cte_table',label:'CTE',desc:'Temporary result set (WITH ... AS)'},{value:'virtual_table',label:'Output',desc:'Result of a SELECT statement'},{value:'merge_target',label:'Merge',desc:'Target table in MERGE INTO'},{value:'union_branch',label:'Union',desc:'One arm of UNION ALL'},{value:'table_column',label:'Column',desc:'A column read from a table'},{value:'cte_column',label:'CTE Col',desc:'Column inside a CTE definition'},{value:'aggregate',label:'Aggregate',desc:'SUM, COUNT, AVG, MIN, MAX'},{value:'window_result',label:'Window',desc:'ROW_NUMBER, RANK, LAG, SUM OVER'},{value:'case_result',label:'If-Then',desc:'CASE WHEN ... THEN ... END'},{value:'function_result',label:'Function',desc:'COALESCE, CAST, CONCAT result'},{value:'intermediate',label:'Computed',desc:'Expression like (a+b) AS total'},{value:'subquery_result',label:'Subquery',desc:'Scalar subquery result'},{value:'literal',label:'Constant',desc:'String or number literal'}];
-const ET = [{value:'',label:'All Edges'},{value:'BELONGS_TO',label:'Owns',desc:'Table owns this column'},{value:'ALIAS_OF',label:'Alias',desc:'Alias → original table name'},{value:'FEEDS_INTO',label:'Input',desc:'Table feeds into SELECT output'},{value:'DIRECT_REFERENCE',label:'Ref',desc:'Direct column reference'},{value:'AGGREGATION',label:'Agg',desc:'Column → SUM/COUNT/AVG'},{value:'TRANSFORMATION',label:'Xform',desc:'Column → function result'},{value:'WINDOW',label:'Window',desc:'Column → window function'},{value:'COMPUTED_FROM',label:'Compute',desc:'Column → CASE expression'},{value:'REFERENCES',label:'NameRef',desc:'HAVING ref → SELECT definition'},{value:'OPERATES_ON',label:'DML',desc:'Column → INSERT/UPDATE/DELETE'},{value:'COMPONENT_LINK',label:'Bridge',desc:'Cross-scope connection'}];
+const VT = [{value:'',label:'All Types'},{value:'script',label:'Script',desc:'Entire SQL script (multi-view)'},{value:'table',label:'Table',desc:'TABLE, TEMP TABLE, FOREIGN DATA WRAPPER'},{value:'view',label:'View',desc:'VIEW, MATERIALIZED VIEW (virtual source)'},{value:'virtual_table',label:'Output',desc:'Result of a SELECT / JOIN statement'},{value:'cte',label:'CTE',desc:'Common Table Expression (WITH ... AS)'},{value:'subquery',label:'Subquery',desc:'SUBQUERY in FROM / JOIN'},{value:'merge_target',label:'Merge',desc:'Target table in MERGE INTO'},{value:'union_branch',label:'Union',desc:'UNION / INTERSECT / EXCEPT branch'},{value:'column',label:'Column',desc:'Column reference: table.column or bare name'},{value:'cte_column',label:'CTE Col',desc:'Column inside a CTE definition'},{value:'aggregate',label:'Aggregate',desc:'SUM, COUNT, AVG, MIN, MAX'},{value:'window',label:'Window',desc:'ROW_NUMBER, RANK, LAG, SUM OVER'},{value:'case',label:'Case',desc:'CASE WHEN ... THEN ... END'},{value:'transform',label:'Transform',desc:'COALESCE, CAST, CONCAT result'},{value:'expression',label:'Expression',desc:'Computed alias like (a+b) AS total'},{value:'literal',label:'Constant',desc:'String or number literal'}];
+const ET = [{value:'',label:'All Edges'},{value:'TABLE_FLOW',label:'TABLE_FLOW',desc:'Table-to-table data flow (high-level)'},{value:'SCHEMA',label:'SCHEMA',desc:'Column belongs to table'},{value:'ALIAS',label:'ALIAS',desc:'Alias → original name'},{value:'REF',label:'REF',desc:'Direct column reference'},{value:'AGGREGATE',label:'AGGREGATE',desc:'SUM/COUNT/AVG'},{value:'TRANSFORM',label:'TRANSFORM',desc:'COALESCE/CAST'},{value:'WINDOW',label:'WINDOW',desc:'Window function'},{value:'COMPUTED',label:'COMPUTED',desc:'CASE WHEN expression'},{value:'INDIRECT',label:'INDIRECT',desc:'HAVING→SELECT ref'},{value:'FILTER',label:'FILTER',desc:'WHERE/HAVING condition'},{value:'DML',label:'DML',desc:'INSERT/UPDATE/DELETE'},{value:'SET_OP',label:'SET_OP',desc:'UNION/INTERSECT/EXCEPT'},{value:'SUBSET',label:'SUBSET',desc:'Disconnected component bridge'}];
 
 export default function App() {
   const [scripts, setScripts] = useState([]);
@@ -36,10 +39,17 @@ export default function App() {
   const ioRef = useRef(null);
   const [csvName, setCsvName] = useState('');
   const [csvContent, setCsvContent] = useState('');
-  const [viewMode, setViewMode] = useState('full'); // 'full' | 'compact' | 'tables'
-  const [multiView, setMultiView] = useState(null);  // multi-script meta-graph
+  const [viewMode, setViewMode] = useState('tables'); // 'tables' | 'full'
+  const [multiView, setMultiView] = useState(null);
   const multiRef = useRef(null);
-  const [multiDetail, setMultiDetail] = useState(null); // selected sub-script detail
+  const [multiDetail, setMultiDetail] = useState(null);
+  const multiCyRef = useRef(null);
+  const multiDtlRef = useRef(null);
+  const [showInfo, setShowInfo] = useState(true);
+  const [filterTables, setFilterTables] = useState(null);
+  const filterRef = useRef(null);
+  const multiGraphCache = useRef({});
+  
 
   useEffect(() => { api.listScripts().then(setScripts).catch(()=>{}); fetch('/api/health').then(r=>r.json()).then(d=>setVersion(d.version)).catch(()=>{}); }, []);
 
@@ -47,8 +57,14 @@ export default function App() {
     if (!s) return;
     setLoading(true); setProg({s:'Loading...',p:10});
     try {
-      const d = await api.getGraph(s.script_id, true);
-      setGd(d); setProg({s:'',p:0});
+      // Check multi-view cache first
+      let d = multiGraphCache.current[s.script_id];
+      if (!d) {
+        d = await api.getGraph(s.script_id, true);
+        if (d) multiGraphCache.current[s.script_id] = d;
+      }
+      if (!d) { setProg({s:'Not found',p:0}); setLoading(false); return; }
+      setGd(d); setProg({s:'',p:0}); setShowInfo(true);
       const vi={}; d.nodes.forEach(n=>{vi[n.data.id]=n.data;}); viR.current=vi;
       snipR.current = (d.snippets||{});
       const di={}; d.edges.forEach(e=>{di[`${e.data.source}→${e.data.target}`]=e.data;}); diR.current=di;
@@ -61,38 +77,52 @@ export default function App() {
   useEffect(() => {
     // Multi-script view: render meta-graph or detail
     let data = ioGraph || gd;
-    if (multiView && !multiDetail) {
-      data = {nodes: multiView.meta_nodes, edges: multiView.meta_edges};
+    // Priority: ioGraph > single script > multi detail > multi overview
+    if (ioGraph) {
+      data = ioGraph;
+    } else if (sel && gd) {
+      data = gd;  // single script view — sidebar selection overrides multi
     } else if (multiDetail) {
-      data = multiDetail.graph;  // full graph of selected sub-script
+      data = multiDetail.graph;
+    } else if (multiView) {
+      // Apply filter: only show scripts + tables matching filter tables
+      let filteredNodes = multiView.meta_nodes;
+      let filteredEdges = multiView.meta_edges;
+      if (filterTables && filterTables.length > 0) {
+        const allowedScripts = new Set();
+        multiView.scripts.forEach(s => {
+          const allTbls = new Set([...s.input_tables, ...s.output_tables]);
+          if (filterTables.some(ft => allTbls.has(ft))) {
+            allowedScripts.add(s.script_id);
+          }
+        });
+        filteredNodes = multiView.meta_nodes.filter(n =>
+          allowedScripts.has(n.data.id));
+        const nodeIds = new Set(filteredNodes.map(n => n.data.id));
+        filteredEdges = multiView.meta_edges.filter(e =>
+          nodeIds.has(e.data.source) && nodeIds.has(e.data.target));
+      }
+      data = {nodes: filteredNodes, edges: filteredEdges};
     }
     if (!data || !ctR.current) return;
     if (cyR.current) cyR.current.destroy();
 
-    const renderNodes = data.nodes.map(n => ({...n, data: {...n.data}}));
-    const renderEdges = [...data.edges];
+    let renderNodes = data.nodes.map(n => ({...n, data: {...n.data}}));
+    let renderEdges = [...data.edges];
 
-    // Compact mode: hide column children, show only parent tables + non-column nodes
-    if (viewMode === 'compact') {
-      for (const n of renderNodes) {
-        if (n.data.parent || n.data.variable_type === 'table_column') {
-          n.classes = 'hidden-node';
-        }
-      }
-    } else if (viewMode === 'tables') {
-      // Hide everything except table/CTE/VT nodes
-      for (const n of renderNodes) {
-        if (n.data.variable_type !== 'database_table' && n.data.variable_type !== 'cte_table' && n.data.variable_type !== 'virtual_table') {
-          n.classes = 'hidden-node';
-        }
-      }
+    // Tables view: only show table-like nodes, filter out columns + computed
+    if (viewMode === 'tables' && sel && gd) {
+      const tableTypes = new Set(['table','view','cte','virtual_table','merge_target','subquery','union_branch']);
+      renderNodes = renderNodes.filter(n => tableTypes.has(n.data.variable_type));
+      const nodeIds = new Set(renderNodes.map(n => n.data.id));
+      renderEdges = renderEdges.filter(e => nodeIds.has(e.data.source) && nodeIds.has(e.data.target));
     }
 
+    // Create Cytoscape empty, add elements + layout in one batch to avoid flash
     const cy = cytoscape({
       container: ctR.current,
-      elements: [...renderNodes, ...renderEdges],
-      style: [...NODE_STYLES, {selector:'.hidden-node',style:{'display':'none'}}],
-      layout: {name:'cose',...LAYOUT_OPTIONS},
+      elements: [],
+      style: [...NODE_STYLES],
       wheelSensitivity: 0.3,
       // Performance settings for large graphs
       pixelRatio: viewMode==='tables'?1:1.5,
@@ -100,15 +130,44 @@ export default function App() {
       hideEdgesOnViewport: viewMode==='full',
       hideLabelsOnViewport: viewMode==='full',
     });
-    cy.on('mouseover','node',e=>{e.target.closedNeighborhood().removeClass('dimmed');cy.elements().not(e.target.closedNeighborhood()).addClass('dimmed');const vt=e.target.data('variable_type');if(vt){const d=tipDesc[vt]||vt;setTip({show:true,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10,text:d});}});
+    cy.on('mouseover','node',e=>{
+      e.target.closedNeighborhood().removeClass('dimmed');
+      cy.elements().not(e.target.closedNeighborhood()).addClass('dimmed');
+      const nd = e.target.data();
+      // Meta-graph: show I/O summary on hover
+      if (nd.type === 'script_circle') {
+        const sc = multiView?.scripts?.find(s=>s.script_id===nd.id);
+        const ins = sc?.input_tables?.join(', ') || '(none)';
+        const outs = sc?.output_tables?.join(', ') || '(none)';
+        setTip({show:true,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10,
+          text:`${nd.label}\n📥 in: ${ins}\n📤 out: ${outs}\nClick to open`});
+      } else {
+        const vt = nd.variable_type;
+        if (vt) { const d = tipDesc[vt]||vt; setTip({show:true,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10,text:d}); }
+      }
+    });
     cy.on('mousemove','node',e=>{if(tip.show)setTip(t=>({...t,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10}));});
     cy.on('mouseout','node',()=>{cy.elements().removeClass('dimmed');setTip({show:false,x:0,y:0,text:''});});
     cy.on('tap','node',e=>{
-      const id=e.target.id(); const eds=(data?.edges||[]).filter(x=>x.data.source===id||x.data.target===id);
+      const id=e.target.id(); const nd=e.target.data();
+      // Meta-graph nodes handled by multi-view specific handler below
+      if (multiView && nd.type === 'script_circle') {
+        return;  // handled by multi-view tap handler
+      }
+      const eds=(data?.edges||[]).filter(x=>x.data.source===id||x.data.target===id);
       const vi=ioGraph?{}:viR.current;
       setPanel({type:'node',id,node:vi[id]||{label:id},edges:eds.map(x=>({sid:x.data.source,tid:x.data.target,rel:x.data.relationship})),title:vi[id]?.label||id});
     });
-    cy.on('mouseover','edge',e=>{const r=e.target.data('relationship');if(r){const d=edgeDesc[r]||r;setTip({show:true,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10,text:d});}});
+    cy.on('mouseover','edge',e=>{
+      const ed = e.target.data();
+      // Meta-graph edges: show edge type
+      if (ed.edge_type) {
+        const descs = {data_lineage:'📤→📥 Data lineage: output→input', shared_input:'📥 Shared input table', shared_var:'🔗 Shared variable name'};
+        setTip({show:true,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10,text:descs[ed.edge_type]||ed.edge_type});
+      } else {
+        const r = ed.relationship; if(r){const d=edgeDesc[r]||r;setTip({show:true,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10,text:d});}
+      }
+    });
     cy.on('mousemove','edge',e=>{if(tip.show)setTip(t=>({...t,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10}));});
     cy.on('mouseout','edge',()=>{setTip({show:false,x:0,y:0,text:''});});
     cy.on('tap','edge',e=>{
@@ -125,19 +184,69 @@ export default function App() {
         setPanel({type:'edge',sid,tid,edge:edge||{source:sid,target:tid,relationship:'',operation:''},src:viR.current[sid],tgt:viR.current[tid],title:`${viR.current[sid]?.label||sid} → ${viR.current[tid]?.label||tid}`});
       }
     });
-    // Meta-graph: click a script node to see its detail in side panel
-    if (multiView && !multiDetail) {
-      cy.on('tap','node',async e=>{
-        const sid=e.target.id(); const sc=multiView.scripts.find(s=>s.script_id===sid);
-        if(sc){ setLoading(true); try{ const g=await api.getGraph(sid,true); setMultiDetail({...sc,graph:g}); }catch{} finally{setLoading(false);} }
+    // Meta-graph: click script parent → highlight + show detail in panel
+    if (multiView) {
+      // Tap script circle → open as single script view
+      cy.on('tap','node',e=>{
+        const nd = e.target.data();
+        if (nd.type !== 'script_circle') return;
+        const sc = multiView.scripts.find(s=>s.script_id===nd.id);
+        if (!sc || !sc.graph) return;
+        // Force fresh object reference so React detects the change
+        const entry = {script_id: sc.script_id, script_name: sc.script_name,
+                       total_variables: sc.total_variables, total_dependencies: sc.total_dependencies};
+        const graphCopy = JSON.parse(JSON.stringify(sc.graph));
+        multiGraphCache.current[sc.script_id] = graphCopy; // cache for sidebar nav
+        setSel({...entry}); setGd(graphCopy); setShowInfo(true); setPanel(null);
+        const vi={}; graphCopy.nodes.forEach(n=>{vi[n.data.id]=n.data;}); viR.current=vi;
+        const di={}; graphCopy.edges.forEach(e=>{di[`${e.data.source}→${e.data.target}`]=e.data;}); diR.current=di;
+        setIoGraph(null); setIoPaths([]);
+        setScripts(prev => {
+          if (prev.some(s=>s.script_id===sc.script_id)) return prev;
+          return [{...entry, analyzed_at: ''}, ...prev];
+        });
       });
-      // Double-click to open full view
-      cy.on('dbltap','node',e=>{
-        const sid=e.target.id(); const sc=multiView.scripts.find(s=>s.script_id===sid);
-        if(sc && multiDetail) setMultiDetail(null);  // toggle off
+      // Tap edge → show lineage info
+      cy.on('tap','edge',e=>{
+        const ed = e.target.data();
+        if (ed.edge_type) {
+          setPanel({type:'meta_edge', edge:ed,
+            title: ed.edge_type==='data_lineage'?'📤→📥 Data Lineage':'📥 Shared Input'});
+        }
       });
     }
     cyR.current=cy;
+    const runLayout = () => {
+      const w = ctR.current?.clientWidth || 0;
+      if (w > 0) {
+        cy.batch(() => {
+          cy.add([...renderNodes, ...renderEdges]);
+          if (multiView) {
+            const n = renderNodes.length;
+            const e = renderEdges.length;
+            const dense = e / Math.max(n, 1) > 1.5;
+            if (dense) {
+              // Dense graph: grid guarantees no overlap, instant
+              const cols = Math.ceil(Math.sqrt(n * 1.5));
+              const sp = 70;
+              cy.nodes().forEach((nd, i) => {
+                nd.position({x: (i % cols) * sp + 30, y: Math.floor(i / cols) * sp + 30});
+              });
+              cy.fit(undefined, 30);
+              cy.minZoom(0.05); cy.maxZoom(3);
+            } else {
+              // Sparse graph: cose defaults
+              cy.layout({name:'cose', animate: true, fit: true, padding: 30}).run();
+            }
+          } else {
+            cy.layout({name:'cose',...LAYOUT_OPTIONS}).run();
+          }
+        });
+      } else {
+        requestAnimationFrame(runLayout);
+      }
+    };
+    requestAnimationFrame(runLayout);
     return ()=>{cy.destroy();};
   },[gd,ioGraph,ioPaths,viewMode,multiView,multiDetail]);
 
@@ -169,42 +278,56 @@ export default function App() {
       <header className="app-header">
         <h1>GPS SQL Data Flow Visualizer {version && <span style={{fontSize:'0.6rem',color:'#666',fontWeight:400}}>v{version}</span>}</h1>
         <div className="header-actions">
-          <label className="btn btn-primary" style={{cursor:'pointer'}}>Upload SQL<input ref={flR} type="file" accept=".sql,.txt" onChange={upload} hidden/></label>
-          <button className="btn btn-secondary" onClick={paste}>Paste SQL</button>
-          <button className="btn btn-outline" onClick={()=>{if(cyR.current)cyR.current.fit(undefined,50)}}>Fit</button>
-          <label className="btn btn-outline" style={{cursor:'pointer'}}>Multi<input ref={multiRef} type="file" accept=".sql,.txt" multiple onChange={async e=>{
+          <label className="btn btn-primary" style={{cursor:'pointer'}}>Multi SQL<input ref={multiRef} type="file" accept=".sql,.txt" multiple onChange={async e=>{
             const fs=[...e.target.files]; if(fs.length<2) return;
-            setLoading(true); setProg({s:'Analyzing scripts...',p:30});
+            setLoading(true); const total=fs.length; const t0=Date.now();
+            setProg({s:`Analyzing 0/${total}...`,p:0});
+            // Progress timer
+            const timer=setInterval(()=>{
+              const elapsed=((Date.now()-t0)/1000).toFixed(1);
+              setProg(p=>({...p,s:`Analyzing ${total} scripts... ${elapsed}s`}));
+            },200);
             try{
               const fd=new FormData(); fs.forEach(f=>fd.append('files',f));
               const r=await fetch('/api/analyze_multi',{method:'POST',body:fd});
-              const d=await r.json(); setMultiView(d); setMultiDetail(null);
-              setProg({s:'',p:0});
+              const d=await r.json(); setMultiView(d); setMultiDetail(null); setFilterTables(null); setSel(null); setGd(null); setIoGraph(null); setIoPaths([]); setPanel(null); api.listScripts().then(setScripts).catch(()=>{});
+              setProg({s:`Done in ${((Date.now()-t0)/1000).toFixed(1)}s`,p:100});
+              setTimeout(()=>setProg({s:'',p:0}),1500);
             }catch{setProg({s:'',p:0});}
-            finally{setLoading(false);}
+            finally{clearInterval(timer);setLoading(false);}
             e.target.value='';
           }} hidden/></label>
+          <label className="btn btn-secondary" style={{cursor:'pointer'}}>Single SQL<input ref={flR} type="file" accept=".sql,.txt" onChange={upload} hidden/></label>
+          <button className="btn btn-secondary" onClick={paste}>Paste SQL</button>
+          {(multiView||sel) && <label className="btn btn-outline" style={{cursor:'pointer'}}>Filter<input ref={filterRef} type="file" accept=".csv,.txt" onChange={async e=>{
+            const f=e.target.files?.[0];if(!f)return;
+            const text=await f.text();
+            if (multiView) {
+              // Multi-script: filter by table names
+              const tables=text.split(/[\n,]/).map(s=>s.trim()).filter(s=>s.length>0);
+              setFilterTables(tables.length>0?tables:null);
+            } else if (sel) {
+              // Single-script: IO graph path finding
+              setCsvName(f.name);setCsvContent(text);
+              setIoGraph(null);setIoPaths([]);
+              const fd=new FormData();fd.append('csv_file',f);
+              setLoading(true);setProg({s:'Building IO graph...',p:50});
+              try{
+                const r=await fetch(`/api/scripts/${sel.script_id}/io_graph`,{method:'POST',body:fd});
+                const d=await r.json();setIoGraph(d);setIoPaths(d.paths||[]);
+                setProg({s:'',p:0});
+              }catch{setProg({s:'',p:0});}
+              finally{setLoading(false);}
+            }
+            e.target.value='';
+          }} hidden/></label>}
+          {multiView && filterTables && <button className="btn btn-outline" onClick={()=>setFilterTables(null)} style={{color:'#2ECC71'}}>✕ Filter</button>}
           {sel && <button className="btn btn-outline" onClick={()=>setShowSQL(!showSQL)}>{showSQL?'Hide SQL':'Show SQL'}</button>}
           {sel && <select className="type-select" style={{width:'auto',marginTop:0,padding:'4px 8px'}} value={viewMode} onChange={e=>setViewMode(e.target.value)}>
-            <option value="full">Full</option><option value="compact">Compact</option><option value="tables">Tables</option>
+            <option value="tables">Tables</option><option value="full">Full</option>
           </select>}
-          {sel && <label className="btn btn-outline" style={{cursor:'pointer'}}>IO Graph<input ref={ioRef} type="file" accept=".csv" onChange={async e=>{
-            const f=e.target.files?.[0];if(!f)return;
-            setCsvName(f.name);setCsvContent(await f.text());
-            setIoGraph(null);setIoPaths([]); // clear old graph before loading new
-            const fd=new FormData();fd.append('csv_file',f);
-            setLoading(true);setProg({s:'Building IO graph...',p:50});
-            try{
-              const r=await fetch(`/api/scripts/${sel.script_id}/io_graph`,{method:'POST',body:fd});
-              const d=await r.json();setIoGraph(d);setIoPaths(d.paths||[]);
-              setProg({s:'',p:0});
-            }catch{setProg({s:'',p:0});}
-            finally{setLoading(false);}
-            e.target.value=''; // reset so same file can be re-selected
-          }} hidden/></label>}
-          {multiView && <button className="btn btn-outline" onClick={()=>setMultiDetail(null)}>Overview</button>}
-          {multiView && <button className="btn btn-outline" onClick={()=>{setMultiView(null);setMultiDetail(null)}}>Exit Multi</button>}
-          {ioGraph && <button className="btn btn-outline" onClick={()=>{setIoGraph(null);setIoPaths([]);setCsvName('');setCsvContent('')}}>Exit IO View</button>}
+          <button className="btn btn-outline" onClick={()=>{if(cyR.current)cyR.current.fit(undefined,50)}}>Fit</button>
+          {ioGraph && <button className="btn btn-outline" onClick={()=>{setIoGraph(null);setIoPaths([]);setCsvName('');setCsvContent('')}}>Exit IO</button>}
         </div>
       </header>
       {pshow&&<div className="progress-bar-wrap"><div className="progress-bar-fill" style={{width:`${prog.p}%`}}/><span className="progress-label">{prog.s}</span></div>}
@@ -212,33 +335,54 @@ export default function App() {
         <aside className="sidebar">
           <h3>Scripts</h3>
           <div className="script-list">
+            {multiView && <div className={`script-item ${!sel?'active':''}`} style={{borderColor:'#F39C12'}} onClick={()=>{setSel(null);setMultiDetail(null);setPanel(null);setShowInfo(true);setIoGraph(null);setIoPaths([]);setGd(null)}}>
+              <div className="script-name" style={{color:'#F39C12'}}>📊 Multi ({multiView.scripts.length} scripts)</div>
+              <div className="script-meta">{multiView.meta_edges.filter(e=>e.data.edge_type==='data_lineage').length} lineage links</div>
+            </div>}
             {scripts.map(s=><div key={s.script_id} className={`script-item ${sel?.script_id===s.script_id?'active':''}`} onClick={()=>setSel(s)}><div className="script-name">{s.script_name}</div><div className="script-meta">{s.total_variables}v · {s.total_dependencies}e</div></div>)}
-            {scripts.length===0&&<div className="empty-state">Upload a SQL script to begin</div>}
+            {!multiView&&scripts.length===0&&<div className="empty-state">Upload a SQL script to begin</div>}
           </div>
           {sel&&<div className="filter-panel"><h3>Filter Nodes</h3><input type="text" placeholder="Search..." value={sq} onChange={e=>setSq(e.target.value)} className="search-input"/><select value={tf} onChange={e=>setTf(e.target.value)} className="type-select">{VT.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</select><h3 style={{marginTop:8}}>Filter Edges</h3><select value={ef} onChange={e=>setEf(e.target.value)} className="type-select">{ET.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</select></div>}
-          <div className="legend-panel"><h3>Nodes <span style={{fontSize:'0.6rem',color:'#666'}}>hover for info</span></h3><div className="legend-cat">── Tables ──</div>{VT.filter(t=>['database_table','cte_table','virtual_table','merge_target','union_branch'].includes(t.value)).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><LegendIcon type={t.value}/><span className="legend-label">{t.label}</span></span>)}<div className="legend-cat">── Columns ──</div>{VT.filter(t=>['table_column','cte_column'].includes(t.value)).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><LegendIcon type={t.value}/><span className="legend-label">{t.label}</span></span>)}<div className="legend-cat">── Expressions ──</div>{VT.filter(t=>!['','database_table','cte_table','virtual_table','merge_target','union_branch','table_column','cte_column'].includes(t.value)).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><LegendIcon type={t.value}/><span className="legend-label">{t.label}</span></span>)}<h3 style={{marginTop:10}}>Edges</h3>{ET.filter(t=>t.value).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><span className="legend-color" style={{background:EC[t.value]||'#555',width:14,height:3,borderRadius:1,marginLeft:4}}/><span className="legend-label">{t.label}</span></span>)}</div>
+          <div className="legend-panel"><h3>Nodes <span style={{fontSize:'0.6rem',color:'#666'}}>hover for info</span></h3><div className="legend-cat">── Script ──</div>{VT.filter(t=>['script'].includes(t.value)).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><LegendIcon type={t.value}/><span className="legend-label">{t.label}</span></span>)}<div className="legend-cat">── Tables ──</div>{VT.filter(t=>['table','view','virtual_table','cte','subquery','merge_target','union_branch'].includes(t.value)).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><LegendIcon type={t.value}/><span className="legend-label">{t.label}</span></span>)}<div className="legend-cat">── Columns ──</div>{VT.filter(t=>['column','cte_column'].includes(t.value)).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><LegendIcon type={t.value}/><span className="legend-label">{t.label}</span></span>)}<div className="legend-cat">── Computed ──</div>{VT.filter(t=>!['','script','table','view','virtual_table','cte','subquery','merge_target','union_branch','column','cte_column'].includes(t.value)).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><LegendIcon type={t.value}/><span className="legend-label">{t.label}</span></span>)}<h3 style={{marginTop:10}}>Edges</h3>{ET.filter(t=>t.value).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><span className="legend-color" style={{background:EC[t.value]||'#555',width:14,height:3,borderRadius:1,marginLeft:4}}/><span className="legend-label">{t.label}</span></span>)}</div>
         </aside>
         <main className="main-area">
-          {multiView&&!multiDetail&&<div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'6px 12px',borderRadius:4,fontSize:'0.7rem',color:'#F39C12',zIndex:5}}>Overview — {multiView.scripts.length} scripts, {Object.keys(multiView.shared_vars).length} shared vars</div>}
+          {multiView&&(()=>{
+            const lineageEdges=multiView.meta_edges.filter(e=>e.data.edge_type==='data_lineage').length;
+            const inputEdges=multiView.meta_edges.filter(e=>e.data.edge_type==='shared_input').length;
+            const shown=filterTables?multiView.scripts.filter(s=>{const all=new Set([...s.input_tables,...s.output_tables]);return filterTables.some(ft=>all.has(ft));}).length:multiView.scripts.length;
+            return <div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'6px 10px',borderRadius:4,fontSize:'0.65rem',color:'#F39C12',zIndex:5,lineHeight:1.4}}>
+              <b>{shown}/{multiView.scripts.length} scripts</b> | 🟢 {lineageEdges} lineage &nbsp; 🔵 {inputEdges} shared
+              {filterTables && <span style={{color:'#2ECC71'}}> | 🔍 {filterTables.join(', ')}</span>}<br/>
+              <span style={{color:'#888',fontSize:'0.55rem'}}>Click a circle to open &nbsp;|&nbsp; 🟢=output→input &nbsp; 🔵=shared source</span>
+            </div>;
+          })()}
           {!sel&&!loading&&!multiView&&<div className="welcome"><h2>GPS SQL Data Flow Visualizer</h2><p>Upload SQL to see variables as an interactive graph.</p><p>Use <b>Multi</b> to compare scripts sharing variables.</p></div>}
-          {multiView&&multiDetail&&<div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'6px 12px',borderRadius:4,fontSize:'0.7rem',color:'#4A90D9',zIndex:5}}>Detail — {multiDetail.script_name} ({multiDetail.total_variables}v {multiDetail.total_dependencies}e)</div>}
           {loading&&<div className="loading-overlay">{prog.s||'Loading...'}</div>}
-          <div ref={ctR} className="graph-container" style={{display:(sel&&(gd||ioGraph)&&!loading)?'block':'none'}}/>
+          <div ref={ctR} className="graph-container" style={{opacity:(sel||multiView||ioGraph)&&!loading?1:0,pointerEvents:(sel||multiView||ioGraph)&&!loading?'auto':'none'}}/>
           {ioGraph && <div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'8px 12px',borderRadius:4,fontSize:'0.7rem',color:'#2ECC71',zIndex:5,maxWidth:300}}><b>IO View</b> — {ioGraph.input_count} inputs, {ioGraph.output_count} outputs, {ioGraph.path_count} paths{csvContent && <pre style={{margin:'4px 0 0',fontSize:'0.6rem',color:'#aaa',maxHeight:120,overflow:'auto',whiteSpace:'pre'}}>{csvContent}</pre>}</div>}
         </main>
-        <aside className="detail-panel">
-          <div className="detail-header"><h3>{panel?panel.title:'Overview'}</h3>{panel&&<button onClick={()=>setPanel(null)} className="close-btn">X</button>}</div>
+        {(showInfo||panel||multiDetail)&&<aside className="detail-panel">
+          <div className="detail-header">
+            <h3>{multiDetail ? multiDetail.script_name : panel ? panel.title : 'Overview'}</h3>
+            <div style={{display:'flex',gap:4}}>
+              {multiDetail && <button onClick={()=>{setMultiDetail(null);setPanel(null)}} style={{background:'#F39C12',color:'#000',border:'none',borderRadius:3,padding:'2px 8px',cursor:'pointer',fontSize:'0.7rem',fontWeight:600}}>✕</button>}
+              {!multiDetail && <button onClick={()=>{setPanel(null);setShowInfo(false)}} className="close-btn">✕</button>}
+            </div>
+          </div>
           <div className="detail-content">
-            {!panel&&sel&&<div className="detail-scroll">
+            {/* Multi-script detail: show selected script summary */}
+            {multiDetail && !panel && <ScriptSummary sc={multiDetail} multiView={multiView} onDrill={()=>{/* dbltap already drilles */}} />}
+            {/* Single-script overview */}
+            {!panel&&!multiDetail&&sel&&<div className="detail-scroll">
               <div className="detail-section"><div className="ds-title">Script</div><Row k="Name" v={sel.script_name}/><Row k="Variables" v={gd?.total_variables+' variables'}/><Row k="Edges" v={gd?.total_dependencies+' edges'}/></div>
               <div className="detail-section"><div className="ds-title">How to Explore</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Click any <b>node</b> to see its variable details.<br/>Click any <b>edge</b> to see the data flow between variables.<br/>Use the <b>search</b> and <b>filter</b> to find specific variables.</div></div>
             </div>}
-            {!panel&&!sel&&<div className="detail-scroll"><div className="detail-section"><div className="ds-title">Welcome</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Upload a SQL script to begin.<br/>The graph and details will appear here.</div></div></div>}
-            {panel&&(panel.type==='node'?<NodePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>:panel.type==='io_path'?<IOPathPanel p={panel}/>:<EdgePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>)}
+            {!panel&&!multiDetail&&!sel&&<div className="detail-scroll"><div className="detail-section"><div className="ds-title">Welcome</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Upload a SQL script to begin.<br/>The graph and details will appear here.</div></div></div>}
+            {panel&&(panel.type==='node'?<NodePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>:panel.type==='io_path'?<IOPathPanel p={panel}/>:panel.type==='meta_edge'?<MetaEdgePanel p={panel} scripts={multiView?.scripts||[]}/>:<EdgePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>)}
           </div>
-        </aside>
+        </aside>}
       </div>
-      {tip.show && <div className="graph-tooltip" style={{left:tip.x,top:tip.y}}>{tip.text}</div>}
+      {tip.show && <div className="graph-tooltip" style={{left:tip.x,top:tip.y,whiteSpace:'pre-line',maxWidth:350}}>{tip.text}</div>}
       {showSQL && sqlR.current && (
         <div className="sql-panel">
           <div className="sql-panel-header">
@@ -350,7 +494,7 @@ function IOPathPanel({p}) {
   );
 }
 
-const NODE_SHAPES={database_table:'rect',table_column:'ellipse',cte_table:'roundrect',cte_column:'tri',intermediate:'diamond',window_result:'hex',aggregate:'tri',case_result:'pentagon',function_result:'rhomboid',literal:'ellipse',merge_target:'rect',union_branch:'vee',subquery_result:'diamond',virtual_table:'roundrect'};
+const NODE_SHAPES={script:'roundrect',table:'rect',view:'rect',column:'ellipse',cte:'roundrect',cte_column:'tri',expression:'diamond',window:'hex',aggregate:'tri',case:'pentagon',transform:'rhomboid',literal:'ellipse',merge_target:'rect',union_branch:'vee',subquery:'diamond',virtual_table:'roundrect'};
 function LegendIcon({type}) {
   const s=NODE_SHAPES[type]||'ellipse';const c=C[type]||'#999';const sz=10;
   if(s==='rect') return <svg width={sz+4} height={sz}><rect x={2} y={0} width={sz} height={sz} fill={c} rx={1}/></svg>;
@@ -367,4 +511,62 @@ function LegendIcon({type}) {
 function Row({k,v,small,children}) {
   if (!v && !children) return null;
   return <div className="var-field"><span className="field-label">{k}</span>{children||<span className="field-value" style={small?{fontSize:'0.7rem',color:'#888'}:{}}>{v}</span>}</div>;
+}
+
+// ── Script Summary (shown in panel when script circle is tapped) ───────────
+function ScriptSummary({sc, multiView, onDrill}) {
+  return (
+    <div className="detail-scroll">
+      <div className="detail-section">
+        <div className="ds-title">{sc.script_name}</div>
+        <Row k="Variables" v={sc.total_variables+' variables'}/>
+        <Row k="Edges" v={sc.total_dependencies+' edges'}/>
+      </div>
+      <div className="detail-section">
+        <div className="ds-title">📥 Input Tables ({sc.input_tables?.length||0})</div>
+        {sc.input_tables?.length ? <div className="tag-list">{sc.input_tables.map((t,i)=><span key={i} className="tag" style={{background:'#4A90D9'}}>{t}</span>)}</div>
+          : <div style={{fontSize:'0.75rem',color:'#888'}}>(none)</div>}
+      </div>
+      <div className="detail-section">
+        <div className="ds-title">📤 Output Tables ({sc.output_tables?.length||0})</div>
+        {sc.output_tables?.length ? <div className="tag-list">{sc.output_tables.map((t,i)=><span key={i} className="tag" style={{background:'#2ECC71',color:'#000'}}>{t}</span>)}</div>
+          : <div style={{fontSize:'0.75rem',color:'#888'}}>(read-only)</div>}
+      </div>
+      <div className="detail-section" style={{fontSize:'0.65rem',color:'#666',textAlign:'center'}}>
+        Double-tap circle to drill into full graph
+      </div>
+    </div>
+  );
+}
+
+// ── Meta Edge Panel (multi-script edge detail) ────────────────────────────
+function MetaEdgePanel({p, scripts}) {
+  const e = p.edge || {};
+  const srcScript = scripts.find(s=>s.script_id===e.source);
+  const tgtScript = scripts.find(s=>s.script_id===e.target);
+  const descs = {
+    data_lineage: 'Data flows FROM the first script\'s output INTO the second script\'s input via this table.',
+    shared_input: 'Both scripts read from the same source table.',
+    shared_var: 'Both scripts reference the same variable name.',
+  };
+  return (
+    <div className="detail-scroll">
+      <div className="detail-section">
+        <div className="ds-title">Connection Type</div>
+        <span className="type-badge" style={{background:e.edge_type==='data_lineage'?'#2ECC71':e.edge_type==='shared_input'?'#3498DB':'#7F8C8D',color:'#000',fontSize:'0.8rem'}}>
+          {e.edge_type==='data_lineage'?'📤→📥 Data Lineage':e.edge_type==='shared_input'?'📥 Shared Input':'🔗 Shared Variable'}
+        </span>
+        <div style={{fontSize:'0.75rem',color:'#aaa',marginTop:4}}>{descs[e.edge_type]||''}</div>
+      </div>
+      {e.label && <div className="detail-section">
+        <div className="ds-title">Table / Variable</div>
+        <Row k="Name" v={e.label}/>
+      </div>}
+      <div className="detail-section">
+        <div className="ds-title">Scripts</div>
+        <Row k="Source">{srcScript ? <span style={{color:'#F39C12'}}>{srcScript.script_name}</span> : e.source}</Row>
+        <Row k="Target">{tgtScript ? <span style={{color:'#F39C12'}}>{tgtScript.script_name}</span> : e.target}</Row>
+      </div>
+    </div>
+  );
 }

@@ -39,19 +39,19 @@ class TestChargebackAnalysis:
         """Scalar subqueries with aliases should produce SUBQUERY_RESULT type."""
         result = extract_variables_from_sql(sql, "fin_query6")
         subquery_vars = [v for v in result.variables
-                         if v.variable_type == VariableType.SUBQUERY_RESULT]
+                         if v.variable_type == VariableType.SUBQUERY]
         assert len(subquery_vars) >= 1, f"Should have subquery_result vars, got {len(subquery_vars)}"
 
     def test_has_case_results(self, sql):
         """Nested CASE expressions should produce CASE_RESULT type."""
         result = extract_variables_from_sql(sql, "fin_query6")
         case_vars = [v for v in result.variables
-                     if v.variable_type == VariableType.CASE_RESULT]
+                     if v.variable_type == VariableType.CASE]
         assert len(case_vars) >= 3, f"Should have >=3 case_result vars, got {len(case_vars)}"
 
     def test_has_cte_tables(self, sql):
         result = extract_variables_from_sql(sql, "fin_query6")
-        ctes = [v for v in result.variables if v.variable_type == VariableType.CTE_TABLE]
+        ctes = [v for v in result.variables if v.variable_type == VariableType.CTE]
         cte_names = [v.name for v in ctes]
         assert "merchant_chargeback_stats" in cte_names
         assert "risk_categorized" in cte_names
@@ -83,7 +83,7 @@ class TestInterchangeOptimization:
         """Window functions (ROW_NUMBER, AVG OVER, LAG, LEAD) should be detected."""
         result = extract_variables_from_sql(sql, "fin_query7")
         window_vars = [v for v in result.variables
-                       if v.variable_type == VariableType.WINDOW_RESULT]
+                       if v.variable_type == VariableType.WINDOW]
         assert len(window_vars) >= 5, \
             f"Should have >=5 window_result vars, got {len(window_vars)}"
 
@@ -91,7 +91,7 @@ class TestInterchangeOptimization:
         """JSON_EXTRACT, CAST operations should produce FUNCTION_RESULT."""
         result = extract_variables_from_sql(sql, "fin_query7")
         func_vars = [v for v in result.variables
-                     if v.variable_type == VariableType.FUNCTION_RESULT]
+                     if v.variable_type == VariableType.TRANSFORM]
         assert len(func_vars) >= 8, \
             f"Should have >=8 function_result vars, got {len(func_vars)}"
 
@@ -140,14 +140,14 @@ class TestMultiPartySettlement:
         """Should have both window_result and aggregate types in one query."""
         result = extract_variables_from_sql(sql, "fin_query8")
         types = set(v.variable_type for v in result.variables)
-        assert VariableType.WINDOW_RESULT in types, "Should have window_result"
+        assert VariableType.WINDOW in types, "Should have window_result"
         assert VariableType.AGGREGATE in types, "Should have aggregate"
 
     def test_subquery_result_present(self, sql):
         """Correlated scalar subqueries should appear."""
         result = extract_variables_from_sql(sql, "fin_query8")
         sub_vars = [v for v in result.variables
-                    if v.variable_type == VariableType.SUBQUERY_RESULT]
+                    if v.variable_type == VariableType.SUBQUERY]
         assert len(sub_vars) >= 1, \
             f"Should have subquery_result vars from FX lookups, got {len(sub_vars)}"
 
@@ -168,14 +168,14 @@ class TestEdgeCases:
         """SELECT col (no alias) should create a TABLE_COLUMN variable."""
         sql = "SELECT settlement_batch_id, amount FROM gps_transactions"
         result = extract_variables_from_sql(sql, "test")
-        cols = [v for v in result.variables if v.variable_type == VariableType.TABLE_COLUMN]
+        cols = [v for v in result.variables if v.variable_type == VariableType.COLUMN]
         assert len(cols) >= 2, f"Bare columns should be extracted, got {len(cols)}: {[v.name for v in cols]}"
 
     def test_subquery_not_double_classified(self):
         """A scalar subquery should be SUBQUERY_RESULT, not also AGGREGATE."""
         sql = "SELECT (SELECT MAX(amount) FROM gps_transactions WHERE account_id = a.account_id) AS max_txn FROM gps_accounts a"
         result = extract_variables_from_sql(sql, "test")
-        sub_vars = [v for v in result.variables if v.variable_type == VariableType.SUBQUERY_RESULT]
+        sub_vars = [v for v in result.variables if v.variable_type == VariableType.SUBQUERY]
         agg_vars = [v for v in result.variables if v.variable_type == VariableType.AGGREGATE]
         # The subquery result should not also be classified as aggregate
         sub_ids = {v.id for v in sub_vars}
@@ -208,19 +208,19 @@ class TestGlobalTypeCoverage:
     """Verify all 13 variable types appear across the 8 GPS financial samples."""
 
     ALL_TYPES = {
-        VariableType.DATABASE_TABLE,
-        VariableType.TABLE_COLUMN,
-        VariableType.CTE_TABLE,
+        VariableType.TABLE,
+        VariableType.COLUMN,
+        VariableType.CTE,
         VariableType.CTE_COLUMN,
-        VariableType.INTERMEDIATE,
-        VariableType.WINDOW_RESULT,
+        VariableType.EXPRESSION,
+        VariableType.WINDOW,
         VariableType.AGGREGATE,
-        VariableType.CASE_RESULT,
-        VariableType.FUNCTION_RESULT,
+        VariableType.CASE,
+        VariableType.TRANSFORM,
         VariableType.LITERAL,
         VariableType.MERGE_TARGET,
         VariableType.UNION_BRANCH,
-        VariableType.SUBQUERY_RESULT,
+        VariableType.SUBQUERY,
     }
 
     def test_all_types_covered(self):
