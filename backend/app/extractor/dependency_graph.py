@@ -225,7 +225,11 @@ def build_dependency_graph(
                     continue
                 if not v.is_output:
                     continue
-                if v.variable_type in _TABLE_TYPES:
+                # Skip table anchors, but NOT subquery — scalar subqueries
+                # in SELECT are output values (e.g., (SELECT COUNT(*) ...) AS cnt)
+                if v.variable_type in (VariableType.TABLE, VariableType.VIEW,
+                                        VariableType.CTE, VariableType.VIRTUAL_TABLE,
+                                        VariableType.MERGE_TARGET, VariableType.UNION_BRANCH):
                     continue
                 _add_edge(anchor, v, "SCHEMA", "OUTPUT")
 

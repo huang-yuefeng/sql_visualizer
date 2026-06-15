@@ -300,3 +300,4 @@ class TestAllEdgesValidAcrossSamples:
         # Some may have more (nested subquery VTs also get TABLE_FLOW).
         assert tf_count >= len(from_aliases), \
             f"{fname}: {tf_count} TABLE_FLOW edges for {len(from_aliases)} FROM/JOIN aliases"
+

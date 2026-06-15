@@ -4,6 +4,7 @@ import fcose from 'cytoscape-fcose';
 cytoscape.use(fcose);
 import * as api from './api/client';
 import { NODE_STYLES, LAYOUT_OPTIONS } from './utils/graphStyles';
+import D from './utils/debug';
 
 const C = {
   script:'#F39C12',
@@ -48,13 +49,15 @@ export default function App() {
   const [showInfo, setShowInfo] = useState(true);
   const [filterTables, setFilterTables] = useState(null);
   const filterRef = useRef(null);
+  const [multiLayout, setMultiLayout] = useState('ring');
   const multiGraphCache = useRef({});
+  const dbg = (msg) => { D(msg); setProg({s:msg, p:0}); };
   
 
-  useEffect(() => { api.listScripts().then(setScripts).catch(()=>{}); fetch('/api/health').then(r=>r.json()).then(d=>setVersion(d.version)).catch(()=>{}); }, []);
+  useEffect(() => { api.listScripts().then(setScripts).catch(()=>{}); fetch('/api/health').then(r=>r.json()).then(d=>{setVersion(d.version);window.setDebugVersion&&window.setDebugVersion(d.version)}).catch(()=>{}); }, []);
 
   const load = useCallback(async (s) => {
-    if (!s) return;
+    if (!s) return; D('📥 load() called: '+s.script_name);
     setLoading(true); setProg({s:'Loading...',p:10});
     try {
       // Check multi-view cache first
@@ -63,8 +66,8 @@ export default function App() {
         d = await api.getGraph(s.script_id, true);
         if (d) multiGraphCache.current[s.script_id] = d;
       }
-      if (!d) { setProg({s:'Not found',p:0}); setLoading(false); return; }
-      setGd(d); setProg({s:'',p:0}); setShowInfo(true);
+      if (!d) { D('❌ load() cache miss: '+s.script_name); setProg({s:'Not found',p:0}); setLoading(false); return; }
+      D('✅ load() got graph: '+s.script_name+' nodes='+(d.nodes?.length||0)+' edges='+(d.edges?.length||0)); setGd(d); setProg({s:'',p:0}); setShowInfo(true);
       const vi={}; d.nodes.forEach(n=>{vi[n.data.id]=n.data;}); viR.current=vi;
       snipR.current = (d.snippets||{});
       const di={}; d.edges.forEach(e=>{di[`${e.data.source}→${e.data.target}`]=e.data;}); diR.current=di;
@@ -75,13 +78,13 @@ export default function App() {
   useEffect(()=>{if(sel)load(sel);},[sel,load]);
 
   useEffect(() => {
-    // Multi-script view: render meta-graph or detail
+    dbg('🔄 useEffect: ioGraph='+!!ioGraph+' sel='+!!sel+' gd='+!!gd+' multiView='+!!multiView+' multiDetail='+!!multiDetail); // Multi-script view
     let data = ioGraph || gd;
     // Priority: ioGraph > single script > multi detail > multi overview
     if (ioGraph) {
       data = ioGraph;
     } else if (sel && gd) {
-      data = gd;  // single script view — sidebar selection overrides multi
+      D('📄 Single view: sel='+(sel?.script_name||'?')+' nodes='+gd?.nodes?.length); data = gd;
     } else if (multiDetail) {
       data = multiDetail.graph;
     } else if (multiView) {
@@ -89,13 +92,7 @@ export default function App() {
       let filteredNodes = multiView.meta_nodes;
       let filteredEdges = multiView.meta_edges;
       if (filterTables && filterTables.length > 0) {
-        const allowedScripts = new Set();
-        multiView.scripts.forEach(s => {
-          const allTbls = new Set([...s.input_tables, ...s.output_tables]);
-          if (filterTables.some(ft => allTbls.has(ft))) {
-            allowedScripts.add(s.script_id);
-          }
-        });
+        const allowedScripts = new Set(filterTables);
         filteredNodes = multiView.meta_nodes.filter(n =>
           allowedScripts.has(n.data.id));
         const nodeIds = new Set(filteredNodes.map(n => n.data.id));
@@ -119,7 +116,7 @@ export default function App() {
     }
 
     // Create Cytoscape empty, add elements + layout in one batch to avoid flash
-    const cy = cytoscape({
+    dbg('🟢 Creating Cytoscape instance'); const cy = cytoscape({
       container: ctR.current,
       elements: [],
       style: [...NODE_STYLES],
@@ -151,9 +148,7 @@ export default function App() {
     cy.on('tap','node',e=>{
       const id=e.target.id(); const nd=e.target.data();
       // Meta-graph nodes handled by multi-view specific handler below
-      if (multiView && nd.type === 'script_circle') {
-        return;  // handled by multi-view tap handler
-      }
+      if (multiView && nd.type === 'script_circle') return; // handled by multi-view handlers
       const eds=(data?.edges||[]).filter(x=>x.data.source===id||x.data.target===id);
       const vi=ioGraph?{}:viR.current;
       setPanel({type:'node',id,node:vi[id]||{label:id},edges:eds.map(x=>({sid:x.data.source,tid:x.data.target,rel:x.data.relationship})),title:vi[id]?.label||id});
@@ -186,19 +181,26 @@ export default function App() {
     });
     // Meta-graph: click script parent → highlight + show detail in panel
     if (multiView) {
-      // Tap script circle → open as single script view
+      // Single click → show details in right panel
       cy.on('tap','node',e=>{
         const nd = e.target.data();
         if (nd.type !== 'script_circle') return;
         const sc = multiView.scripts.find(s=>s.script_id===nd.id);
+        if (!sc) return;
+        D('🖱️ Single click: '+nd.label+' → info panel'); setShowInfo(true); setPanel({type:'script_meta', id:nd.id, script:sc, title:sc.script_name});
+      });
+      // Double click → open as single script view
+      cy.on('dbltap','node',e=>{
+        const nd = e.target.data();
+        if (nd.type !== 'script_circle') return;
+        const sc = multiView.scripts.find(s=>s.script_id===nd.id);
         if (!sc || !sc.graph) return;
-        // Force fresh object reference so React detects the change
         const entry = {script_id: sc.script_id, script_name: sc.script_name,
                        total_variables: sc.total_variables, total_dependencies: sc.total_dependencies};
-        const graphCopy = JSON.parse(JSON.stringify(sc.graph));
-        multiGraphCache.current[sc.script_id] = graphCopy; // cache for sidebar nav
+        D('🖱️🖱️ Double click: '+nd.label+' → open single view, sel='+!!entry); const graphCopy = JSON.parse(JSON.stringify(sc.graph));
+        multiGraphCache.current[sc.script_id] = graphCopy;
         setSel({...entry}); setGd(graphCopy); setShowInfo(true); setPanel(null);
-        const vi={}; graphCopy.nodes.forEach(n=>{vi[n.data.id]=n.data;}); viR.current=vi;
+        const vi={}; graphCopy.nodes.forEach(n=>{vi[n.data.id]=n.data;}); viR.current=vi; sqlR.current = graphCopy.sql_text||''; lmR.current = graphCopy.line_map||{};
         const di={}; graphCopy.edges.forEach(e=>{di[`${e.data.source}→${e.data.target}`]=e.data;}); diR.current=di;
         setIoGraph(null); setIoPaths([]);
         setScripts(prev => {
@@ -217,38 +219,48 @@ export default function App() {
     }
     cyR.current=cy;
     const runLayout = () => {
-      const w = ctR.current?.clientWidth || 0;
+      dbg('📏 Container check: ctR='+!!ctR.current+' w='+(ctR.current?.clientWidth||0)); const w = ctR.current?.clientWidth || 0;
       if (w > 0) {
-        cy.batch(() => {
-          cy.add([...renderNodes, ...renderEdges]);
-          if (multiView) {
-            const n = renderNodes.length;
-            const e = renderEdges.length;
-            const dense = e / Math.max(n, 1) > 1.5;
-            if (dense) {
-              // Dense graph: grid guarantees no overlap, instant
-              const cols = Math.ceil(Math.sqrt(n * 1.5));
-              const sp = 70;
-              cy.nodes().forEach((nd, i) => {
-                nd.position({x: (i % cols) * sp + 30, y: Math.floor(i / cols) * sp + 30});
-              });
-              cy.fit(undefined, 30);
-              cy.minZoom(0.05); cy.maxZoom(3);
-            } else {
-              // Sparse graph: cose defaults
-              cy.layout({name:'cose', animate: true, fit: true, padding: 30}).run();
-            }
+        const added = cy.add([...renderNodes, ...renderEdges]); dbg('➕ Added '+added.nodes().length+' nodes + '+added.edges().length+' edges');
+        if (multiView) {
+          const n = renderNodes.length;
+          const e = renderEdges.length;
+          dbg('📐 Multi layout: ring mode, n='+renderNodes.length); if (multiLayout === 'ring') { dbg('📍 Entering ring block, added='+!!added);
+            // Ring arrangement with auto-zoom for readability
+            const sp = 70;
+            const R = (n * sp) / (2 * Math.PI);
+            const centerX = R + 50, centerY = R + 50;
+            dbg('📍 Positioning '+n+' nodes on ring R='+Math.round(R)); dbg('📍 Running forEach on '+added.nodes().length+' nodes'); added.nodes().forEach((nd, i) => {
+              const a = (2 * Math.PI * i) / n - Math.PI / 2;
+              nd.position({x: centerX + R * Math.cos(a), y: centerY + R * Math.sin(a)});
+            });
+            let tries = 0;
+            const doFit = () => {
+              const bb = cy.elements().boundingBox();
+              D('Ring fit #'+tries+' bbW='+Math.round(bb.w)+' bbH='+Math.round(bb.h));
+              if (bb.w > 10 && bb.h > 10) {
+                cy.fit(undefined, 30); cy.minZoom(0.1); cy.maxZoom(3);
+                D('Ring fit OK after '+tries+' tries');
+              } else if (++tries < 30) {
+                requestAnimationFrame(doFit);
+              } else {
+                D('Ring fit FAIL after 30 tries');
+              }
+            };
+            requestAnimationFrame(doFit);
           } else {
-            cy.layout({name:'cose',...LAYOUT_OPTIONS}).run();
+            cy.layout({name:'cose', animate: true, fit: true, padding: 30}).run();
           }
-        });
+        } else {
+          dbg('📐 Single layout: cose'); cy.layout({name:'cose',...LAYOUT_OPTIONS}).run();
+        }
       } else {
         requestAnimationFrame(runLayout);
       }
     };
     requestAnimationFrame(runLayout);
     return ()=>{cy.destroy();};
-  },[gd,ioGraph,ioPaths,viewMode,multiView,multiDetail]);
+  },[gd,ioGraph,ioPaths,viewMode,multiView,multiDetail,multiLayout]);
 
   const upload = async e => {
     const f=e.target.files?.[0]; if(!f) return;
@@ -272,7 +284,7 @@ export default function App() {
   },[sq,tf,ef]);
   useEffect(()=>{filter();},[sq,tf,ef,filter]);
 
-  const pshow = prog.s && loading;
+  const pshow = !!prog.s;
   return (
     <div className="app-container">
       <header className="app-header">
@@ -290,7 +302,7 @@ export default function App() {
             try{
               const fd=new FormData(); fs.forEach(f=>fd.append('files',f));
               const r=await fetch('/api/analyze_multi',{method:'POST',body:fd});
-              const d=await r.json(); setMultiView(d); setMultiDetail(null); setFilterTables(null); setSel(null); setGd(null); setIoGraph(null); setIoPaths([]); setPanel(null); api.listScripts().then(setScripts).catch(()=>{});
+              const d=await r.json(); setMultiView(d); setMultiDetail(null); setFilterTables(null); setMultiLayout('ring'); setSel(null); setGd(null); setIoGraph(null); setIoPaths([]); setPanel(null);
               setProg({s:`Done in ${((Date.now()-t0)/1000).toFixed(1)}s`,p:100});
               setTimeout(()=>setProg({s:'',p:0}),1500);
             }catch{setProg({s:'',p:0});}
@@ -299,13 +311,45 @@ export default function App() {
           }} hidden/></label>
           <label className="btn btn-secondary" style={{cursor:'pointer'}}>Single SQL<input ref={flR} type="file" accept=".sql,.txt" onChange={upload} hidden/></label>
           <button className="btn btn-secondary" onClick={paste}>Paste SQL</button>
+          {multiView && <select className="type-select" style={{width:'auto',marginTop:0,padding:'4px 8px'}} value={multiLayout} onChange={e=>setMultiLayout(e.target.value)}>
+            <option value="cose">Cose</option><option value="ring">Ring</option>
+          </select>}
+          {sel && <select className="type-select" style={{width:'auto',marginTop:0,padding:'4px 8px'}} value={viewMode} onChange={e=>setViewMode(e.target.value)}>
+            <option value="tables">Tables</option><option value="full">Full</option>
+          </select>}
           {(multiView||sel) && <label className="btn btn-outline" style={{cursor:'pointer'}}>Filter<input ref={filterRef} type="file" accept=".csv,.txt" onChange={async e=>{
             const f=e.target.files?.[0];if(!f)return;
             const text=await f.text();
             if (multiView) {
-              // Multi-script: filter by table names
-              const tables=text.split(/[\n,]/).map(s=>s.trim()).filter(s=>s.length>0);
-              setFilterTables(tables.length>0?tables:null);
+              // Multi-script: filter by table/column names in CSV
+              setLoading(true);
+              const lines=text.split(/[\n]/).map(s=>s.trim()).filter(s=>s.length>0);
+              const parseLine=l=>{const p=l.split(',');return{col:p[2]||'',tbl:p[0]||''};};
+              const filters=lines.map(parseLine).filter(x=>x.col||x.tbl);
+              const fTables=new Set(filters.map(x=>x.tbl).filter(Boolean));
+              const fCols=new Set(filters.map(x=>x.col).filter(Boolean));
+              setProg({s:`Filtering ${multiView.scripts.length} scripts...`,p:20});
+              // Process in chunks with progress
+              setTimeout(()=>{
+                const matched=new Set();
+                multiView.scripts.forEach((sc,i)=>{
+                  if (i%10===0) setProg({s:`Filtering ${i+1}/${multiView.scripts.length}...`,p:20+60*i/multiView.scripts.length});
+                  const nodes=sc.graph?.nodes||[];
+                  for (const n of nodes) {
+                    const d=n.data||{};
+                    if (fTables.has(d.label)||fCols.has(d.label)||
+                        (d.variable_type==='column'&&d.label&&fCols.has(d.label.split('.')[1]||''))) {
+                      matched.add(sc.script_id); break;
+                    }
+                  }
+                });
+                setFilterTables(matched.size>0?[...matched]:null);
+                // Also store CSV table names for the overview banner
+                setCsvName(f.name);setCsvContent(text);
+                setProg({s:matched.size?`Matched ${matched.size}/${multiView.scripts.length} scripts`:'No matches',p:100});
+                setTimeout(()=>setProg({s:'',p:0}),1500);
+                setLoading(false);
+              },50);
             } else if (sel) {
               // Single-script: IO graph path finding
               setCsvName(f.name);setCsvContent(text);
@@ -323,9 +367,6 @@ export default function App() {
           }} hidden/></label>}
           {multiView && filterTables && <button className="btn btn-outline" onClick={()=>setFilterTables(null)} style={{color:'#2ECC71'}}>✕ Filter</button>}
           {sel && <button className="btn btn-outline" onClick={()=>setShowSQL(!showSQL)}>{showSQL?'Hide SQL':'Show SQL'}</button>}
-          {sel && <select className="type-select" style={{width:'auto',marginTop:0,padding:'4px 8px'}} value={viewMode} onChange={e=>setViewMode(e.target.value)}>
-            <option value="tables">Tables</option><option value="full">Full</option>
-          </select>}
           <button className="btn btn-outline" onClick={()=>{if(cyR.current)cyR.current.fit(undefined,50)}}>Fit</button>
           {ioGraph && <button className="btn btn-outline" onClick={()=>{setIoGraph(null);setIoPaths([]);setCsvName('');setCsvContent('')}}>Exit IO</button>}
         </div>
@@ -349,10 +390,10 @@ export default function App() {
           {multiView&&(()=>{
             const lineageEdges=multiView.meta_edges.filter(e=>e.data.edge_type==='data_lineage').length;
             const inputEdges=multiView.meta_edges.filter(e=>e.data.edge_type==='shared_input').length;
-            const shown=filterTables?multiView.scripts.filter(s=>{const all=new Set([...s.input_tables,...s.output_tables]);return filterTables.some(ft=>all.has(ft));}).length:multiView.scripts.length;
+            const shown=filterTables?filterTables.length:multiView.scripts.length;
             return <div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'6px 10px',borderRadius:4,fontSize:'0.65rem',color:'#F39C12',zIndex:5,lineHeight:1.4}}>
               <b>{shown}/{multiView.scripts.length} scripts</b> | 🟢 {lineageEdges} lineage &nbsp; 🔵 {inputEdges} shared
-              {filterTables && <span style={{color:'#2ECC71'}}> | 🔍 {filterTables.join(', ')}</span>}<br/>
+              {filterTables && <span style={{color:'#2ECC71'}}> | 🔍 filtered</span>}<br/>
               <span style={{color:'#888',fontSize:'0.55rem'}}>Click a circle to open &nbsp;|&nbsp; 🟢=output→input &nbsp; 🔵=shared source</span>
             </div>;
           })()}
@@ -378,7 +419,7 @@ export default function App() {
               <div className="detail-section"><div className="ds-title">How to Explore</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Click any <b>node</b> to see its variable details.<br/>Click any <b>edge</b> to see the data flow between variables.<br/>Use the <b>search</b> and <b>filter</b> to find specific variables.</div></div>
             </div>}
             {!panel&&!multiDetail&&!sel&&<div className="detail-scroll"><div className="detail-section"><div className="ds-title">Welcome</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Upload a SQL script to begin.<br/>The graph and details will appear here.</div></div></div>}
-            {panel&&(panel.type==='node'?<NodePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>:panel.type==='io_path'?<IOPathPanel p={panel}/>:panel.type==='meta_edge'?<MetaEdgePanel p={panel} scripts={multiView?.scripts||[]}/>:<EdgePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>)}
+            {panel&&(panel.type==='node'?<NodePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>:panel.type==='io_path'?<IOPathPanel p={panel}/>:panel.type==='script_meta'?<ScriptSummary sc={panel.script} multiView={multiView}/>:panel.type==='meta_edge'?<MetaEdgePanel p={panel} scripts={multiView?.scripts||[]}/>:<EdgePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>)}
           </div>
         </aside>}
       </div>
