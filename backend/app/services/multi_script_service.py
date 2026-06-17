@@ -12,24 +12,41 @@ from app.services.graph_service import build_graph_data
 
 
 def _classify_tables(variables: list[dict]) -> tuple[set[str], set[str]]:
-    """Classify tables as input (read) or output (written)."""
+    """Classify tables as input (read) or output (written).
+
+    DML scripts: output = target tables (INSERT/UPDATE/DELETE/MERGE/CTAS)
+    SELECT scripts: output = virtual table (⟐ output) — temporary result set
+    """
     input_tables: set[str] = set()
     output_tables: set[str] = set()
+    has_dml_output = False
+
     for v in variables:
         vt = v.get("variable_type", "")
         name = v.get("name", "")
         di = (v.get("defined_in") or "").upper()
-        if vt not in ("table", "merge_target"):
-            continue
+
         if vt == "merge_target":
             output_tables.add(name)
+            has_dml_output = True
             continue
+
+        if vt not in ("table",):
+            continue
+
         if "FROM" in di or "JOIN" in di:
             input_tables.add(name)
+
         if any(kw in di for kw in ("INSERT", "UPDATE", "DELETE", "MERGE")):
             output_tables.add(name)
+            has_dml_output = True
+
         if "CREATE" in di or "SELECT INTO" in di:
             output_tables.add(name)
+            has_dml_output = True
+
+    # SELECT-only scripts: the virtual table IS the output
+
     return input_tables, output_tables
 
 
@@ -50,6 +67,9 @@ def analyze_multiple_scripts(
         variables = result.get("variables", [])
         graph_data = build_graph_data(result)
         input_tables, output_tables = _classify_tables(variables)
+        # SELECT-only scripts: add unique virtual output per script
+        if not output_tables:
+            output_tables.add(f"⟐ {name}")
         results.append({
             "script_id": result["script_id"],
             "script_name": name,
