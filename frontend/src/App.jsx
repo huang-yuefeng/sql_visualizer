@@ -70,7 +70,10 @@ export default function App() {
         if (d) multiGraphCache.current[s.script_id] = d;
       }
       if (!d) { D('❌ load() cache miss: '+s.script_name); setProg({s:'Not found',p:0}); setLoading(false); return; }
-      D('✅ load() got graph: '+s.script_name+' nodes='+(d.nodes?.length||0)+' edges='+(d.edges?.length||0)); setGd(d); setProg({s:'',p:0}); setShowInfo(true);
+      D('✅ load() got graph: '+s.script_name+' nodes='+(d.nodes?.length||0)+' edges='+(d.edges?.length||0));
+      const tpl = d.template_replacements || [];
+      if (tpl.length) { D('🔧 template replacements: '+tpl.length); tpl.slice(0,20).forEach(r=>D('  '+r)); }
+      setGd(d); setProg({s:'',p:0}); setShowInfo(true);
       const vi={}; d.nodes.forEach(n=>{vi[n.data.id]=n.data;}); viR.current=vi;
       snipR.current = (d.snippets||{});
       const di={}; d.edges.forEach(e=>{di[`${e.data.source}→${e.data.target}`]=e.data;}); diR.current=di;
