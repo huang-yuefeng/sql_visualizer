@@ -40,8 +40,8 @@ rm -f "$IMAGE_DIR"/part_* "$IMAGE_DIR"/checksums.md5
 split -b "$PIECE_SIZE" -d "$IMAGE_FILE" "$IMAGE_DIR/part_"
 PIECE_COUNT=$(ls "$IMAGE_DIR"/part_* | wc -l)
 
-# Generate checksums for integrity verification
-md5sum "$IMAGE_DIR"/part_* > "$IMAGE_DIR/checksums.md5"
+# Generate checksums for integrity verification (cd into dir for relative paths)
+(cd "$IMAGE_DIR" && md5sum part_* > checksums.md5)
 echo "  Split into $PIECE_COUNT pieces"
 
 # Delete the full image tar.gz — only pieces go to git (GitHub 50MB limit)
