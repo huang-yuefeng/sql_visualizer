@@ -490,6 +490,27 @@ All sample DDL and queries are in [`samples/financial/`](samples/financial/).
 - [ ] Database connection — auto-discover table schemas
 - [ ] Diff mode — compare two versions of a SQL script
 
+## Shell Scripts
+
+| Script | Run on | Function |
+|--------|--------|----------|
+| `check.sh` | Dev machine | Frontend pre-build validation — checks brace balance, required patterns, builds and verifies key selectors in output JS |
+| `build.sh` | Dev machine | Build Docker image, run 138-sample API test suite, export to `/mnt/data/work/gps-sql-visualizer.tar.gz` |
+| `deploy.sh` | Dev machine | Build frontend (`npm run build`), copy dist to `backend/app/static/` for local development |
+| `release.sh "msg"` | Dev machine | Full release pipeline — build, test, split image into <50MB pieces, git add pieces, commit all, push |
+| `target_deploy.sh` | Target server | Deployment — `git pull`, reassemble image from pieces, stop/rm old container, `docker rmi` old image, `docker load` new image, start container |
+
+### Release workflow
+
+```bash
+# On dev machine — build, split, commit, push
+./release.sh "fix: corrected EXISTS keyword classification"
+
+# On target machine — pull, reassemble, deploy
+export ANTHROPIC_API_KEY=sk-...
+./target_deploy.sh
+```
+
 ## License
 
 MIT
