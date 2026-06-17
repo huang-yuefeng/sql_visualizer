@@ -143,6 +143,7 @@ def build_graph_data(analysis: dict) -> dict:
         "cte_count": analysis.get("cte_count", 0),
         "line_map": analysis.get("line_map", {}),
         "sql_text": analysis.get("sql_text", ""),
+        "template_replacements": analysis.get("template_replacements", []),
         "nodes": nodes,
         "edges": edges,
     }

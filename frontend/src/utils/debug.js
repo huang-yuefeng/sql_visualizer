@@ -2,7 +2,7 @@
 // Usage: D('message') — writes to console + fixed bottom panel.
 // Click ● in bottom-right to toggle, drag top border to resize.
 
-var MAX_LINES = 40;
+var MAX_LINES = 200;
 var panel = null, handle = null, toggle = null;
 var lines = [];
 var ver = '?.?.?';
@@ -38,7 +38,7 @@ function ensurePanel() {
     position: 'fixed', bottom: '0', left: '0', right: '0',
     zIndex: '99999', background: '#000', borderTop: '3px solid #F39C12',
     padding: '4px 28px 4px 8px', fontSize: '11px', fontFamily: 'monospace',
-    color: '#0f0', height: '140px', minHeight: '40px', maxHeight: '80vh',
+    color: '#0f0', height: '200px', minHeight: '40px', maxHeight: '80vh',
     overflowY: 'auto', opacity: '0.93', whiteSpace: 'pre-wrap',
     wordBreak: 'break-all', userSelect: 'text', boxSizing: 'border-box',
   });
