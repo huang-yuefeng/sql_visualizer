@@ -44,6 +44,10 @@ PIECE_COUNT=$(ls "$IMAGE_DIR"/part_* | wc -l)
 md5sum "$IMAGE_DIR"/part_* > "$IMAGE_DIR/checksums.md5"
 echo "  Split into $PIECE_COUNT pieces"
 
+# Delete the full image tar.gz — only pieces go to git (GitHub 50MB limit)
+rm -f "$IMAGE_FILE"
+echo "  Removed full image (pieces only for git)"
+
 # ── 4. Clean up any stale Docker containers ─────────────────────────
 docker rm -f gps-test 2>/dev/null
 
