@@ -35,6 +35,9 @@ def run_full_analysis(sql_text: str, script_name: str) -> dict:
               if v.variable_type == VariableType.TABLE]
     ctes = [v for v in extract_result.variables
             if v.variable_type == VariableType.CTE]
+    if extract_result.template_replacements:
+        from app.services.logger import log
+        log(f"  🔧 template: {len(extract_result.template_replacements)} replacements: {extract_result.template_replacements[:10]}")
     stage_extract(len(extract_result.variables), len(tables), len(ctes))
 
     # Phase 2: Dependency graph

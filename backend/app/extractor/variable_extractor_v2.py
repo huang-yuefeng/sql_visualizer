@@ -198,23 +198,50 @@ def _extract_table_names(expr: exp.Expression) -> list[str]:
 class ExtractionResult:
     script_name: str
     variables: list[VariableDefinition] = field(default_factory=list)
+    template_replacements: list[str] = field(default_factory=list)
+
+
+def _preprocess_sql(sql_text: str) -> tuple[str, list[str]]:
+    """Replace template placeholders like ${var} with valid SQL tokens.
+
+    Returns (processed_sql, list_of_replacements) for debug logging.
+    """
+    import re
+    replacements = []
+
+    def replacer(m):
+        original = m.group(0)
+        inner = m.group(1).strip()
+        # Replace with a valid identifier that preserves structure
+        placeholder = f"tpl_{re.sub(r'[^a-zA-Z0-9_]', '_', inner)}"
+        replacements.append(f"{original} → {placeholder}")
+        return placeholder
+
+    # Match ${anything} including nested braces
+    processed = re.sub(r'\$\{([^}]*)\}', replacer, sql_text)
+    return processed, replacements
 
 
 def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionResult:
     """Main entry point: extract all variables via role-based Identifier walking.
 
     Algorithm:
-      1. Parse SQL with sqlglot
-      2. Walk ALL Identifier nodes in the AST
-      3. Classify each by parent node role (Column/Table/TableAlias/Alias)
-      4. Handle CTE, MERGE, UNION/INTERSECT/EXCEPT as structural wrappers
-      5. Auto-name un-aliased expressions
-      6. Build dependency source info
+      1. Preprocess template placeholders (${var} → valid tokens)
+      2. Parse SQL with sqlglot
+      3. Walk ALL Identifier nodes in the AST
+      4. Classify each by parent node role (Column/Table/TableAlias/Alias)
+      5. Handle CTE, MERGE, UNION/INTERSECT/EXCEPT as structural wrappers
+      6. Auto-name un-aliased expressions
+      7. Build dependency source info
     """
     result = ExtractionResult(script_name=script_name)
 
+    # Preprocess template placeholders
+    processed_sql, tpl_replacements = _preprocess_sql(sql_text)
+    result.template_replacements = tpl_replacements
+
     try:
-        parsed = sqlglot.parse(sql_text, dialect="mysql", error_level=sqlglot.ErrorLevel.IGNORE)
+        parsed = sqlglot.parse(processed_sql, dialect="mysql", error_level=sqlglot.ErrorLevel.IGNORE)
     except Exception:
         return result
 
