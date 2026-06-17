@@ -201,49 +201,129 @@ class ExtractionResult:
     template_replacements: list[str] = field(default_factory=list)
 
 
-def _preprocess_sql(sql_text: str) -> tuple[str, list[str]]:
-    """Replace template placeholders like ${var} with valid SQL tokens.
+def _detect_dialect(sql_text: str) -> str:
+    """Detect SQL dialect by scoring distinctive markers.
 
-    Returns (processed_sql, list_of_replacements) for debug logging.
+    Returns the best sqlglot dialect name (hive, mysql, postgres, etc.).
     """
     import re
-    replacements = []
+    upper = sql_text.upper()
+    scores = {}
 
-    def replacer(m):
-        original = m.group(0)
-        inner = m.group(1).strip()
-        # Replace with a valid identifier that preserves structure
-        placeholder = f"tpl_{re.sub(r'[^a-zA-Z0-9_]', '_', inner)}"
-        replacements.append(f"{original} → {placeholder}")
-        return placeholder
+    # Hive family (MaxCompute/ODPS/Spark/Hive/Databricks)
+    if re.search(r'(?i)INSERT\s+OVERWRITE\s+TABLE', sql_text): scores['hive'] = scores.get('hive', 0) + 10
+    if re.search(r'(?i)SET\s+odps\.', sql_text): scores['hive'] = scores.get('hive', 0) + 10
+    if re.search(r'(?i)PARTITION\s*\(', sql_text): scores['hive'] = scores.get('hive', 0) + 5
+    if re.search(r'(?i)TBLPROPERTIES|STORED\s+AS\s+(ORC|PARQUET|TEXTFILE|AVRO)', sql_text): scores['hive'] = scores.get('hive', 0) + 5
+    if re.search(r'(?i)LATERAL\s+VIEW\s+EXPLODE', sql_text): scores['hive'] = scores.get('hive', 0) + 5
 
-    # Match ${anything} including nested braces
-    processed = re.sub(r'\$\{([^}]*)\}', replacer, sql_text)
-    return processed, replacements
+    # Oracle
+    if re.search(r'(?i)DECODE\s*\(', sql_text): scores['oracle'] = scores.get('oracle', 0) + 3
+    if re.search(r'(?i)NVL\s*\(', sql_text): scores['oracle'] = scores.get('oracle', 0) + 3
+    if re.search(r'(?i)CONNECT\s+BY', sql_text): scores['oracle'] = scores.get('oracle', 0) + 10
+    if re.search(r'(?i)DBMS_|UTL_', sql_text): scores['oracle'] = scores.get('oracle', 0) + 10
+    if re.search(r'(?i)ROWNUM\b', sql_text): scores['oracle'] = scores.get('oracle', 0) + 5
+    if re.search(r'(?i)FROM\s+DUAL\b', sql_text): scores['oracle'] = scores.get('oracle', 0) + 10
+
+    # PostgreSQL
+    if re.search(r'(?i)ILIKE\b', sql_text): scores['postgres'] = scores.get('postgres', 0) + 5
+    if '::' in sql_text and not '::=' in sql_text: scores['postgres'] = scores.get('postgres', 0) + 5
+    if re.search(r'(?i)RETURNING\b', sql_text): scores['postgres'] = scores.get('postgres', 0) + 3
+
+    # BigQuery
+    if re.search(r'(?i)`[a-z]+\.[a-z]+\.[a-z]+`', sql_text): scores['bigquery'] = scores.get('bigquery', 0) + 10
+    if re.search(r'(?i)STRUCT\s*<', sql_text): scores['bigquery'] = scores.get('bigquery', 0) + 5
+    if re.search(r'(?i)ARRAY\s*<', sql_text): scores['bigquery'] = scores.get('bigquery', 0) + 3
+
+    # TSQL (SQL Server)
+    if re.search(r'(?i)\bTOP\s+\d+', sql_text): scores['tsql'] = scores.get('tsql', 0) + 5
+    if re.search(r'(?i)\[.*\]', sql_text): scores['tsql'] = scores.get('tsql', 0) + 3
+    if re.search(r'(?i)WITH\s*\(\s*NOLOCK\s*\)', sql_text): scores['tsql'] = scores.get('tsql', 0) + 10
+
+    # Snowflake
+    if re.search(r'(?i)QUALIFY\b', sql_text): scores['snowflake'] = scores.get('snowflake', 0) + 10
+    if re.search(r'(?i)COPY\s+INTO', sql_text): scores['snowflake'] = scores.get('snowflake', 0) + 5
+
+    # MySQL
+    if re.search(r'(?i)LIMIT\s+\d+(\s+OFFSET\s+\d+)?\s*;?\s*$', sql_text, re.MULTILINE): scores['mysql'] = scores.get('mysql', 0) + 2
+    if re.search(r'(?i)ENGINE\s*=', sql_text): scores['mysql'] = scores.get('mysql', 0) + 10
+    if re.search(r'(?i)AUTO_INCREMENT', sql_text): scores['mysql'] = scores.get('mysql', 0) + 10
+
+    if not scores:
+        return 'mysql'
+
+    # Hive also gets Oracle points (MaxCompute has both)
+    if 'hive' in scores:
+        scores['hive'] += scores.pop('oracle', 0) * 0.5
+
+    best = max(scores, key=scores.get)
+    return best
+
+
+def _preprocess_sql(sql_text: str) -> str:
+    """Strip SET statements and other non-SQL configuration lines.
+    Also handles MaxCompute/ODPS/Hive-specific syntax.
+    """
+    import re
+    lines = sql_text.split('\n')
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        # Skip SET statements (MaxCompute/ODPS configuration)
+        if re.match(r'(?i)^set\s+', stripped):
+            continue
+        # Skip pure comments
+        if stripped.startswith('--'):
+            continue
+        cleaned.append(line)
+    return '\n'.join(cleaned)
 
 
 def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionResult:
     """Main entry point: extract all variables via role-based Identifier walking.
 
     Algorithm:
-      1. Preprocess template placeholders (${var} → valid tokens)
-      2. Parse SQL with sqlglot
-      3. Walk ALL Identifier nodes in the AST
-      4. Classify each by parent node role (Column/Table/TableAlias/Alias)
-      5. Handle CTE, MERGE, UNION/INTERSECT/EXCEPT as structural wrappers
-      6. Auto-name un-aliased expressions
-      7. Build dependency source info
+      1. Strip SET/config statements
+      2. Try parsing with hive dialect (covers MaxCompute/ODPS/Spark)
+      3. Fall back to mysql if hive produces nothing
+      4. Walk ALL Identifier nodes in the AST
+      5. Classify each by parent node role
     """
     result = ExtractionResult(script_name=script_name)
 
-    # Preprocess template placeholders
-    processed_sql, tpl_replacements = _preprocess_sql(sql_text)
-    result.template_replacements = tpl_replacements
+    # Strip SET statements, comment lines
+    clean_sql = _preprocess_sql(sql_text)
 
+    # Detect dialect and parse
+    dialect_used = _detect_dialect(clean_sql)
+    parsed = None
     try:
-        parsed = sqlglot.parse(processed_sql, dialect="mysql", error_level=sqlglot.ErrorLevel.IGNORE)
+        parsed = sqlglot.parse(clean_sql, dialect=dialect_used, error_level=sqlglot.ErrorLevel.IGNORE)
     except Exception:
-        return result
+        pass
+
+    # Fallback: try hive (covers MaxCompute/ODPS), then mysql
+    if not parsed or not any(s is not None for s in parsed):
+        for fallback in ['hive', 'mysql']:
+            if fallback == dialect_used:
+                continue
+            try:
+                parsed = sqlglot.parse(clean_sql, dialect=fallback, error_level=sqlglot.ErrorLevel.IGNORE)
+                if parsed and any(s is not None for s in parsed):
+                    dialect_used = fallback
+                    break
+            except Exception:
+                continue
+
+    if not parsed:
+        try:
+            parsed = sqlglot.parse(clean_sql, dialect="mysql", error_level=sqlglot.ErrorLevel.IGNORE)
+        except Exception:
+            return result
+
+    result.template_replacements = [f"dialect: {dialect_used}"]
+    if '${' in sql_text:
+        result.template_replacements.append("template vars present — may affect parsing")
 
     extractor = _RoleBasedExtractor(result, script_name, sql_text)
     for statement in parsed:
