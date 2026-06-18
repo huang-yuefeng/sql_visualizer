@@ -88,9 +88,15 @@ def build_dependency_graph(
                 sql_context=ctx or f"{src.name} → {tgt.name}",
             ))
 
-    # 1a: FROM / JOIN table alias → its context anchor (VT or CTE)
-    #     This shows "table u feeds the SELECT / CTE output"
+    # 1a: FROM / JOIN source → its context anchor (VT or CTE)
+    #     TABLE/VIEW aliases, CTE references, subquery aliases all feed output.
     for v in variables:
+        if v.variable_type in (VariableType.CTE, VariableType.SUBQUERY):
+            ctx = v.context or "TOP"
+            for anchor in vt_map.get(ctx, []):
+                if anchor.id != v.id:
+                    _add_edge(v, anchor, "TABLE_FLOW", "REFERENCE")
+            continue
         if v.variable_type not in (VariableType.TABLE, VariableType.VIEW):
             continue
         if not v.source_tables:  # skip original names — only aliases
