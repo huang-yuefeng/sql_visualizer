@@ -410,7 +410,7 @@ export default function App() {
               <div className="script-name" style={{color:'#2ECC71'}}>{fv.name}</div>
               <div className="script-meta">{fv.scripts.length} scripts</div>
             </div>)}
-            {scripts.map(s=><div key={s.script_id} className={`script-item ${(sel?.script_id===s.script_id||(ioGraph&&s.ioGraph===ioGraph))?'active':''}`} onClick={()=>{ if(s.ioGraph){ setIoGraph(s.ioGraph); setIoPaths(s.ioPaths||[]); setSel(null); setGd(null); setShowInfo(true); D('📊 Clicked IO tag: '+s.script_name); } else { setSel(s); } }}><div className="script-name">{s.script_name}</div><div className="script-meta">{s.total_variables}v · {s.total_dependencies}e</div></div>)}
+            {scripts.map(s=><div key={s.script_id} className={`script-item ${(sel?.script_id===s.script_id||(!sel&&ioGraph&&s.ioGraph===ioGraph))?'active':''}`} onClick={()=>{ if(s.ioGraph){ setIoGraph(s.ioGraph); setIoPaths(s.ioPaths||[]); setSel(null); setGd(null); setShowInfo(true); } else { setSel(s); setIoGraph(null); setIoPaths([]); } }}><div className="script-name" style={s.ioGraph?{paddingLeft:16,fontSize:'0.85rem'}:{}}>{s.script_name}</div><div className="script-meta">{s.total_variables}v · {s.total_dependencies}e</div></div>)}
             {!multiView&&scripts.length===0&&<div className="empty-state">Upload a SQL script to begin</div>}
             {scripts.length>0 && <div style={{padding:'4px 16px 8px'}}><button className="btn btn-outline" style={{width:'100%',fontSize:'0.7rem',padding:'4px'}} onClick={async()=>{await fetch('/api/scripts',{method:'DELETE'});api.listScripts().then(setScripts);}}>Clear All</button></div>}
           </div>
