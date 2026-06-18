@@ -402,7 +402,7 @@ export default function App() {
         <aside className="sidebar">
           <h3>Scripts</h3>
           <div className="script-list">
-            {multiView && <div key="multi_tag" className={`script-item ${!sel&&multiView===multiOriginal.current?'active':''}`} style={{borderColor:'#F39C12'}} onClick={()=>{if(multiOriginal.current){setMultiView(multiOriginal.current)};setSel(null);setMultiDetail(null);setPanel(null);setShowInfo(true);setIoGraph(null);setIoPaths([]);setGd(null)}}>
+            {multiView && <div key="multi_tag" className={`script-item ${!sel&&!ioGraph&&multiView===multiOriginal.current?'active':''}`} style={{borderColor:'#F39C12'}} onClick={()=>{if(multiOriginal.current){setMultiView(multiOriginal.current)};setSel(null);setMultiDetail(null);setPanel(null);setShowInfo(true);setIoGraph(null);setIoPaths([]);setGd(null)}}>
               <div className="script-name" style={{color:'#F39C12'}}>📊 Multi ({(multiOriginal.current||multiView).scripts.length} scripts)</div>
               <div className="script-meta">{(multiOriginal.current||multiView).meta_edges.filter(e=>e.data.edge_type==='data_lineage').length} lineage links</div>
             </div>}
@@ -443,12 +443,13 @@ export default function App() {
           </div>
           <div className="detail-content">
             {/* IO graph view */}
-            {ioGraph && !panel && D('📋 Panel: IO graph info') && <div className="detail-scroll">
+            {ioGraph && !panel && <div className="detail-scroll">
               <div className="detail-section"><div className="ds-title">📊 IO Graph</div>
                 <Row k="Inputs" v={ioGraph.input_count||0}/>
                 <Row k="Outputs" v={ioGraph.output_count||0}/>
                 <Row k="Paths" v={ioGraph.path_count||0}/>
                 {(ioGraph.nodes||[]).length===0 && <div style={{fontSize:'0.8rem',color:'#F39C12',marginTop:8}}>⚠️ No matching data flow found for this filter.</div>}
+                {csvContent && <div className="detail-section"><div className="ds-title">Filter CSV</div><pre style={{fontSize:'0.65rem',color:'#aaa',maxHeight:150,overflow:'auto',whiteSpace:'pre',background:'#0a0a1a',padding:6,borderRadius:3}}>{csvContent}</pre></div>}
               </div>
             </div>}
             {/* Multi-script detail */}
