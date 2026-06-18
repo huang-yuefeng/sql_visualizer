@@ -88,16 +88,14 @@ export default function App() {
     dbg('🔄 useEffect: ioGraph='+!!ioGraph+' sel='+!!sel+' gd='+!!gd+' multiView='+!!multiView+' multiDetail='+!!multiDetail); // Multi-script view
     let data = ioGraph || gd;
     // Priority: ioGraph > single script > multi detail > multi overview
-    if (ioGraph && ioGraph.nodes?.length) {
+    if (ioGraph) {
       data = ioGraph;
-    } else if (ioGraph && !ioGraph.nodes?.length) {
-      D('⚠️ IO graph empty — falling back');
-      setIoGraph(null); setIoPaths([]); data = gd;
     } else if (sel && gd) {
       D('📄 Single view: sel='+(sel?.script_name||'?')+' nodes='+gd?.nodes?.length); data = gd;
     } else if (multiDetail) {
       data = multiDetail.graph;
-    } else D('🔍 Filter: multiView='+!!multiView+' sel='+!!sel+' mode='+(multiView&&!sel?'multi':'single')); if (multiView && !sel) {
+    } else if (multiView && !sel) {
+      D('🔍 Filter: multiView mode active');
       data = {nodes: multiView.meta_nodes, edges: multiView.meta_edges};
     }
     if (!data || !ctR.current) return;
@@ -378,7 +376,7 @@ export default function App() {
                 const r=await fetch(`/api/scripts/${sel.script_id}/io_graph`,{method:'POST',body:fd});
                 const d=await r.json();
                 const ioName = '🔍 Filtered_'+sel.script_name;
-                setScripts(prev => {
+                  setScripts(prev => {
                   const exists = prev.some(s=>s.script_id===sel.script_id+'_io');
                   if (exists) return prev.map(s=>s.script_id===sel.script_id+'_io'?{...s,ioGraph:d,ioPaths:d.paths||[]}:s);
                   return [{script_id:sel.script_id+'_io',script_name:ioName,total_variables:d.input_count+d.output_count,total_dependencies:d.path_count,ioGraph:d,ioPaths:d.paths||[],analyzed_at:''},...prev];
