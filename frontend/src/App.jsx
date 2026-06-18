@@ -221,6 +221,7 @@ export default function App() {
       dbg('📏 Container check: ctR='+!!ctR.current+' w='+(ctR.current?.clientWidth||0)); const w = ctR.current?.clientWidth || 0;
       if (w > 0) {
         const added = cy.add([...renderNodes, ...renderEdges]); dbg('➕ Added '+added.nodes().length+' nodes + '+added.edges().length+' edges');
+        if (added.nodes().length === 0) { D('⚠️ Empty graph — no layout needed'); return; }
         D('🔍 Filter: multiView='+!!multiView+' sel='+!!sel+' mode='+(multiView&&!sel?'multi':'single')); if (multiView && !sel) {
           const n = renderNodes.length;
           const e = renderEdges.length;
