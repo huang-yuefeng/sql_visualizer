@@ -410,7 +410,7 @@ export default function App() {
               <div className="script-name" style={{color:'#2ECC71'}}>{fv.name}</div>
               <div className="script-meta">{fv.scripts.length} scripts</div>
             </div>)}
-            {scripts.map(s=><div key={s.script_id} className={`script-item ${sel?.script_id===s.script_id?'active':''}`} onClick={()=>{ if(s.ioGraph){ setIoGraph(s.ioGraph); setIoPaths(s.ioPaths||[]); setSel(null); setGd(null); setShowInfo(true); } else { setSel(s); } }}><div className="script-name">{s.script_name}</div><div className="script-meta">{s.total_variables}v · {s.total_dependencies}e</div></div>)}
+            {scripts.map(s=><div key={s.script_id} className={`script-item ${(sel?.script_id===s.script_id||(ioGraph&&s.ioGraph===ioGraph))?'active':''}`} onClick={()=>{ if(s.ioGraph){ setIoGraph(s.ioGraph); setIoPaths(s.ioPaths||[]); setSel(null); setGd(null); setShowInfo(true); D('📊 Clicked IO tag: '+s.script_name); } else { setSel(s); } }}><div className="script-name">{s.script_name}</div><div className="script-meta">{s.total_variables}v · {s.total_dependencies}e</div></div>)}
             {!multiView&&scripts.length===0&&<div className="empty-state">Upload a SQL script to begin</div>}
             {scripts.length>0 && <div style={{padding:'4px 16px 8px'}}><button className="btn btn-outline" style={{width:'100%',fontSize:'0.7rem',padding:'4px'}} onClick={async()=>{await fetch('/api/scripts',{method:'DELETE'});api.listScripts().then(setScripts);}}>Clear All</button></div>}
           </div>
@@ -435,7 +435,7 @@ export default function App() {
         </main>
         {(showInfo||panel||multiDetail||multiView)&&<aside className="detail-panel">
           <div className="detail-header">
-            <h3>{multiDetail ? multiDetail.script_name : panel ? panel.title : multiView ? '📊 Multi-Script Overview' : 'Overview'}</h3>
+            <h3>{multiDetail ? multiDetail.script_name : panel ? panel.title : ioGraph ? '📊 IO Graph' : multiView ? '📊 Multi-Script Overview' : 'Overview'}</h3>
             <div style={{display:'flex',gap:4}}>
               {multiDetail && <button onClick={()=>{setMultiDetail(null);setPanel(null)}} style={{background:'#F39C12',color:'#000',border:'none',borderRadius:3,padding:'2px 8px',cursor:'pointer',fontSize:'0.7rem',fontWeight:600}}>✕</button>}
               {!multiDetail && <button onClick={()=>{setPanel(null);setShowInfo(false)}} className="close-btn">✕</button>}
