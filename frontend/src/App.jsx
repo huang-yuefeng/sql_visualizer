@@ -85,11 +85,12 @@ export default function App() {
   useEffect(()=>{if(sel)load(sel);},[sel,load]);
 
   useEffect(() => {
-    dbg('🔄 useEffect: ioGraph='+!!ioGraph+' sel='+!!sel+' gd='+!!gd+' multiView='+!!multiView+' multiDetail='+!!multiDetail); // Multi-script view
+    try {
+    dbg('🔄 useEffect: ioGraph='+!!ioGraph+' sel='+!!sel+' gd='+!!gd+' multiView='+!!multiView+' multiDetail='+!!multiDetail);
     let data = ioGraph || gd;
-    // Priority: ioGraph > single script > multi detail > multi overview
     if (ioGraph) {
       data = ioGraph;
+      D('📊 IO graph active: nodes='+(data.nodes?.length||0)+' edges='+(data.edges?.length||0));
     } else if (sel && gd) {
       D('📄 Single view: sel='+(sel?.script_name||'?')+' nodes='+gd?.nodes?.length); data = gd;
     } else if (multiDetail) {
@@ -264,6 +265,7 @@ export default function App() {
     };
     requestAnimationFrame(runLayout);
     return ()=>{cy.destroy();};
+    } catch(e) { D('💥 useEffect CRASH: '+e.message); console.error(e); }
   },[gd,ioGraph,ioPaths,viewMode,multiView,multiDetail,multiLayout]);
 
   const upload = async e => {
