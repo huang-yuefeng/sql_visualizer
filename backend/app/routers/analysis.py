@@ -46,6 +46,18 @@ async def get_script_endpoint(script_id: str):
     return result
 
 
+@router.delete("/scripts")
+async def clear_scripts_endpoint():
+    """Delete all cached analysis results."""
+    from app.config import CACHE_DIR
+    import glob
+    count = 0
+    for f in glob.glob(str(CACHE_DIR / "*.json")):
+        __import__('os').remove(f)
+        count += 1
+    return {"deleted": count}
+
+
 @router.post("/analyze_multi")
 async def analyze_multi_endpoint(files: list[UploadFile]):
     """Upload multiple SQL files and build a meta-graph connecting shared variables."""

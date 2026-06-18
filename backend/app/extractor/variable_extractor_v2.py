@@ -344,6 +344,7 @@ class _RoleBasedExtractor:
         self._cte_names: set[str] = set()
         self._table_aliases: dict[str, str] = {}  # alias → real table name
         self._seen: set[tuple[str, str]] = set()   # (name, type) dedup
+        self._subq_counter: int = 0  # unique subquery IDs
 
     def _next_id(self, key: str) -> str:
         self._counter[key] = self._counter.get(key, 0) + 1
@@ -619,11 +620,13 @@ class _RoleBasedExtractor:
             # Walk INTO subqueries — fully process inner SELECT
             elif isinstance(node, exp.Subquery):
                 if isinstance(node.this, exp.Select):
-                    self._walk_select(node.this, f"{context}:subq", is_cte=False)
+                    self._subq_counter += 1
+                    self._walk_select(node.this, f"{context}:subq{self._subq_counter}", is_cte=False)
             elif isinstance(node, exp.Exists):
                 # EXISTS wraps a Select directly (not a Subquery)
                 if isinstance(node.this, exp.Select):
-                    self._walk_select(node.this, f"{context}:exists", is_cte=False)
+                    self._subq_counter += 1
+                    self._walk_select(node.this, f"{context}:exists{self._subq_counter}", is_cte=False)
 
     def _walk_select_tables(self, select_node, context: str):
         """Extract table references from a Select node inside subquery/EXISTS."""

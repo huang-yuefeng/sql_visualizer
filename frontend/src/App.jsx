@@ -94,7 +94,7 @@ export default function App() {
       D('📄 Single view: sel='+(sel?.script_name||'?')+' nodes='+gd?.nodes?.length); data = gd;
     } else if (multiDetail) {
       data = multiDetail.graph;
-    } else if (multiView && !sel) {
+    } else D('🔍 Filter: multiView='+!!multiView+' sel='+!!sel+' mode='+(multiView&&!sel?'multi':'single')); if (multiView && !sel) {
       data = {nodes: multiView.meta_nodes, edges: multiView.meta_edges};
     }
     if (!data || !ctR.current) return;
@@ -104,7 +104,7 @@ export default function App() {
     let renderEdges = [...data.edges];
 
     // Tables view: only show table-like nodes, filter out columns + computed
-    if (viewMode === 'tables' && sel && gd) {
+    if (viewMode === 'tables' && sel && gd && !ioGraph) {
       const tableTypes = new Set(['table','view','cte','virtual_table','merge_target','subquery','union_branch']);
       renderNodes = renderNodes.filter(n => tableTypes.has(n.data.variable_type));
       const nodeIds = new Set(renderNodes.map(n => n.data.id));
@@ -118,7 +118,7 @@ export default function App() {
       style: [...NODE_STYLES],
       wheelSensitivity: 0.3,
       // Performance settings for large graphs
-      pixelRatio: viewMode==='tables'?1:1.5,
+      pixelRatio: (viewMode==='tables'&&!ioGraph)?1:1.5,
       textureOnViewport: true,
       hideEdgesOnViewport: viewMode==='full',
       hideLabelsOnViewport: viewMode==='full',
@@ -176,7 +176,7 @@ export default function App() {
       }
     });
     // Meta-graph: click script parent → highlight + show detail in panel
-    if (multiView && !sel) {
+    D('🔍 Filter: multiView='+!!multiView+' sel='+!!sel+' mode='+(multiView&&!sel?'multi':'single')); if (multiView && !sel) {
       // Single click → show details in right panel
       cy.on('tap','node',e=>{
         const nd = e.target.data();
@@ -220,7 +220,7 @@ export default function App() {
       dbg('📏 Container check: ctR='+!!ctR.current+' w='+(ctR.current?.clientWidth||0)); const w = ctR.current?.clientWidth || 0;
       if (w > 0) {
         const added = cy.add([...renderNodes, ...renderEdges]); dbg('➕ Added '+added.nodes().length+' nodes + '+added.edges().length+' edges');
-        if (multiView && !sel) {
+        D('🔍 Filter: multiView='+!!multiView+' sel='+!!sel+' mode='+(multiView&&!sel?'multi':'single')); if (multiView && !sel) {
           const n = renderNodes.length;
           const e = renderEdges.length;
           dbg('📐 Multi layout: ring mode, n='+renderNodes.length); const spKeys = savedPositions.current ? Object.keys(savedPositions.current).length : 0; D('💾 savedPositions has '+spKeys+' keys, n='+n); const hasSavedPos = spKeys > 0; if (multiLayout === 'ring') { dbg('📍 Entering ring block, added='+!!added);
@@ -322,7 +322,7 @@ export default function App() {
           {(multiView||sel) && <label className="btn btn-outline" style={{cursor:'pointer'}}>Filter<input ref={filterRef} type="file" accept=".csv,.txt" onChange={async e=>{
             const f=e.target.files?.[0];if(!f)return;
             const text=await f.text();
-            if (multiView && !sel) {
+            D('🔍 Filter: multiView='+!!multiView+' sel='+!!sel+' mode='+(multiView&&!sel?'multi':'single')); if (multiView && !sel) {
               // Multi-script: filter by table/column names in CSV
               setLoading(true);
               const lines=text.split(/[\n]/).map(s=>s.trim()).filter(s=>s.length>0);
@@ -366,7 +366,7 @@ export default function App() {
                 setTimeout(()=>setProg({s:'',p:0}),1500);
                 setLoading(false);
               },50);
-            } else if (sel) {
+            } else if (sel) { D('🔍 Filter: single-script IO graph for '+sel.script_name);
               // Single-script: IO graph saved as sidebar tag
               setCsvName(f.name);setCsvContent(text);
               const fd=new FormData();fd.append('csv_file',f);
@@ -408,6 +408,7 @@ export default function App() {
             </div>)}
             {scripts.map(s=><div key={s.script_id} className={`script-item ${sel?.script_id===s.script_id?'active':''}`} onClick={()=>{ if(s.ioGraph){ setIoGraph(s.ioGraph); setIoPaths(s.ioPaths||[]); setSel(null); setGd(null); setShowInfo(true); } else { setSel(s); } }}><div className="script-name">{s.script_name}</div><div className="script-meta">{s.total_variables}v · {s.total_dependencies}e</div></div>)}
             {!multiView&&scripts.length===0&&<div className="empty-state">Upload a SQL script to begin</div>}
+            {scripts.length>0 && <div style={{padding:'4px 16px 8px'}}><button className="btn btn-outline" style={{width:'100%',fontSize:'0.7rem',padding:'4px'}} onClick={async()=>{await fetch('/api/scripts',{method:'DELETE'});api.listScripts().then(setScripts);}}>Clear All</button></div>}
           </div>
           {sel&&<div className="filter-panel"><h3>Filter Nodes</h3><input type="text" placeholder="Search..." value={sq} onChange={e=>setSq(e.target.value)} className="search-input"/><select value={tf} onChange={e=>setTf(e.target.value)} className="type-select">{VT.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</select><h3 style={{marginTop:8}}>Filter Edges</h3><select value={ef} onChange={e=>setEf(e.target.value)} className="type-select">{ET.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</select></div>}
           <div className="legend-panel"><h3>Nodes <span style={{fontSize:'0.6rem',color:'#666'}}>hover for info</span></h3><div className="legend-cat">── Script ──</div>{VT.filter(t=>['script'].includes(t.value)).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><LegendIcon type={t.value}/><span className="legend-label">{t.label}</span></span>)}<div className="legend-cat">── Tables ──</div>{VT.filter(t=>['table','view','virtual_table','cte','subquery','merge_target','union_branch'].includes(t.value)).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><LegendIcon type={t.value}/><span className="legend-label">{t.label}</span></span>)}<div className="legend-cat">── Columns ──</div>{VT.filter(t=>['column','cte_column'].includes(t.value)).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><LegendIcon type={t.value}/><span className="legend-label">{t.label}</span></span>)}<div className="legend-cat">── Computed ──</div>{VT.filter(t=>!['','script','table','view','virtual_table','cte','subquery','merge_target','union_branch','column','cte_column'].includes(t.value)).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><LegendIcon type={t.value}/><span className="legend-label">{t.label}</span></span>)}<h3 style={{marginTop:10}}>Edges</h3>{ET.filter(t=>t.value).map(t=><span key={t.value} className="legend-item" onMouseEnter={e=>setTip({show:true,x:e.clientX+10,y:e.clientY-10,text:t.desc||t.label})} onMouseLeave={()=>setTip({show:false,x:0,y:0,text:''})}><span className="legend-color" style={{background:EC[t.value]||'#555',width:14,height:3,borderRadius:1,marginLeft:4}}/><span className="legend-label">{t.label}</span></span>)}</div>
