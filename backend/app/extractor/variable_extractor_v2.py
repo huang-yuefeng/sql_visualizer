@@ -237,7 +237,7 @@ def _detect_dialect(sql_text: str) -> str:
 
     # TSQL (SQL Server)
     if re.search(r'(?i)\bTOP\s+\d+', sql_text): scores['tsql'] = scores.get('tsql', 0) + 5
-    if re.search(r'(?i)\[.*\]', sql_text): scores['tsql'] = scores.get('tsql', 0) + 3
+    if re.search(r'(?i)\[[a-zA-Z_][a-zA-Z0-9_]*\]\.[a-zA-Z_][a-zA-Z0-9_]*\]', sql_text): scores['tsql'] = scores.get('tsql', 0) + 3
     if re.search(r'(?i)WITH\s*\(\s*NOLOCK\s*\)', sql_text): scores['tsql'] = scores.get('tsql', 0) + 10
 
     # Snowflake

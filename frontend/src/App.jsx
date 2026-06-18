@@ -5,6 +5,7 @@ cytoscape.use(fcose);
 import * as api from './api/client';
 import { NODE_STYLES, LAYOUT_OPTIONS } from './utils/graphStyles';
 import D from './utils/debug';
+import { exportCurrentView } from './utils/export';
 
 const C = {
   script:'#F39C12',
@@ -382,6 +383,7 @@ export default function App() {
           }} hidden/></label>}
           {multiView && filterTables && <button className="btn btn-outline" onClick={()=>setFilterTables(null)} style={{color:'#2ECC71'}}>✕ Filter</button>}
           {sel && <button className="btn btn-outline" onClick={()=>setShowSQL(!showSQL)}>{showSQL?'Hide SQL':'Show SQL'}</button>}
+          {(sel||multiView) && <button className="btn btn-outline" onClick={()=>exportCurrentView({multiView,gd,sel})}>Export CSV</button>}
           <button className="btn btn-outline" onClick={()=>{if(cyR.current)cyR.current.fit(undefined,50)}}>Fit</button>
           {ioGraph && <button className="btn btn-outline" onClick={()=>{setIoGraph(null);setIoPaths([]);setCsvName('');setCsvContent('')}}>Exit IO</button>}
         </div>
