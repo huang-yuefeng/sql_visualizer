@@ -292,3 +292,53 @@ def _check_alias_edges(variables, dependencies):
 
 register_check("alias_edges", _check_alias_edges)
 
+
+# ── Check 11: Tables view connectivity ────────────────────────────────
+
+def _check_tables_view_isolation(variables, dependencies):
+    """In Tables view (table-like nodes only), there should be no isolated
+    table clusters that should be connected via TABLE_FLOW or DML edges.
+
+    Reports table-like nodes that have zero TABLE_FLOW or DML edges.
+    Normally every FROM/JOIN alias has TABLE_FLOW → VT/CTE, and DML
+    targets have DML edges. Missing edges indicate a construction bug.
+    """
+    issues = []
+    table_types = {"table", "view", "cte", "subquery", "virtual_table",
+                   "merge_target", "union_branch"}
+    # Build edge index per node
+    out_edges = {}
+    in_edges = {}
+    for d in dependencies:
+        out_edges.setdefault(d["source_id"], []).append(d)
+        in_edges.setdefault(d["target_id"], []).append(d)
+
+    for v in variables:
+        vt = v.get("variable_type", "")
+        if vt not in table_types:
+            continue
+        out = out_edges.get(v["id"], [])
+        in_ = in_edges.get(v["id"], [])
+        tf_or_dml = [e for e in out if e.get("relationship") in ("TABLE_FLOW", "DML")]
+        tf_or_dml_in = [e for e in in_ if e.get("relationship") in ("TABLE_FLOW", "DML")]
+
+        # FROM/JOIN alias (has source_tables) → must have TABLE_FLOW out
+        if vt == "table" and v.get("source_tables") and not tf_or_dml:
+            issues.append(
+                f"[{vt}] '{v['name']}' is FROM/JOIN alias but has no TABLE_FLOW/DML outgoing. "
+                f"ctx={v.get('context','?')} di={v.get('defined_in','?')}"
+            )
+        # DML target → must have DML incoming
+        if vt in ("table", "merge_target"):
+            di = (v.get("defined_in") or "").upper()
+            if any(kw in di for kw in ("INSERT", "UPDATE", "DELETE", "MERGE")):
+                if not any(e.get("relationship") == "DML" for e in in_):
+                    issues.append(
+                        f"[{vt}] '{v['name']}' is DML target ({di}) but no DML incoming"
+                    )
+
+    return issues
+
+
+register_check("tables_view_isolation", _check_tables_view_isolation)
+
