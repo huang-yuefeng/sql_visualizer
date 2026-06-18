@@ -76,12 +76,24 @@ function downloadCSV(content, filename) {
   document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
-export function exportCurrentView({multiView, gd, sel}) {
+export function exportCurrentView({multiView, gd, sel, multiOriginal, filteredViews}) {
   if (multiView) {
     const csv = exportMultiCSV(multiView);
-    downloadCSV(csv, `multi_scripts_${new Date().toISOString().slice(0,10)}.csv`);
+    // Match sidebar tag name
+    let name = `Multi_${multiView.scripts.length}scripts`;
+    // Check if it's a filtered view
+    for (const fv of (filteredViews||[])) {
+      if (fv === multiView || fv.id === multiView.id) {
+        name = fv.name.replace(/[^a-zA-Z0-9_一-鿿]/g, '_');
+        break;
+      }
+    }
+    if (multiOriginal?.current === multiView) {
+      name = `Multi_${multiView.scripts.length}scripts`;
+    }
+    downloadCSV(csv, `${name}.csv`);
   } else if (sel && gd) {
     const csv = exportSingleCSV(gd);
-    downloadCSV(csv, `${sel.script_name||'script'}_${new Date().toISOString().slice(0,10)}.csv`);
+    downloadCSV(csv, `${sel.script_name||'script'}.csv`);
   }
 }

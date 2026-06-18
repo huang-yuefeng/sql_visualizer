@@ -367,14 +367,20 @@ export default function App() {
                 setLoading(false);
               },50);
             } else if (sel) {
-              // Single-script: IO graph path finding
+              // Single-script: IO graph saved as sidebar tag
               setCsvName(f.name);setCsvContent(text);
-              setIoGraph(null);setIoPaths([]);
               const fd=new FormData();fd.append('csv_file',f);
               setLoading(true);setProg({s:'Building IO graph...',p:50});
               try{
                 const r=await fetch(`/api/scripts/${sel.script_id}/io_graph`,{method:'POST',body:fd});
-                const d=await r.json();setIoGraph(d);setIoPaths(d.paths||[]);
+                const d=await r.json();
+                const ioName = '🔍 IO: '+sel.script_name;
+                setScripts(prev => {
+                  const exists = prev.some(s=>s.script_id===sel.script_id+'_io');
+                  if (exists) return prev.map(s=>s.script_id===sel.script_id+'_io'?{...s,ioGraph:d,ioPaths:d.paths||[]}:s);
+                  return [{script_id:sel.script_id+'_io',script_name:ioName,total_variables:d.input_count+d.output_count,total_dependencies:d.path_count,ioGraph:d,ioPaths:d.paths||[],analyzed_at:''},...prev];
+                });
+                setIoGraph(d);setIoPaths(d.paths||[]);
                 setProg({s:'',p:0});
               }catch{setProg({s:'',p:0});}
               finally{setLoading(false);}
@@ -383,9 +389,8 @@ export default function App() {
           }} hidden/></label>}
           {multiView && filterTables && <button className="btn btn-outline" onClick={()=>setFilterTables(null)} style={{color:'#2ECC71'}}>✕ Filter</button>}
           {sel && <button className="btn btn-outline" onClick={()=>setShowSQL(!showSQL)}>{showSQL?'Hide SQL':'Show SQL'}</button>}
-          {(sel||multiView) && <button className="btn btn-outline" onClick={()=>exportCurrentView({multiView,gd,sel})}>Export CSV</button>}
+          {(sel||multiView) && <button className="btn btn-outline" onClick={()=>exportCurrentView({multiView,gd,sel,multiOriginal,filteredViews})}>Export CSV</button>}
           <button className="btn btn-outline" onClick={()=>{if(cyR.current)cyR.current.fit(undefined,50)}}>Fit</button>
-          {ioGraph && <button className="btn btn-outline" onClick={()=>{setIoGraph(null);setIoPaths([]);setCsvName('');setCsvContent('')}}>Exit IO</button>}
         </div>
       </header>
       {pshow&&<div className="progress-bar-wrap"><div className="progress-bar-fill" style={{width:`${prog.p}%`}}/><span className="progress-label">{prog.s}</span></div>}
@@ -401,7 +406,7 @@ export default function App() {
               <div className="script-name" style={{color:'#2ECC71'}}>{fv.name}</div>
               <div className="script-meta">{fv.scripts.length} scripts</div>
             </div>)}
-            {scripts.map(s=><div key={s.script_id} className={`script-item ${sel?.script_id===s.script_id?'active':''}`} onClick={()=>setSel(s)}><div className="script-name">{s.script_name}</div><div className="script-meta">{s.total_variables}v · {s.total_dependencies}e</div></div>)}
+            {scripts.map(s=><div key={s.script_id} className={`script-item ${sel?.script_id===s.script_id?'active':''}`} onClick={()=>{ if(s.ioGraph){ setIoGraph(s.ioGraph); setIoPaths(s.ioPaths||[]); setSel(null); setGd(null); setShowInfo(true); } else { setSel(s); } }}><div className="script-name">{s.script_name}</div><div className="script-meta">{s.total_variables}v · {s.total_dependencies}e</div></div>)}
             {!multiView&&scripts.length===0&&<div className="empty-state">Upload a SQL script to begin</div>}
           </div>
           {sel&&<div className="filter-panel"><h3>Filter Nodes</h3><input type="text" placeholder="Search..." value={sq} onChange={e=>setSq(e.target.value)} className="search-input"/><select value={tf} onChange={e=>setTf(e.target.value)} className="type-select">{VT.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</select><h3 style={{marginTop:8}}>Filter Edges</h3><select value={ef} onChange={e=>setEf(e.target.value)} className="type-select">{ET.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</select></div>}

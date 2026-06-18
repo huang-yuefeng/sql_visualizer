@@ -458,7 +458,7 @@ class _RoleBasedExtractor:
             label = context.split(":")[-1] if ":" in context else "output"
             vt_name = f"⟐ {label}"
             self._add(vt_name, VariableType.VIRTUAL_TABLE,
-                      sql_expr=_sql(select)[:200],
+                      sql_expr=_sql(select),
                       defined_in=context, context=context)
 
         # Detect statement type for DML marking
