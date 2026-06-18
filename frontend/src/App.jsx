@@ -102,8 +102,8 @@ export default function App() {
     if (!data || !ctR.current) return;
     if (cyR.current) cyR.current.destroy();
 
-    let renderNodes = data.nodes.map(n => ({...n, data: {...n.data}}));
-    let renderEdges = [...data.edges];
+    let renderNodes = (data.nodes||[]).map(n => ({...n, data: {...n.data}}));
+    let renderEdges = [...(data.edges||[])];
 
     // Tables view: only show table-like nodes, filter out columns + computed
     if (viewMode === 'tables' && sel && gd && !ioGraph) {
@@ -382,7 +382,7 @@ export default function App() {
                   setScripts(prev => {
                   const exists = prev.some(s=>s.script_id===sel.script_id+'_io');
                   if (exists) return prev.map(s=>s.script_id===sel.script_id+'_io'?{...s,ioGraph:d,ioPaths:d.paths||[]}:s);
-                  return [{script_id:sel.script_id+'_io',script_name:ioName,total_variables:d.input_count+d.output_count,total_dependencies:d.path_count,ioGraph:d,ioPaths:d.paths||[],analyzed_at:''},...prev];
+                  const idx = prev.findIndex(x=>x.script_id===sel.script_id); const nxt = [...prev]; nxt.splice(idx>=0?idx+1:0,0,{script_id:sel.script_id+'_io',script_name:ioName,total_variables:d.input_count+d.output_count,total_dependencies:d.path_count,ioGraph:d,ioPaths:d.paths||[],analyzed_at:''}); return nxt;
                 });
                 setIoGraph(d);setIoPaths(d.paths||[]);
                 setProg({s:'',p:0});
@@ -433,7 +433,7 @@ export default function App() {
           <div ref={ctR} className="graph-container" style={{opacity:(sel||multiView||ioGraph)&&!loading?1:0,pointerEvents:(sel||multiView||ioGraph)&&!loading?'auto':'none'}}/>
           {ioGraph && <div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'8px 12px',borderRadius:4,fontSize:'0.7rem',color:'#2ECC71',zIndex:5,maxWidth:300}}><b>IO View</b> — {ioGraph.input_count} inputs, {ioGraph.output_count} outputs, {ioGraph.path_count} paths{csvContent && <pre style={{margin:'4px 0 0',fontSize:'0.6rem',color:'#aaa',maxHeight:120,overflow:'auto',whiteSpace:'pre'}}>{csvContent}</pre>}</div>}
         </main>
-        {(showInfo||panel||multiDetail||multiView)&&<aside className="detail-panel">
+        {D('📋 PanelCheck: showInfo='+!!showInfo+' panel='+!!panel+' multiDetail='+!!multiDetail+' multiView='+!!multiView+' ioGraph='+!!ioGraph+' sel='+!!sel),(showInfo||panel||multiDetail||multiView)&&<aside className="detail-panel">
           <div className="detail-header">
             <h3>{multiDetail ? multiDetail.script_name : panel ? panel.title : ioGraph ? '📊 IO Graph' : multiView ? '📊 Multi-Script Overview' : 'Overview'}</h3>
             <div style={{display:'flex',gap:4}}>
@@ -442,15 +442,25 @@ export default function App() {
             </div>
           </div>
           <div className="detail-content">
-            {/* Multi-script detail: show selected script summary */}
-            {multiDetail && !panel && <ScriptSummary sc={multiDetail} multiView={multiView} onDrill={()=>{/* dbltap already drilles */}} />}
+            {/* IO graph view */}
+            {ioGraph && !panel && D('📋 Panel: IO graph info') && <div className="detail-scroll">
+              <div className="detail-section"><div className="ds-title">📊 IO Graph</div>
+                <Row k="Inputs" v={ioGraph.input_count||0}/>
+                <Row k="Outputs" v={ioGraph.output_count||0}/>
+                <Row k="Paths" v={ioGraph.path_count||0}/>
+                {(ioGraph.nodes||[]).length===0 && <div style={{fontSize:'0.8rem',color:'#F39C12',marginTop:8}}>⚠️ No matching data flow found for this filter.</div>}
+              </div>
+            </div>}
+            {/* Multi-script detail */}
+            {!ioGraph && multiDetail && !panel && <ScriptSummary sc={multiDetail} multiView={multiView} onDrill={()=>{}} />}
+            {/* Multi overview */}
+            {!ioGraph && multiView&&!panel&&!multiDetail&&!sel&&<MultiOverview mv={multiView} ft={filterTables} ftCsv={csvContent} ftName={csvName}/>}
             {/* Single-script overview */}
-            {multiView&&!panel&&!multiDetail&&!sel&&<MultiOverview mv={multiView} ft={filterTables} ftCsv={csvContent} ftName={csvName}/>}
-            {!multiView&&!panel&&!multiDetail&&sel&&<div className="detail-scroll">
+            {!ioGraph && !multiView&&!panel&&!multiDetail&&sel&&<div className="detail-scroll">
               <div className="detail-section"><div className="ds-title">Script</div><Row k="Name" v={sel.script_name}/><Row k="Variables" v={gd?.total_variables+' variables'}/><Row k="Edges" v={gd?.total_dependencies+' edges'}/></div>
               <div className="detail-section"><div className="ds-title">How to Explore</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Click any <b>node</b> to see its variable details.<br/>Click any <b>edge</b> to see the data flow between variables.<br/>Use the <b>search</b> and <b>filter</b> to find specific variables.</div></div>
             </div>}
-            {!panel&&!multiDetail&&!sel&&<div className="detail-scroll"><div className="detail-section"><div className="ds-title">Welcome</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Upload a SQL script to begin.<br/>The graph and details will appear here.</div></div></div>}
+            {!ioGraph && !panel&&!multiDetail&&!sel&&!multiView&&<div className="detail-scroll"><div className="detail-section"><div className="ds-title">Welcome</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Upload a SQL script to begin.<br/>The graph and details will appear here.</div></div></div>}
             {panel&&(panel.type==='node'?<NodePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>:panel.type==='io_path'?<IOPathPanel p={panel}/>:panel.type==='script_meta'?<ScriptSummary sc={panel.script} multiView={multiView}/>:panel.type==='meta_edge'?<MetaEdgePanel p={panel} scripts={multiView?.scripts||[]}/>:<EdgePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>)}
           </div>
         </aside>}
