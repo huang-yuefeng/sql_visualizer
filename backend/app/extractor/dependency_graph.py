@@ -141,6 +141,19 @@ def build_dependency_graph(
             if ctx_anchor:
                 _add_edge(ctx_anchor, tbl_var, "DML", op_type)
 
+    # 1c-extra: TABLE_FLOW from FROM aliases → DML target tables
+    # Shows "source table feeds data into INSERT/UPDATE/DELETE/MERGE target"
+    for tbl_var, op_type in dml_entries:
+        ctx = tbl_var.context or "TOP"
+        for v in variables:
+            if v.variable_type not in (VariableType.TABLE, VariableType.VIEW):
+                continue
+            if not v.source_tables:  # only aliases
+                continue
+            if (v.context or "TOP") != ctx:
+                continue
+            _add_edge(v, tbl_var, "TABLE_FLOW", op_type)
+
     # 1d: UNION branch → parent context VT
     for v in variables:
         if v.variable_type != VariableType.UNION_BRANCH:
