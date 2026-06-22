@@ -457,7 +457,7 @@ export default function App() {
             {/* Multi overview */}
             {!ioGraph && multiView&&!panel&&!multiDetail&&!sel&&<MultiOverview mv={multiView} ft={filterTables} ftCsv={csvContent} ftName={csvName}/>}
             {/* Single-script overview */}
-            {!ioGraph && !multiView&&!panel&&!multiDetail&&sel&&<div className="detail-scroll">
+            {!ioGraph && !panel&&!multiDetail&&sel&&<div className="detail-scroll">
               <div className="detail-section"><div className="ds-title">Script</div><Row k="Name" v={sel.script_name}/><Row k="Variables" v={gd?.total_variables+' variables'}/><Row k="Edges" v={gd?.total_dependencies+' edges'}/></div>
               <div className="detail-section"><div className="ds-title">How to Explore</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Click any <b>node</b> to see its variable details.<br/>Click any <b>edge</b> to see the data flow between variables.<br/>Use the <b>search</b> and <b>filter</b> to find specific variables.</div></div>
             </div>}
