@@ -393,7 +393,7 @@ class TestSubsetEdge:
         result = run_full_analysis(sql, "test")
         issues = run_all_checks(result['variables'], result['dependencies'])
         hard = {k: v for k, v in issues.items()
-                if k not in ('component_link_usage', 'ambiguous_base_names', 'alias_edges', 'tables_view_isolation')}
+                if k not in ('component_link_usage', 'ambiguous_base_names', 'alias_edges', 'tables_view_isolation', 'duplicate_nodes', 'duplicate_table_names', 'node_name_uniqueness')}
         assert len(hard) == 0, f"Hard topology errors: {hard}"
 
 

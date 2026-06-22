@@ -125,7 +125,7 @@ class TestCTEVariableExtraction:
         result = extract_variables_from_sql(sql_cte_chain, "test_cte")
         # Variables inside CTE context should exist — check by name regardless of type
         cte_context_vars = [v for v in result.variables
-                            if v.defined_in and v.defined_in.startswith("CTE:")]
+                            if v.defined_in and v.defined_in.startswith("CTE{")]
         cte_var_names = [v.name for v in cte_context_vars]
         assert "batch_total_amount" in cte_var_names, \
             f"Should find 'batch_total_amount' in CTE context, got: {cte_var_names}"

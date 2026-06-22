@@ -36,9 +36,12 @@ ALL_CHECKS: list[tuple[str, callable]] = []
 # ── Check 1: No isolated nodes ───────────────────────────────────────────
 
 def _check_isolated_nodes(variables, dependencies):
-    """Edge count rules by node type:
-       - column, cte_column: must have ≥2 edges (source + target)
-       - all other types: must have ≥1 edge
+    """Edge count rules:
+       - table.column: ≥2 edges (SCHEMA from table + something out)
+       - bare column (no dot): ≥1 edge (FILTER or REF is enough)
+       - cte_column: ≥2 edges
+       - table-like: ≥1 edge
+       - others: ≥1 edge
     """
     from collections import Counter
     edge_counts = Counter()
@@ -46,23 +49,28 @@ def _check_isolated_nodes(variables, dependencies):
         edge_counts[d["source_id"]] += 1
         edge_counts[d["target_id"]] += 1
     issues = []
-    col_types = {"column", "cte_column"}
-    # table: only needs ≥1 edge (ALIAS or SCHEMA)
-    # — redundant table→VT edges removed, columns cover the data flow
     table_types = {"table", "view", "cte", "virtual_table",
                    "merge_target", "union_branch", "subquery"}
     for v in variables:
         c = edge_counts.get(v["id"], 0)
         vt = v.get("variable_type", "")
-        if vt in col_types:
+        name = v.get("name", "")
+        if vt == "column":
+            if "." in name:
+                if c < 2:
+                    issues.append(f"[{vt}] {name}: {c}e, need ≥2")
+            else:
+                if c == 0:
+                    issues.append(f"[{vt}] {name}: ZERO edges (bare column)")
+        elif vt == "cte_column":
             if c < 2:
-                issues.append(f"[{vt}] {v['name']}: {c}e, need ≥2 (source + target)")
+                issues.append(f"[{vt}] {name}: {c}e, need ≥2")
         elif vt in table_types:
             if c == 0:
-                issues.append(f"[{vt}] {v['name']}: ZERO edges")
+                issues.append(f"[{vt}] {name}: ZERO edges")
         else:
             if c == 0:
-                issues.append(f"[{vt}] {v['name']}: ZERO edges")
+                issues.append(f"[{vt}] {name}: ZERO edges")
     return issues
 
 register_check("isolated_nodes", _check_isolated_nodes)
@@ -99,11 +107,11 @@ register_check("disconnected_components", _check_disconnected_components)
 # ── Check 3: No duplicate nodes ───────────────────────────────────────────
 
 def _check_duplicate_nodes(variables, dependencies):
-    """No two nodes with the same (name, type)."""
+    """No two nodes with the same (name, type, context)."""
     from collections import Counter
-    keys = [(v["name"], v.get("variable_type","")) for v in variables]
+    keys = [(v["name"], v.get("variable_type",""), v.get("context","")) for v in variables]
     dupes = {k: c for k, c in Counter(keys).items() if c > 1}
-    return [f"({n},{t}) x{c}" for (n, t), c in dupes.items()]
+    return [f"({n},{t},{ctx}) x{c}" for (n, t, ctx), c in dupes.items()]
 
 register_check("duplicate_nodes", _check_duplicate_nodes)
 
@@ -214,18 +222,13 @@ register_check("component_link_usage", _check_component_link_usage)
 # ── Check 8: Node (name, type) uniqueness ──────────────────────────────
 
 def _check_node_name_uniqueness(variables, dependencies):
-    """Every (name, type) pair must be unique — enforced by dedup logic."""
+    """Every (name, type, context) triple must be unique — universal identity."""
     from collections import Counter
     issues = []
-    keys = [(v["name"], v.get("variable_type", "")) for v in variables]
+    keys = [(v["name"], v.get("variable_type", ""), v.get("context", "")) for v in variables]
     dupes = {k: c for k, c in Counter(keys).items() if c > 1}
-    for (name, vt), count in dupes.items():
-        vars_ = [v for v in variables
-                if v["name"] == name and v.get("variable_type") == vt]
-        contexts = [v.get("context", "?") for v in vars_]
-        issues.append(
-            f"[{vt}] '{name}' appears {count}x — dedup bug! contexts: {contexts}"
-        )
+    for (name, vt, ctx), count in dupes.items():
+        issues.append(f"[{vt}] '{name}' in '{ctx}' appears {count}x — dedup bug!")
     return issues
 
 

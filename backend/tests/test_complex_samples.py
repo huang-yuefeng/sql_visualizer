@@ -61,7 +61,7 @@ class TestChargebackAnalysis:
         result = extract_variables_from_sql(sql, "fin_query6")
         types_in_cte_context = set()
         for v in result.variables:
-            if v.defined_in and v.defined_in.startswith("CTE:"):
+            if v.defined_in and v.defined_in.startswith("CTE{"):
                 types_in_cte_context.add(v.variable_type)
         # Should have more than just CTE_COLUMN — windows, aggregates, etc. should be preserved
         assert len(types_in_cte_context) >= 3, \

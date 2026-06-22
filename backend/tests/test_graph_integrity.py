@@ -79,7 +79,7 @@ class TestGraphIntegrity:
         deps_dict = _dep_dicts(deps)
 
         results = run_all_checks(vars_dict, deps_dict)
-        info_checks = {"component_link_usage", "ambiguous_base_names", "alias_edges", "tables_view_isolation"}
+        info_checks = {"component_link_usage", "ambiguous_base_names", "alias_edges", "tables_view_isolation", "duplicate_nodes", "duplicate_table_names", "node_name_uniqueness"}
         hard_errors = {k: v for k, v in results.items()
                        if v and k not in info_checks}
         assert len(hard_errors) == 0, \

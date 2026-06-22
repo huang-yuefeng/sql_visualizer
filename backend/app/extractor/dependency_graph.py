@@ -64,7 +64,7 @@ def build_dependency_graph(
             vt_map[v.context or "TOP"].append(v)
             all_anchors.append(v)
         elif v.variable_type == VariableType.CTE:
-            cte_ctx = f"CTE:{v.name}"
+            cte_ctx = f"CTE{{{v.name}}}"
             vt_map[cte_ctx].append(v)
             all_anchors.append(v)
             # CTE is only an output anchor for its inner context.
@@ -109,8 +109,8 @@ def build_dependency_graph(
     #     Shows "inner SELECT output flows into outer query"
     for anchor in all_anchors:
         ctx = anchor.context or "TOP"
-        if ":" in ctx:
-            parent_ctx = ctx.rsplit(":", 1)[0]
+        if "/" in ctx:
+            parent_ctx = ctx.rsplit("/", 1)[0]
             for parent in vt_map.get(parent_ctx, []):
                 _add_edge(anchor, parent, "TABLE_FLOW", "SUBSELECT")
 
@@ -226,7 +226,7 @@ def build_dependency_graph(
     for v in variables:
         if v.variable_type != VariableType.CTE:
             continue
-        cte_prefix = f"CTE:{v.name}"
+        cte_prefix = f"CTE{{{v.name}}}"
         for inner in variables:
             if inner.defined_in and (
                 inner.defined_in == cte_prefix
@@ -352,8 +352,8 @@ def build_dependency_graph(
                        if x.variable_type in _TABLE_TYPES
                        and (x.context or "TOP") == ctx
                        and x.id != v.id), None)
-        if not anchor and ":" in ctx:
-            pctx = ctx.rsplit(":", 1)[0]
+        if not anchor and "/" in ctx:
+            pctx = ctx.rsplit("/", 1)[0]
             anchor = next((x for x in variables
                            if x.variable_type in _TABLE_TYPES
                            and (x.context or "TOP") == pctx
