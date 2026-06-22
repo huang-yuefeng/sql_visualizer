@@ -126,9 +126,77 @@ export default function App() {
       hideLabelsOnViewport: viewMode==='full',
     });
     cy.on('mouseover','node',e=>{
-      e.target.closedNeighborhood().removeClass('dimmed');
-      cy.elements().not(e.target.closedNeighborhood()).addClass('dimmed');
       const nd = e.target.data();
+      // Layer mode: highlight trees with multi-color support
+      if (multiLayout==='layer'&&multiView) {
+        cy.elements().removeClass('dimmed');
+        // Reset any tree color classes
+        for (let i=0;i<8;i++) { cy.elements().removeClass('tree-'+i); }
+        const roots=filterTables||[];
+        // Find all trees from roots via BFS
+        const trees=[]; // [{root, nodeIds:Set, edgeIds:Set}]
+        const TREE_COLORS=['#FF6B6B','#4ECDC4','#45B7D1','#96CEB4','#FFEAA7','#DDA0DD','#98D8C8','#F39C12'];
+        roots.forEach(root=>{
+          const nodeIds=new Set(); const edgeIds=new Set();
+          const q=[root]; const vis=new Set();
+          while(q.length>0){
+            const nid=q.shift(); if(vis.has(nid)) continue;
+            vis.add(nid); nodeIds.add(nid);
+          };
+          // BFS on cytoscape graph by node label
+          const startNode=cy.nodes().filter(n=>n.data('label')===root);
+          if(startNode.length){
+            const q2=[startNode[0]]; const vis2=new Set();
+            while(q2.length>0){
+              const n=q2.shift(); if(vis2.has(n.id())) continue;
+              vis2.add(n.id()); nodeIds.add(n.id());
+              n.connectedEdges().forEach(ed=>{
+                edgeIds.add(ed.id());
+                const nb=ed.source().id()===n.id()?ed.target():ed.source();
+                if(!vis2.has(nb.id())) q2.push(nb);
+              });
+            }
+          }
+          if(nodeIds.size>0) trees.push({root,nodeIds,edgeIds});
+        });
+        // Check which trees contain the hovered node
+        const hoverId=e.target.id();
+        const containing=trees.filter(t=>t.nodeIds.has(hoverId));
+        if (containing.length>=2) {
+          // Multiple trees share this node — color each tree differently
+          containing.forEach((t,i)=>{
+            const ci=i%TREE_COLORS.length;
+            // Add color class for styling
+            t.nodeIds.forEach(nid=>{
+              const nd=cy.getElementById(nid);
+              if(nd.length) nd.addClass('tree-'+ci);
+            });
+            t.edgeIds.forEach(eid=>{
+              const ed=cy.getElementById(eid);
+              if(ed.length) ed.addClass('tree-'+ci);
+            });
+          });
+          // Dim everything NOT in any containing tree
+          const allTreeIds=new Set();
+          containing.forEach(t=>{t.nodeIds.forEach(id=>allTreeIds.add(id));t.edgeIds.forEach(id=>allTreeIds.add(id));});
+          cy.elements().not([...allTreeIds].map(id=>'#'+id).join(',')).addClass('dimmed');
+        } else {
+          // Single tree — highlight full connected component (original behavior)
+          const visited=new Set(); const stack=[e.target]; const treeEls=new Set();
+          while(stack.length>0) {
+            const n=stack.pop(); if(visited.has(n.id())) continue;
+            visited.add(n.id()); treeEls.add(n.id());
+            n.connectedEdges().forEach(ed=>{treeEls.add(ed.id());
+              const nb=ed.source().id()===n.id()?ed.target():ed.source();
+              if(!visited.has(nb.id())) stack.push(nb);
+            });
+          }
+          cy.elements().not([...treeEls].map(id=>'#'+id).join(',')).addClass('dimmed');
+        }
+      } else {
+        e.target.closedNeighborhood().removeClass('dimmed');
+        cy.elements().not(e.target.closedNeighborhood()).addClass('dimmed');
+      }
       // Meta-graph: show I/O summary on hover
       if (nd.type === 'script_circle') {
         const sc = multiView?.scripts?.find(s=>s.script_id===nd.id);
@@ -142,7 +210,7 @@ export default function App() {
       }
     });
     cy.on('mousemove','node',e=>{if(tip.show)setTip(t=>({...t,x:e.originalEvent.clientX+10,y:e.originalEvent.clientY-10}));});
-    cy.on('mouseout','node',()=>{cy.elements().removeClass('dimmed');setTip({show:false,x:0,y:0,text:''});});
+    cy.on('mouseout','node',()=>{cy.elements().removeClass('dimmed');for(let i=0;i<8;i++)cy.elements().removeClass('tree-'+i);setTip({show:false,x:0,y:0,text:''});});
     cy.on('tap','node',e=>{
       const id=e.target.id(); const nd=e.target.data();
       // Meta-graph nodes handled by multi-view specific handler below
@@ -214,6 +282,62 @@ export default function App() {
             title: ed.edge_type==='data_lineage'?'📤→📥 Data Lineage':'📥 Shared Input'});
         }
       });
+      // Double-click in layer mode → open tree detail view
+      if (multiLayout==='layer'&&multiView) {
+        cy.on('dbltap','node',e=>{
+          const nd=e.target.data();
+          if (nd.type!=='script_circle') return;
+          const sc=multiView.scripts.find(s=>s.script_id===nd.id);
+          if (!sc||!sc.graph) return;
+          // Compute connected tree component from this node
+          const visited=new Set(); const stack=[e.target]; const treeNodes=new Set();
+          while(stack.length>0){
+            const n=stack.pop(); if(visited.has(n.id())) continue;
+            visited.add(n.id()); treeNodes.add(n.id());
+            n.connectedEdges().forEach(ed=>{
+              const nb=ed.source().id()===n.id()?ed.target():ed.source();
+              if(!visited.has(nb.id())) stack.push(nb);
+            });
+          }
+          // Find all scripts in this tree component
+          const treeScriptIds=new Set();
+          treeNodes.forEach(nid=>{
+            const node=cy.getElementById(nid);
+            if(node.length&&node.data('type')==='script_circle') treeScriptIds.add(node.data('id'));
+          });
+          D('🌳 Tree view: '+sc.script_name+' — '+treeScriptIds.size+' scripts in tree');
+          if (treeScriptIds.size<=1) {
+            // Single node — fallback to opening the script's full graph
+            const g=sc.graph; const entry={script_id:sc.script_id+'_tree',script_name:'🌳 '+sc.script_name,
+              total_variables:g.nodes.length,total_dependencies:g.edges.length,analyzed_at:''};
+            setSel(entry); setGd(g); setShowInfo(true); setPanel(null);
+            const vi={}; g.nodes.forEach(n=>{vi[n.data.id]=n.data;}); viR.current=vi;
+            const di={}; g.edges.forEach(ed=>{di[ed.data.source+'\u2192'+ed.data.target]=ed.data;}); diR.current=di;
+            sqlR.current=g.sql_text||''; lmR.current=g.line_map||{};
+            setScripts(prev=>{if(prev.some(x=>x.script_id===entry.script_id))return prev;return[entry,...prev];});
+            return;
+          }
+          // Create filtered multi-view with only tree scripts
+          const orig=multiOriginal.current||multiView;
+          const treeScripts=orig.scripts.filter(s=>treeScriptIds.has(s.script_id));
+          const fvNodes=orig.meta_nodes.filter(n=>treeScriptIds.has(n.data.id));
+          const nIds=new Set(fvNodes.map(n=>n.data.id));
+          const fvEdges=orig.meta_edges.filter(e=>nIds.has(e.data.source)&&nIds.has(e.data.target));
+          const treeView={
+            id:'tree_'+sc.script_id, name:'🌳 Tree: '+sc.script_name,
+            meta_nodes:fvNodes, meta_edges:fvEdges, scripts:treeScripts
+          };
+          setFilteredViews(prev=>prev.some(v=>v.id===treeView.id)?prev:[...prev,treeView]);
+          setMultiView(treeView);
+          setMultiDetail({script_id:sc.script_id,script_name:'🌳 Tree: '+sc.script_name,
+            total_variables:treeScripts.reduce((s,x)=>s+(x.total_variables||0),0),
+            total_dependencies:treeScripts.reduce((s,x)=>s+(x.total_dependencies||0),0),
+            input_tables:[...new Set(treeScripts.flatMap(s=>s.input_tables||[]))],
+            output_tables:[...new Set(treeScripts.flatMap(s=>s.output_tables||[]))],
+            graph:{nodes:fvNodes,edges:fvEdges}});
+          setSel(null); setGd(null); setPanel(null); setShowInfo(true);
+        });
+      }
       // Tap background → show multi overview
       cy.on('tap', e => { if (e.target === cy && multiView) { setPanel(null); setMultiDetail(null); setShowInfo(true); } });
     }
@@ -226,7 +350,40 @@ export default function App() {
         D('🔍 Filter: multiView='+!!multiView+' sel='+!!sel+' mode='+(multiView&&!sel?'multi':'single')); if (multiView && !sel) {
           const n = renderNodes.length;
           const e = renderEdges.length;
-          dbg('📐 Multi layout: ring mode, n='+renderNodes.length); const spKeys = savedPositions.current ? Object.keys(savedPositions.current).length : 0; D('💾 savedPositions has '+spKeys+' keys, n='+n); const hasSavedPos = spKeys > 0; if (multiLayout === 'ring') { dbg('📍 Entering ring block, added='+!!added);
+          dbg('📐 Multi layout: ring mode, n='+renderNodes.length); const spKeys = savedPositions.current ? Object.keys(savedPositions.current).length : 0; D('💾 savedPositions has '+spKeys+' keys, n='+n); const hasSavedPos = spKeys > 0; if (multiLayout === 'layer') {
+            // Layer layout: nodes arranged by distance from filter roots
+            const roots = filterTables || [];
+            const depths = {}; // node id → layer depth
+            const adj = {}; // adjacency for BFS
+            added.edges().forEach(ed => {
+              const s = ed.source().id(), t = ed.target().id();
+              (adj[s]=adj[s]||[]).push(t); (adj[t]=adj[t]||[]).push(s);
+            });
+            // BFS from roots
+            const q = [];
+            added.nodes().forEach(nd => {
+              if (roots.includes(nd.data('label'))) { depths[nd.id()]=0; q.push(nd.id()); }
+            });
+            if (q.length===0) { added.nodes().forEach((nd,i)=>{depths[nd.id()]=i%3;}); }
+            let qi=0;
+            while (qi<q.length) {
+              const u=q[qi++]; const du=depths[u];
+              (adj[u]||[]).forEach(v=>{ if(!(v in depths)){depths[v]=du+1;q.push(v);} });
+            }
+            const maxD=Math.max(...Object.values(depths),1);
+            const rows={}; added.nodes().forEach(nd=>{
+              const d=depths[nd.id()]??Math.floor(Math.random()*3);
+              (rows[d]=rows[d]||[]).push(nd);
+            });
+            const gapX=180, gapY=100;
+            Object.entries(rows).forEach(([d,nodes])=>{
+              const y=120+d*gapY; nodes.forEach((nd,i)=>{
+                nd.position({x:60+i*gapX-((nodes.length-1)*gapX)/2, y});
+              });
+            });
+            D('Layer layout: '+Object.keys(rows).length+' layers, max depth='+maxD);
+            cy.fit(undefined,40); cy.minZoom(0.1); cy.maxZoom(3);
+          } else if (multiLayout === 'ring') { dbg('📍 Entering ring block, added='+!!added);
             // Ring arrangement with auto-zoom for readability
             const sp = 70;
             const R = (n * sp) / (2 * Math.PI);
@@ -318,7 +475,7 @@ export default function App() {
           <label className="btn btn-secondary" style={{cursor:'pointer'}}>Single SQL<input ref={flR} type="file" accept=".sql,.txt" onChange={upload} hidden/></label>
           <button className="btn btn-secondary" onClick={paste}>Paste SQL</button>
           {multiView && <select className="type-select" style={{width:'auto',marginTop:0,padding:'4px 8px'}} value={multiLayout} onChange={e=>setMultiLayout(e.target.value)}>
-            <option value="cose">Cose</option><option value="ring">Ring</option>
+            <option value="cose">Cose</option><option value="ring">Ring</option><option value="layer">Layer</option>
           </select>}
           {sel && <select className="type-select" style={{width:'auto',marginTop:0,padding:'4px 8px'}} value={viewMode} onChange={e=>setViewMode(e.target.value)}>
             <option value="tables">Tables</option><option value="full">Full</option>

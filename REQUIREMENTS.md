@@ -1,6 +1,59 @@
-# Requirements Implemented — v2.4.0
+# Requirements Implemented — v2.9.5
 
 > Current state of all features, fixes, and improvements.
+
+---
+
+## Node Identity Model
+
+Every variable extracted from SQL is uniquely identified by a triple:
+
+```
+Node = (name, type, context)
+```
+
+| Component | Meaning | Example |
+|-----------|---------|---------|
+| `name` | Variable name (alias or auto-derived) | `total_score`, `t.amount` |
+| `type` | One of 15 `VariableType` values | `aggregate`, `column`, `table` |
+| `context` | Scoped location in the SQL nesting hierarchy | `TOP`, `CTE{calc}`, `TOP/union0` |
+
+### Context Format
+
+```
+{}  = named scope (parallel, not deeper)
+ /  = genuine nesting (child scope)
+```
+
+```
+TOP                              root — outermost query
+TOP/union0                       UNION branch 0 under root
+TOP/subq1                        1st unnamed subquery under root
+TOP/subq/s                        named subquery "s" under root
+TOP/exists3                      3rd EXISTS under root
+CTE{calc}                        CTE named "calc" — parallel to TOP
+CTE{calc}/subq2                  2nd subquery inside CTE "calc"
+CTE{calc}/subq2/exists5          5th EXISTS inside that subquery
+```
+
+### Rules
+
+- **Same name + type + context** → one node (deduplication)
+- **Same name + type + different context** → different nodes (preserved, e.g. UNION branches)
+- **Columns** (`t.amount`) in WHERE and SELECT share context `TOP` → one node
+- **Bare columns** (`entity_type` without table prefix) in subqueries → own context → own node
+- **Computed values** in UNION branches → different contexts → different nodes
+
+### 15 Variable Types
+
+| Category | Types |
+|----------|-------|
+| Data Sources | `table`, `view`, `cte`, `subquery`, `virtual_table` |
+| DML Targets | `merge_target` |
+| Set Operations | `union_branch` |
+| Column References | `column`, `cte_column` |
+| Computed Values | `aggregate`, `window`, `case`, `transform`, `expression` |
+| Literals | `literal` |
 
 ---
 
@@ -122,6 +175,29 @@ SQL Text → sqlglot parse → variable_extractor_v2 → dependency_graph
 **Backend:** Input/output table classification per script (`_classify_tables`), alias filtering on edge labels (`_originals`), data lineage detection (output→input table matching).
 
 **Files:** `backend/app/services/multi_script_service.py`, `frontend/src/App.jsx`, `frontend/src/utils/graphStyles.js`
+
+### R5a — Layer Layout + Tree View
+
+**Description:** Alternative multi-script layout with BFS-based layering, multi-color tree highlighting, and tree detail view.
+
+**Layer Layout:**
+- Dropdown selector: `[Layer ▼] [Ring] [Cose]`
+- BFS from filter CSV root nodes — nodes positioned in horizontal layers by distance
+- Undirected BFS traversal of the meta-graph adjacency
+
+**Tree Hover Highlighting (Layer mode):**
+- Hover a node → BFS from that node → highlight full connected component, dim everything else
+- **Multi-tree coloring:** When a node belongs to multiple trees (different filter roots), each tree gets a distinct color (`tree-0` through `tree-7` classes with unique border/edge colors)
+- Shared nodes show all tree colors overlapping; unshared parts of each tree are colored distinctly
+- Mouseout clears all tree classes and dimming
+
+**Tree Detail View (Layer mode):**
+- Double-click a script circle → compute the connected tree component via BFS
+- If tree has ≥2 scripts: opens a filtered multi-view showing only the scripts in that tree (as `🌳 Tree: script_name` sidebar tag)
+- If tree has only 1 script (isolated): falls back to opening the script's full single-script graph
+- Tree view shows summary: total variables, dependencies, input/output tables across all tree scripts
+
+**Files:** `frontend/src/App.jsx`, `frontend/src/utils/graphStyles.js`
 
 ---
 

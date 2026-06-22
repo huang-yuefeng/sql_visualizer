@@ -49,7 +49,7 @@ class TestDoubleEntryTransfer:
     def test_cte_with_balance_snapshots(self, sql):
         """Balance-before/after computations should appear as CTE columns."""
         result = extract_variables_from_sql(sql, "fin_query9")
-        cte_cols = [v for v in result.variables if v.defined_in and v.defined_in.startswith("CTE:")]
+        cte_cols = [v for v in result.variables if v.defined_in and v.defined_in.startswith("CTE{")]
         cte_names = [v.name for v in cte_cols]
         assert "cardholder_new_balance" in cte_names or any(
             "cardholder_new" in n for n in cte_names

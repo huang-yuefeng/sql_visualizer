@@ -360,14 +360,18 @@ class _RoleBasedExtractor:
         if not name:
             return None
 
-        # CTE tables referenced in FROM clauses also appear as DATABASE_TABLE.
-        # Merge them: if a CTE_TABLE with the same name exists, skip the DB version.
+        # CTE tables referenced in FROM clauses also appear as TABLE.
+        # Merge: if a CTE with same name exists (any context), skip the TABLE.
         if var_type == VariableType.TABLE:
             for existing in self.result.variables:
                 if existing.variable_type == VariableType.CTE and existing.name == name:
-                    return None  # already exists as CTE_TABLE
+                    return None  # already exists as CTE
 
-        key = (name, var_type.value)  # global unique — same column = one node
+        # Universal node identity: (name, type, context)
+        # Every variable is scoped to its context. Two variables with the
+        # same name and type in DIFFERENT contexts are different nodes.
+        # Example: SUM(x) AS total in UNION branch 0 vs branch 1.
+        key = (name, var_type.value, context)
         if key in self._seen:
             return None
         self._seen.add(key)
@@ -439,14 +443,14 @@ class _RoleBasedExtractor:
             # CTE table variable
             self._add(alias, VariableType.CTE,
                       sql_expr=_sql(cte_def),
-                      defined_in=f"CTE:{alias}", context="TOP")
+                      defined_in=f"CTE{{{alias}}}", context="TOP")
 
             # Walk the inner query to extract columns
             inner = cte_def.this
             if isinstance(inner, exp.Select):
-                self._walk_select(inner, f"CTE:{alias}", is_cte=True)
+                self._walk_select(inner, f"CTE{{{alias}}}", is_cte=True)
             elif isinstance(inner, (exp.Union, exp.Intersect, exp.Except)):
-                self._walk_setop(inner, type(inner).__name__.upper(), f"CTE:{alias}")
+                self._walk_setop(inner, type(inner).__name__.upper(), f"CTE{{{alias}}}")
 
     # ── SELECT walker (the core) ────────────────────────────────────
 
@@ -456,7 +460,13 @@ class _RoleBasedExtractor:
         # Exception: inside a CTE, the CTE node itself serves as the output
         # container — no separate VT needed. The CTE IS the named result set.
         if not is_cte:
-            label = context.split(":")[-1] if ":" in context else "output"
+            # CTE{t} → label=t, TOP/subq1 → label=subq1, TOP → label=output
+            if context.startswith("CTE{"):
+                label = context[4:-1]  # extract name between { }
+            elif "/" in context:
+                label = context.rsplit("/", 1)[-1]
+            else:
+                label = "output"
             vt_name = f"⟐ {label}"
             self._add(vt_name, VariableType.VIRTUAL_TABLE,
                       sql_expr=_sql(select),
@@ -540,7 +550,7 @@ class _RoleBasedExtractor:
         elif isinstance(from_exp, exp.Subquery):
             # FROM (SELECT ...) AS alias — register alias as subquery type
             sub_alias = _clean(from_exp.alias or "")
-            sub_ctx = f"{context}:subq:{sub_alias}" if sub_alias else f"{context}:subq"
+            sub_ctx = f"{context}/subq/{sub_alias}" if sub_alias else f"{context}/subq"
             if sub_alias:
                 self._add(sub_alias, VariableType.SUBQUERY,
                           sql_expr=_sql(from_exp.this),
@@ -621,12 +631,12 @@ class _RoleBasedExtractor:
             elif isinstance(node, exp.Subquery):
                 if isinstance(node.this, exp.Select):
                     self._subq_counter += 1
-                    self._walk_select(node.this, f"{context}:subq{self._subq_counter}", is_cte=False)
+                    self._walk_select(node.this, f"{context}/subq{self._subq_counter}", is_cte=False)
             elif isinstance(node, exp.Exists):
                 # EXISTS wraps a Select directly (not a Subquery)
                 if isinstance(node.this, exp.Select):
                     self._subq_counter += 1
-                    self._walk_select(node.this, f"{context}:exists{self._subq_counter}", is_cte=False)
+                    self._walk_select(node.this, f"{context}/exists{self._subq_counter}", is_cte=False)
 
     def _walk_select_tables(self, select_node, context: str):
         """Extract table references from a Select node inside subquery/EXISTS."""
@@ -645,16 +655,16 @@ class _RoleBasedExtractor:
         if not col_name:
             return
         # For bare column names (no table prefix): skip if a defined variable
-        # with the same name already exists (aggregate, window, case, function,
-        # intermediate). This prevents HAVING/ORDER BY references from creating
-        # duplicate nodes. The REFERENCES edge handles the semantic connection.
+        # with the same name already exists in the same context.
         if not table:
             for existing in self.result.variables:
-                if existing.name == col_name and existing.variable_type in (
+                if (existing.name == col_name
+                    and existing.context == context
+                    and existing.variable_type in (
                     VariableType.AGGREGATE, VariableType.WINDOW,
                     VariableType.CASE, VariableType.TRANSFORM,
-                    VariableType.EXPRESSION, VariableType.CTE_COLUMN):
-                    return  # already defined — don't create duplicate
+                    VariableType.EXPRESSION, VariableType.CTE_COLUMN)):
+                    return  # already defined in this context
         full = f"{table}.{col_name}" if table else col_name
         self._add(full, VariableType.COLUMN,
                   sql_expr=_sql(col),
@@ -728,9 +738,10 @@ class _RoleBasedExtractor:
             if hasattr(setop, 'expression') and setop.expression is not None:
                 sides.append(setop.expression)
 
-        for side in sides:
+        for i, side in enumerate(sides):
             if side is not None:
-                self.process_statement(side, context)
+                side_ctx = f"{context}/union{i}"
+                self.process_statement(side, side_ctx)
 
     # ── MERGE walker ────────────────────────────────────────────────
 

@@ -42,8 +42,26 @@ export const NODE_STYLES = [
   },
   {
     selector: '.dimmed',
-    style: { 'opacity': 0.3 },
+    style: { 'opacity': 0.15 },
   },
+  // Tree color classes for multi-tree highlighting (layer mode)
+  { selector: '.tree-0', style: { 'border-color': '#FF6B6B', 'border-width': 4, 'background-opacity': 1 } },
+  { selector: '.tree-1', style: { 'border-color': '#4ECDC4', 'border-width': 4, 'background-opacity': 1 } },
+  { selector: '.tree-2', style: { 'border-color': '#45B7D1', 'border-width': 4, 'background-opacity': 1 } },
+  { selector: '.tree-3', style: { 'border-color': '#96CEB4', 'border-width': 4, 'background-opacity': 1 } },
+  { selector: '.tree-4', style: { 'border-color': '#FFEAA7', 'border-width': 4, 'background-opacity': 1 } },
+  { selector: '.tree-5', style: { 'border-color': '#DDA0DD', 'border-width': 4, 'background-opacity': 1 } },
+  { selector: '.tree-6', style: { 'border-color': '#98D8C8', 'border-width': 4, 'background-opacity': 1 } },
+  { selector: '.tree-7', style: { 'border-color': '#F39C12', 'border-width': 4, 'background-opacity': 1 } },
+  // Tree-colored edges
+  { selector: 'edge.tree-0', style: { 'line-color': '#FF6B6B', 'target-arrow-color': '#FF6B6B', 'width': 3 } },
+  { selector: 'edge.tree-1', style: { 'line-color': '#4ECDC4', 'target-arrow-color': '#4ECDC4', 'width': 3 } },
+  { selector: 'edge.tree-2', style: { 'line-color': '#45B7D1', 'target-arrow-color': '#45B7D1', 'width': 3 } },
+  { selector: 'edge.tree-3', style: { 'line-color': '#96CEB4', 'target-arrow-color': '#96CEB4', 'width': 3 } },
+  { selector: 'edge.tree-4', style: { 'line-color': '#FFEAA7', 'target-arrow-color': '#FFEAA7', 'width': 3 } },
+  { selector: 'edge.tree-5', style: { 'line-color': '#DDA0DD', 'target-arrow-color': '#DDA0DD', 'width': 3 } },
+  { selector: 'edge.tree-6', style: { 'line-color': '#98D8C8', 'target-arrow-color': '#98D8C8', 'width': 3 } },
+  { selector: 'edge.tree-7', style: { 'line-color': '#F39C12', 'target-arrow-color': '#F39C12', 'width': 3 } },
 
   // Edge styles — color from data.color
   {
