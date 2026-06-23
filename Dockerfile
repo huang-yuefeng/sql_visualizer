@@ -69,6 +69,7 @@ EXPOSE 8000
 ENV HOST=0.0.0.0
 ENV PORT=8000
 ENV DEBUG=false
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app/backend
-CMD ["python3", "start.py"]
+CMD ["python3", "-u", "start.py"]
