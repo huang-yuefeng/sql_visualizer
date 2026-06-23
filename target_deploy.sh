@@ -1,7 +1,7 @@
 #!/bin/bash
-# Target-machine deployment script — macOS (offline, no git pull).
-# The repository is manually copied to this machine before running.
-# Prerequisite: Docker Desktop for Mac installed and running.
+# Target-machine deployment — cloud Linux server (offline, no git pull).
+# The repository is manually copied (scp/rsync) to this machine before running.
+# Prerequisite: Docker installed and running.
 # Usage:  export ANTHROPIC_API_KEY=sk-... && ./target_deploy.sh
 set -e
 cd "$(dirname "$0")"
@@ -10,22 +10,11 @@ IMAGE_DIR="docker_image"
 IMAGE_FILE="$IMAGE_DIR/gps-sql-visualizer.tar.gz"
 IMAGE_NAME="gps-sql-visualizer"
 CONTAINER_NAME="gps-sql"
-OS=$(uname -s)
 
 echo "=== Reassemble image ==="
 cd "$IMAGE_DIR"
 if [ ! -f checksums.md5 ]; then echo "ERROR: checksums.md5 not found"; exit 1; fi
-echo "  Verifying checksums..."
-if [ "$OS" = "Darwin" ]; then
-    # macOS: md5 -r produces same format as Linux md5sum
-    while read -r hash file; do
-        actual=$(md5 -r "$file" | awk '{print $1}')
-        if [ "$hash" != "$actual" ]; then echo "  FAIL: $file"; exit 1; fi
-    done < checksums.md5
-else
-    md5sum -c checksums.md5
-fi
-echo "  Checksums OK"
+echo "  Verifying checksums..." && md5sum -c checksums.md5 && echo "  Checksums OK"
 echo "  Joining pieces..." && cat part_* > "$(basename "$IMAGE_FILE")"
 echo "  Done: $(ls -lh "$(basename "$IMAGE_FILE")" | awk '{print $5}')"
 cd ..
@@ -43,7 +32,7 @@ echo "=== Load new image ===" && docker load < "$IMAGE_FILE"
 
 echo "=== Start container ==="
 docker run -d \
-    -p 8000:8000 \
+    -p 0.0.0.0:8000:8000 \
     -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \
@@ -59,6 +48,9 @@ for i in $(seq 1 15); do
 done
 
 echo "" && echo "=== Done ==="
-echo "  URL:    http://localhost:8000"
-echo "  Health: curl http://localhost:8000/api/health"
-echo "  Logs:   docker logs $CONTAINER_NAME"
+echo "  Local:   http://localhost:8000"
+echo "  Remote:  http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo '<server-ip>'):8000"
+echo "  Health:  curl http://<ip>:8000/api/health"
+echo "  Logs:    docker logs $CONTAINER_NAME"
+echo ""
+echo "  If unreachable from other machines, check cloud firewall/security group allows TCP port 8000."
