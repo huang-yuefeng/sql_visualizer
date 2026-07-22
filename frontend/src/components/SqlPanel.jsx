@@ -313,7 +313,7 @@ export default function SqlPanel({ sqlText, highlights, scriptName, wsId, table,
             isEdgeHighlighted ? 'edge-highlighted' : ''
           ].filter(Boolean).join(' ');
           return (
-            <div key={i} data-line={lineNum}
+            <div key={`${scriptName || "sql"}-${lineNum}-${isEdgeHighlighted}`} data-line={lineNum}
               className={className}>
               <span className="line-num">{lineNum}</span>
               <span className="line-text">{line || ' '}</span>

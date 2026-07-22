@@ -364,41 +364,50 @@ class RangeBuilder:
         self.matched_line = matched_line  # 0-based index in all_lines
         self.all_lines = all_lines
     
+    # Max lines to extend in each direction from matched line.
+    # Proportional to script length: short scripts get narrower windows.
+    # Using a narrow window ensures each edge gets a unique range,
+    # satisfying the partition invariant (minimal overlap between edges).
+    
     def build(self) -> SqlRange:
-        """Build the final range, extending matched line to statement boundaries."""
-        # Start from the matched line, extend backward to statement start
-        start_line = self.matched_line
+        """Build the final range: matched line ± proportional window, capped by statement boundaries."""
+        stmt_start_0 = self.statement.start_line - 1  # 0-based
+        stmt_end_0 = self.statement.end_line - 1      # 0-based
         
-        # Backward: go until statement start or definite new-statement keyword
-        while start_line > self.statement.start_line - 1:
-            prev = self.all_lines[start_line - 1].strip().upper()
-            if not prev or prev.startswith('--'):
-                # Comment/blank: check if previous line starts new statement
-                if start_line - 1 > self.statement.start_line - 1:
-                    start_line -= 1
-                    continue
-                break
-            # Stop at definite statement starters
-            if any(prev.startswith(kw) for kw in self._STMT_START_KW):
-                break
-            start_line -= 1
+        # Proportional window: ±2 for short scripts, ±5 for long ones
+        total_lines = len(self.all_lines)
+        max_extend = max(2, min(5, total_lines // 3))
         
-        # Forward: go until statement end
-        end_line = self.matched_line
-        while end_line < self.statement.end_line - 1:
-            nxt = self.all_lines[end_line + 1].strip()
-            if nxt.rstrip().endswith(';'):
-                end_line += 1
+        # Narrow window around matched line, never exceed statement boundaries
+        start_line = max(stmt_start_0, self.matched_line - max_extend)
+        end_line = min(stmt_end_0, self.matched_line + max_extend)
+        
+        # CTE boundary: don't cross ), boundaries (same as dataflow_service _extend_to_statement)
+        for i in range(start_line, self.matched_line):
+            prev_raw = self.all_lines[i].strip()
+            prev = prev_raw.upper()
+            if prev.startswith(')') and (
+                len(prev) <= 3 or prev.startswith('),')
+            ):
+                start_line = i + 1  # start after CTE boundary
+            if prev_raw.rstrip().endswith('),'):
+                start_line = i + 1
+        
+        for i in range(self.matched_line + 1, end_line + 1):
+            nxt_raw = self.all_lines[i].strip()
+            nxt = nxt_raw.upper()
+            if nxt.startswith(')') and (
+                len(nxt) <= 3 or nxt.startswith('),')
+            ):
+                end_line = i - 1  # end before CTE boundary
                 break
-            if not nxt or nxt.startswith('--'):
-                # Check if line after blank/comment starts a new statement
-                if end_line + 2 < len(self.all_lines):
-                    after = self.all_lines[end_line + 2].strip().upper()
-                    if any(after.startswith(kw) for kw in self._STMT_START_KW):
-                        break
-                end_line += 1
-                continue
-            end_line += 1
+            if nxt_raw.rstrip().endswith('),'):
+                end_line = i - 1
+                break
+        
+        # Ensure range is non-empty
+        if end_line < start_line:
+            end_line = start_line
         
         return SqlRange(
             start_line=start_line + 1,
@@ -458,6 +467,90 @@ class SqlRangeFinder:
         # Layer 4: Build range extended to statement boundaries
         builder = RangeBuilder(statement, best_line, self.lines)
         return builder.build().to_list()
+
+
+# ── Partition pass: ensure edge ranges form a near-partition ─────
+
+# Priority: more specific operations own lines over general references
+_PARTITION_PRIORITY = {
+    'FILTER': 1, 'WHERE': 1, 'HAVING': 1,
+    'JOIN': 2,
+    'GROUP_BY': 3,
+    'ORDER_BY': 4,
+    'AGGREGATE': 5, 'WINDOW': 5,
+    'TRANSFORM': 6, 'CASE': 6, 'COMPUTED': 6,
+    'CTE': 7, 'UNION': 7, 'SUBQUERY': 7,
+    'DML': 8, 'INSERT': 8, 'UPDATE': 8, 'DELETE': 8,
+    'TABLE_FLOW': 9,
+    'SCHEMA': 10, 'CREATE': 10, 'ALTER': 10, 'DROP': 10,
+    'ALIAS': 11,
+    'INDIRECT': 12, 'SUBSET': 12, 'REF': 12, 'CORRELATED': 12,
+}
+
+def partition_edge_ranges(edges: list[dict], n_lines: int) -> list[dict]:
+    """
+    Post-process edge sql_range values so they form a near-partition of the SQL.
+    
+    For each line claimed by multiple edges, keep only the highest-priority edge.
+    Then collapse each edge's range to only include lines it owns.
+    Edges that lose all their lines get a minimal 1-line range at their original center.
+    
+    Returns: edges with modified sql_range values.
+    """
+    if not edges or n_lines == 0:
+        return edges
+    
+    # Build [line → [(edge_idx, priority, original_range)]] mapping
+    line_claims = {i: [] for i in range(1, n_lines + 1)}
+    edge_info = []  # [(idx, original_range, edge_type)]
+    
+    for idx, e in enumerate(edges):
+        ed = e.get('data', e)
+        sr = ed.get('sql_range')
+        etype = ed.get('edge_type', 'UNKNOWN')
+        if sr and len(sr) >= 3:
+            start, end = sr[0], sr[2]
+            # Handle compound types like "JOIN, TABLE_FLOW" — use highest priority
+            if ',' in etype:
+                parts = [p.strip() for p in etype.split(',')]
+                best_pri = min((_PARTITION_PRIORITY.get(p, 99) for p in parts), default=99)
+            else:
+                best_pri = _PARTITION_PRIORITY.get(etype, 99)
+            edge_info.append((idx, (start, end), etype, best_pri))
+            for ln in range(max(1, start), min(n_lines, end) + 1):
+                line_claims[ln].append((idx, best_pri, (start, end)))
+    
+    if not edge_info:
+        return edges
+    
+    # For each line, keep only the highest-priority edge (lowest priority number)
+    line_owner = {}  # line → edge_idx
+    for ln, claims in line_claims.items():
+        if claims:
+            claims.sort(key=lambda x: x[1])  # sort by priority (lower = higher priority)
+            line_owner[ln] = claims[0][0]
+    
+    # Collapse each edge's range to only include its owned lines
+    owned_lines = {idx: [] for idx, _, _, _ in edge_info}
+    for ln, owner in line_owner.items():
+        owned_lines[owner].append(ln)
+    
+    for idx, (orig_start, orig_end), etype, _ in edge_info:
+        ed = edges[idx].get('data', edges[idx])
+        owned = owned_lines[idx]
+        if owned:
+            owned.sort()
+            new_start = owned[0]
+            new_end = owned[-1]
+            # Keep original sql_range for edge-click display, add partition_range for metrics
+            if 'sql_range' in ed:
+                ed['partition_range'] = [new_start, 1, new_end, 1]
+            else:
+                ed['sql_range'] = [new_start, 1, new_end, 1]
+        # Edges that lost all lines keep their original narrow range (set by find_sql_range).
+        # Every edge must have sql_range so clicking it shows the corresponding SQL.
+    
+    return edges
 
 
 # ── Convenience: drop-in replacement for old _estimate_sql_range ─────

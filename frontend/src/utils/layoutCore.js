@@ -10,36 +10,28 @@
  * Every layout algorithm (snake, ELK, …) only computes table/script coordinates.
  * Everything else is handled here.
  */
-import { FIT_PADDING } from '../config/layout';
+import {
+  FIT_PADDING, TABLE_HDR_H, FIELD_RENDER_H, FIELD_H, FIELD_GAP,
+  TABLE_MIN_H, TABLE_DEFAULT_W, SCRIPT_W, SCRIPT_H,
+  TBL_PAD_TOP, TBL_PAD_BOT, TABLE_SELECTOR, FIELD_SELECTOR,
+} from '../config/layout';
 
-// ── Layout constants ───────────────────────────────────────────────
-export const SCRIPT_W = 190, SCRIPT_H = 55;
-export const TBL_W = 200;
-export const TBL_HDR = 26;
-export const TBL_MIN_H = 80;
-export const FIELD_RENDER_H = 28;
-export const FIELD_GAP = 24;
-export const FIELD_H = 52;
-export const TBL_PAD_TOP = 14;
-export const TBL_PAD_BOT = 14;
-
-// ── CSS selectors ──────────────────────────────────────────────────
-export const TABLE_SELECTOR = '[type$="_table"], [type="query_output"], [type="cte_table"]';
-export const FIELD_SELECTOR = '[type="field"]';
+// ── Layout constants — imported from config/layout.js ──────────────
+// (no local definitions — single source of truth)
 
 // ── Sizing helpers ─────────────────────────────────────────────────
 
 /** Compute table height from field count (model pixels). */
 export function tableHeight(fieldCount) {
   const fc = Math.max(fieldCount, 1);
-  return Math.max(TBL_MIN_H,
-    TBL_HDR + TBL_PAD_TOP + fc * FIELD_RENDER_H + Math.max(0, fc - 1) * FIELD_GAP + TBL_PAD_BOT);
+  return Math.max(TABLE_MIN_H,
+    TABLE_HDR_H + TBL_PAD_TOP + fc * FIELD_RENDER_H + Math.max(0, fc - 1) * FIELD_GAP + TBL_PAD_BOT);
 }
 
 /** Compute {w,h} for a node based on its type and field count. */
 export function nodeSize(type, fieldCount) {
   const isTable = type && (type.endsWith('_table') || type === 'query_output' || type === 'cte_table');
-  if (isTable) return { w: TBL_W, h: tableHeight(fieldCount || 1) };
+  if (isTable) return { w: TABLE_DEFAULT_W, h: tableHeight(fieldCount || 1) };
   return { w: SCRIPT_W, h: SCRIPT_H };
 }
 
@@ -67,7 +59,7 @@ export function computeFieldRelPos(cy) {
 
   for (const [pid, fids] of Object.entries(fieldsByParent)) {
     const parentH = tableHeight(fids.length);
-    const startY = -(parentH / 2) + TBL_HDR + TBL_PAD_TOP + FIELD_RENDER_H / 2;
+    const startY = -(parentH / 2) + TABLE_HDR_H + TBL_PAD_TOP + FIELD_RENDER_H / 2;
     fids.forEach((fid, i) => {
       rel[fid] = { parentId: pid, rx: 8, ry: startY + i * FIELD_H };
     });
@@ -90,7 +82,7 @@ export function computeTableInfo(cy, fieldRel) {
   const info = {};
   cy.nodes(TABLE_SELECTOR).forEach(n => {
     const fc = fieldByParent[n.id()] || 1;
-    info[n.id()] = { w: TBL_W, h: tableHeight(fc) };
+    info[n.id()] = { w: TABLE_DEFAULT_W, h: tableHeight(fc) };
   });
   return info;
 }
@@ -167,11 +159,34 @@ export function applyLayout(cy, tablePositions, fieldRel, tableInfo, fitPadding 
     }
   });
 
-  cy.fit(undefined, fitPadding);
-
   // Force cytoscape to re-apply stylesheets with updated data values
   // (table _tableWidth/_tableHeight may change after batch)
   if (cy && !cy.destroyed() && cy.style) cy.style().update();
+
+  // Bug 1+4 fix: defer fit with setTimeout so Cytoscape completes positioning.
+  // requestAnimationFrame (16ms) is too early — Cytoscape's internal layout
+  // cycle may not have flushed batch updates yet. 100ms is reliable.
+  // Bug 4: adaptive padding — L2 panel is ~420px, FIT_PADDING=200
+  // leaves just 20px of content → zoom clamped to minZoom=0.05.
+  setTimeout(() => {
+    if (!cy || cy.destroyed()) return;
+    const level = (cy.container()?.closest?.('[data-level]')?.dataset?.level) || 'L1';
+    const panelW = cy.container()?.offsetWidth || 800;
+    // L2: 7% of panel width (≈30px on 420px), L1: use full fitPadding
+    const effectivePadding = level === 'L2'
+      ? Math.max(30, Math.floor(panelW * 0.07))
+      : fitPadding;
+    if (level === 'L2') {
+      cy.fit(undefined, effectivePadding);
+    } else {
+      const nonFieldNodes = cy.nodes().filter(n => n.data('type') !== 'field');
+      if (nonFieldNodes.length > 0) {
+        cy.fit(nonFieldNodes, effectivePadding);
+      } else {
+        cy.fit(undefined, effectivePadding);
+      }
+    }
+  }, 100);
 }
 
 // ── Data prep ──────────────────────────────────────────────────────

@@ -20,10 +20,11 @@ cytoscape.use(fcose);
 import { NODE_STYLES, COMPOUND_STYLES, L1_PIPELINE_EDGE_STYLES, TURN_EDGE_STYLES,
   BUNDLED_EDGE_STYLES, CATEGORY_EDGE_STYLES, SCRIPT_CARD_STYLES,
   OPERATION_NODE_STYLES, L2_DETAIL_STYLES } from '../utils/graphStyles';
-import { stripFieldParents, computeFieldRelPos, TABLE_SELECTOR } from '../utils/layoutCore';
+import { stripFieldParents, computeFieldRelPos } from '../utils/layoutCore';
+import { TABLE_SELECTOR } from '../config/layout';
 import { runSnakeLayout } from '../utils/snakeLayout';
 
-const TABLE_SEL = TABLE_SELECTOR; // alias for readability
+const TABLE_SEL = TABLE_SELECTOR;
 
 // ── Pipeline layout (lazy-import ELK) ──────────────────────────────
 async function pipelineLayout(cy, opts = {}) {
@@ -120,8 +121,8 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     // ── Initial layout ──────────────────────────────────────────
     cy.ready(() => {
       fieldRelRef.current = computeFieldRelPos(cy);
-      if (layoutMode === 'pipeline' || layoutMode === 'spore') {
-        pipelineLayout(cy, { sporeNodeOverlap: layoutMode === "spore" });
+      if (layoutMode === 'pipeline') {
+        pipelineLayout(cy);
       } else {
         runSnakeLayout(cy);
       }
@@ -146,8 +147,8 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     const cy = cyRef.current;
     if (!cy || cy.destroyed()) return;
     fieldRelRef.current = computeFieldRelPos(cy);
-    if (mode === "pipeline" || mode === "spore") {
-      pipelineLayout(cy, { sporeNodeOverlap: mode === "spore" });
+    if (mode === "pipeline") {
+      pipelineLayout(cy);
     } else {
       runSnakeLayout(cy);
     }
