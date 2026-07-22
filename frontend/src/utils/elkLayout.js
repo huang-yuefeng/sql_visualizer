@@ -3,8 +3,8 @@
  */
 import {
   computeFieldRelPos, computeTableInfo, applyLayout,
-  FIELD_SELECTOR, TABLE_SELECTOR,
 } from './layoutCore';
+import { FIELD_SELECTOR, TABLE_SELECTOR } from '../config/layout';
 import { runSnakeLayout } from './snakeLayout';
 import {
   ELK_SPACING_NODE, ELK_SPACING_LAYER,
@@ -37,8 +37,7 @@ async function getElk() {
 
 function cytoscapeToElk(nodes, edges, options = {}) {
   const { direction = ELK_DIRECTION, algorithm = ELK_ALGORITHM,
-    spacingNodeNode = ELK_SPACING_NODE, spacingLayerLayer = ELK_SPACING_LAYER,
-    sporeNodeOverlap = false } = options;
+    spacingNodeNode = ELK_SPACING_NODE, spacingLayerLayer = ELK_SPACING_LAYER } = options;
   const nodeMap = {};
   const topLevel = [];
   const children = {};
@@ -88,13 +87,6 @@ function cytoscapeToElk(nodes, edges, options = {}) {
     'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
   };
 
-  // sporeNodeOverlap: ELK-native overlap avoidance (hard guarantee)
-  if (sporeNodeOverlap) {
-    layoutOpts['elk.layered.sporeNodeOverlap'] = 'true';
-    // sporeNodeOverlap may need more spacing to work well
-    layoutOpts['elk.layered.spacing.nodeNode'] = String(Math.max(spacingNodeNode, 600));
-    layoutOpts['elk.layered.spacing.nodeNodeBetweenLayers'] = String(Math.max(spacingLayerLayer, 500));
-  }
 
   return {
     id: 'root',
@@ -119,7 +111,7 @@ function _defaultHeight(type) {
  * Detects overlapping table nodes and pushes them apart.
  * Also clamps any offscreen nodes to reasonable bounds.
  */
-function resolveLayoutCollisions(positions, tableInfo, cy) {
+function resolveLayoutCollisions(positions, tableInfo, cy, pad = 80) {
   const entries = Object.entries(positions).map(([id, pos]) => ({
     id, x: pos.x, y: pos.y,
     w: (tableInfo[id] ? tableInfo[id].w : (cy.getElementById(id).length ? 190 : 80)),
@@ -147,7 +139,7 @@ function resolveLayoutCollisions(positions, tableInfo, cy) {
   });
 
   // Detect and resolve overlaps (push-apart, 5 iterations for dense graphs)
-  const PAD = 80;
+  const PAD = pad;
   for (let iter = 0; iter < 5; iter++) {
     let anyOverlap = false;
     for (let i = 0; i < entries.length; i++) {
@@ -179,7 +171,6 @@ function resolveLayoutCollisions(positions, tableInfo, cy) {
  *
  * @param {object} cy - Cytoscape instance
  * @param {object} options - Layout options
- * @param {boolean} options.sporeNodeOverlap - Use ELK-native overlap avoidance
  */
 export async function applyElkLayout(cy, options = {}) {
   const elk = await getElk();
@@ -224,7 +215,7 @@ export async function applyElkLayout(cy, options = {}) {
       }
     });
 
-    // Post-ELK: resolve overlaps and clamp offscreen nodes
+    // Post-ELK collision resolution
     resolveLayoutCollisions(tablePositions, tableInfo, cy);
 
     applyLayout(cy, tablePositions, fieldRel, tableInfo, FIT_PADDING);

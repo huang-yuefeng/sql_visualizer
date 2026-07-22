@@ -1518,72 +1518,65 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         if pid:
             field_parents[fn["id"]] = pid
 
-    promoted_edges = {}
+    # V3.3.58: Merge edges by (source, target) into compound types.
+    # Each edge type maps to a different SQL clause; we store per-type
+    # sql_ranges and use the union as the main sql_range.
+    promoted = {}
     for e in new_edges:
         src = e["source"]
         tgt = e["target"]
         etype = e["edge_type"]
 
-        # Skip SCHEMA edges: ownership is implicit in compound nodes
         if etype == "SCHEMA":
             continue
-
-        # Promote field sources/targets to parent tables
         if src in field_parents:
             src = field_parents[src]
         if tgt in field_parents:
             tgt = field_parents[tgt]
-
-        # Skip self-loops after promotion
         if src == tgt:
             continue
 
-        # Merge: same (source, target) → combine edge_types, labels, sql_ranges
-        # V3.3.10: Store per-type sql_ranges so each edge type maps to its own range.
-        # This fixes compound edges (e.g. "AGGREGATE, FILTER, JOIN") all showing the
-        # same wide SQL range. Each type now retains its own specific range.
         key = (src, tgt)
-        if key in promoted_edges:
-            existing = promoted_edges[key]
-            # Combine edge types
-            existing_types = set(existing.get("edge_type", "").split(", "))
-            existing_types.add(etype)
-            existing["edge_type"] = ", ".join(sorted(existing_types))
-            # Combine labels
-            existing_labels = set(existing.get("label", "").split(", "))
-            existing_labels.add(e.get("label", ""))
-            existing["label"] = ", ".join(sorted(existing_labels))
+        if key in promoted:
+            ex = promoted[key]
+            ex_types = set(ex.get("edge_type", "").split(", "))
+            ex_types.add(etype)
+            ex["edge_type"] = ", ".join(sorted(ex_types))
+            ex_labels = set(ex.get("label", "").split(", "))
+            ex_labels.add(e.get("label", ""))
+            ex["label"] = ", ".join(sorted(ex_labels))
             # Merge per-type sql_ranges
-            sr_dict = existing.get("sql_ranges", {})
-            if not sr_dict:
-                # Initialize from existing sql_range if present
-                existing_et = existing.get("edge_type", "")
-                if "," not in existing_et and existing.get("sql_range"):
-                    sr_dict[existing_et.strip()] = existing["sql_range"]
+            sr_dict = ex.get("sql_ranges", {})
             if e.get("sql_range"):
                 sr_dict[etype] = e["sql_range"]
-            existing["sql_ranges"] = sr_dict
-            # sql_range: keep the most specific (shortest non-zero range) across all types
-            ranges = [r for r in sr_dict.values() if r and len(r) >= 4 and r[2] > r[0]]
+            ex["sql_ranges"] = sr_dict
+            # Union range
+            ranges = [r for r in sr_dict.values() if r and len(r) >= 4]
             if ranges:
-                existing["sql_range"] = min(ranges, key=lambda r: r[2] - r[0])
-            elif not existing.get("sql_range"):
-                existing["sql_range"] = e.get("sql_range")
+                start = min(r[0] for r in ranges)
+                end = max(r[2] for r in ranges)
+                ex["sql_range"] = [start, 1, end, 1]
         else:
             e["source"] = src
             e["target"] = tgt
-            # Initialize sql_ranges dict
             if e.get("sql_range"):
                 e["sql_ranges"] = {etype: e["sql_range"]}
-            promoted_edges[key] = e
+            promoted[key] = e
 
-    new_edges = list(promoted_edges.values())
+    new_edges = list(promoted.values())
 
     # ── Assemble output (only table+field compound nodes) ──
     all_new_nodes = (
         [{"data": tn} for tn in table_nodes.values()] +
         [{"data": fn} for fn in field_nodes]
     )
+
+    # Partition pass: reduce edge range overlap so edges form a near-partition
+    from app.services.sql_range_finder import partition_edge_ranges
+    if new_edges:
+        edge_dicts = [e for e in new_edges]  # new_edges are plain dicts
+        partition_edge_ranges(edge_dicts, len(sql_text.split('\n')))
+        new_edges = edge_dicts
 
     total_edges = len(new_edges)
     return {
@@ -1627,8 +1620,23 @@ def _estimate_sql_range(edge_data: dict, lines: list) -> list | None:
         # Forward: after blank line, only statement-start keywords indicate new statement.
         # Clause-level keywords (FROM, JOIN, etc.) within a statement are continuation lines.
         while start_line > 0:
-            prev = lines[start_line - 1].strip().upper()
+            prev_raw = lines[start_line - 1].strip()
+            prev = prev_raw.upper()
             if not prev or prev.startswith('--'):
+                break
+            # CTE boundary: ) pattern that closes a CTE definition in a WITH chain.
+            # Matches patterns like:
+            #   ),           — comma-separated CTE boundary  
+            #   ), cte2 AS   — next CTE follows immediately
+            #   )            — standalone closing paren (CTE end)
+            # Avoid extending into a previous CTE's body.
+            if prev.startswith(')') and (
+                len(prev) <= 3 or          # ')' or '),'
+                prev.startswith('),')      # '), cte_name ...'
+            ):
+                break
+            # Also detect ), at end of line: e.g. '...sq1),'
+            if prev_raw.rstrip().endswith('),'):
                 break
             # Backward: only stop at true statement starts (not clause keywords)
             if any(prev.startswith(kw) for kw in STMT_START_KW):
@@ -1637,8 +1645,8 @@ def _estimate_sql_range(edge_data: dict, lines: list) -> list | None:
             start_line -= 1
         # Extend forward to statement end (semicolon or blank line followed by new statement)
         while end_line < len(lines) - 1:
-            nxt = lines[end_line + 1].strip()
-            nxt_up = nxt.upper()
+            nxt_raw = lines[end_line + 1].strip()
+            nxt = nxt_raw.upper()
             if not nxt or nxt.startswith('--'):
                 # Check if the line after blank/comment starts a new statement
                 if end_line + 2 < len(lines):
@@ -1650,9 +1658,25 @@ def _estimate_sql_range(edge_data: dict, lines: list) -> list | None:
                         break
                 else:
                     break
-            end_line += 1
-            if nxt.rstrip().endswith(';'):
+            # CTE boundary: ),  pattern that closes this CTE and starts the next one.
+            # When we see ),  we've reached the end of the current CTE definition.
+            if nxt.startswith(')') and (
+                len(nxt) <= 3 or          # ')' or '),'
+                nxt.startswith('),')      # '), cte_name ...'
+            ):
                 break
+            # Also detect ), at end of line: e.g. '...sq1),'
+            if nxt_raw.rstrip().endswith('),'):
+                break
+            end_line += 1
+            if nxt_raw.rstrip().endswith(';'):
+                break
+        # Cap range to max 50 lines for deeply nested CTE chains
+        range_len = end_line - start_line + 1
+        if range_len > 50:
+            end_line = start_line + 49  # cap at 50 lines
+            if end_line >= len(lines):
+                end_line = len(lines) - 1
         return [start_line + 1, 1, end_line + 1, len(lines[end_line])]
 
     # 1) Explicit line number

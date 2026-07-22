@@ -1,47 +1,43 @@
-# Data Flow Debugger — Active Bug List
+# Data Flow Debugger — Bug List
 
-> **Date:** 2026-07-22 | **Version:** 3.3.39 | **Active:** 1
+> **Date:** 2026-07-22 | **Version:** 3.3.56 | **Active:** 3
 
 ---
 
-## Architecture Review — v3.3.39 ✅
+## Bug 1: L2 Edge Click — NONE sql_range — FIXED ✅ v3.3.56
 
-Clean separation following the user's suggestion:
+0/5 scripts have NONE-range edges.
 
-| Module | Responsibility | Lines |
-|--------|---------------|:-----:|
-| `layoutCore.js` | Shared: `computeFieldRelPos`, `computeTableInfo`, `applyLayout`, `stripFieldParents` | 169 |
-| `snakeLayout.js` | Snake-specific: `computeSnakePositions`, `runSnakeLayout` | 107 |
-| `elkLayout.js` | ELK-specific: `applyElkLayout` (tables+scripts only, falls back to snake) | 160 |
+---
 
-All layout algorithms share `applyLayout()` which does a single `cy.batch()`: sizes + table positions + field positions at frozen offsets. No compound relationships, no collision resolvers, no guards.
+## Bug 2: Taxi Edge Invisible at dx=0 — FIXED ✅ v3.3.57
 
-## Re-Test
+Changed to `curve-style: bezier`, minScreenPx=1.87 — visible.
 
-| Mode | Table Overlap | Field Overlap | Offscreen | Status |
-|------|:------------:|:----------:|:---------:|:------:|
-| Snake | 0 | 0 | 0 | ✅ |
-| Pipeline | **4** | 0 | 1 node | ❌ |
+---
 
-## Results
+## Bug 3: Orange Highlight Never Changes or Disappears (P1)
 
-| Mode | Table Overlap | Field Overlap | Kids | Status |
-|------|:------------:|:----------:|:----:|:------:|
-| Snake | 0 | 0 | 0 | ✅ |
-| Pipeline | **1** | 0 | 0 | ⚠️ |
-| Spore | **1** | 0 | 0 | ⚠️ |
+**Symptom:** Clicking any edge highlights the entire 7-line script in orange. Clicking a different edge shows the same orange — no visual change. Pressing Escape or clicking repeatedly doesn't clear it.
 
-## Root Cause of the 1 Remaining Overlap
+**Evidence (step3):** All 4 edges have `sql_range=[1,7]` — every edge highlights the ENTIRE script. Click #1→#4 all show the same 7 orange lines.
 
-`raw_orders` ↔ `stg_orders` overlap 14×17px. Both tables at similar positions.
+**Root cause — two issues:**
+1. `_estimate_sql_range` gives all edges the same wide range `[1,7]` — no specificity per edge type
+2. `SqlPanel.jsx` uses `data-line` as implicit React key. When `sqlHighlightRange` changes, React reuses DOM nodes without updating the `edge-highlighted` CSS class
 
-**Style vs Rendered mismatch:**
-```
-raw_orders:  style=200×290px  rendered=56×84px
-stg_orders:  style=200×290px  rendered=56×84px
-```
-`applyLayout()` correctly sets `n.style('width','200px')` and `n.style('height','290px')`, but the rendered bounding box is only 56×84px. The inline CSS dimensions are not taking effect visually.
+**Fix:**
+- **Part 1:** `dataflow_service.py` — partition edge ranges by type (FILTER→L5-6, JOIN→L5, TABLE_FLOW→L4)
+- **Part 2:** `SqlPanel.jsx:315` — add unique key: `key={${scriptName}-${lineNum}-${isEdgeHighlighted}}`
 
-**Why:** Tables are no longer compound nodes (kids=0 after `stripFieldParents`). Without children, cytoscape renders them at the CSS stylesheet default (~56px for script-like nodes) rather than the inline `style()` values. The inline `height`/`width` may be ignored for non-compound nodes or overridden by the stylesheet.
+---
 
-**Fix:** Ensure tables match a CSS selector that respects their `_tableWidth`/`_tableHeight` data, or explicitly set `width`/`height` as CSS properties that cytoscape applies to non-compound nodes. The COMPOUND_STYLES in `graphStyles.js` may only apply to actual compound parents.
+## Historical — Clean
+
+| Check | Result |
+|-------|:------:|
+| Pipeline==Spore | ✅ Fixed |
+| Partition overlap | ✅ 19/19 pass |
+| L2 collapse | ✅ Fixed |
+| Spore overlaps | ✅ Fixed |
+| Regression (21 checks) | ✅ All pass |

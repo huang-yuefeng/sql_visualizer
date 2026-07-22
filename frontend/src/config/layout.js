@@ -13,6 +13,9 @@ export const FIELD_H = 52;          // center-to-center spacing
 export const FIELD_GAP = FIELD_H - FIELD_RENDER_H;  // 24px
 export const TABLE_MIN_H = 80;
 export const TABLE_DEFAULT_W = 200;
+export const TBL_W = TABLE_DEFAULT_W;   // alias
+export const TBL_HDR = TABLE_HDR_H;     // alias
+export const TBL_MIN_H = TABLE_MIN_H;   // alias
 
 // ── Snake / workflow layout ────────────────────────────────────────
 export const SNAKE_ROW_HEIGHT = 300;
@@ -28,8 +31,19 @@ export const ELK_COMPOUND_MAX_W = 300;    // Reduced from 400 to better match re
 export const ELK_DIRECTION = 'RIGHT';
 export const ELK_ALGORITHM = 'layered';
 
+
+// ── Table padding ──────────────────────────────────────────────────
+export const TBL_PAD_TOP = 14;
+export const TBL_PAD_BOT = 14;
+
+// ── CSS selectors ──────────────────────────────────────────────────
+export const TABLE_SELECTOR = '[type$="_table"], [type="query_output"], [type="cte_table"]';
+export const FIELD_SELECTOR = '[type="field"]';
+
 // ── Node default dimensions ────────────────────────────────────────
 export const SCRIPT_NODE_W = 190;
 export const SCRIPT_NODE_H = 55;
+export const SCRIPT_W = SCRIPT_NODE_W;  // alias
+export const SCRIPT_H = SCRIPT_NODE_H;  // alias
 export const FIELD_NODE_W = 60;
 export const FIELD_NODE_H = 34;

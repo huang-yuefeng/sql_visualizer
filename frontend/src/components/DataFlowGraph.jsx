@@ -80,8 +80,15 @@ export default function DataFlowGraph(props) {
     const ro = new ResizeObserver(() => {
       clearTimeout(t);
       t = setTimeout(() => {
-        if (cyRef.current && !cyRef.current.destroyed())
-          fit(FIT_PADDING);
+        if (cyRef.current && !cyRef.current.destroyed()) {
+          // Bug 4 fix: adaptive padding — L2 panel (~420px) collapses
+          // with FIT_PADDING=200. Use 7% panel width for small panels.
+          const panelW = el.offsetWidth || 800;
+          const pad = panelW < 600
+            ? Math.max(30, Math.floor(panelW * 0.07))
+            : FIT_PADDING;
+          fit(pad);
+        }
       }, 200);
     });
     ro.observe(el);
@@ -107,7 +114,7 @@ export default function DataFlowGraph(props) {
   }, [selectedEdgeId]);
 
   return (
-    <div className="dataflow-graph-container">
+    <div className="dataflow-graph-container" data-level={level}>
       <div className="graph-toolbar">
         <span className="graph-level-badge">
           {level === 'L2' ? '📄 Per-Script Detail' : '🔄 Cross-Script Pipeline'}
@@ -124,11 +131,6 @@ export default function DataFlowGraph(props) {
               onClick={() => onToggleLayout('pipeline')}
               title="Pipeline: ELK layered layout">
               📐 Pipeline
-            </button>
-            <button className={`btn btn-sm ${currentMode === 'spore' ? 'btn-active' : 'btn-outline'}`}
-              onClick={() => onToggleLayout('spore')}
-              title="Spore: ELK layered + native overlap avoidance">
-              🧬 Spore
             </button>
           </>
         )}

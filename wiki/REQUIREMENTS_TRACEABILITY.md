@@ -1,0 +1,133 @@
+# Requirements Traceability Matrix — V3.2.1
+
+> Maps all requirements from REQUIREMENTS.md and requirements_v2.md to implementation status.
+> Last updated: 2026-07-17
+
+## Legend
+- ✅ Implemented & verified
+- ❌ Not yet implemented
+
+---
+
+## R1 — Folder Upload & File Tree (from requirements_v2.md §1)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R1.1 | Upload folder (zip) | ✅ | Upload .zip button works |
+| R1.2 | Direct folder upload (no zip) | ✅ | "Select Folder" button uses webkitdirectory + JSZip client-side |
+| R1.3 | Hierarchical file tree display | ✅ | FolderTree component in left panel |
+| R1.4 | SQL files clickable, non-SQL grayed | ✅ | is_sql flag, non-SQL dimmed and not clickable |
+| R1.5 | Multi-select scripts/folders with checkboxes | ✅ | Checkboxes with [deselect all] |
+| R1.6 | Multiple users, separate workspaces | ✅ | UUID workspace IDs |
+| R1.7 | Extract tables/fields as search indexes | ✅ | tableIndex, fieldIndex from all selected scripts |
+
+## R2 — Filter Panel / Search (from requirements_v2.md §2)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R2.1 | Table name autocomplete | ✅ | Color-coded dots per table |
+| R2.2 | Field name autocomplete | ✅ | Table-colored dots from associated table |
+| R2.3 | Table-first input: select table → field dropdown shows table's fields | ✅ | getFieldOptions() filters by selected table |
+| R2.4 | Field-first input: type field → table dropdown shows tables containing it | ✅ | getTableOptions() filters by selected field |
+| R2.5 | Search button triggers L1 view | ✅ | Enter key also triggers search |
+| R2.6 | Narrow Index (CSV filter: script-table + table-column files) | ✅ | Upload ST/TC CSVs to filter autocomplete index |
+| R2.7 | Search history (recent 10) | ✅ | 🕐 Recent dropdown |
+| R2.8 | Pinned searches (star) | ✅ | ☆ / ★ toggle, appears in Pinned section |
+
+## R3 — View Management (from requirements_v2.md §3)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R3.1 | View management tree/bar | ✅ | ViewBar with tabs |
+| R3.2 | L1 view = all scripts related to table.field | ✅ | Shows script count badge |
+| R3.3 | L2 view = single script detail (child of L1 view) | ✅ | Double-click script node → L2 |
+| R3.4 | Remove individual views | ✅ | × button on each tab |
+| R3.5 | Multiple concurrent searches | ✅ | Each search creates new view tab |
+| R3.6 | + New Search button | ✅ | ViewBar component |
+
+## R4 — L1 Graph: Script-level Data Flow (from requirements_v2.md §4)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R4.1 | Script nodes as orange rounded cards | ✅ | SCRIPT_CARD_STYLES, type="script_node" |
+| R4.2 | Data flow edges between scripts (directed) | ✅ | table_script edges |
+| R4.3 | Click script node → open L2 graph for that script | ✅ | Double-click handler → handleOpenL2 |
+| R4.4 | Directional arrows on all edges | ✅ | target-arrow-shape: triangle on all edge styles |
+| R4.5 | Tooltips on edge hover showing type + description | ✅ | Edge tooltip popup for both L1 and L2 |
+| R4.6 | Operation badges on script nodes showing roles | ✅ | Roles (REF/JOIN/FILTER etc.) appended to node label |
+| R4.7 | Source/Intermediate/Output table coloring | ✅ | Table nodes colored by role in legend |
+| R4.8 | Fit/Zoom controls | ✅ | Fit button + keyboard shortcut F |
+| R4.9 | Export graph as PNG | ✅ | 📷 button |
+| R4.10 | Minimap toggle | ✅ | 🗺 button |
+
+## R5 — L2 Graph: Table/Field-level Data Flow (from requirements_v2.md §4-5)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R5.1 | Table nodes with field children (compound nodes) | ✅ | source_table, intermediate_table, output_table + field children with parent |
+| R5.2 | Direct vs indirect field grouping | ✅ | field_group: "direct" (on BFS path) / "indirect" (off-path) |
+| R5.3 | Edge type color coding (7 categories) | ✅ | CATEGORY_EDGE_STYLES: copy/compute/aggregate/filter/combine/write/structure |
+| R5.4 | Category mapping from 16 edge types → 7 categories | ✅ | CATEGORY_MAP in dataflow_service.py |
+| R5.5 | Toggle full/related view | ✅ | Show All / Show Relevant button |
+| R5.6 | Click edge → highlight SQL segment | ✅ | Edge click sets sqlHighlightRange |
+| R5.7 | Target field node (gold highlight) | ✅ | is_target with gold border |
+| R5.8 | CTE table nodes (dashed green) | ✅ | cte_table style |
+
+## R6 — SQL Panel & Export (from requirements_v2.md §6)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R6.1 | SQL text panel for L2 script | ✅ | SqlPanel component |
+| R6.2 | Highlight data flow related SQL lines | ✅ | sqlHighlightRange + highlight set |
+| R6.3 | Auto-scroll to highlighted section | ✅ | scrollIntoView on first highlighted line |
+| R6.4 | Export SQL button | ✅ | ⬇ Export button downloads .sql file |
+| R6.5 | SQL export configuration panel | ✅ | ⚙ Config with 10 toggleable options |
+| R6.6 | Upload JSON config file | ✅ | "Upload Config (JSON)" button |
+| R6.7 | Default config when none uploaded | ✅ | DEFAULT_CONFIG object (10 options) |
+| R6.8 | Editable config values (click to edit) | ✅ | Context lines slider, dialect dropdown, bool toggles |
+| R6.9 | Config auto-save per workspace | ✅ | Debounced save to backend |
+
+## R7 — Legend (from REQUIREMENTS.md §R3)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R7.1 | Node type legend (14 node types) | ✅ | DataFlowLegend with L1_LEGEND + L2_LEGEND |
+| R7.2 | Edge type legend (7 categories) | ✅ | CATEGORY_LEGEND: copy/compute/aggregate/filter/combine/write/structure |
+| R7.3 | Full 16 edge type legend | ✅ | EDGE_LEGEND with all 16 edge types |
+| R7.4 | Color-coded by category | ✅ | Each category has distinct color + line style |
+
+## R8 — General UX
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R8.1 | Data Flow Debugger as first/default tab | ✅ | AppShell default mode='dataflow' |
+| R8.2 | Legacy SQL Analysis tab preserved | ✅ | PersistentPanel, never unmounted |
+| R8.3 | Dark/Light theme toggle | ✅ | ☀️/🌙 button |
+| R8.4 | Keyboard shortcuts (Esc, F) | ✅ | Esc=go L1, F=fit graph |
+| R8.5 | Responsive three-panel layout | ✅ | Left sidebar, center graph, optional inline L2 |
+| R8.6 | Loading skeleton animation | ✅ | Skeleton nodes/edges during loading |
+| R8.7 | Error banner with dismiss | ✅ | Red error banner, click to dismiss |
+
+## R9 — Data Flow Formal Definition (from REQUIREMENTS.md)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R9.1 | 15 variable types extracted | ✅ | variable_extractor_v2.py: table/view/cte/subquery/virtual_table/merge_target/union_branch/column/cte_column/aggregate/window/case/transform/expression/literal |
+| R9.2 | 16 edge types in dependency graph | ✅ | TABLE_FLOW/ALIAS/REF/AGGREGATE/TRANSFORM/WINDOW/COMPUTED/SCHEMA/INDIRECT/FILTER/JOIN/CORRELATED/DML/SET_OP/SUBQUERY/SUBSET |
+| R9.3 | Node identity = (name, type, context) triple | ✅ | Deduplication by triple |
+| R9.4 | 7 edge categories for visualization | ✅ | copy/compute/aggregate/filter/combine/write/structure |
+| R9.5 | BFS-based direct/indirect classification | ✅ | Upstream + downstream BFS from target nodes |
+
+## Summary
+| Metric | Count |
+|--------|-------|
+| ✅ Implemented | 48 (all) |
+| ❌ Missing | 0 |
+| Backend tests | 314 passed |
+| Frontend build | Clean |
+| Version | 3.2.1 |
+
+## Key Fixes in V3.2.1
+| Fix | Description |
+|-----|-------------|
+| Category mapping | _get_category() now returns 7 categories (copy/compute/aggregate/filter/combine/write/structure) instead of edge_type directly |
+| Compound table styles | Added source_table, intermediate_table, output_table styles for L2 compound nodes |
+| Operation badges | Script nodes show abbreviated role badges (R/J/F/A/W/T/C...) in label |
+| Category legend | Added 7-category CATEGORY_LEGEND for L2 views |
+| Test coverage | 12 new tests in test_category_mapping.py |
+| line-style: double | Fixed to solid with dash pattern |
+| ELK.js import | Two-tier loading: ESM → UMD script tag |
+| Autocomplete overlay | Click-away handler prevents blocking |
+| Syntax errors | Fixed useEffect placement in DataFlowApp.jsx and DataFlowGraph.jsx |
+

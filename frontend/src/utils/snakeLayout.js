@@ -5,10 +5,11 @@
  * All field positioning is handled by layoutCore.applyLayout().
  */
 import {
-  TBL_W, SCRIPT_W, SCRIPT_H,
   computeFieldRelPos, computeTableInfo, applyLayout, nodeSize,
 } from './layoutCore';
-import { FIT_PADDING } from '../config/layout';
+import {
+  FIT_PADDING, TABLE_DEFAULT_W, SCRIPT_W, SCRIPT_H,
+} from '../config/layout';
 
 const SNAKE_MAX = 2;
 const START_X = 80, START_Y = 80;
@@ -49,7 +50,7 @@ export function computeSnakePositions(topNodes, tableInfo) {
   const colCenter = {};
   let cx = START_X;
   for (let c = 0; c < SNAKE_MAX; c++) {
-    const cw = colMaxW[c] || TBL_W;
+    const cw = colMaxW[c] || TABLE_DEFAULT_W;
     colCenter[c] = cx + cw / 2;
     cx += cw + GAP_X;
   }

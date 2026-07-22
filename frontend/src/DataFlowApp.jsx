@@ -447,11 +447,7 @@ export default function DataFlowApp() {
             layoutMode={layoutMode}
             breadcrumb={breadcrumb}
             onOpenL2={handleOpenL2}
-            onToggleLayout={(mode) => { if (mode) { setLayoutMode(mode); } else { setLayoutMode(m => {
-    if (m === 'snake') return 'pipeline';
-    if (m === 'pipeline') return 'spore';
-    return 'snake'; // spore → snake
-  }); }}}
+            onToggleLayout={(mode) => { if (mode) { setLayoutMode(mode); } else { setLayoutMode(m => m === 'snake' ? 'pipeline' : 'snake'); }}}
             scriptInfo={scriptInfo}
             onScriptInfoChange={setScriptInfo}
             onToggleFilter={handleToggleFilter}
