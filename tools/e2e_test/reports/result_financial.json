@@ -1,0 +1,92 @@
+{
+  "name": "financial",
+  "sessions": [
+    {
+      "name": "1.1 Navigate to app",
+      "status": "PASS"
+    },
+    {
+      "name": "1.2 Upload workspace zip",
+      "status": "PASS"
+    },
+    {
+      "name": "1.3 Wait for indexing to complete",
+      "status": "PASS"
+    },
+    {
+      "name": "1.4 Verify file tree displayed",
+      "status": "PASS"
+    },
+    {
+      "name": "2.1 Execute search via UI with keyboard",
+      "status": "PASS"
+    },
+    {
+      "name": "2.2 Verify L1 graph rendered with nodes",
+      "status": "FAIL",
+      "error": "Graph did not render with nodes after 5 seconds"
+    },
+    {
+      "name": "3.1 Click table node in L1 graph",
+      "status": "PASS"
+    },
+    {
+      "name": "3.2 Click script node in L1 graph",
+      "status": "PASS"
+    },
+    {
+      "name": "5.1 Drag left panel resize handle",
+      "status": "PASS"
+    },
+    {
+      "name": "6.1 Double-click script node → open L2 panel",
+      "status": "FAIL",
+      "error": "No live cytoscape instance found"
+    },
+    {
+      "name": "6.2 Verify L2 graph has nodes and edges",
+      "status": "PASS"
+    },
+    {
+      "name": "6.3 Verify SQL panel shows script text",
+      "status": "FAIL",
+      "error": "SQL panel not visible"
+    },
+    {
+      "name": "6.4 Click L2 edge → verify SQL highlight",
+      "status": "PASS"
+    },
+    {
+      "name": "6.5 Verify SQL lines highlighted after edge click",
+      "status": "PASS"
+    },
+    {
+      "name": "6.6 Toggle Show All / Show Relevant filter",
+      "status": "PASS"
+    },
+    {
+      "name": "6.7 Close L2 with Escape key",
+      "status": "PASS"
+    },
+    {
+      "name": "7.1 Open L2 for export",
+      "status": "FAIL",
+      "error": "No live cy instance (even backup)"
+    },
+    {
+      "name": "8.1 Delete workspace",
+      "status": "PASS"
+    },
+    {
+      "name": "8.2 Verify empty state after delete",
+      "status": "PASS"
+    }
+  ],
+  "screenshots": [],
+  "errors": [
+    "2.2 Verify L1 graph rendered with nodes: Graph did not render with nodes after 5 seconds",
+    "6.1 Double-click script node → open L2 panel: No live cytoscape instance found",
+    "6.3 Verify SQL panel shows script text: SQL panel not visible",
+    "7.1 Open L2 for export: No live cy instance (even backup)"
+  ]
+}

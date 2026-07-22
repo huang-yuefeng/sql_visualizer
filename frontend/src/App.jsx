@@ -198,7 +198,7 @@ export default function App() {
         cy.elements().not(e.target.closedNeighborhood()).addClass('dimmed');
       }
       // Meta-graph: show I/O summary on hover
-      if (nd.type === 'script_circle') {
+      if (nd.type === 'script_node') {
         const sc = multiView?.scripts?.find(s=>s.script_id===nd.id);
         const ins = sc?.input_tables?.join(', ') || '(none)';
         const outs = sc?.output_tables?.join(', ') || '(none)';
@@ -214,7 +214,7 @@ export default function App() {
     cy.on('tap','node',e=>{
       const id=e.target.id(); const nd=e.target.data();
       // Meta-graph nodes handled by multi-view specific handler below
-      if (multiView && nd.type === 'script_circle') return; // handled by multi-view handlers
+      if (multiView && nd.type === 'script_node') return; // handled by multi-view handlers
       const eds=(data?.edges||[]).filter(x=>x.data.source===id||x.data.target===id);
       const vi=ioGraph?{}:viR.current;
       setPanel({type:'node',id,node:vi[id]||{label:id},edges:eds.map(x=>({sid:x.data.source,tid:x.data.target,rel:x.data.relationship})),title:vi[id]?.label||id});
@@ -250,7 +250,7 @@ export default function App() {
       // Single click → show details in right panel
       cy.on('tap','node',e=>{
         const nd = e.target.data();
-        if (nd.type !== 'script_circle') return;
+        if (nd.type !== 'script_node') return;
         const sc = multiView.scripts.find(s=>s.script_id===nd.id);
         if (!sc) return;
         D('🖱️ Single click: '+nd.label+' → info panel'); setShowInfo(true); setPanel({type:'script_meta', id:nd.id, script:sc, title:sc.script_name});
@@ -258,7 +258,7 @@ export default function App() {
       // Double click → open as single script view
       cy.on('dbltap','node',e=>{
         const nd = e.target.data();
-        if (nd.type !== 'script_circle') return;
+        if (nd.type !== 'script_node') return;
         const sc = multiView.scripts.find(s=>s.script_id===nd.id);
         if (!sc || !sc.graph) return;
         const entry = {script_id: sc.script_id, script_name: sc.script_name,
@@ -286,7 +286,7 @@ export default function App() {
       if (multiLayout==='layer'&&multiView) {
         cy.on('dbltap','node',e=>{
           const nd=e.target.data();
-          if (nd.type!=='script_circle') return;
+          if (nd.type!=='script_node') return;
           const sc=multiView.scripts.find(s=>s.script_id===nd.id);
           if (!sc||!sc.graph) return;
           // Compute connected tree component from this node
@@ -303,7 +303,7 @@ export default function App() {
           const treeScriptIds=new Set();
           treeNodes.forEach(nid=>{
             const node=cy.getElementById(nid);
-            if(node.length&&node.data('type')==='script_circle') treeScriptIds.add(node.data('id'));
+            if(node.length&&node.data('type')==='script_node') treeScriptIds.add(node.data('id'));
           });
           D('🌳 Tree view: '+sc.script_name+' — '+treeScriptIds.size+' scripts in tree');
           if (treeScriptIds.size<=1) {

@@ -345,10 +345,41 @@ class _RoleBasedExtractor:
         self._table_aliases: dict[str, str] = {}  # alias → real table name
         self._seen: set[tuple[str, str]] = set()   # (name, type) dedup
         self._subq_counter: int = 0  # unique subquery IDs
+        # Pre-tokenize SQL for accurate position lookups (Bug 4 fix)
+        try:
+            self._tokens = list(sqlglot.Tokenizer().tokenize(sql_text))
+        except Exception:
+            self._tokens = []
 
     def _next_id(self, key: str) -> str:
         self._counter[key] = self._counter.get(key, 0) + 1
         return _make_id(self.script_name, key, self._counter[key])
+
+    def _find_position(self, name: str, sql_expr: str = "") -> tuple[int, int]:
+        """Find line_start, line_end for a variable using sqlglot tokenizer.
+        
+        Uses sqlglot's Tokenizer which provides accurate line/col per token.
+        Falls back to string search if tokenizer fails.
+        Returns (line_start, line_end) — 1-based line numbers.
+        """
+        if not self.sql_text or not name:
+            return (0, 0)
+        
+        # Strategy 1: sqlglot tokenizer for accurate positions
+        try:
+            search = name.lower()
+            for tok in self._tokens:
+                if tok.text.lower() == search:
+                    return (tok.line, tok.line)
+        except Exception:
+            pass
+        
+        # Strategy 2: string-based fallback
+        lines = self.sql_text.split("\n")
+        for i, line in enumerate(lines):
+            if name.lower() in line.lower():
+                return (i + 1, i + 1)
+        return (0, 0)
 
     def _add(self, name: str, var_type: VariableType, sql_expr: str = "",
              defined_in: str = "", context: str = "TOP",
@@ -377,12 +408,14 @@ class _RoleBasedExtractor:
         self._seen.add(key)
 
         vid = self._next_id(f"{context}:{name}")
+        ls, le = self._find_position(name, sql_expr)
         var = VariableDefinition(
             id=vid, name=name, variable_type=var_type,
             sql_expression=sql_expr,
             source_columns=source_cols or [],
             source_tables=source_tables or [],
             defined_in=defined_in, context=context,
+            line_start=ls, line_end=le,
             is_output=is_output,
         )
         self.result.variables.append(var)

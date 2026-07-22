@@ -1,0 +1,43 @@
+# =============================================================================
+# GPS SQL Data Flow Visualizer — Development Container
+#
+# Build:   docker build -f Dockerfile.dev -t gps-sql-visualizer:dev .
+# Run:     docker compose up
+#
+# Includes Python 3.12 + Node.js 20 for full-stack hot-reload development.
+# Source code is mounted at runtime (no COPY needed after build).
+# =============================================================================
+
+FROM python:3.12-slim
+
+# ── System dependencies ──────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Node.js 20 LTS (for frontend Vite dev server) ───────────────────
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Python dependencies ─────────────────────────────────────────────
+WORKDIR /app
+COPY backend/requirements.txt ./backend/requirements.txt
+RUN pip install --no-cache-dir -r backend/requirements.txt
+
+# ── Frontend dependencies (installed at build time; node_modules
+#     will be overridden by volume mount — this is a warm cache) ─────
+COPY frontend/package.json frontend/package-lock.json ./frontend/
+RUN cd frontend && npm install
+
+# ── Runtime settings ────────────────────────────────────────────────
+WORKDIR /app
+EXPOSE 8000 5173
+
+ENV PYTHONUNBUFFERED=1
+ENV HOST=0.0.0.0
+
+# Default: start backend with hot-reload.
+# Override with docker compose command for frontend.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

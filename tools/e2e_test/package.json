@@ -1,0 +1,15 @@
+{
+  "name": "sql-visualizer-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Simulated user E2E tests for GPS SQL Data Flow Visualizer",
+  "scripts": {
+    "test": "node simulated_user.js",
+    "test:quick": "node simulated_user.js --quick",
+    "test:full": "node simulated_user.js --full",
+    "report": "node generate_report.js"
+  },
+  "dependencies": {
+    "playwright": "^1.61.1"
+  }
+}

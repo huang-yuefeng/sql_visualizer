@@ -7,8 +7,8 @@ export const NODE_STYLES = [
       'label': 'data(label)',
       'text-valign': 'bottom',
       'text-halign': 'center',
-      'font-size': 9,
-      'color': '#e0e0e0',
+      'font-size': 12,
+      'color': '#f0f0f0',
       'text-outline-color': '#1a1a2e',
       'text-outline-width': 1,
       'border-width': 2,
@@ -19,9 +19,9 @@ export const NODE_STYLES = [
     },
   },
   // Node shapes by variable type
-  { selector: 'node[variable_type="table"]', style: { 'shape': 'rectangle', 'width': 60, 'height': 30, 'background-color': '#4A90D9' } },
-  { selector: 'node[variable_type="view"]', style: { 'shape': 'rectangle', 'width': 60, 'height': 30, 'background-color': '#5DADE2' } },
-  { selector: 'node[variable_type="column"]', style: { 'shape': 'ellipse', 'width': 20, 'height': 20, 'background-color': '#A8D4FF' } },
+  { selector: 'node[variable_type="table"]', style: { 'shape': 'rectangle', 'width': 80, 'height': 30, 'background-color': '#4A90D9' } },
+  { selector: 'node[variable_type="view"]', style: { 'shape': 'rectangle', 'width': 80, 'height': 30, 'background-color': '#5DADE2' } },
+  { selector: 'node[variable_type="column"]', style: { 'shape': 'ellipse', 'width': 20, 'height': 24, 'background-color': '#A8D4FF' } },
   { selector: 'node[variable_type="cte"]', style: { 'shape': 'round-rectangle', 'width': 55, 'height': 30, 'background-color': '#5CB85C' } },
   { selector: 'node[variable_type="cte_column"]', style: { 'shape': 'triangle', 'width': 25, 'height': 25, 'background-color': '#8FD98F' } },
   { selector: 'node[variable_type="expression"]', style: { 'shape': 'diamond', 'width': 30, 'height': 30, 'background-color': '#F0AD4E' } },
@@ -34,6 +34,18 @@ export const NODE_STYLES = [
   { selector: 'node[variable_type="subquery"]', style: { 'shape': 'diamond', 'width': 35, 'height': 35, 'background-color': '#AC92EC' } },
   { selector: 'node[variable_type="virtual_table"]', style: { 'shape': 'round-rectangle', 'width': 65, 'height': 35, 'background-color': '#2ECC71' } },
   { selector: 'node[variable_type="literal"]', style: { 'shape': 'ellipse', 'width': 25, 'height': 25, 'background-color': '#CCCCCC' } },
+
+  // Field children (L2 compound) — uniform styling, override variable_type shapes
+  { selector: 'node[type="field"]', style: { 
+    'shape': 'ellipse', 'width': 14, 'height': 14,
+    'background-color': '#A8D4FF', 'border-width': 1, 'border-color': '#5DADE2',
+    'font-size': 10, 'color': '#ffffff', 'text-outline-color': '#1a1a2e', 'text-outline-width': 3,
+    'text-valign': 'center', 'text-margin-y': 0,
+  } },
+  // Field children that are target → gold highlight
+  { selector: 'node[type="field"][is_target]', style: {
+    'border-color': '#FFD700', 'border-width': 2, 'background-color': '#FFD700',
+  } },
 
   // Highlighted / dimmed states
   {
@@ -63,25 +75,39 @@ export const NODE_STYLES = [
   { selector: 'edge.tree-6', style: { 'line-color': '#98D8C8', 'target-arrow-color': '#98D8C8', 'width': 3 } },
   { selector: 'edge.tree-7', style: { 'line-color': '#F39C12', 'target-arrow-color': '#F39C12', 'width': 3 } },
 
-  // Edge styles — color from data.color
+  // Edge styles — default color (overridden by [color] selector below)
   {
     selector: 'edge',
     style: {
-      'width': 1.5,
-      'line-color': 'data(color)',
-      'target-arrow-color': 'data(color)',
+      'width': 2,
+      'line-color': '#5DADE2',
+      'target-arrow-color': '#5DADE2',
       'target-arrow-shape': 'triangle',
       'curve-style': 'bezier',
       'arrow-scale': 0.8,
       'label': 'data(label)',
-      'font-size': 7,
-      'color': '#888',
-      'text-outline-color': '#1a1a2e',
-      'text-outline-width': 1,
+      'font-size': 9,
+      'color': '#CCC',
+      'text-outline-color': '#0a0a1a',
+      'text-outline-width': 3,
+      'text-background-color': '#0a0a1a',
+      'text-background-opacity': 0.85,
+      'text-background-shape': 'round-rectangle',
+      'text-background-padding': 2,
       'text-rotation': 'autorotate',
       'text-margin-x': 4,
     },
   },
+  // Data-driven edge colors (overrides default for edges with color field)
+  {
+    selector: 'edge[color]',
+    style: {
+      'line-color': 'data(color)',
+      'target-arrow-color': 'data(color)',
+    },
+  },
+  // Hover feedback — handled via events in useCytoscapeGraph (Cytoscape 3.30+ no :hover selector)
+
   {
     selector: 'edge[relationship="BELONGS_TO"]',
     style: { 'width': 1, 'line-style': 'dotted' },
@@ -109,9 +135,10 @@ export const NODE_STYLES = [
       'line-color': '#00FF88',
       'target-arrow-color': '#00FF88',
       'target-arrow-shape': 'triangle',
+      'source-arrow-shape': 'none',
       'arrow-scale': 1.2,
       'line-style': 'solid',
-      'font-size': 9,
+      'font-size': 10,
       'color': '#00FF88',
       'text-outline-color': '#0a0a1a',
       'text-outline-width': 3,
@@ -124,6 +151,9 @@ export const NODE_STYLES = [
       'width': 2,
       'line-color': '#5DADE2',
       'target-arrow-color': '#5DADE2',
+      'target-arrow-shape': 'triangle',
+      'source-arrow-shape': 'none',
+      'arrow-scale': 0.8,
       'line-style': 'dashed',
       'font-size': 7,
       'color': '#5DADE2',
@@ -131,6 +161,117 @@ export const NODE_STYLES = [
       'text-outline-width': 2,
     },
   },
+  // ── V3 L1 Pipeline Table Nodes (data-driven sizing) ────────────────
+  // NOTE: width/height use data(_tableWidth)/data(_tableHeight) so
+  // applyLayout() can control sizes dynamically. COMPOUND_STYLES below
+  // will merge these with additional visual properties.
+  {
+    selector: 'node[type="source_table"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#4A90D9',
+      'border-width': 2,
+      'border-color': '#357ABD',
+      'label': 'data(label)',
+      'font-size': 10,
+      'color': '#fff',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 2,
+    },
+  },
+  {
+    selector: 'node[type="intermediate_table"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#5a5a7a',
+      'border-width': 2,
+      'border-color': '#7a7a9a',
+      'label': 'data(label)',
+      'font-size': 10,
+      'color': '#e0e0e0',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 1,
+    },
+  },
+  {
+    selector: 'node[type="output_table"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#2ECC71',
+      'border-width': 2,
+      'border-color': '#27ae60',
+      'label': 'data(label)',
+      'font-size': 10,
+      'color': '#000',
+      'text-outline-color': '#e0ffe0',
+      'text-outline-width': 1,
+    },
+  },
+
+  // ── V3 L1 Pipeline Edges (formal §5.1: undirected table-script) ──
+  {
+    selector: 'edge[edge_type="table_script"]',
+    style: {
+      'width': 2,
+      'line-color': '#5DADE2',
+      'target-arrow-color': '#5DADE2',
+      'target-arrow-shape': 'triangle',
+      'source-arrow-shape': 'none',
+      'arrow-scale': 0.9,
+      'line-style': 'solid',
+      'font-size': 7,
+      'color': '#5DADE2',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 2,
+      'text-rotation': 'autorotate',
+    },
+  },
+  // Role edges: bold green with formal edge type label
+  {
+    selector: 'edge[role]',
+    style: {
+      'width': 3,
+      'line-color': '#00FF88',
+      'target-arrow-color': '#00FF88',
+      'font-size': 8,
+      'color': '#00FF88',
+      'text-outline-color': '#0a0a1a',
+      'text-outline-width': 3,
+      'text-rotation': 'autorotate',
+    },
+  },
+
+  // ── V3 L1 Script Node ─────────────────────────────────────────────
+  {
+    selector: 'node[type="script_node"]',
+    style: {
+      'shape': 'ellipse',
+      'width': 28,
+      'height': 28,
+      'background-color': '#F39C12',
+      'label': 'data(label)',
+      'font-size': 8,
+      'color': '#fff',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 1,
+    },
+  },
+  // V3 highlighted path
+  {
+    selector: '.path-highlighted',
+    style: {
+      'border-color': '#FFD700',
+      'border-width': 4,
+      'background-opacity': 1,
+    },
+  },
+
 ];
 
 // Layout — cose defaults (no custom overrides)
@@ -165,3 +306,507 @@ export const MINI_LAYOUT_OPTIONS = {
   numIter: 500,
   idealEdgeLength: () => 40,
 };
+
+
+// ══════════════════════════════════════════════════════════════════
+// V3.2: Compound Table Nodes (parent) + Field Nodes (children)
+// ══════════════════════════════════════════════════════════════════
+
+export const COMPOUND_STYLES = [
+  // Field nodes (children of table compound nodes)
+  {
+    selector: 'node[type="field"]',
+    style: {
+      'shape': 'round-rectangle',
+      'width': 105,
+      'height': 28,
+      'background-color': '#A8D4FF',
+      'border-width': 1,
+      'border-color': '#5DADE2',
+      'label': 'data(label)',
+      'font-size': 10,
+      'color': '#1a1a2e',
+      'text-outline-color': '#A8D4FF',
+      'text-outline-width': 1,
+    },
+  },
+  // Target field (gold)
+  {
+    selector: 'node[is_target="true"]',
+    style: {
+      'border-color': '#FFD700',
+      'border-width': 2,
+      'background-color': '#FFF3CD',
+    },
+  },
+  // Direct field (on path to/from target)
+  {
+    selector: 'node[field_group="direct"]',
+    style: {
+      'background-opacity': 1,
+    },
+  },
+  // Indirect field (off-path, same table)
+  {
+    selector: 'node[field_group="indirect"]',
+    style: {
+      'background-opacity': 0.65,
+      'border-style': 'dashed',
+    },
+  },
+  // Source table (read-only, blue)
+  {
+    selector: 'node[type="source_table"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#4A90D9',
+      'background-opacity': 0.5,
+      'border-width': 3,
+      'border-color': '#5DADE2',
+      'border-style': 'solid',
+      'label': 'data(label)',
+      'font-size': 12,
+      'color': '#85C1E9',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 1,
+      'text-valign': 'top',
+      'text-halign': 'center',
+    },
+  },
+  // Intermediate table (gray)
+  {
+    selector: 'node[type="intermediate_table"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#5a5a7a',
+      'background-opacity': 0.35,
+      'border-width': 2,
+      'border-color': '#999',
+      'border-style': 'solid',
+      'label': 'data(label)',
+      'font-size': 12,
+      'color': '#d0d0d0',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 2,
+      'text-valign': 'top',
+      'text-halign': 'center',
+    },
+  },
+  // Output table (green)
+  {
+    selector: 'node[type="output_table"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#2ECC71',
+      'background-opacity': 0.5,
+      'border-width': 3,
+      'border-color': '#58D68D',
+      'border-style': 'solid',
+      'label': 'data(label)',
+      'font-size': 12,
+      'color': '#82E0AA',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 1,
+      'text-valign': 'top',
+      'text-halign': 'center',
+    },
+  },
+  // CTE table (L2 only)
+  {
+    selector: 'node[type="cte_table"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#5CB85C',
+      'background-opacity': 0.35,
+      'border-width': 2,
+      'border-style': 'dashed',
+      'border-color': '#82E0AA',
+      'label': 'data(label)',
+      'font-size': 12,
+      'color': '#A9DFBF',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 1,
+      'text-valign': 'top',
+      'text-halign': 'center',
+    },
+  },
+  // Query output (L1/L2)
+  {
+    selector: 'node[type="query_output"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#E74C3C',
+      'background-opacity': 0.35,
+      'border-width': 2,
+      'border-color': '#EC7063',
+      'border-style': 'solid',
+      'label': 'data(label)',
+      'font-size': 12,
+      'color': '#F5B7B1',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 1,
+      'text-valign': 'top',
+      'text-halign': 'center',
+    },
+  },
+];
+
+// ══════════════════════════════════════════════════════════════════
+// V3.2: 7-Category Edge Styles (formal §10.3)
+// ══════════════════════════════════════════════════════════════════
+
+export const L1_PIPELINE_EDGE_STYLES = [
+  // reads_from: table → script (data flows into script)
+  {
+    selector: 'edge[edge_type="reads_from"]',
+    style: {
+      'width': 3,
+      'line-style': 'solid',
+      'line-color': '#5DADE2',
+      'target-arrow-color': '#85C1E9',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 1.1,
+      'curve-style': 'taxi',
+      'taxi-direction': 'horizontal',
+      'taxi-turn': '15px',
+      'font-size': 9,
+    },
+  },
+  // writes_to: script → table (data flows out of script)
+  {
+    selector: 'edge[edge_type="writes_to"]',
+    style: {
+      'width': 3,
+      'line-style': 'solid',
+      'line-color': '#27AE60',
+      'target-arrow-color': '#58D68D',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 1.1,
+      'curve-style': 'taxi',
+      'taxi-direction': 'horizontal',
+      'taxi-turn': '15px',
+      'font-size': 9,
+    },
+  },
+];
+
+
+export const CATEGORY_EDGE_STYLES = [
+  // Copy (REF)
+  {
+    selector: 'edge[category="copy"]',
+    style: {
+      'width': 3,
+      'line-style': 'solid',
+      'line-color': '#2ECC71',
+      'target-arrow-color': '#58D68D',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 1.0,
+    },
+  },
+  // Compute (TRANSFORM, COMPUTED)
+  {
+    selector: 'edge[category="compute"]',
+    style: {
+      'width': 3,
+      'line-style': 'dashed',
+      'line-color': '#F39C12',
+      'target-arrow-color': '#F5B041',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 1.0,
+    },
+  },
+  // Aggregate (AGGREGATE, WINDOW)
+  {
+    selector: 'edge[category="aggregate"]',
+    style: {
+      'width': 4,
+      'line-style': 'solid',
+      'line-color': '#9B59B6',
+      'target-arrow-color': '#B39DDB',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 1.2,
+    },
+  },
+  // Filter/Gate (FILTER, JOIN, INDIRECT)
+  {
+    selector: 'edge[category="filter"]',
+    style: {
+      'width': 3.5,
+      'line-style': 'dashed',
+      'line-color': '#E74C3C',
+      'target-arrow-color': '#F1948A',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 1.0,
+    },
+  },
+  // Combine (SET_OP, SUBQUERY)
+  {
+    selector: 'edge[category="combine"]',
+    style: {
+      'width': 3,
+      'line-style': 'dashed',
+      'line-color': '#E67E22',
+      'target-arrow-color': '#F0B27A',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 1.0,
+      'line-dash-pattern': [8, 3, 3, 3],
+    },
+  },
+  // Write (DML)
+  {
+    selector: 'edge[category="write"]',
+    style: {
+      'width': 4,
+      'line-style': 'solid', 'line-dash-pattern': [8, 2, 3, 2],
+      'line-color': '#3498DB',
+      'target-arrow-color': '#5DADE2',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 1.2,
+    },
+  },
+  // Structure (SCHEMA, ALIAS, SUBSET)
+  {
+    selector: 'edge[category="structure"]',
+    style: {
+      'width': 2.5,
+      'line-style': 'solid',
+      'line-color': '#AED6F1',
+      'target-arrow-color': '#AED6F1',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 0.9,
+      'opacity': 1.0,
+    },
+  },
+  // Edge click → highlight (gold)
+  {
+    selector: 'edge.edge-selected',
+    style: {
+      'width': 4,
+      'line-color': '#FFD700',
+      'target-arrow-color': '#FFD700',
+      'border-color': '#FFD700',
+      'border-width': 1,
+    },
+  },
+  // Turn edges (snake wrapping)
+  {
+    selector: 'edge[edge_type="turn"]',
+    style: {
+      'width': 3,
+      'line-style': 'dashed',
+      'line-color': '#888888',
+      'target-arrow-color': '#888888',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 1.5,
+    },
+  },
+  // Bundled edges (thicker)
+  {
+    selector: 'edge.bundled',
+    style: {
+      'width': 5,
+      'line-style': 'solid',
+    },
+  },
+  // Query output (L1/L2)
+  {
+    selector: 'node[type="query_output"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#E74C3C',
+      'background-opacity': 0.35,
+      'border-width': 2,
+      'border-color': '#EC7063',
+      'border-style': 'solid',
+      'label': 'data(label)',
+      'font-size': 12,
+      'color': '#F5B7B1',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 1,
+      'text-valign': 'top',
+      'text-halign': 'center',
+    },
+  },
+];
+
+// V3.3: Turn Edge Styles (snake wrapping)
+// ══════════════════════════════════════════════════
+// Turn edges are where a pipeline wraps from row N to row N+1.
+// They use dashed lines with a large direction arrow.
+
+export const TURN_EDGE_STYLES = [
+  {
+    selector: 'edge.turn-edge',
+    style: {
+      'line-style': 'dashed',
+      'line-dash-pattern': [10, 5],
+      'width': 3,
+      'line-color': '#F39C12',
+      'target-arrow-color': '#F39C12',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 2.0,
+      'curve-style': 'unbundled-bezier',
+    },
+  },
+  // Query output (L1/L2)
+  {
+    selector: 'node[type="query_output"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#E74C3C',
+      'background-opacity': 0.35,
+      'border-width': 2,
+      'border-color': '#EC7063',
+      'border-style': 'solid',
+      'label': 'data(label)',
+      'font-size': 12,
+      'color': '#F5B7B1',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 1,
+      'text-valign': 'top',
+      'text-halign': 'center',
+    },
+  },
+];
+
+// V3.3: Bundled Edge Styles (edge bundling §4.5)
+export const BUNDLED_EDGE_STYLES = [
+  {
+    selector: 'edge.bundled-edge',
+    style: {
+      'width': 6,
+      'line-color': '#F39C12',
+      'line-style': 'solid',
+      'target-arrow-color': '#F39C12',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 1.5,
+      'curve-style': 'bezier',
+      'opacity': 0.8,
+    },
+  },
+  // Query output (L1/L2)
+  {
+    selector: 'node[type="query_output"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#E74C3C',
+      'background-opacity': 0.35,
+      'border-width': 2,
+      'border-color': '#EC7063',
+      'border-style': 'solid',
+      'label': 'data(label)',
+      'font-size': 12,
+      'color': '#F5B7B1',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 1,
+      'text-valign': 'top',
+      'text-halign': 'center',
+    },
+  },
+];
+
+// V3.3: Script Node Cards (design §5.2)
+// R6.1-6.8: Orange rounded-rect cards with metadata + operation badges
+export const SCRIPT_CARD_STYLES = [
+  {
+    selector: 'node[type="script_node"]',
+    style: {
+      'shape': 'round-rectangle',
+      'width': 220,
+      'height': 65,
+      'background-color': '#F39C12',
+      'border-width': 1,
+      'border-color': '#E67E22',
+      'label': 'data(label)',
+      'font-size': 10,
+      'color': '#ffffff',
+      'text-outline-color': '#F39C12',
+      'text-outline-width': 1,
+      'text-wrap': 'ellipsis',
+      'text-max-width': '170px',
+      'padding': 4,
+    },
+  },
+  // Active script (L2 is open)
+  {
+    selector: 'node[type="script_node"].active-script',
+    style: {
+      'border-color': '#FFD700',
+      'border-width': 3,
+    },
+  },
+  // Query output (L1/L2)
+  {
+    selector: 'node[type="query_output"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#E74C3C',
+      'background-opacity': 0.35,
+      'border-width': 2,
+      'border-color': '#EC7063',
+      'border-style': 'solid',
+      'label': 'data(label)',
+      'font-size': 12,
+      'color': '#F5B7B1',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 1,
+      'text-valign': 'top',
+      'text-halign': 'center',
+    },
+  },
+];
+
+// V3.3: Operation Nodes (design §5.3.1) — L2 only
+// Small colored pills between input/output fields
+export const OPERATION_NODE_STYLES = [
+  {
+    selector: 'node.operation-node',
+    style: {
+      'shape': 'round-rectangle',
+      'width': 80,
+      'height': 24,
+      'background-opacity': 0.3,
+      'border-width': 1,
+      'label': 'data(label)',
+      'font-size': 7,
+      'text-wrap': 'none',
+      'text-valign': 'center',
+      'text-halign': 'center',
+      'display': 'none',  // Hidden by default, shown on toggle
+    },
+  },
+  {
+    selector: 'node.operation-node.visible',
+    style: { 'display': 'element' },
+  },
+];
+
+// R8: L2 Field detail node types (design §5.4)
+export const L2_DETAIL_STYLES = [
+  { selector: 'node[type="cte_table"]', style: { 'shape': 'round-rectangle', 'border-style': 'dashed', 'border-color': '#82E0AA', 'background-color': '#5CB85C', 'background-opacity': 0.25 } },
+  { selector: 'node[type="subquery_output"]', style: { 'shape': 'round-rectangle', 'border-style': 'dotted', 'border-color': '#C4B4F0', 'background-color': '#AC92EC', 'background-opacity': 0.35, 'border-width': 2 } },
+  { selector: 'node[type="virtual_table"]', style: { 'shape': 'rectangle', 'border-width': 2, 'border-color': '#58D68D', 'background-color': '#2ECC71', 'background-opacity': 0.35 } },
+  { selector: 'node[type="expression"]', style: { 'shape': 'diamond', 'background-color': '#F0AD4E', 'width': 30, 'height': 30 } },
+  { selector: 'node[type="aggregate"]', style: { 'shape': 'triangle', 'background-color': '#37BC9B', 'width': 30, 'height': 30 } },
+  { selector: 'node[type="window"]', style: { 'shape': 'hexagon', 'background-color': '#967ADC', 'width': 30, 'height': 30 } },
+  { selector: 'node[type="literal"]', style: { 'shape': 'ellipse', 'background-color': '#CCCCCC', 'width': 15, 'height': 15 } },
+];

@@ -1,0 +1,135 @@
+/* ── Resizable Panels ─────────────────────────────────────────── */
+.dataflow-layout {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.panel-left {
+  width: var(--left-width, 260px);
+  min-width: 50px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  position: relative;
+}
+
+.panel-center {
+  flex: 1 1 100px;
+  min-width: 100px;
+  overflow: hidden;
+  position: relative;
+}
+
+.panel-right {
+  width: var(--right-width, 420px);
+  min-width: 50px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  position: relative;
+}
+
+/* L2 wrap-row: appears on a new flex line below L1 */
+.l2-wrap-row {
+  width: 100%;
+  flex-basis: 100%;
+  height: 6px;
+  cursor: row-resize;
+  background: transparent;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  transition: background 0.2s;
+}
+.l2-wrap-row:hover {
+  background: #F39C12;
+}
+.l2-wrap-row::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  bottom: -8px;
+  left: 0;
+  right: 0;
+}
+
+.panel-inline-l2 {
+  width: var(--l2-width, 420px);
+  min-width: 50px;
+  flex-shrink: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ── Resize handles ── */
+.resize-handle {
+  width: 8px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  transition: background 0.2s;
+}
+.resize-handle:hover {
+  background: #F39C12;
+}
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  top: 0;
+  bottom: 0;
+}
+
+/* Horizontal bar resize (within column direction) */
+.resize-handle-h {
+  height: 6px;
+  width: 100%;
+  cursor: row-resize;
+  background: transparent;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  transition: background 0.2s;
+}
+.resize-handle-h:hover {
+  background: #F39C12;
+}
+.resize-handle-h::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  bottom: -8px;
+  left: 0;
+  right: 0;
+}
+
+.inline-l2-graph {
+  flex: 1;
+  min-height: 60px;
+  overflow: hidden;
+}
+
+.inline-l2-sql {
+  height: var(--sql-height, 250px);
+  min-height: 60px;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+.inline-l2-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: #1e1e3a;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.inline-l2-actions {
+  display: flex;
+  gap: 6px;
+}

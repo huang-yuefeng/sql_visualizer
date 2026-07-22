@@ -1,0 +1,16 @@
+table_name,column_name,type
+raw_orders,order_id,DIM
+raw_orders,customer_id,DIM
+raw_orders,amount,FACT
+raw_orders,order_date,DIM
+raw_orders,order_status,DIM
+stg_orders,order_id,FACT
+stg_orders,customer_id,DIM
+stg_orders,amount,FACT
+dim_customers,customer_id,DIM
+dim_customers,customer_name,DIM
+dim_customers,account_balance,FACT
+dim_customers,credit_score,DIM
+dim_regions,region_code,DIM
+customer_summary,customer_id,DIM
+customer_summary,total_spent,FACT

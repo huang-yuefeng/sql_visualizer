@@ -1,0 +1,102 @@
+{
+  "name": "dialect_test",
+  "sessions": [
+    {
+      "name": "1.1 Navigate to app",
+      "status": "PASS"
+    },
+    {
+      "name": "1.2 Upload workspace zip",
+      "status": "PASS"
+    },
+    {
+      "name": "1.3 Wait for indexing to complete",
+      "status": "PASS"
+    },
+    {
+      "name": "1.4 Verify file tree displayed",
+      "status": "PASS"
+    },
+    {
+      "name": "2.1 Execute search via UI with keyboard",
+      "status": "PASS"
+    },
+    {
+      "name": "2.2 Verify L1 graph rendered with nodes",
+      "status": "PASS"
+    },
+    {
+      "name": "3.1 Click table node in L1 graph",
+      "status": "PASS"
+    },
+    {
+      "name": "3.2 Click script node in L1 graph",
+      "status": "PASS"
+    },
+    {
+      "name": "4.1 Toggle to Pipeline layout",
+      "status": "PASS"
+    },
+    {
+      "name": "4.2 Verify layout changed positions",
+      "status": "PASS"
+    },
+    {
+      "name": "4.3 Toggle back to Snake layout",
+      "status": "PASS"
+    },
+    {
+      "name": "5.1 Drag left panel resize handle",
+      "status": "PASS"
+    },
+    {
+      "name": "6.1 Double-click script node → open L2 panel",
+      "status": "PASS"
+    },
+    {
+      "name": "6.2 Verify L2 graph has nodes and edges",
+      "status": "PASS"
+    },
+    {
+      "name": "6.3 Verify SQL panel shows script text",
+      "status": "PASS"
+    },
+    {
+      "name": "6.4 Click L2 edge → verify SQL highlight",
+      "status": "FAIL",
+      "error": "locator.click: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.graph-canvas').first()\u001b[22m\n\u001b[2m    - locator resolved to <div class=\"graph-canvas __________cytoscape_container\">…</div>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <h3>Workspace</h3> from <div class=\"panel-left\">…</div> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <h3>Workspace</h3> from <div class=\"panel-left\">…</div> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    28 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <h3>Workspace</h3> from <div class=\"panel-left\">…</div> subtree intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n"
+    },
+    {
+      "name": "6.5 Verify SQL lines highlighted after edge click",
+      "status": "PASS"
+    },
+    {
+      "name": "6.6 Toggle Show All / Show Relevant filter",
+      "status": "PASS"
+    },
+    {
+      "name": "6.7 Close L2 with Escape key",
+      "status": "PASS"
+    },
+    {
+      "name": "7.1 Open L2 for export",
+      "status": "PASS"
+    },
+    {
+      "name": "7.2 Click Export button",
+      "status": "PASS"
+    },
+    {
+      "name": "8.1 Delete workspace",
+      "status": "PASS"
+    },
+    {
+      "name": "8.2 Verify empty state after delete",
+      "status": "PASS"
+    }
+  ],
+  "screenshots": [],
+  "errors": [
+    "6.4 Click L2 edge → verify SQL highlight: locator.click: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.graph-canvas').first()\u001b[22m\n\u001b[2m    - locator resolved to <div class=\"graph-canvas __________cytoscape_container\">…</div>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <h3>Workspace</h3> from <div class=\"panel-left\">…</div> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <h3>Workspace</h3> from <div class=\"panel-left\">…</div> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    28 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <h3>Workspace</h3> from <div class=\"panel-left\">…</div> subtree intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n"
+  ]
+}

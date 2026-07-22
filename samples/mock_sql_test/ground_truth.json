@@ -1,0 +1,65 @@
+{
+  "description": "Ground truth for SQL edge-to-source-code highlighting tests",
+  "files": {
+    "01_dml_table_flow.sql": {
+      "description": "INSERT-SELECT with WHERE filter, testing DML + TABLE_FLOW + FILTER + REF edges",
+      "edges": {
+        "DML": { "lines": [2, 8], "description": "INSERT INTO target SELECT from source — full DML spanning INSERT to WHERE" },
+        "TABLE_FLOW": { "lines": [3, 8], "description": "TABLE_FLOW from raw_orders to stg_orders — the SELECT...FROM...WHERE clause" },
+        "FILTER": { "lines": [7, 8], "description": "WHERE clause with status filter" },
+        "REF": { "lines": [3, 5], "description": "Column references in SELECT list" }
+      }
+    },
+    "02_join_multi_table.sql": {
+      "description": "Multi-table JOIN with aggregation, testing JOIN + AGGREGATE + TABLE_FLOW",
+      "edges": {
+        "JOIN": { "lines": [5, 6], "description": "Two JOIN clauses connecting orders→customers, customers→regions" },
+        "AGGREGATE": { "lines": [2, 3], "description": "SUM and COUNT aggregate functions in SELECT" },
+        "TABLE_FLOW": { "lines": [3, 9], "description": "SELECT with two JOINs through final GROUP BY" },
+        "FILTER": { "lines": [7, 9], "description": "WHERE + GROUP BY + HAVING clause" }
+      }
+    },
+    "03_cte_window.sql": {
+      "description": "CTE with window function, testing CTE + WINDOW + COMPUTED edges",
+      "edges": {
+        "CTE": { "lines": [2, 7], "description": "CTE definition: WITH ranked_orders AS (...)" },
+        "WINDOW": { "lines": [4, 4], "description": "ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)" },
+        "COMPUTED": { "lines": [13, 13], "description": "CASE WHEN expression in final SELECT" },
+        "TABLE_FLOW": { "lines": [10, 17], "description": "Final SELECT from CTE with WHERE filter" }
+      }
+    },
+    "04_union_subquery.sql": {
+      "description": "UNION with subquery, testing UNION + SUBQUERY + SET_OP edges",
+      "edges": {
+        "UNION": { "lines": [3, 12], "description": "First SELECT ... UNION ALL ... Second SELECT" },
+        "SUBQUERY": { "lines": [14, 18], "description": "Outer SELECT wrapping the union result as a subquery" },
+        "TABLE_FLOW": { "lines": [3, 7], "description": "First arm of UNION reading from orders_2024" }
+      }
+    },
+    "05_transform_case.sql": {
+      "description": "TRANSFORM and CASE expressions, testing TRANSFORM + CASE + COMPUTED edges",
+      "edges": {
+        "TRANSFORM": { "lines": [3, 5], "description": "COALESCE, CAST, ROUND, UPPER transformations" },
+        "CASE": { "lines": [5, 9], "description": "CASE WHEN for customer tier classification" },
+        "TABLE_FLOW": { "lines": [3, 12], "description": "Full SELECT with transforms from customers table" }
+      }
+    },
+    "06_merge_update.sql": {
+      "description": "MERGE statement with UPDATE/DELETE, testing DML + MERGE target edges",
+      "edges": {
+        "DML": { "lines": [2, 17], "description": "Full MERGE INTO ... USING ... WHEN MATCHED THEN UPDATE ... WHEN NOT MATCHED THEN INSERT" },
+        "TABLE_FLOW": { "lines": [2, 4], "description": "MERGE target and source table specification" },
+        "FILTER": { "lines": [5, 5], "description": "ON clause for MERGE matching condition" }
+      }
+    },
+    "07_nested_cte_chain.sql": {
+      "description": "Chained CTEs with multiple dependencies, testing complex CTE + TABLE_FLOW chains",
+      "edges": {
+        "CTE": { "lines": [2, 26], "description": "Three chained CTEs: daily_stats → weekly_rollup → final_summary" },
+        "AGGREGATE": { "lines": [3, 6], "description": "SUM/COUNT in daily_stats CTE" },
+        "WINDOW": { "lines": [9, 13], "description": "LAG and rolling SUM window in weekly_rollup CTE" },
+        "TABLE_FLOW": { "lines": [18, 26], "description": "Final SELECT joining all three CTEs" }
+      }
+    }
+  }
+}

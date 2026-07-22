@@ -6,7 +6,7 @@ Online web service that extracts variables from GPS financial SQL scripts, build
 - **Backend**: FastAPI + sqlglot (MySQL dialect)
 - **Frontend**: React + Vite + Cytoscape.js
 - **Version**: See `/VERSION` file
-- **Tests**: 187 tests in `backend/tests/`
+- **Tests**: 219 tests in `backend/tests/`
 
 ## Module Map (read only what you need)
 

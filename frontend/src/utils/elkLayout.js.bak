@@ -1,0 +1,349 @@
+/**
+ * ELK.js ↔ Cytoscape.js Bridge
+ * 
+ * Converts Cytoscape graph data to ELK.js format, runs layout,
+ * and applies positions back to Cytoscape nodes.
+ * 
+ * Lazy-loads ELK.js to avoid blocking initial page load.
+ * Falls back to dagre/breadthfirst if ELK.js is unavailable or times out.
+ */
+
+let elkInstance = null;
+
+async function getElk() {
+  if (elkInstance) return elkInstance;
+  try {
+    // Try dynamic import first (works in dev mode)
+    const ELK = await import('elkjs');
+    elkInstance = new ELK.default();
+    return elkInstance;
+  } catch (e1) {
+    // Fall back to UMD bundle served from static
+    try {
+      const ELK = await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = '/elk.bundled.js';
+        script.onload = () => {
+          if (window.ELK) resolve(window.ELK);
+          else reject(new Error('ELK not found on window'));
+        };
+        script.onerror = () => reject(new Error('Failed to load elk.bundled.js'));
+        document.head.appendChild(script);
+      });
+      elkInstance = new ELK();
+      return elkInstance;
+    } catch (e2) {
+      console.warn('ELK.js not available, using fallback layout:', e2.message);
+      return null;
+    }
+  }
+}
+
+/**
+ * Convert Cytoscape nodes/edges to ELK.js graph format.
+ * Handles compound nodes via hierarchyHandling: INCLUDE_CHILDREN.
+ */
+function cytoscapeToElk(nodes, edges, options = {}) {
+  const {
+    direction = 'RIGHT',
+    algorithm = 'layered',
+    spacingNodeNode = 50,
+    spacingLayerLayer = 80,
+  } = options;
+
+  // Build node map with dimensions
+  const nodeMap = {};
+  const topLevel = [];
+  const children = {};
+
+  for (const n of nodes) {
+    const data = n.data || n;
+    const parent = data.parent || null;
+    const id = data.id;
+    
+    const elkNode = {
+      id,
+      labels: [{ text: data.label || id }],
+      width: data.width || _defaultWidth(data.type),
+      height: data.height || _defaultHeight(data.type),
+      properties: { type: data.type },
+    };
+
+    nodeMap[id] = elkNode;
+
+    if (parent) {
+      if (!children[parent]) children[parent] = [];
+      children[parent].push(elkNode);
+    } else {
+      topLevel.push(elkNode);
+    }
+  }
+
+  // Nest children into parents
+  for (const [parentId, childNodes] of Object.entries(children)) {
+    if (nodeMap[parentId]) {
+      nodeMap[parentId].children = childNodes;
+      nodeMap[parentId].layoutOptions = {
+        'elk.padding': '[top=28,left=8,bottom=8,right=8]',
+      };
+    } else {
+      // Parent not found in nodes — add children as top-level
+      topLevel.push(...childNodes);
+    }
+  }
+
+  // Build edges
+  const elkEdges = [];
+  for (const e of edges) {
+    const data = e.data || e;
+    elkEdges.push({
+      id: data.id,
+      sources: [data.source],
+      targets: [data.target],
+      labels: data.label ? [{ text: data.label }] : [],
+    });
+  }
+
+  // Configuration for snake wrapping on long pipelines
+  const layoutOptions = {
+    'elk.algorithm': algorithm,
+    'elk.direction': direction,
+    'elk.layered.spacing.nodeNodeBetweenLayers': String(spacingLayerLayer),
+    'elk.layered.spacing.nodeNode': String(spacingNodeNode),
+    'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
+    // Snake wrapping for long pipelines
+    'elk.layered.wrapping.strategy': 'MULTI_EDGE',
+    'elk.layered.wrapping.additionalWidth': '200',
+    'elk.layered.wrapping.multiEdge.improveCuts': 'true',
+  };
+
+  return {
+    id: 'root',
+    layoutOptions,
+    children: topLevel,
+    edges: elkEdges,
+  };
+}
+
+function _defaultWidth(type) {
+  if (type && (type.endsWith('_table') || type.includes('table'))) return 200;
+  if (type === 'script_node') return 190;
+  if (type === 'field') return 60;
+  return 80;
+}
+
+function _defaultHeight(type) {
+  if (type && type.endsWith('_table')) return 120;
+  if (type === 'script_node') return 55;
+  if (type === 'field') return 20;
+  return 30;
+}
+
+/**
+ * Apply ELK layout to Cytoscape instance.
+ * 
+ * @param {object} cy - Cytoscape instance
+ * @param {object} options - ELK layout options
+ * @returns {Promise<boolean>} - true if ELK layout applied, false if fallback used
+ */
+export async function applyElkLayout(cy, options = {}) {
+  const elk = await getElk();
+  if (!elk) {
+    _applyFallbackLayout(cy, options);
+    return false;
+  }
+
+  const nodes = cy.nodes().map(n => ({
+    data: {
+      id: n.id(),
+      label: n.data('label'),
+      type: n.data('type'),
+      parent: n.data('parent'),
+    },
+    width: n.renderedOuterWidth ? n.renderedOuterWidth() : undefined,
+    height: n.renderedOuterHeight ? n.renderedOuterHeight() : undefined,
+  }));
+
+  const edges = cy.edges().map(e => ({
+    data: {
+      id: e.id(),
+      source: e.data('source'),
+      target: e.data('target'),
+      label: e.data('label'),
+    },
+  }));
+
+  try {
+    const elkGraph = cytoscapeToElk(nodes, edges, options);
+
+    // Timeout after 5 seconds
+    const layoutPromise = elk.layout(elkGraph);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('ELK layout timed out')), 5000)
+    );
+
+    const layouted = await Promise.race([layoutPromise, timeoutPromise]);
+
+    // Apply positions
+    const positions = {};
+    const edgeRoutes = new Map();
+
+    function collectPositions(children) {
+      if (!children) return;
+      for (const child of children) {
+        if (child.x !== undefined && child.y !== undefined) {
+          positions[child.id] = { x: child.x, y: child.y };
+        }
+        if (child.edges) {
+          for (const edge of child.edges) {
+            const points = [];
+            for (const section of (edge.sections || [])) {
+              if (section.startPoint) points.push({ x: section.startPoint.x, y: section.startPoint.y });
+              if (section.bendPoints) {
+                for (const bp of section.bendPoints) {
+                  points.push({ x: bp.x, y: bp.y });
+                }
+              }
+              if (section.endPoint) points.push({ x: section.endPoint.x, y: section.endPoint.y });
+            }
+            if (points.length >= 2) {
+              edgeRoutes.set(edge.id, points);
+            }
+          }
+        }
+        collectPositions(child.children);
+      }
+    }
+
+    // Flatten all children from layout
+    const allChildren = [];
+    (function collect(c) {
+      for (const x of (c || [])) {
+        if (x.x !== undefined) allChildren.push(x);
+        if (x.children) collect(x.children);
+      }
+    })(layouted.children || []);
+
+    collectPositions(layouted.children || []);
+
+    // Batch position and edge route updates
+    cy.batch(() => {
+      // Position all top-level nodes (tables, scripts) from ELK
+      // Skip field nodes — they'll be positioned by _positionCompoundChildrenLocal
+      const fieldIds = new Set();
+      for (const child of (layouted.children || [])) {
+        if (child.children) {
+          for (const sub of child.children) {
+            fieldIds.add(sub.id);
+          }
+        }
+      }
+      for (const child of allChildren) {
+        const node = cy.getElementById(child.id);
+        if (node.length && !node.hasClass('__locked') && !fieldIds.has(child.id)) {
+          node.position({ x: child.x, y: child.y }).data('x', child.x).data('y', child.y);
+        }
+      }
+      // Position field children relative to their parents (compound node behavior)
+      _positionCompoundChildrenLocal(cy);
+      // Apply ELK bend points to Cytoscape edges
+      for (const [edgeId, points] of edgeRoutes) {
+        const cyEdge = cy.getElementById(edgeId);
+        if (cyEdge.length) {
+          const srcPos = cyEdge.source().position();
+          const controlPoints = points.slice(1, -1).map(p => ({
+            x: p.x - srcPos.x,
+            y: p.y - srcPos.y,
+          }));
+          if (controlPoints.length > 0) {
+            cyEdge.style('control-point-distances', controlPoints.map(() => 0));
+            cyEdge.style('control-point-weights', controlPoints.map(() => 0.5));
+            cyEdge.style('curve-style', 'unbundled-bezier');
+            cyEdge.scratch('_elkControlPoints', controlPoints);
+          }
+        }
+      }
+    });
+
+    // ── Detect and mark turn edges (snake wrapping) ──
+    cy.batch(() => {
+      const rowThreshold = 80;
+      cy.edges().forEach(edge => {
+        const src = edge.source();
+        const tgt = edge.target();
+        if (!src.length || !tgt.length) return;
+        const srcPos = src.position();
+        const tgtPos = tgt.position();
+        if (srcPos.x > tgtPos.x + 50 &&
+            Math.abs(srcPos.y - tgtPos.y) > rowThreshold) {
+          edge.addClass('turn-edge');
+          edge.data('is_turn_edge', true);
+        }
+      });
+    });
+
+    cy.fit(undefined, 50);
+    return true;
+  } catch (e) {
+    console.warn('ELK layout failed, falling back:', e.message);
+    _applyFallbackLayout(cy, options);
+    return false;
+  }
+}
+
+/**
+ * Position field nodes as centered children within their parent table.
+ * Uses RELATIVE positions for cytoscape compound node behavior.
+ */
+function _positionCompoundChildrenLocal(cy) {
+  const childrenByParent = {};
+  cy.nodes('[type="field"]').forEach(n => {
+    const parent = n.data('_tableParent');
+    if (parent) {
+      if (!childrenByParent[parent]) childrenByParent[parent] = [];
+      childrenByParent[parent].push(n);
+    }
+  });
+  const FIELD_H = 50;
+  const TABLE_HDR_H = 26;
+  const TABLE_MIN_H = 80;
+  cy.batch(() => {
+    for (const [parentId, children] of Object.entries(childrenByParent)) {
+      const parentNode = cy.getElementById(parentId);
+      if (!parentNode.length) continue;
+      const n = children.length;
+      const th = Math.max(TABLE_MIN_H, TABLE_HDR_H + 12 + n * FIELD_H + 12);
+      const startY = -(th / 2) + TABLE_HDR_H + 6 + FIELD_H / 2;
+      children.sort((a, b) => (a.data('label') || '').localeCompare(b.data('label') || ''));
+      children.forEach((child, i) => {
+        // Use relative positions — cytoscape compound nodes auto-add parent pos
+        child.position({ x: 8, y: startY + i * FIELD_H });
+        child.data('x', 8);
+        child.data('y', startY + i * FIELD_H);
+      });
+      // Also update table height
+      parentNode.data('_tableHeight', th);
+      parentNode.style('height', th);
+    }
+  });
+}
+
+function _applyFallbackLayout(cy, options = {}) {
+  try {
+    cy.layout({
+      name: 'breadthfirst',
+      directed: true,
+      spacingFactor: 1.3,
+      animate: true,
+      animationDuration: 500,
+      fit: true,
+      padding: 40,
+      ...options,
+    }).run();
+  } catch (e) {
+    // Last resort
+    cy.layout({ name: 'grid', fit: true, padding: 30 }).run();
+  }
+}
+
+export { getElk, cytoscapeToElk };
