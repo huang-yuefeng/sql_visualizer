@@ -194,7 +194,16 @@ export async function applyElkLayout(cy, options = {}) {
   });
 
   try {
-    const elkGraph = cytoscapeToElk(nonFieldNodes, nonFieldEdges, options);
+    // Adaptive spacing: viewport-responsive node spacing
+    const vw = cy.container()?.offsetWidth || 1440;
+    const adaptiveNodeSpacing = Math.max(ELK_SPACING_NODE, Math.round(vw / 5));
+    const adaptiveLayerSpacing = Math.max(ELK_SPACING_LAYER, Math.round(vw / 7));
+    const adaptiveOptions = {
+      ...options,
+      spacingNodeNode: adaptiveNodeSpacing,
+      spacingLayerLayer: adaptiveLayerSpacing,
+    };
+    const elkGraph = cytoscapeToElk(nonFieldNodes, nonFieldEdges, adaptiveOptions);
     const layouted = await Promise.race([
       elk.layout(elkGraph),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
