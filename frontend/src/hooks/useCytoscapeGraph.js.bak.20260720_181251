@@ -1,0 +1,379 @@
+import { useEffect, useRef, useCallback } from 'react';
+import cytoscape from 'cytoscape';
+import fcose from 'cytoscape-fcose';
+cytoscape.use(fcose);
+import { NODE_STYLES, COMPOUND_STYLES, L1_PIPELINE_EDGE_STYLES, TURN_EDGE_STYLES, BUNDLED_EDGE_STYLES, CATEGORY_EDGE_STYLES, SCRIPT_CARD_STYLES, OPERATION_NODE_STYLES, L2_DETAIL_STYLES } from '../utils/graphStyles';
+
+const TABLE_HDR_H = 26;
+const FIELD_H = 50;  // increased from 40 to prevent label overlap
+const TABLE_MIN_H = 80;
+
+export default function useCytoscapeGraph(containerRef, graphData, options = {}) {
+  const cyRef = useRef(null);
+  const optsRef = useRef(options);
+  optsRef.current = options;
+
+  useEffect(() => {
+    if (!containerRef.current || !graphData) return;
+    let { nodes, edges } = graphData;
+    if (!nodes || nodes.length === 0) return;
+
+    // ── Phase 0: Build lookups ──
+    const tablePos = {};
+    const fieldParent = {};
+    const fieldsByParent = {};
+
+    nodes.forEach(n => {
+      const d = n.data || {};
+      const t = d.type || '';
+      if (t.endsWith('_table') || t === 'query_output' || t === 'cte_table') {
+        tablePos[d.id] = { x: d.x || 0, y: d.y || 0 };
+      }
+      if (t === 'field' && d.parent) {
+        fieldParent[d.id] = d.parent;
+        if (!fieldsByParent[d.parent]) fieldsByParent[d.parent] = [];
+        fieldsByParent[d.parent].push(n);
+      }
+    });
+
+    // Sort fields and compute relative positions
+    const fieldRelPos = {};
+    Object.entries(fieldsByParent).forEach(([parentId, fields]) => {
+      fields.sort((a, b) => {
+        const ad = a.data || {}, bd = b.data || {};
+        return (ad.label || '').localeCompare(bd.label || '');
+      });
+      fields.forEach((f, i) => {
+        fieldRelPos[f.data.id] = {
+          rx: 8,
+          ry: TABLE_HDR_H + 4 + i * FIELD_H
+        };
+      });
+    });
+
+    // ── L2 Layout: compute table positions when backend doesn't provide them ──
+    const hasScriptNodes = nodes.some(n => (n.data || {}).type === 'script_node');
+    const needsLayout = !hasScriptNodes && Object.keys(tablePos).length > 0 &&
+      Object.values(tablePos).every(p => p.x === 0 && p.y === 0);
+    
+    if (needsLayout) {
+      // Build adjacency from edges
+      const adjIn = {};
+      const adjOut = {};
+      edges.forEach(e => {
+        const ed = e.data || {};
+        const s = ed.source, t = ed.target;
+        if (!adjOut[s]) adjOut[s] = [];
+        adjOut[s].push(t);
+        if (!adjIn[t]) adjIn[t] = [];
+        adjIn[t].push(s);
+      });
+
+      // Classify table nodes by row
+      const X_SPACING = 200, Y_SPACING = 220;
+      let colIdx = [0, 0, 0]; // source=0, intermediate=1, output=2
+      
+      Object.keys(tablePos).forEach(tid => {
+        const hasIncoming = (adjIn[tid] || []).length > 0;
+        const hasOutgoing = (adjOut[tid] || []).length > 0;
+        let row = 1; // default intermediate
+        if (hasIncoming && !hasOutgoing) row = 2; // output
+        else if (!hasIncoming && hasOutgoing) row = 0; // source
+        
+        const c = colIdx[row]++;
+        tablePos[tid] = { x: 100 + c * X_SPACING, y: 60 + row * Y_SPACING };
+        
+        // Also update the node data
+        const n = nodes.find(nn => (nn.data || {}).id === tid);
+        if (n) {
+          n.data = n.data || {};
+          n.data.x = tablePos[tid].x;
+          n.data.y = tablePos[tid].y;
+        }
+      });
+    }
+
+    // ── Generate placeholder fields for empty table nodes ──
+    // Some tables (e.g., non-aliased real tables like stg_orders) may have
+    // edges but no field children because fields were assigned to aliases.
+    // Generate a synthetic "..." field for each empty table that has edges.
+    const edgeSources = new Set(edges.map(e => (e.data || e).source));
+    const edgeTargets = new Set(edges.map(e => (e.data || e).target));
+    const fieldsByParentPre = {};
+    nodes.forEach(n => {
+      const d = n.data || n;
+      if (d.type === 'field' && d.parent) {
+        if (!fieldsByParentPre[d.parent]) fieldsByParentPre[d.parent] = [];
+        fieldsByParentPre[d.parent].push(d.id);
+      }
+    });
+    let synthIdx = 0;
+    nodes.forEach(n => {
+      const d = n.data || n;
+      const t = d.type || '';
+      if (t.endsWith('_table') || t === 'query_output' || t === 'cte_table') {
+        const hasFields = (fieldsByParentPre[d.id] || []).length > 0;
+        const hasEdges = edgeSources.has(d.id) || edgeTargets.has(d.id);
+        if (!hasFields && hasEdges) {
+          // Add synthetic placeholder field
+          synthIdx++;
+          const synthId = `synth_fld_${synthIdx}_${d.id.substring(0, 8)}`;
+          nodes.push({
+            data: {
+              id: synthId, label: '…', type: 'field', variable_type: 'field',
+              parent: d.id, field_group: 'indirect',
+            }
+          });
+          if (!fieldsByParentPre[d.id]) fieldsByParentPre[d.id] = [];
+          fieldsByParentPre[d.id].push(synthId);
+        }
+      }
+    });
+    
+    
+    // ── Rebuild fieldParent and fieldsByParent after synthetic fields ──
+    // RESET to avoid duplicates from earlier pass
+    const tableHeights = {};
+    for (const k of Object.keys(fieldsByParent)) delete fieldsByParent[k];
+    for (const k of Object.keys(fieldParent)) delete fieldParent[k];
+    nodes.forEach(n => {
+      const d = n.data || n;
+      if (d.type === 'field' && d.parent) {
+        fieldParent[d.id] = d.parent;
+        if (!fieldsByParent[d.parent]) fieldsByParent[d.parent] = [];
+        fieldsByParent[d.parent].push(n);
+      }
+    });
+    // Rebuild fieldRelPos with centered layout + compute table heights
+    Object.keys(fieldsByParent).forEach(pid => {
+      const flds = fieldsByParent[pid];
+      flds.sort((a, b) => {
+        const ad = a.data || a, bd = b.data || b;
+        return (ad.label || '').localeCompare(bd.label || '');
+      });
+      const n = flds.length;
+      const totalH = n * FIELD_H;
+      const th = Math.max(TABLE_MIN_H, TABLE_HDR_H + 12 + totalH + 12);
+      tableHeights[pid] = th;
+      const startY = -(th / 2) + TABLE_HDR_H + 6 + FIELD_H / 2;
+      flds.forEach((f, i) => {
+        fieldRelPos[f.data.id] = { rx: 8, ry: startY + i * FIELD_H };
+      });
+    });
+    // ── Debug: detect duplicate fields in fieldsByParent ──
+    if (typeof window !== 'undefined') {
+      const seen = new Set();
+      for (const [pid, flds] of Object.entries(fieldsByParent)) {
+        for (const f of flds) {
+          const fid = (f.data || f).id;
+          if (seen.has(fid)) {
+            console.warn('[DUPLICATE FIELD]', fid, 'appears in', pid, 'and previously in another group');
+          }
+          seen.add(fid);
+        }
+      }
+    }
+    
+    // ── Phase 1: Transform nodes ──
+    nodes = nodes.map(n => {
+      const d = { ...n.data };
+      const t = d.type || '';
+
+      // KEEP d.parent for cytoscape compound node behavior (auto-move children)
+      // Don't delete d.parent - cytoscape needs it for compound node handling
+
+      let px = d.x, py = d.y;
+
+      if (t === 'field') {
+        const pId = fieldParent[d.id];
+        const tp = tablePos[pId] || { x: 0, y: 0 };
+        const rp = fieldRelPos[d.id] || { rx: 8, ry: 34 };
+        // Use RELATIVE positions for compound children
+        // Cytoscape auto-adds parent position to child position
+        px = rp.rx;
+        py = rp.ry;
+        d.x = px;
+        d.y = py;
+        // Store which table this field belongs to (for height recalculation)
+        d._tableParent = pId;
+      }
+
+      // Dynamic table height
+      if (t.endsWith('_table') || t === 'query_output' || t === 'cte_table') {
+        const flds = fieldsByParent[d.id] || [];
+        const neededH = flds.length > 0
+          ? (TABLE_HDR_H + 12 + flds.length * FIELD_H + 12)
+          : TABLE_MIN_H;
+        d._tableHeight = Math.max(TABLE_MIN_H, neededH);
+      }
+
+      const pos = {};
+      if (px !== undefined) pos.x = px;
+      if (py !== undefined) pos.y = py;
+
+      return { data: d, position: pos };
+    });
+
+    const cy = cytoscape({
+      container: containerRef.current,
+      style: [...NODE_STYLES, ...COMPOUND_STYLES, ...TURN_EDGE_STYLES, ...BUNDLED_EDGE_STYLES, ...L1_PIPELINE_EDGE_STYLES, ...CATEGORY_EDGE_STYLES, ...SCRIPT_CARD_STYLES, ...OPERATION_NODE_STYLES, ...L2_DETAIL_STYLES],
+      layout: { name: 'preset' },
+      wheelSensitivity: 0.3,
+    });
+
+    cy.add([...nodes, ...edges]);
+
+    // V3.3.0: Use cy.ready() + preset layout (matching v3.2.23 working pattern)
+    // V3.3.0: Directly position all nodes from backend data (cy.layout preset positions callback not reliable)
+    cy.ready(() => {
+      cy.batch(() => {
+        cy.nodes().forEach(node => {
+          const x = node.data("x");
+          const y = node.data("y");
+          if (x != null && y != null) {
+            node.position({ x: Number(x), y: Number(y) });
+          }
+        });
+        // Also position field children relative to their parents
+        cy.nodes('[type="field"]').forEach(field => {
+          const parentId = field.data("_tableParent");
+          if (parentId) {
+            const fx = field.data("x");
+            const fy = field.data("y");
+            if (fx != null && fy != null) {
+              field.position({ x: Number(fx), y: Number(fy) });
+            }
+          }
+        });
+      });
+    });
+
+    cy.ready(() => {
+      // Table heights are now data-driven via CSS (no n.style needed)
+      // Set _tableWidth for data-driven width
+      cy.nodes('[type$="_table"], [type="query_output"], [type="cte_table"]').forEach(n => {
+        if (!n.data('_tableWidth')) n.data('_tableWidth', 180);
+      });
+      // Compute tableBottom for field-in-table bounds checking
+      cy.nodes('[type$="_table"], [type="query_output"], [type="cte_table"]').forEach(n => {
+        const h = n.data('_tableHeight') || 80;
+        const pos = n.position();
+        n.data('_tableBottom', pos.y + h);
+      });
+
+      // Position via preset layout
+      cy.layout({
+        name: 'preset',
+        positions: (node) => {
+          const x = node.data('x');
+          const y = node.data('y');
+          if (x !== undefined && y !== undefined) return { x, y };
+          return node.position();
+        },
+        fit: false,
+        animate: false,
+        animationDuration: 0,
+      }).run();
+
+      // ── FIX: Rely on cytoscape's built-in compound node behavior ──
+      // When parent is set in node data and COMPOUND_STYLES are used,
+      // cytoscape automatically moves children when parent is dragged.
+      // No manual drag handler needed.
+
+      // ── Fix field overflow: recalc table heights from _tableParent ──
+      const tfc = {};
+      cy.nodes('[type="field"]').forEach(f => {
+        const tp = f.data('_tableParent');
+        if (tp) tfc[tp] = (tfc[tp] || 0) + 1;
+      });
+      cy.nodes('[type$="_table"], [type="query_output"], [type="cte_table"]').forEach(n => {
+        const cnt = tfc[n.id()] || 0;
+        const needH = cnt > 0 ? (26 + 12 + cnt * 50 + 12) : 80;
+        const newH = Math.max(80, needH);
+        n.data('_tableHeight', newH);
+        n.style('height', newH);
+      });
+
+      // Role badges
+      cy.nodes('[type="script_node"]').forEach(n => {
+        const roles = n.data('roles') || [];
+        if (!roles.length) return;
+        const short = {REF:'R',JOIN:'J',FILTER:'F',AGGREGATE:'A',WINDOW:'W',TRANSFORM:'T',COMPUTED:'C',SCHEMA:'S',TABLE_FLOW:'TF','DML TARGET':'DT',CORRELATED:'CR'};
+        const abbr = roles.slice(0, 4).map(r => short[r] || r.slice(0, 2));
+        const lbl = n.data('label') || '';
+        const hasBadge = /\n(R|J|F|A|W|T|C|S|TF|DT|CR)/.test(lbl);
+        if (!hasBadge) {
+          n.data('label', lbl + '\n' + abbr.join(' '));
+        }
+      });
+
+      // Save initial positions for snake layout reset
+      const initialPositions = {};
+      cy.nodes().forEach(n => {
+        initialPositions[n.id()] = { ...n.position() };
+      });
+      cy.scratch('_originalPositions', initialPositions);
+
+      cy.fit(undefined, 80);
+
+    });
+
+    // Event handlers — use refs for dynamic callbacks so they always get
+    // the latest props (not stale closures from initial mount)
+    if (optsRef.current.onTap) cy.on('tap', 'node', (e) => optsRef.current.onTap(e));
+    if (optsRef.current.onDblTap) cy.on('dbltap', 'node', (e) => optsRef.current.onDblTap(e));
+    if (optsRef.current.onHoverEnter) cy.on('mouseover', 'node', (e) => optsRef.current.onHoverEnter(e));
+    if (optsRef.current.onHoverLeave) cy.on('mouseout', 'node', (e) => optsRef.current.onHoverLeave(e));
+    if (optsRef.current.onEdgeTap) cy.on('tap', 'edge', (e) => optsRef.current.onEdgeTap(e));
+    if (optsRef.current.onEdgeHover) cy.on('mouseover', 'edge', (e) => optsRef.current.onEdgeHover(e));
+    if (optsRef.current.onBgTap) cy.on('tap', (e) => optsRef.current.onBgTap(e));
+
+    cyRef.current = cy;
+    window.__cy = cy;
+
+    return () => {
+      if (cy && !cy.destroyed()) cy.destroy();
+      cyRef.current = null;
+    };
+  }, [graphData, containerRef]);
+
+  const fit = useCallback((padding = 50) => {
+    if (cyRef.current && !cyRef.current.destroyed()) {
+      cyRef.current.fit(undefined, padding);
+    }
+  }, []);
+
+  const highlightPath = useCallback((nodeIds) => {
+    if (!cyRef.current) return;
+    const cy = cyRef.current;
+    if (cy.destroyed()) return;
+    cy.elements().removeClass('dimmed').removeClass('path-highlighted');
+    const idSet = new Set(nodeIds);
+    cy.nodes().forEach(n => {
+      if (idSet.has(n.id())) n.addClass('path-highlighted');
+      else n.addClass('dimmed');
+    });
+    cy.edges().forEach(e => {
+      if (idSet.has(e.data('source')) && idSet.has(e.data('target')))
+        e.addClass('path-highlighted');
+      else e.addClass('dimmed');
+    });
+  }, []);
+
+  const setLayout = useCallback((name) => {
+    if (!cyRef.current) return;
+    const cy = cyRef.current;
+    if (cy.destroyed()) return;
+    cy.layout({ name }).run();
+  }, []);
+
+  const getSelected = useCallback(() => {
+    if (!cyRef.current) return null;
+    const cy = cyRef.current;
+    if (cy.destroyed()) return null;
+    const sel = cy.$(':selected');
+    return sel.length > 0 ? sel.data() : null;
+  }, []);
+
+  return { cyRef, fit, highlightPath, setLayout, getSelected };
+}

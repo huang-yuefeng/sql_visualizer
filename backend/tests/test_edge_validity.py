@@ -94,15 +94,16 @@ class TestNoFilterOnSelectSources:
         assert "FILTER" in {e.relationship for e in t_edges}, \
             f"WHERE column must have FILTER. Edges: {[e.relationship for e in t_edges]}"
 
-    def test_join_on_column_has_filter(self):
-        """JOIN ON columns filter join matches — should have FILTER."""
+    def test_join_on_column_has_join_edge(self):
+        """JOIN ON columns affect join matches — should have JOIN or FILTER."""
         sql = "SELECT u.name FROM users u JOIN orders o ON u.id = o.user_id"
         _, deps, vb = _analyze(sql)
         u_id = next((v for v in vb.values() if v.name == "u.id"), None)
         assert u_id
         u_edges = [e for e in deps if e.source_id == u_id.id]
-        assert "FILTER" in {e.relationship for e in u_edges}, \
-            f"JOIN ON column must have FILTER. Edges: {[e.relationship for e in u_edges]}"
+        edge_types = {e.relationship for e in u_edges}
+        assert edge_types & {"JOIN", "FILTER"}, \
+            f"JOIN ON column must have JOIN or FILTER. Edges: {[e.relationship for e in u_edges]}"
 
 
 # ══════════════════════════════════════════════════════════════════════════

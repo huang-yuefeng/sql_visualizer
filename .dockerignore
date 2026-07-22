@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.egg
+venv/
+.venv/
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Cache
+backend/analysis_cache/
+backend/.pytest_cache/
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+Dockerfile.dev
+docker-compose.yml
+.dockerignore
+docker_image/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Docs (not needed at runtime)
+*.md
+!BUILD.md

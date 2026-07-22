@@ -79,7 +79,7 @@ def build_dependency_graph(
     # This is the high-level view: what tables feed what other tables.
 
     def _add_edge(src, tgt, rel, op="", ctx=""):
-        ek = (src.id, tgt.id)
+        ek = (src.id, tgt.id, rel)
         if ek not in seen_edges and src.id != tgt.id:
             seen_edges.add(ek)
             deps.append(VariableDependency(
@@ -91,11 +91,17 @@ def build_dependency_graph(
     # 1a: FROM / JOIN source → its context anchor (VT or CTE)
     #     TABLE/VIEW aliases, CTE references, subquery aliases all feed output.
     for v in variables:
-        if v.variable_type in (VariableType.CTE, VariableType.SUBQUERY):
+        if v.variable_type == VariableType.CTE:
             ctx = v.context or "TOP"
             for anchor in vt_map.get(ctx, []):
                 if anchor.id != v.id:
                     _add_edge(v, anchor, "TABLE_FLOW", "REFERENCE")
+            continue
+        if v.variable_type == VariableType.SUBQUERY:
+            ctx = v.context or "TOP"
+            for anchor in vt_map.get(ctx, []):
+                if anchor.id != v.id:
+                    _add_edge(v, anchor, "SUBQUERY", "REFERENCE")
             continue
         if v.variable_type not in (VariableType.TABLE, VariableType.VIEW):
             continue
@@ -154,13 +160,25 @@ def build_dependency_graph(
                 continue
             _add_edge(v, tbl_var, "TABLE_FLOW", op_type)
 
-    # 1d: UNION branch → parent context VT
+    # 1d: UNION branch → parent context VT (or DML target TABLE)
+    # SET_OP edges connect UNION / INTERSECT / EXCEPT branches to their
+    # output anchor. The anchor is normally a VIRTUAL_TABLE or CTE in the
+    # same context. When no VT/CTE exists (e.g. INSERT INTO <table> SELECT
+    # ... UNION ...), fall back to TABLE variables in the same context
+    # (typically the DML target table).
     for v in variables:
         if v.variable_type != VariableType.UNION_BRANCH:
             continue
         ctx = v.context or "TOP"
-        for anchor in vt_map.get(ctx, []):
-            _add_edge(v, anchor, "TABLE_FLOW", "SET")
+        anchors = vt_map.get(ctx, [])
+        if not anchors:
+            # Fallback: look for TABLE vars in same context (DML targets)
+            anchors = [tv for tv in variables
+                       if tv.variable_type == VariableType.TABLE
+                       and (tv.context or "TOP") == ctx
+                       and tv.id != v.id]
+        for anchor in anchors:
+            _add_edge(v, anchor, "SET_OP", "SET")
 
     # ══════════════════════════════════════════════════════════════════
     # Phase 2: ALIAS — original table → alias
@@ -267,6 +285,55 @@ def build_dependency_graph(
                 _add_edge(src, v, "INDIRECT", "NAME_MATCH")
                 break
 
+    # 5b: CORRELATED SUBQUERY — outer column referenced inside subquery
+    # ══════════════════════════════════════════════════════════════════
+    # When a column in a nested context (e.g., "TOP/subq1") has a table
+    # prefix that resolves to a table/alias defined in a parent context,
+    # it's a correlated reference (formal R10).
+    # These columns carry data from the outer query into the subquery.
+    for v in variables:
+        if v.variable_type != VariableType.COLUMN:
+            continue
+        if not v.context or "/" not in v.context:
+            continue  # not in a subquery
+        if "." not in v.name:
+            continue  # no table prefix to resolve
+        prefix = v.name.split(".", 1)[0]
+        # Walk up context hierarchy to find parent context
+        ctx_parts = v.context.split("/")
+        parent_ctx = "/".join(ctx_parts[:-1])  # e.g., "TOP/subq1" → "TOP"
+        # Look for table/alias with this prefix in the parent context
+        for pv in variables:
+            if pv.variable_type not in (VariableType.TABLE, VariableType.VIEW,
+                                         VariableType.CTE, VariableType.SUBQUERY,
+                                         VariableType.VIRTUAL_TABLE):
+                continue
+            if (pv.context or "TOP") != parent_ctx:
+                continue
+            if pv.name == prefix:
+                # Found: v is a correlated reference through table pv
+                # Find matching columns from full_col_index that share
+                # the same column name in the parent scope
+                col_suffix = v.name.split(".", 1)[1]  # e.g., "order_id"
+                for pcol in variables:
+                    if pcol.variable_type != VariableType.COLUMN:
+                        continue
+                    if (pcol.context or "TOP") != parent_ctx:
+                        continue
+                    pcol_prefix = pcol.name.split(".", 1)[0] if "." in pcol.name else ""
+                    pcol_suffix = pcol.name.split(".", 1)[1] if "." in pcol.name else pcol.name
+                    if pcol_prefix == prefix and pcol_suffix == col_suffix:
+                        _add_edge(pcol, v, "INDIRECT", "CORRELATED")
+                        break
+                # Also create INDIRECT edges to output columns of the outer scope
+                for out_col in variables:
+                    if not out_col.is_output:
+                        continue
+                    if (out_col.context or "TOP") != parent_ctx:
+                        continue
+                    _add_edge(v, out_col, "INDIRECT", "CORRELATED_OUT")
+                break  # one match per correlated column
+
     # ══════════════════════════════════════════════════════════════════
     # Phase 6: FILTER — WHERE/HAVING column → context anchor
     # ══════════════════════════════════════════════════════════════════
@@ -274,7 +341,8 @@ def build_dependency_graph(
     # which rows flow through without producing output data themselves.
     # SELECT expression sources (like o.amount consumed by SUM) and
     # general column references do NOT get FILTER edges.
-    _FILTER_CLAUSES = {"WHERE", "HAVING", "JOIN ON"}
+    _FILTER_CLAUSES = {"WHERE", "HAVING", "QUALIFY"}
+    _JOIN_CLAUSES = {"JOIN ON"}
     for v in variables:
         if v.variable_type != VariableType.COLUMN:
             continue
@@ -290,6 +358,29 @@ def build_dependency_graph(
             continue
         anchor = vt_map[ctx][0]
         _add_edge(v, anchor, "FILTER", "CONDITION")
+
+    # ══════════════════════════════════════════════════════════════════
+    # Phase 6b: JOIN — JOIN ON predicate columns influence which rows
+    #           are matched, affecting every output column (formal R4)
+    # ══════════════════════════════════════════════════════════════════
+    # Join keys determine which tuples from each side are paired.
+    # Changing a JOIN key changes the row composition → affects every
+    # output column on the JOIN's output side.
+    _JOIN_CLAUSES = {"JOIN ON"}
+    for v in variables:
+        if v.variable_type != VariableType.COLUMN:
+            continue
+        if v.is_output:
+            continue
+        if "." not in v.name:
+            continue
+        if (v.defined_in or "").upper().strip() not in _JOIN_CLAUSES:
+            continue
+        ctx = v.context or "TOP"
+        if ctx not in vt_map:
+            continue
+        anchor = vt_map[ctx][0]
+        _add_edge(v, anchor, "JOIN", "JOIN_CONDITION")
 
     # ══════════════════════════════════════════════════════════════════
     # Phase 7: SUBSET — safety net for disconnected components
@@ -363,7 +454,7 @@ def build_dependency_graph(
                            if x.variable_type in _TABLE_TYPES
                            and x.id != v.id), None)
         if anchor:
-            _add_edge(v, anchor, "FILTER", "CONDITION")
+            _add_edge(v, anchor, "SUBSET", "BRIDGE")
 
     return deps
 

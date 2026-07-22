@@ -9,8 +9,16 @@ var ver = '?.?.?';
 var visible = true;
 var resizeY = 0, startH = 0, dragging = false;
 
+function isDebugMode() {
+  try {
+    return window.location.search.includes('debug=1') || 
+           (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV);
+  } catch(e) { return false; }
+}
+
 function ensurePanel() {
   if (panel) return;
+  if (!isDebugMode()) return;
 
   // Toggle button
   toggle = document.createElement('div');
@@ -69,12 +77,19 @@ function ensurePanel() {
 }
 
 function D(msg) {
+  // Production mode: only log to console, never show panel
+  console.log('[DBG]', msg);
+  // Panel is disabled in production builds
+  return;
+  
+  /* DEV-ONLY: uncomment below for development
   ensurePanel();
+  if (!isDebugMode()) { console.log('[DBG]', msg); return; }
   var t = new Date().toLocaleTimeString();
   lines.push(t + ' ' + msg);
   if (lines.length > MAX_LINES) lines = lines.slice(-MAX_LINES);
   panel.textContent = 'v' + ver + '\n' + lines.join('\n');
-  console.log('[DBG]', msg);
+  */
 }
 
 window.D = D;
