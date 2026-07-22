@@ -16,19 +16,15 @@ Changed to `curve-style: bezier`, minScreenPx=1.87 — visible.
 
 ---
 
-## Bug 3: Orange Highlight Never Changes or Disappears (P1)
+## Bug 3: Orange Highlight Never Disappears (P1) — BROKEN v3.3.59
 
-**Symptom:** Clicking any edge highlights the entire 7-line script in orange. Clicking a different edge shows the same orange — no visual change. Pressing Escape or clicking repeatedly doesn't clear it.
+**Trend:** v3.3.55=7, v3.3.58=4, v3.3.59=7 lines (regressed).
 
-**Evidence (step3):** All 4 edges have `sql_range=[1,7]` — every edge highlights the ENTIRE script. Click #1→#4 all show the same 7 orange lines.
+**Two root causes:**
+1. All edges share same wide `sql_range` → clicking different edges shows same highlight
+2. React doesn't clear `edge-highlighted` CSS class on Escape — DOM class persists after state change
 
-**Root cause — two issues:**
-1. `_estimate_sql_range` gives all edges the same wide range `[1,7]` — no specificity per edge type
-2. `SqlPanel.jsx` uses `data-line` as implicit React key. When `sqlHighlightRange` changes, React reuses DOM nodes without updating the `edge-highlighted` CSS class
-
-**Fix:**
-- **Part 1:** `dataflow_service.py` — partition edge ranges by type (FILTER→L5-6, JOIN→L5, TABLE_FLOW→L4)
-- **Part 2:** `SqlPanel.jsx:315` — add unique key: `key={${scriptName}-${lineNum}-${isEdgeHighlighted}}`
+**Fix:** Part 1: `dataflow_service.py` — per-edge-type ranges. Part 2: `SqlPanel.jsx:315` — unique React key with highlight state.
 
 ---
 
