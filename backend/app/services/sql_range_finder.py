@@ -88,6 +88,7 @@ class StatementParser:
         
         # For each parsed statement, find its line range in the original text
         search_start = 0
+        search_start_approx = 0  # line-based fallback tracker (0-based index in lines)
         for stmt in parsed:
             if stmt is None:
                 continue
@@ -100,10 +101,31 @@ class StatementParser:
                 start_line = prefix.count('\n') + 1
                 end_line = start_line + stmt_sql.count('\n')
                 search_start = idx + len(stmt_sql)
+                search_start_approx = end_line  # next search starts after this statement
             else:
-                # Can't find exact match — fall back to line estimation
+                # sqlglot changed comment style (-- → /* */) or reformatted SQL
+                # Fall back: scan the original text for actual statement boundaries.
+                # Find first non-comment, non-blank line as start
                 start_line = 1
                 end_line = len(self.lines)
+                for i in range(search_start_approx, len(self.lines)):
+                    ln = self.lines[i].strip()
+                    if ln and not ln.startswith('--') and not ln.startswith('/*'):
+                        start_line = i + 1
+                        break
+                # Find end: scan forward until semicolon or end of file.
+                # Don't use keyword detection (SELECT is part of INSERT...SELECT).
+                # Semicolons are the reliable statement terminator.
+                end_line = len(self.lines)
+                for i in range(start_line, len(self.lines)):
+                    ln = self.lines[i].strip()
+                    if ln.endswith(';'):
+                        end_line = i + 1
+                        search_start = sum(len(l) + 1 for l in self.lines[:i+1])
+                        break
+                # Ensure valid range
+                if end_line < start_line:
+                    end_line = start_line
             
             self._statements.append(SqlStatement(
                 sql=stmt_sql,
@@ -197,7 +219,7 @@ class KeywordLocator:
         "CTE":      [r"\bWITH\b"],
         "CREATE":   [r"\bCREATE\s+(TABLE|VIEW|TEMP)"],
         "SUBSET":   [r"\bSELECT\b.*\bFROM\b", r"\bFROM\b.*\bWHERE\b"],
-        "TABLE_FLOW":[r"\bINSERT\s+INTO\b.*\bSELECT\b", r"\bFROM\b", r"\bINTO\b"],
+        "TABLE_FLOW":[r"\bFROM\b", r"\bINSERT\s+INTO\b.*\bSELECT\b"],
         "ALIAS":    [r"\bAS\s+\w+", r"\bFROM\s+\w+\s+\w+", r"\bJOIN\s+\w+\s+\w+"],
         "SCHEMA":   [r"\bCREATE\s+(TABLE|VIEW|TEMP)\b", r"\bALTER\s+(TABLE|VIEW)\b", r"\bDROP\s+(TABLE|VIEW)\b"],
         "REF":      [r"\bSELECT\b", r"\bFROM\b", r"\bWHERE\b"],
@@ -213,7 +235,7 @@ class KeywordLocator:
         "COMPUTED": {"SELECT": 3, "SET": 2},
         "TRANSFORM": {"SELECT": 3, "CAST": 2},
         "ALIAS": {"FROM": 3, "JOIN": 3},
-        "TABLE_FLOW": {"INSERT": 3, "INTO": 3},
+        "TABLE_FLOW": {"FROM": 5, "INSERT": 2, "INTO": 2},
         "SCHEMA": {"CREATE": 3, "ALTER": 3, "DROP": 3},
         "SUBSET": {"WHERE": 3, "HAVING": 3},
         "AGGREGATE": {"SELECT": 2, "GROUP": 2},
@@ -374,9 +396,11 @@ class RangeBuilder:
         stmt_start_0 = self.statement.start_line - 1  # 0-based
         stmt_end_0 = self.statement.end_line - 1      # 0-based
         
-        # Proportional window: ±2 for short scripts, ±5 for long ones
+        # Narrower window: ±1 for short scripts, ±3 for long ones.
+        # Tighter ranges give each edge type unique line spans,
+        # enabling distinct highlighting per edge click.
         total_lines = len(self.all_lines)
-        max_extend = max(2, min(5, total_lines // 3))
+        max_extend = max(1, min(3, total_lines // 10))
         
         # Narrow window around matched line, never exceed statement boundaries
         start_line = max(stmt_start_0, self.matched_line - max_extend)
@@ -542,11 +566,22 @@ def partition_edge_ranges(edges: list[dict], n_lines: int) -> list[dict]:
             owned.sort()
             new_start = owned[0]
             new_end = owned[-1]
-            # Keep original sql_range for edge-click display, add partition_range for metrics
-            if 'sql_range' in ed:
-                ed['partition_range'] = [new_start, 1, new_end, 1]
-            else:
-                ed['sql_range'] = [new_start, 1, new_end, 1]
+            # Update sql_range to partitioned range (more specific)
+            ed['sql_range'] = [new_start, 1, new_end, 1]
+            # Also narrow per-type sql_ranges to be within the partition
+            sr_dict = ed.get('sql_ranges', {})
+            if sr_dict:
+                narrowed = {}
+                for etype, rng in sr_dict.items():
+                    if rng and len(rng) >= 3:
+                        rs, _, re, _ = rng
+                        # Clamp to partition bounds
+                        cs = max(new_start, rs)
+                        ce = min(new_end, re)
+                        if cs <= ce:
+                            narrowed[etype] = [cs, 1, ce, 1]
+                if narrowed:
+                    ed['sql_ranges'] = narrowed
         # Edges that lost all lines keep their original narrow range (set by find_sql_range).
         # Every edge must have sql_range so clicking it shows the corresponding SQL.
     
