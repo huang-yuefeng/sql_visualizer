@@ -299,11 +299,31 @@ export default function DataFlowApp() {
     }
   }, [wsId, activeViewId, currentScriptName, l2Filtered, l2FullGraph, views]);
 
+
+  // ── Pick most specific sql_range: per-type > union ──────────────────
+  const pickBestSqlRange = useCallback((edgeData) => {
+    if (!edgeData) return null;
+    // Try per-type ranges first (more specific)
+    const srDict = edgeData.sql_ranges;
+    if (srDict && typeof srDict === 'object' && Object.keys(srDict).length > 0) {
+      let best = null, bestLen = Infinity;
+      for (const [etype, r] of Object.entries(srDict)) {
+        if (r && r.length >= 4) {
+          const span = r[2] - r[0];
+          if (span >= 0 && span < bestLen) { best = r; bestLen = span; }
+        }
+      }
+      if (best) return best;
+    }
+    // Fall back to union range
+    return edgeData.sql_range || null;
+  }, []);
   // ── Edge click → SQL highlighting ──────────────────────────────────
   const handleEdgeClick = useCallback((edgeData) => {
     setSelectedEdge(edgeData);
-    if (edgeData.sql_range) {
-      setSqlHighlightRange(edgeData.sql_range);
+    const best = pickBestSqlRange(edgeData);
+    if (best) {
+      setSqlHighlightRange(best);
     }
   }, []);
 
@@ -508,7 +528,8 @@ export default function DataFlowApp() {
               breadcrumb={[]}
               onEdgeClick={(edgeData) => {
                 setSelectedEdge(edgeData);
-                if (edgeData?.sql_range) setSqlHighlightRange(edgeData.sql_range);
+                const best = pickBestSqlRange(edgeData);
+                if (best) setSqlHighlightRange(best);
               }}
               selectedEdgeId={selectedEdge?.id}
             />
