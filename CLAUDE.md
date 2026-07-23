@@ -1,97 +1,101 @@
-# GPS SQL Data Flow Visualizer — AI Context Guide
+# SQL Data Flow Visualizer — AI Context Guide
 
 ## Project Overview
-Online web service that extracts variables from GPS financial SQL scripts, builds dependency graphs, and renders interactive Cytoscape.js visualizations.
+Online web service for debugging SQL scripts via data flow visualization — extracts variables, builds dependency graphs, and renders interactive Cytoscape.js visualizations with compound nodes.
 
-- **Backend**: FastAPI + sqlglot (MySQL dialect)
-- **Frontend**: React + Vite + Cytoscape.js
+- **Backend**: FastAPI + sqlglot (MySQL dialect), Docker-based
+- **Frontend**: React + Vite + Cytoscape.js + ELK.js
+- **Service**: `http://192.168.0.66:8000` (container: `gps-sql-backend`)
 - **Version**: See `/VERSION` file
-- **Tests**: 219 tests in `backend/tests/`
+- **Tests**: `docker exec gps-sql-backend python3 -m pytest tests/ -v`
 
-## Module Map (read only what you need)
+## Module Map (current v3.3)
 
-### Core Domain Model (ALWAYS read first for type questions)
-| File | Size | What it contains |
-|------|------|-----------------|
-| `backend/app/models/variable.py` | ~110L | VariableType enum (15 types), VariableDefinition, VariableDependency |
-| `backend/app/models/sql_model.py` | ~170L | Canonical taxonomy: node↔edge types mapped to SQL data objects |
+### Backend — Core Services
+| File | Lines | What it contains |
+|------|-------|-----------------|
+| `backend/app/services/dataflow_service.py` | 1968 | L1/L2 graph builder, edge type system (16 types), DML routing, variable extraction |
+| `backend/app/services/sql_range_finder.py` | 663 | SQL line-level extraction: `find_sql_range()`, `partition_edge_ranges()`, keyword/alias/label locators |
+| `backend/app/services/folder_index_service.py` | 181 | Folder scanning, script indexing, autocomplete for table/field |
+| `backend/app/services/graph_service.py` | 145 | Cytoscape JSON builder, node styles, edge colors |
 
-### Extraction & Graph Building (read for extraction/bugs/features)
-| File | Size | What it contains |
-|------|------|-----------------|
-| `backend/app/extractor/variable_extractor_v2.py` | ~635L | Role-based Identifier walking — the core extractor |
-| `backend/app/extractor/dependency_graph.py` | ~445L | 12-phase edge creation algorithm |
+### Backend — API Layer
+| File | Lines | What it contains |
+|------|-------|-----------------|
+| `backend/app/routers/dataflow.py` | 296 | POST `/workspace/{id}/search`, GET `/views/{vid}/level1`, GET `/views/{vid}/level2` |
+| `backend/app/routers/workspace.py` | 277 | Workspace CRUD, folder upload (`/workspace` POST), filter config, export config |
+| `backend/app/routers/analysis.py` | 80 | POST `/analyze`, GET `/scripts`, POST `/analyze_multi` |
+| `backend/app/routers/graph.py` | 40 | GET `/graph`, POST `/io_graph` |
+| `backend/app/main.py` | 50 | FastAPI app initialization |
 
-### Services (read for API/output questions)
-| File | Size | What it contains |
-|------|------|-----------------|
-| `backend/app/services/graph_service.py` | ~145L | Cytoscape JSON builder, node styles, edge colors |
-| `backend/app/services/topology_checker.py` | ~200L | 6 registered integrity checks |
-| `backend/app/services/io_graph_service.py` | ~240L | BFS path finding from input→output columns |
-| `backend/app/services/multi_script_service.py` | ~100L | Cross-script shared variable detection |
-| `backend/app/services/analysis_service.py` | ~66L | Pipeline orchestration with file-based JSON cache |
+### Backend — Extraction & Models
+| File | What it contains |
+|------|-----------------|
+| `backend/app/extractor/variable_extractor_v2.py` | Role-based Identifier walking — the core extractor |
+| `backend/app/extractor/dependency_graph.py` | 12-phase edge creation algorithm |
+| `backend/app/models/variable.py` | VariableType enum (15 types), VariableDefinition |
+| `backend/app/models/sql_model.py` | Canonical taxonomy: node↔edge types mapped to SQL |
 
-### API Layer (read for endpoint questions)
-| File | Size | What it contains |
-|------|------|-----------------|
-| `backend/app/routers/analysis.py` | ~80L | POST /analyze, GET /scripts, POST /analyze_multi |
-| `backend/app/routers/graph.py` | ~40L | GET /graph, POST /io_graph |
-| `backend/app/main.py` | ~50L | FastAPI app initialization |
+### Frontend — Visualization
+| File | Lines | What it contains |
+|------|-------|-----------------|
+| `frontend/src/pages/DataFlowDebugger.jsx` | ~550 | Main debugger page: L1 navigation panel, L2 graph, SQL panel, search |
+| `frontend/src/utils/layoutCore.js` | 206 | Shared layout: `computeFieldRelPos()`, `computeTableInfo()`, `applyLayout()` |
+| `frontend/src/utils/elkLayout.js` | 239 | ELK.js layered layout ("Pipeline" mode) |
+| `frontend/src/utils/snakeLayout.js` | 107 | Snake/wrapping workflow layout ("Snake" mode) |
+| `frontend/src/config/layout.js` | 49 | Layout constants (single source of truth) |
+| `frontend/src/hooks/useCytoscapeGraph.js` | 158 | Cytoscape lifecycle hook: init, drag, layout modes, role badges |
+| `frontend/src/components/SqlPanel.jsx` | 326 | SQL display with syntax highlighting, edge range highlights, export |
 
-### Frontend (read for UI questions)
-| File | Size | What it contains |
-|------|------|-----------------|
-| `frontend/src/App.jsx` | ~370L | Main React component (graph, filters, legend, panels) |
-| `frontend/src/utils/graphStyles.js` | ~92L | Cytoscape stylesheet + layout config |
+### Edge Type System (16 types)
+| Type | Color | Line | Width | Category |
+|------|-------|------|-------|----------|
+| TABLE_FLOW | #2ECC71 green | solid | 3 | structure |
+| ALIAS | #1ABC9C teal | dashed | 1 | structure |
+| REF | #27AE60 green | solid | 1 | copy |
+| AGGREGATE | #8E44AD purple | solid | 3 | aggregate |
+| TRANSFORM | #D35400 orange | dashed | 2 | compute |
+| WINDOW | #9B59B6 purple | dashed | 2 | aggregate |
+| COMPUTED | #E67E22 orange | dotted | 2 | compute |
+| SCHEMA | #3498DB blue | dotted | 1 | structure |
+| INDIRECT | #C0392B red | dot-dash | 1 | filter |
+| FILTER | #E74C3C red | solid | 2 | filter |
+| JOIN | #E91E63 pink | dashed | 2 | filter |
+| CORRELATED | #FF5722 deep-orange | dotted | 2 | filter |
+| DML | #2980B9 blue | double | 3 | write |
+| SET_OP | #F1C40F yellow | dashed | 2 | combine |
+| SUBQUERY | #16A085 teal | dotted | 2 | combine |
+| SUBSET | #7F8C8D gray | dotted | 1 | structure |
 
-### Tests (read for test patterns)
-| File | Tests | What it covers |
-|------|-------|---------------|
-| `backend/tests/test_node_types.py` | 53 | Per-node-type coverage — every type reachable from SQL |
-| `backend/tests/test_edge_types.py` | 27 | Per-edge-type existence + regression tests |
-| `backend/tests/test_graph_integrity.py` | 22 | Topology checks against all SQL samples |
-| `backend/tests/test_variable_extractor.py` | 16 | Core extraction correctness |
-| `backend/tests/test_complex_samples.py` | 30 | DWH analytics samples (13 scripts) |
-| `backend/tests/test_analytical_samples.py` | 10 | TPC-DS style analytical queries |
-| `backend/tests/test_github_inspired_samples.py` | 29 | Real-world GPS patterns |
+### Layout Architecture
+1. `config/layout.js` — all constants (single source of truth)
+2. `layoutCore.js` — shared functions: computeFieldRelPos(), computeTableInfo(), applyLayout()
+3. Individual layout algos (snakeLayout.js, elkLayout.js) — only compute table/script coordinates
+4. `useCytoscapeGraph.js` — cytoscape lifecycle, drag handling, layout mode dispatch
 
-## Key Design Decisions
+### Key Design Decisions
+- **Compound nodes**: Tables contain fields (no cytoscape compound — field positions managed manually via frozen offsets)
+- **DML routing**: INSERT/UPDATE/DELETE edges route through query_output (qo_) intermediate nodes
+- **Edge dedup (Bug 1)**: qo_ nodes suppress mechanism-1 source_table for DML targets
+- **Bug 3 (v3.3.69)**: Compound edge types split into separate edges before `find_sql_range()` — no compound types in output
+- **Bug 4 (v3.3.66)**: FILTER range extends to AND/OR continuation lines
+- **Bug 5 (v3.3.67)**: Alias detection uses semantic analysis, not length heuristic
 
-### Node Type System (v2.2.0 — current)
-15 variable types grouped into 6 categories:
-- **Data Sources**: `table`, `view`, `cte`, `subquery`, `virtual_table`
-- **Column Refs**: `column`, `cte_column`
-- **DML Targets**: `merge_target`
-- **Set Operations**: `union_branch`
-- **Computed**: `aggregate`, `window`, `case`, `transform`, `expression`
-- **Literals**: `literal`
+## Quick Reference Commands
+```bash
+# Restart backend
+docker restart gps-sql-backend
 
-### Edge Type System (v2.0.0)
-14 edge types: SCHEMA, ALIAS, SELECT, JOIN, SET_OP, REF, AGGREGATE, TRANSFORM, WINDOW, COMPUTED, INDIRECT, FILTER, DML, SUBSET
+# Health check
+docker exec gps-sql-backend curl -s http://127.0.0.1:8000/api/health
 
-### Deduplication
-Variables are globally deduplicated by `(name, type.value)`. CTE_TABLE overrides DATABASE_TABLE when both exist.
+# Run tests
+docker exec gps-sql-backend python3 -m pytest tests/ -v
 
-### Alias vs Original Name
-Only aliases get SCHEMA (BELONGS_TO) edges. Original table names are registered but don't get column ownership edges — that would be redundant.
+# Build + deploy frontend
+cd /home/huangyf/work/sql_visualizer/frontend && npm run build && cd .. && rm -rf backend/app/static/* && cp -r frontend/dist/* backend/app/static/
 
-### Connectivity Rules
-- **table_column** (`column`): must have ≥2 edges
-- **table** (`table`): only needs ≥1 edge (columns cover the data flow)
-- All other types: must have ≥1 edge
-
-## How to Work on This Project Efficiently
-
-1. **For type system questions**: Read only `models/variable.py` and `models/sql_model.py` (~280 lines total)
-2. **For extraction bugs**: Read `extractor/variable_extractor_v2.py` + the relevant test file
-3. **For edge/graph questions**: Read `extractor/dependency_graph.py`
-4. **For frontend changes**: Read `frontend/src/App.jsx` + `services/graph_service.py`
-5. **Always run tests after changes**: `cd backend && ./venv/bin/python -m pytest tests/ -x`
-
-## Context Management Tips
-
-- Reference this file at session start: "Read CLAUDE.md to understand the project"
-- Ask Claude to read specific modules rather than the whole project
-- The `sql_model.py` file encodes all domain knowledge in one place — read it for any type-related question
-- Test data files in `samples/` are large — exclude them from context unless debugging a specific query
-- Use `.claude/ignore` to exclude `backend/venv/`, `node_modules/`, and `analysis_cache/`
+# Update version + deploy
+echo "3.3.XX" | docker exec -i gps-sql-backend tee /app/VERSION && echo "3.3.XX" > VERSION
+docker restart gps-sql-backend
+```

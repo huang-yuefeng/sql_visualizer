@@ -373,9 +373,7 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                 name = v.get("name", "")
                 if src_tables:
                     aliases.add(name)
-                # Also catch short lowercase names as likely aliases
-                if name and len(name) <= 3 and name.islower() and name.isalpha():
-                    aliases.add(name)
+                # Bug 5 fix: removed length heuristic — semantic check above covers real aliases
         # (Analysis cache aliases collected below after cache_map is built)
 
         all_inputs = set()
@@ -394,22 +392,22 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
 
         # ── Add table nodes (skip known SQL aliases: short names) ──
         for tname in source_tables:
-            if len(tname) <= 3 and tname.islower() and tname.isalpha():
-                continue  # skip short aliases like "so", "c", "t"
+            if tname in aliases:
+                continue  # Bug 5 fix: skip confirmed aliases only
             if tname.startswith("⟐"):
                 continue  # skip virtual/anonymous tables
             add_node(f"tbl_{tname}", tname, "source_table",
                      table_name=tname)
         for tname in intermediate_tables:
-            if len(tname) <= 3 and tname.islower() and tname.isalpha():
-                continue
+            if tname in aliases:
+                continue  # Bug 5 fix: skip confirmed aliases only
             if tname.startswith("⟐"):
                 continue  # skip virtual/anonymous tables
             add_node(f"tbl_{tname}", tname, "intermediate_table",
                      table_name=tname)
         for tname in output_tables:
-            if len(tname) <= 3 and tname.islower() and tname.isalpha():
-                continue
+            if tname in aliases:
+                continue  # Bug 5 fix: skip confirmed aliases only
             # If the "output" is a virtual table from SELECT-only script,
             # still show it but mark as query_output
             ntype = "output_table"
@@ -1453,10 +1451,17 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         enriched = dict(ed)
         enriched["source_label"] = src_label
         enriched["target_label"] = tgt_label
+        enriched["edge_type"] = edge_type   # 🔧 Bug 4 fix: edge_type was missing from enriched
 
         # P1: Try to find a line number for the target label in SQL
-        # This helps _estimate_sql_range use strategy 1 (explicit line_num)
-        if tgt_label and lines:
+        # line_num propagation: only for edge types that benefit from label search
+        # Keyword-matching types (FILTER, JOIN, DML, etc.) find lines via KeywordLocator
+        # not label search, so skip override to avoid corrupting their line detection.
+        keyword_match_types = {'FILTER', 'WHERE', 'HAVING', 'JOIN', 'GROUP_BY', 'ORDER_BY',
+                              'DML', 'CTE', 'CREATE', 'ALTER', 'DROP', 'SCHEMA', 'AGGREGATE',
+                              'WINDOW', 'TRANSFORM', 'CASE', 'COMPUTED', 'SUBQUERY',
+                              'SUBSET', 'ALIAS', 'INDIRECT', 'REF', 'CORRELATED'}
+        if tgt_label and lines and edge_type not in keyword_match_types:
             tgt_clean = tgt_label.split('.')[-1].strip().lower()
             if len(tgt_clean) > 2 and tgt_clean not in ('select','from','where','insert','into','values','join','table'):
                 for i, line in enumerate(lines):
@@ -1464,22 +1469,46 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                         enriched["line_num"] = i + 1  # 1-based
                         break
 
-        # Estimate sql_range from enriched metadata
-        sql_range = find_sql_range(enriched, sql_text)
-
-        new_edges.append({
-            "id": f"l2e_{hashlib.md5(f'{src_new}{tgt_new}{edge_type}'.encode()).hexdigest()[:12]}",
-            "source": src_new,
-            "target": tgt_new,
-            "edge_type": edge_type,
-            "category": category,
-            "color": style["color"],
-            "label": edge_type,
-            "line_style": style["line"],
-            "width": style["width"],
-            "desc": style["desc"],
-            "sql_range": sql_range,
-        })
+        # Bug 3 fix: split compound edge types, each gets own sql_range
+        etypes = [t.strip() for t in edge_type.split(",")] if "," in edge_type else [edge_type]
+        # For compound types: emit one edge per individual type, each with own range/style
+        if len(etypes) > 1:
+            for et in etypes:
+                enriched_copy = dict(enriched)
+                enriched_copy["edge_type"] = et
+                r = find_sql_range(enriched_copy, sql_text)
+                if not r:
+                    r = find_sql_range(enriched, sql_text)  # fallback
+                et_style = EDGE_TYPE_STYLE.get(et, EDGE_TYPE_STYLE["SUBSET"])
+                et_category = CATEGORY_MAP.get(et, "structure")
+                new_edges.append({
+                    "id": f"l2e_{hashlib.md5(f'{src_new}{tgt_new}{et}'.encode()).hexdigest()[:12]}",
+                    "source": src_new,
+                    "target": tgt_new,
+                    "edge_type": et,
+                    "category": et_category,
+                    "color": et_style["color"],
+                    "label": et,
+                    "line_style": et_style["line"],
+                    "width": et_style["width"],
+                    "desc": et_style["desc"],
+                    "sql_range": r,
+                })
+        else:
+            sql_range = find_sql_range(enriched, sql_text)
+            new_edges.append({
+                "id": f"l2e_{hashlib.md5(f'{src_new}{tgt_new}{edge_type}'.encode()).hexdigest()[:12]}",
+                "source": src_new,
+                "target": tgt_new,
+                "edge_type": edge_type,
+                "category": category,
+                "color": style["color"],
+                "label": edge_type,
+                "line_style": style["line"],
+                "width": style["width"],
+                "desc": style["desc"],
+                "sql_range": sql_range,
+            })
 
     # ── Edge combining: same (source,target,edge_type) → combine labels/sql_ranges ──
     combined_edges = {}
@@ -1544,47 +1573,63 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
 
     new_edges = promoted
 
-    # ── Bug 1 fix: DML edges route through query_output node ──
-    # Only apply to non-qo sources (avoid nested qo_qo_ nodes).
-    # Use consistent qo_ id per (source,target) pair.
-    qo_map = {}  # (source, target) → qo_id
+    # ── Simplification 1: DML edges route through ⟐ output (intermediate_table) ──
+    # Instead of creating synthetic qo_ nodes, use the existing intermediate_table
+    # ("⟐ output") node that already represents the SELECT result set.
+    # This eliminates 4 regression-prone patches: qo_ creation, dedup, repointing, self-loop removal.
+    #
+    # Before: raw_orders ──[DML]──> stg_orders
+    # After:  raw_orders ──[TABLE_FLOW]──> ⟐ output ──[TABLE_FLOW]──> stg_orders
+    #
+    # All intermediate operations (TRANSFORM, AGGREGATE, FILTER, JOIN, etc.) connect to ⟐ output,
+    # not directly to the DML target. The output node is the trunk of the data flow.
+    intermediate_id = None
+    for tn in table_nodes.values():
+        if isinstance(tn, dict) and tn.get("type") == "intermediate_table":
+            intermediate_id = tn.get("id")
+            break
+
+    # Collect DML target tables and DML source→target pairs
+    dml_targets = set()
+    dml_sources = set()
+    dml_pairs = set()  # (source, target) pairs from DML edges
+    for e in new_edges:
+        if "DML" in e.get("edge_type", "").upper():
+            dml_targets.add(e.get("target", ""))
+            dml_sources.add(e.get("source", ""))
+            dml_pairs.add((e.get("source", ""), e.get("target", "")))
+
     new_dml_edges = []
     for e in new_edges:
         etype = e.get("edge_type", "")
         src = e.get("source", "")
-        if "DML" in etype.upper() and not src.startswith("qo_"):
-            key = (src, e["target"])
-            if key not in qo_map:
-                qo_id = f"qo_{src}_{e['target']}"
-                qo_map[key] = qo_id
-                table_nodes[qo_id] = {
-                    "id": qo_id, "label": "⟐ output",
-                    "type": "query_output",
-                    "table_name": f"query_output_{src[:8]}",
-                }
-            qo_id = qo_map[key]
-            # TABLE_FLOW: source → qo
-            tf_edge = dict(e)
-            tf_edge["id"] = f"{e['id']}_tf"
-            tf_edge["target"] = qo_id
-            tf_edge["edge_type"] = "TABLE_FLOW"
-            tf_edge["label"] = "TABLE_FLOW"
-            if tf_edge.get("sql_ranges"):
-                tf_range = tf_edge["sql_ranges"].get("TABLE_FLOW", tf_edge.get("sql_range"))
-                tf_edge["sql_ranges"] = {"TABLE_FLOW": tf_range}
-                tf_edge["sql_range"] = tf_range
-            new_dml_edges.append(tf_edge)
-            # DML: qo → target
-            dml_edge = dict(e)
-            dml_edge["id"] = f"{e['id']}_dml"
-            dml_edge["source"] = qo_id
-            dml_edge["edge_type"] = "DML"
-            dml_edge["label"] = "DML"
-            if dml_edge.get("sql_ranges"):
-                dml_range = dml_edge["sql_ranges"].get("DML", dml_edge.get("sql_range"))
-                dml_edge["sql_ranges"] = {"DML": dml_range}
-                dml_edge["sql_range"] = dml_range
-            new_dml_edges.append(dml_edge)
+        tgt = e.get("target", "")
+        # 1. Suppress TABLE_FLOW bypass edges (replaced by source→⟐→target chain)
+        if (src in dml_sources and tgt in dml_targets
+            and etype == "TABLE_FLOW"
+            and src != intermediate_id and tgt != intermediate_id):
+            continue
+        # 2. Redirect non-DML bypass edges to ⟐ output (TRANSFORM, AGGREGATE, etc.)
+        if (src in dml_sources and tgt in dml_targets
+            and "DML" not in etype.upper()
+            and etype != "TABLE_FLOW"
+            and src != intermediate_id and tgt != intermediate_id
+            and intermediate_id):
+            e["target"] = intermediate_id
+            new_dml_edges.append(e)
+            continue
+        # 3. Replace DML edges with ⟐ output → target (TABLE_FLOW)
+        if "DML" in etype.upper() and intermediate_id:
+            output_edge = dict(e)
+            output_edge["id"] = f"{e['id']}_dml_out"
+            output_edge["source"] = intermediate_id
+            output_edge["edge_type"] = "TABLE_FLOW"
+            output_edge["label"] = "TABLE_FLOW"
+            if output_edge.get("sql_ranges"):
+                tf_range = output_edge["sql_ranges"].get("TABLE_FLOW", output_edge.get("sql_range"))
+                output_edge["sql_ranges"] = {"TABLE_FLOW": tf_range}
+                output_edge["sql_range"] = tf_range
+            new_dml_edges.append(output_edge)
         else:
             new_dml_edges.append(e)
     new_edges = new_dml_edges
