@@ -429,6 +429,26 @@ class RangeBuilder:
             start_line = max(stmt_start_0, self.matched_line)
             end_line = min(stmt_end_0, self.matched_line + max_extend)
         
+        # Clause continuation: extend forward past multi-line AND/OR clauses
+        # e.g. WHERE c.is_active = 1
+        #       AND c.region IN (...)
+        clause_types = {'FILTER', 'WHERE', 'HAVING', 'JOIN', 'GROUP_BY', 'ORDER_BY'}
+        if edge_type in clause_types:
+            stmt_keys = {'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT',
+                        'INNER', 'OUTER', 'CROSS', 'FULL', 'GROUP', 'ORDER',
+                        'HAVING', 'LIMIT', 'UNION', 'INSERT', 'UPDATE', 'DELETE',
+                        'CREATE', 'ALTER', 'DROP', 'WITH'}
+            while end_line + 1 <= stmt_end_0:
+                nxt = self.all_lines[end_line + 1].strip()
+                if not nxt or nxt.startswith('--') or nxt.startswith('/*'):
+                    end_line += 1
+                    continue
+                nxt_u = nxt.upper()
+                if any(nxt_u.startswith(kw + ' ') or nxt_u == kw
+                       for kw in stmt_keys):
+                    break
+                end_line += 1
+        
         # CTE boundary: don't cross ), boundaries (same as dataflow_service _extend_to_statement)
         for i in range(start_line, self.matched_line):
             prev_raw = self.all_lines[i].strip()
@@ -605,7 +625,19 @@ def partition_edge_ranges(edges: list[dict], n_lines: int) -> list[dict]:
                             narrowed[etype] = [cs, 1, ce, 1]
                 if narrowed:
                     ed['sql_ranges'] = narrowed
-        # Edges that lost all lines keep their original narrow range (set by find_sql_range).
+        else:
+            # Edge lost all lines to higher/same-priority edges.
+            # Give it a minimal 1-line range at its original center.
+            center = (orig_start + orig_end) // 2
+            ed['sql_range'] = [center, 1, center, 1]
+            sr_dict = ed.get('sql_ranges', {})
+            if sr_dict:
+                narrowed = {}
+                for etype, rng in sr_dict.items():
+                    if rng and len(rng) >= 3:
+                        narrowed[etype] = [center, 1, center, 1]
+                if narrowed:
+                    ed['sql_ranges'] = narrowed
         # Every edge must have sql_range so clicking it shows the corresponding SQL.
     
     return edges
