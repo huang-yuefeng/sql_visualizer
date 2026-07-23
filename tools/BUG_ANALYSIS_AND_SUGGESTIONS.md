@@ -1,39 +1,47 @@
 # Data Flow Debugger — Bug List
 
-> **Date:** 2026-07-22 | **Version:** 3.3.56 | **Active:** 3
+> **Date:** 2026-07-23 | **Version:** 3.3.63 | **Active:** 3
 
 ---
 
-## Bug 1: L2 Edge Click — NONE sql_range — FIXED ✅ v3.3.56
+## Bug 1: L2 — DML Edge Bypasses Output Node (P2)
 
-0/5 scripts have NONE-range edges.
+**Symptom:** In step2 L2, the DML edge goes `crm_customers → stg_customers`, skipping `⟐ output`. Should go `⟐ output → stg_customers` because the INSERT reads from the SELECT result.
 
----
+**Evidence:**
+```
+Current:  crm_customers ──DML──→ stg_customers   (bypasses SELECT)
+Correct:  crm_customers → ⟐ output ──DML──→ stg_customers
+```
 
-## Bug 2: Taxi Edge Invisible at dx=0 — FIXED ✅ v3.3.57
-
-Changed to `curve-style: bezier`, minScreenPx=1.87 — visible.
-
----
-
-## Bug 3: Orange Highlight Never Disappears (P1) — BROKEN v3.3.59
-
-**Trend:** v3.3.55=7, v3.3.58=4, v3.3.59=7 lines (regressed).
-
-**Two root causes:**
-1. All edges share same wide `sql_range` → clicking different edges shows same highlight
-2. React doesn't clear `edge-highlighted` CSS class on Escape — DOM class persists after state change
-
-**Fix:** Part 1: `dataflow_service.py` — per-edge-type ranges. Part 2: `SqlPanel.jsx:315` — unique React key with highlight state.
+**Fix:** DML edge source should be `⟐ output` (the SELECT result container), not the FROM table.
 
 ---
 
-## Historical — Clean
+## Bug 2: FILTER Edge Highlights Wrong Lines (P2)
 
-| Check | Result |
-|-------|:------:|
-| Pipeline==Spore | ✅ Fixed |
-| Partition overlap | ✅ 19/19 pass |
-| L2 collapse | ✅ Fixed |
-| Spore overlaps | ✅ Fixed |
-| Regression (21 checks) | ✅ All pass |
+**Symptom:** In step2, clicking FILTER edge highlights lines 3-6 (INSERT...SELECT...FROM) instead of lines 7-8 (WHERE clause). Last line `AND c.region IN ('NA','EMEA','APAC');` is never highlighted.
+
+**Evidence:** FILTER range=`[3,6]` (INSERT...FROM). WHERE is on lines 7-8.
+
+**Fix:** `_estimate_sql_range` keyword matching for FILTER should match WHERE/HAVING before INSERT/SELECT.
+
+---
+
+## Bug 3: Orange Highlight Stuck After Escape (P1)
+
+**Symptom:** Orange edge-highlight never clears. v3.3.62: 0/5 scripts show highlight change. Ranges now more specific (3-6 vs 2-5) but all still overlap on first few lines.
+
+**Fix:** `SqlPanel.jsx:316` — range-based React key. `dataflow_service.py` — per-edge-type partitioning.
+
+---
+
+## Fixed
+
+| Bug | Version |
+|-----|:------:|
+| Taxi edge invisible (dx=0) | v3.3.57 |
+| NONE sql_range | v3.3.56 |
+| Pipeline==Spore | v3.3.51 |
+| L2 collapse | v3.3.53 |
+| Spore overlaps | v3.3.53 |
