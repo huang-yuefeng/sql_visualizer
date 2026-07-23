@@ -381,10 +381,12 @@ class RangeBuilder:
         'CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'UNION'
     )
     
-    def __init__(self, statement: SqlStatement, matched_line: int, all_lines: list):
+    def __init__(self, statement: SqlStatement, matched_line: int, all_lines: list,
+                 edge_data: dict = None):
         self.statement = statement
         self.matched_line = matched_line  # 0-based index in all_lines
         self.all_lines = all_lines
+        self.edge_data = edge_data or {}
     
     # Max lines to extend in each direction from matched line.
     # Proportional to script length: short scripts get narrower windows.
@@ -396,15 +398,36 @@ class RangeBuilder:
         stmt_start_0 = self.statement.start_line - 1  # 0-based
         stmt_end_0 = self.statement.end_line - 1      # 0-based
         
-        # Narrower window: ±1 for short scripts, ±3 for long ones.
-        # Tighter ranges give each edge type unique line spans,
-        # enabling distinct highlighting per edge click.
+        # Adaptive window based on edge type:
+        # Clause-start types (FILTER, JOIN, etc.) extend forward only
+        #   (keyword is at start of clause, backward reaches irrelevant clauses)
+        # Statement-start types (DML, CTE) extend forward only
+        #   (keyword is at start of statement)
+        # Data-flow types (TABLE_FLOW) extend both ways
+        #   (keyword may be in middle of statement)
+        # Other types use balanced window.
         total_lines = len(self.all_lines)
         max_extend = max(1, min(3, total_lines // 10))
         
-        # Narrow window around matched line, never exceed statement boundaries
-        start_line = max(stmt_start_0, self.matched_line - max_extend)
-        end_line = min(stmt_end_0, self.matched_line + max_extend)
+        edge_type = (self.edge_data.get('edge_type') or '').upper()
+        _FORWARD_ONLY = {'FILTER', 'WHERE', 'HAVING', 'JOIN', 'GROUP_BY', 'ORDER_BY',
+                         'DML', 'INSERT', 'UPDATE', 'DELETE', 'MERGE',
+                         'CTE', 'CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'UNION',
+                         'SCHEMA', 'AGGREGATE', 'WINDOW', 'TRANSFORM', 'CASE', 'COMPUTED',
+                         'SUBQUERY', 'SUBSET', 'ALIAS', 'INDIRECT', 'REF', 'CORRELATED',
+                         'TABLE_FLOW'}  # default: forward only
+        
+        # Only a few types benefit from backward extension:
+        # TABLE_FLOW is the main one — FROM can be in the middle of SELECT...FROM...WHERE
+        _BIDIRECTIONAL = {'TABLE_FLOW'}
+        
+        if edge_type in _BIDIRECTIONAL:
+            start_line = max(stmt_start_0, self.matched_line - max_extend)
+            end_line = min(stmt_end_0, self.matched_line + max_extend)
+        else:
+            # Forward only: extend just max_extend forward from keyword
+            start_line = max(stmt_start_0, self.matched_line)
+            end_line = min(stmt_end_0, self.matched_line + max_extend)
         
         # CTE boundary: don't cross ), boundaries (same as dataflow_service _extend_to_statement)
         for i in range(start_line, self.matched_line):
@@ -489,7 +512,7 @@ class SqlRangeFinder:
         best_line = locator.find_best_line()
         
         # Layer 4: Build range extended to statement boundaries
-        builder = RangeBuilder(statement, best_line, self.lines)
+        builder = RangeBuilder(statement, best_line, self.lines, edge_data)
         return builder.build().to_list()
 
 

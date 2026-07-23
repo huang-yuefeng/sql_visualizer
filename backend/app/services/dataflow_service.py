@@ -1565,6 +1565,52 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
 
     new_edges = list(promoted.values())
 
+    # ── Bug 1 fix: Insert query_output nodes for DML edges ──
+    # DML edges should go through a virtual output node (SELECT result),
+    # not directly from source table to target table.
+    # For each merged edge containing DML, insert ⟐ output node and re-route.
+    qo_counter = 0
+    new_dml_edges = []
+    for e in new_edges:
+        etype = e.get("edge_type", "")
+        if "DML" in etype.upper():
+            qo_counter += 1
+            qo_id = f"qo_{e['source']}_{e['target']}_{qo_counter}"
+            # Create query_output node
+            table_nodes[qo_id] = {
+                "id": qo_id,
+                "label": "⟐ output",
+                "type": "query_output",
+                "table_name": f"query_output_{qo_counter}",
+            }
+            # Split: source → query_output (TABLE_FLOW)
+            tf_edge = dict(e)
+            tf_edge["id"] = f"{e['id']}_tf"
+            tf_edge["target"] = qo_id
+            tf_edge["edge_type"] = "TABLE_FLOW"
+            tf_edge["label"] = "TABLE_FLOW"
+            if tf_edge.get("sql_ranges"):
+                tf_edge["sql_ranges"] = {"TABLE_FLOW": tf_edge.get("sql_ranges", {}).get("TABLE_FLOW", tf_edge.get("sql_range"))}
+            if tf_edge.get("sql_range"):
+                tf_range = tf_edge.get("sql_ranges", {}).get("TABLE_FLOW", tf_edge["sql_range"])
+                tf_edge["sql_range"] = tf_range
+            new_dml_edges.append(tf_edge)
+            # query_output → target (DML)
+            dml_edge = dict(e)
+            dml_edge["id"] = f"{e['id']}_dml"
+            dml_edge["source"] = qo_id
+            dml_edge["edge_type"] = "DML"
+            dml_edge["label"] = "DML"
+            if dml_edge.get("sql_ranges"):
+                dml_edge["sql_ranges"] = {"DML": dml_edge.get("sql_ranges", {}).get("DML", dml_edge.get("sql_range"))}
+            if dml_edge.get("sql_range"):
+                dml_range = dml_edge.get("sql_ranges", {}).get("DML", dml_edge["sql_range"])
+                dml_edge["sql_range"] = dml_range
+            new_dml_edges.append(dml_edge)
+        else:
+            new_dml_edges.append(e)
+    new_edges = new_dml_edges
+
     # ── Assemble output (only table+field compound nodes) ──
     all_new_nodes = (
         [{"data": tn} for tn in table_nodes.values()] +
