@@ -1518,10 +1518,10 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         if pid:
             field_parents[fn["id"]] = pid
 
-    # V3.3.58: Merge edges by (source, target) into compound types.
-    # Each edge type maps to a different SQL clause; we store per-type
-    # sql_ranges and use the union as the main sql_range.
-    promoted = {}
+    # V3.3.65: Promote fields→tables, keep edges separate per type.
+    # Each edge type gets its own edge with its own sql_range.
+    # No compound merging — clicking different edge types shows different SQL.
+    promoted = []
     for e in new_edges:
         src = e["source"]
         tgt = e["target"]
@@ -1536,80 +1536,74 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         if src == tgt:
             continue
 
-        key = (src, tgt)
-        if key in promoted:
-            ex = promoted[key]
-            ex_types = set(ex.get("edge_type", "").split(", "))
-            ex_types.add(etype)
-            ex["edge_type"] = ", ".join(sorted(ex_types))
-            ex_labels = set(ex.get("label", "").split(", "))
-            ex_labels.add(e.get("label", ""))
-            ex["label"] = ", ".join(sorted(ex_labels))
-            # Merge per-type sql_ranges
-            sr_dict = ex.get("sql_ranges", {})
-            if e.get("sql_range"):
-                sr_dict[etype] = e["sql_range"]
-            ex["sql_ranges"] = sr_dict
-            # Union range
-            ranges = [r for r in sr_dict.values() if r and len(r) >= 4]
-            if ranges:
-                start = min(r[0] for r in ranges)
-                end = max(r[2] for r in ranges)
-                ex["sql_range"] = [start, 1, end, 1]
-        else:
-            e["source"] = src
-            e["target"] = tgt
-            if e.get("sql_range"):
-                e["sql_ranges"] = {etype: e["sql_range"]}
-            promoted[key] = e
+        e["source"] = src
+        e["target"] = tgt
+        if e.get("sql_range"):
+            e["sql_ranges"] = {etype: e["sql_range"]}
+        promoted.append(e)
 
-    new_edges = list(promoted.values())
+    new_edges = promoted
 
-    # ── Bug 1 fix: Insert query_output nodes for DML edges ──
-    # DML edges should go through a virtual output node (SELECT result),
-    # not directly from source table to target table.
-    # For each merged edge containing DML, insert ⟐ output node and re-route.
-    qo_counter = 0
+    # ── Bug 1 fix: DML edges route through query_output node ──
+    # Only apply to non-qo sources (avoid nested qo_qo_ nodes).
+    # Use consistent qo_ id per (source,target) pair.
+    qo_map = {}  # (source, target) → qo_id
     new_dml_edges = []
     for e in new_edges:
         etype = e.get("edge_type", "")
-        if "DML" in etype.upper():
-            qo_counter += 1
-            qo_id = f"qo_{e['source']}_{e['target']}_{qo_counter}"
-            # Create query_output node
-            table_nodes[qo_id] = {
-                "id": qo_id,
-                "label": "⟐ output",
-                "type": "query_output",
-                "table_name": f"query_output_{qo_counter}",
-            }
-            # Split: source → query_output (TABLE_FLOW)
+        src = e.get("source", "")
+        if "DML" in etype.upper() and not src.startswith("qo_"):
+            key = (src, e["target"])
+            if key not in qo_map:
+                qo_id = f"qo_{src}_{e['target']}"
+                qo_map[key] = qo_id
+                table_nodes[qo_id] = {
+                    "id": qo_id, "label": "⟐ output",
+                    "type": "query_output",
+                    "table_name": f"query_output_{src[:8]}",
+                }
+            qo_id = qo_map[key]
+            # TABLE_FLOW: source → qo
             tf_edge = dict(e)
             tf_edge["id"] = f"{e['id']}_tf"
             tf_edge["target"] = qo_id
             tf_edge["edge_type"] = "TABLE_FLOW"
             tf_edge["label"] = "TABLE_FLOW"
             if tf_edge.get("sql_ranges"):
-                tf_edge["sql_ranges"] = {"TABLE_FLOW": tf_edge.get("sql_ranges", {}).get("TABLE_FLOW", tf_edge.get("sql_range"))}
-            if tf_edge.get("sql_range"):
-                tf_range = tf_edge.get("sql_ranges", {}).get("TABLE_FLOW", tf_edge["sql_range"])
+                tf_range = tf_edge["sql_ranges"].get("TABLE_FLOW", tf_edge.get("sql_range"))
+                tf_edge["sql_ranges"] = {"TABLE_FLOW": tf_range}
                 tf_edge["sql_range"] = tf_range
             new_dml_edges.append(tf_edge)
-            # query_output → target (DML)
+            # DML: qo → target
             dml_edge = dict(e)
             dml_edge["id"] = f"{e['id']}_dml"
             dml_edge["source"] = qo_id
             dml_edge["edge_type"] = "DML"
             dml_edge["label"] = "DML"
             if dml_edge.get("sql_ranges"):
-                dml_edge["sql_ranges"] = {"DML": dml_edge.get("sql_ranges", {}).get("DML", dml_edge.get("sql_range"))}
-            if dml_edge.get("sql_range"):
-                dml_range = dml_edge.get("sql_ranges", {}).get("DML", dml_edge["sql_range"])
+                dml_range = dml_edge["sql_ranges"].get("DML", dml_edge.get("sql_range"))
+                dml_edge["sql_ranges"] = {"DML": dml_range}
                 dml_edge["sql_range"] = dml_range
             new_dml_edges.append(dml_edge)
         else:
             new_dml_edges.append(e)
     new_edges = new_dml_edges
+
+    # ── Dedup: merge edges with same (source,target,type) ──
+    deduped = {}
+    for e in new_edges:
+        key = (e.get("source"), e.get("target"), e.get("edge_type"))
+        if key in deduped:
+            ex = deduped[key]
+            er = ex.get("sql_range"); nr = e.get("sql_range")
+            if nr and (not er or (len(er)>=4 and len(nr)>=4 and (nr[2]-nr[0])<(er[2]-er[0]))):
+                ex["sql_range"] = nr
+            sr = ex.get("sql_ranges", {})
+            sr.update(e.get("sql_ranges", {}))
+            ex["sql_ranges"] = sr
+        else:
+            deduped[key] = e
+    new_edges = list(deduped.values())
 
     # ── Assemble output (only table+field compound nodes) ──
     all_new_nodes = (
