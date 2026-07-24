@@ -32,6 +32,8 @@ def create_search(ws_id: str, table: str, field: str,
     5. Store view in views.json
     """
     ws_dir = get_workspace_dir(ws_id)
+    from app.services.logger import api_request
+    api_request('POST', f'/workspace/{ws_id}/search', 200, f'table={table} field={field}', ws_id=ws_id)
     cache_dir = ws_dir / "cache"
 
     # Find scripts touching this table AND this field
@@ -823,6 +825,8 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     """Build L2 graph for a script. Loads pre-computed graph cache,
     applies relevance filter, returns {graph, highlights}."""
     ws_dir = get_workspace_dir(ws_id)
+    from app.services.logger import api_request, stage_graph
+
     scripts_dir = ws_dir / "scripts"
     cache_dir = ws_dir / "cache"
 
@@ -837,11 +841,12 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     graph_cache_path = cache_dir / f"graph_3_2_15_{cache_key}.json"
     if graph_cache_path.exists():
         graph_data = json.loads(graph_cache_path.read_text())
+        stage_graph(len(graph_data.get('nodes',[])), len(graph_data.get('edges',[])), ws_id=ws_id)
     else:
         # Build on-demand
         from app.extractor.adapter import run_full_analysis
         from app.services.graph_service import build_graph_data
-        result = run_full_analysis(sql_text, script_name)
+        result = run_full_analysis(sql_text, script_name, ws_id=ws_id)
         graph_data = build_graph_data(result)
 
     # Apply relevance filter (if requested)
@@ -1004,6 +1009,8 @@ def _compute_highlight_ranges(graph_data: dict, highlight_ids: set,
 
 def _load_views(ws_id: str) -> list:
     ws_dir = get_workspace_dir(ws_id)
+    from app.services.logger import api_request
+
     views_path = ws_dir / "cache" / "views.json"
     if views_path.exists():
         return json.loads(views_path.read_text())
@@ -1012,6 +1019,8 @@ def _load_views(ws_id: str) -> list:
 
 def _save_views(ws_id: str, views: list):
     ws_dir = get_workspace_dir(ws_id)
+    from app.services.logger import api_request
+
     views_path = ws_dir / "cache" / "views.json"
     views_path.write_text(json.dumps(views, indent=2, ensure_ascii=False))
 
@@ -1147,6 +1156,8 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     from app.services.graph_service import build_graph_data
 
     ws_dir = get_workspace_dir(ws_id)
+    from app.services.logger import api_request, stage_graph
+
     cache_dir = ws_dir / "cache"
     cache_key = hashlib.md5((script_name + sql_text).encode()).hexdigest()[:12]
 
@@ -1154,8 +1165,9 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     graph_cache_path = cache_dir / f"graph_3_2_15_{cache_key}.json"
     if graph_cache_path.exists():
         full_graph = json.loads(graph_cache_path.read_text())
+        stage_graph(len(full_graph.get('nodes',[])), len(full_graph.get('edges',[])), ws_id=ws_id)
     else:
-        result = run_full_analysis(sql_text, script_name)
+        result = run_full_analysis(sql_text, script_name, ws_id=ws_id)
         full_graph = build_graph_data(result)
         # Cache for future use
         cache_dir.mkdir(parents=True, exist_ok=True)

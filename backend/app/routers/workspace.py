@@ -62,6 +62,9 @@ async def delete_workspace_endpoint(ws_id: str):
     ok = delete_workspace(ws_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    # Clean up SSE log queue
+    from app.services.logger import remove_queue
+    remove_queue(ws_id)
     return {"deleted": True}
 
 
