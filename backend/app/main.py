@@ -61,13 +61,14 @@ async def health_check():
 
 
 # Import and register routers
-from app.routers import analysis, graph, variables, workspace, dataflow  # noqa: E402
+from app.routers import analysis, graph, variables, workspace, dataflow, logs  # noqa: E402
 
 app.include_router(analysis.router, prefix="/api", tags=["analysis"])
 app.include_router(graph.router, prefix="/api", tags=["graph"])
 app.include_router(variables.router, prefix="/api", tags=["variables"])
 app.include_router(workspace.router, prefix="/api")
 app.include_router(dataflow.router, prefix="/api")
+app.include_router(logs.router, prefix="/api", tags=["logs"])
 
 # Serve the built frontend as static files (production mode).
 # In dev, use `npm run dev` for hot-reload; this is for offline/deploy use.

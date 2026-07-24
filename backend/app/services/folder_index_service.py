@@ -70,7 +70,7 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
 
         try:
             sql_text = sp.read_text(encoding="utf-8", errors="replace")
-            result = run_full_analysis(sql_text, rel_path)
+            result = run_full_analysis(sql_text, rel_path, ws_id=ws_id)
             script_count += 1
             _set_progress(ws_id, i + 1, total, "analyzing")
 

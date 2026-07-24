@@ -5,6 +5,7 @@ import FilterPanel from './components/FilterPanel';
 import ViewBar from './components/ViewBar';
 import DataFlowGraph from './components/DataFlowGraph';
 import SqlPanel from './components/SqlPanel';
+import LogPanel from './components/LogPanel';
 import * as api from './api/client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useResizable } from './utils/useResizable';
@@ -38,6 +39,7 @@ export default function DataFlowApp() {
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState(null);
   const [activeL1Table, setActiveL1Table] = useState(null);
+  const [showLog, setShowLog] = useState(true);
 
   // ── Resizable panel state ─────────────────────────────────────────
   const [leftPanelWidth, setLeftPanelWidth] = useState(260);
@@ -74,6 +76,7 @@ export default function DataFlowApp() {
         setL2Graph(null); setL2Result(null); setSqlText(''); setError(null);
         setScriptInfo(null); setActiveL1Table(null); setCurrentScriptName(''); setL2Filtered(true);
         setL2FullGraph(null);
+        setShowLog(true);
       }
       const result = await api.uploadWorkspace(file);
       setWsId(result.workspace_id);
@@ -225,6 +228,7 @@ export default function DataFlowApp() {
         setGraphLevel('L2');
         setL2Filtered(true);
         setL2FullGraph(null);
+        setShowLog(true);
         setScriptInfo(null); setActiveL1Table(null);
       } catch (e) {
         setError(e.message);
@@ -397,6 +401,8 @@ export default function DataFlowApp() {
         </div>
       )}
 
+      {/* Wrapper for panels + graph (flex row) */}
+      <div className="dataflow-main">
       {/* Left panel */}
       <div className="panel-left">
         <WorkspacePanel
@@ -554,6 +560,11 @@ export default function DataFlowApp() {
           )}
         </div>
       )}
+
+      </div>{/* end .dataflow-main */}
+      {/* Log panel resize handle */}
+      {/* Log panel — bottom bar, collapsible, resizable */}
+      {wsId && showLog && <LogPanel wsId={wsId} visible={true} onClose={() => setShowLog(false)} />}
     </div>
   );
 }
