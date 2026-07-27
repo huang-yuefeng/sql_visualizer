@@ -553,3 +553,81 @@ Each edge type has dedicated tests verifying its creation, plus regression tests
 - [x] Profile appears in both Docker stderr and frontend LogPanel
 - [x] Developer can use one photograph to generate structurally equivalent mock SQL
 - [x] Zero performance overhead: regex counts take <1ms
+
+---
+
+## R16 — Filter CSV Diagnostic Logging
+
+> **Priority:** P2 | **Status:** ✅ Implemented | **Version:** v3.3.87 | **Date:** 2026-07-27
+
+**Description:** When user uploads filter CSV files (script→table, table→column), emit a diagnostic profile block to the LogPanel showing what was parsed — so the user can screenshot it for remote debugging when the filter returns unexpected results (e.g., "0 tables, 0 fields").
+
+### Problem
+
+The filter silently returns 0 results if the CSV headers or data don't match expectations. The user has no visibility into what was parsed. They can't tell whether:
+- CSV headers were recognized
+- Data rows were parsed
+- Table/script names match the index
+- The issue is in the CSV format or in the data
+
+### Solution
+
+When `POST /workspace/{ws_id}/filter-config` processes CSV files, push a diagnostic block to the SSE log queue (stage: `"profile"`), same format as R15 script profiles:
+
+```
+┌─ FILTER DIAGNOSTIC ────────────────────────────────────────────────────────┐
+│ File 1 (script_table): test.csv  rows=7  headers=SCRIPT_NAME,TABLE_NAME      │
+│   Sample rows: step1_load_orders.sql→raw_orders                              │
+│                step2_enrich_customers.sql→crm_customers                       │
+│   Parsed: 7 scripts, 6 tables                                                 │
+│ File 2 (table_col): test2.csv  rows=10  headers=SYSTEM,TABLE_NAME,COL_NAME    │
+│   Sample rows: ETL→raw_orders→order_id                                        │
+│                ETL→stg_orders→amount                                          │
+│   Parsed: 10 columns, 5 tables                                                │
+│ Result: 5 tables, 6 fields in filtered index                                  │
+│ ⚠ No data parsed from script_table. Check headers: SCRIPT_NAME, TABLE_NAME   │  ← only if 0 rows
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Implementation
+
+In `workspace.py:upload_filter_config`, after parsing each CSV, push a profile message:
+
+```python
+from app.services.logger import _push, _ts
+
+# After parsing script_table:
+_push(ws_id, "profile", f"┌─ FILTER DIAGNOSTIC ─{'─'*60}┐")
+_push(ws_id, "profile", f"│ File 1 (script_table): {script_table.filename}  rows={row_count}  headers={headers}")
+# ... sample rows, counts ...
+
+# After parsing table_col:
+_push(ws_id, "profile", f"│ File 2 (table_col): {table_col.filename}  rows={row_count}  headers={headers}")
+# ... sample rows, counts ...
+
+# After filtering:
+_push(ws_id, "profile", f"│ Result: {len(filtered_ti)} tables, {len(filtered_fi)} fields")
+_push(ws_id, "profile", f"└{'─'*78}┘")
+```
+
+### Diagnostics to include
+
+| Item | Source | Purpose |
+|------|--------|---------|
+| File name | `file.filename` | Identify which CSV |
+| Row count | `len(rows)` | Confirm data was read |
+| Column headers | `DictReader.fieldnames` | Verify headers match expected |
+| Sample rows (first 2) | First 2 parsed rows | Quick visual check of data |
+| Parsed counts | `len(allowed_scripts)`, etc. | How many unique values |
+| Filter result | `len(filtered_ti)`, `len(filtered_fi)` | Final match count |
+| Warning (if 0) | Conditional | "Check headers: SCRIPT_NAME, TABLE_NAME" |
+
+### Acceptance Criteria
+
+- [x] Diagnostic block appears in LogPanel after "Apply Filter" is clicked
+- [x] Shows file names, row counts, column headers, sample rows, parse counts
+- [x] Shows filter result (N tables, M fields)
+- [x] Shows warning when 0 rows parsed from a CSV
+- [x] Block is photographable (80-char width, ASCII box)
+- [x] Works with 0, 1, or 2 CSV files uploaded
+- [x] No performance impact (push happens once, not per script)

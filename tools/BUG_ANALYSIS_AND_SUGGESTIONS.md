@@ -1,8 +1,8 @@
 # Data Flow Debugger — Open Bug List
 
-> **Date:** 2026-07-23 | **Version:** 3.3.82 | **Active:** 1 partial (Bug 3)
+> **Date:** 2026-07-27 | **Version:** 3.3.89 | **Active:** 1 partial (Bug 3)
 >
-> Fixed bugs (1, 2, 4, 5, 6, 7, 8) moved to [`BUG_HISTORY.md`](BUG_HISTORY.md).
+> Fixed bugs (1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) moved to [`BUG_HISTORY.md`](BUG_HISTORY.md).
 
 ---
 
@@ -65,8 +65,9 @@ Would resolve remaining Bug 3 overlap. Already partially done.
 ### Simplification 3: Extract L2 graph builder
 
 `dataflow_service.py` at ~1950 lines → split out `l2_graph_builder.py` (~700 lines).
-
+---
 
 ---
 
+---
 
