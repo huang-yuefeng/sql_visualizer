@@ -999,3 +999,86 @@ const logResize = useResizable({
 **Verified:** Chromium E2E — LogPanel shows 70 log lines, SCRIPT PROFILE blocks, all pipeline stages with timestamps ✅
 
 **Files:** `backend/app/services/logger.py:21-31`
+## Bug 14: Graph Elements Visible Behind Loading Skeleton — FIXED ✅ v3.3.83
+
+> **Found:** v3.3.82 | **Priority:** P2 | **Status:** Closed
+
+**Symptom:** When loading a big batch of scripts, "Loading data flow..." skeleton shows, but graph rectangles and lines are visible in the background bleeding through.
+
+**Root cause — two issues:**
+
+**1. Old graph not cleared before loading.** `DataFlowApp.jsx:126,156`:
+```jsx
+const handleSearch = useCallback(async (table, field) => {
+    if (!wsId) return;
+    setLoading(true); setError(null);    // ← l1Graph still has old data!
+```
+`graphData` (`l1Graph`) retains the previous search's graph. The skeleton condition is `loading && !graphData` — since `graphData` is still truthy, the skeleton is hidden and the old graph stays rendered. User sees the old graph while a new search loads.
+
+**Fix:** Clear `l1Graph` before setting loading:
+```jsx
+setL1Graph(null);  // ← clear old graph
+setLoading(true); setError(null);
+```
+Same fix needed at `handleOpenL2` (line 156): `setL2Graph(null); setLoading(true);`
+
+**2. Skeleton background is transparent.** `app.css:472`:
+```css
+.skeleton-graph { background: rgba(255,255,255,0.02); }
+```
+2% white opacity — essentially transparent. Any graph container or DOM remnants behind the skeleton are visible through it.
+
+**Fix:** Use opaque dark background:
+```css
+.skeleton-graph { background: #1a1a2e; }
+```
+
+**Files:** `frontend/src/DataFlowApp.jsx:126,156`, `frontend/src/styles/app.css:472`
+## Bug 15: Filter CSV Requires Exact Script Path Match
+
+> **Found:** v3.3.83 | **Priority:** P2 | **Status:** Open
+
+**Symptom:** Filter CSV parses correctly (3 scripts, 5 tables, 6 columns) but result shows "0 tables, 0 fields".
+
+**Diagnostic block confirms:**
+```
+File 1: script_table.csv rows=7 headers=SCRIPT_NAME,TABLE_NAME
+  Parsed: 3 scripts, 5 tables         ← CSV parsing OK
+File 2: table_col.csv rows=10
+  Parsed: 6 columns, 5 tables         ← CSV parsing OK
+Result: 0 tables, 0 fields            ← matching FAILED
+```
+
+**Root cause:** `workspace.py:173` — exact string match between CSV script names and index script paths:
+```python
+filtered_scripts = [s for s in tdata.get("scripts", [])
+                   if allowed_scripts is None or s in allowed_scripts]
+```
+- Index stores: `multi_workflow/step1_load_orders.sql` (relative path from workspace root)
+- CSV has: `step1_load_orders.sql` (just filename)
+- `"multi_workflow/step1_load_orders.sql" in {"step1_load_orders.sql"}` → **False** → all scripts filtered out → 0 results
+
+**Confirmed by API test:**
+- CSV with `step1_load_orders.sql` (no path) + index with `step1_load_orders.sql` → 5 tables, 6 fields ✅
+- CSV with `multi_workflow/step1_load_orders.sql` (with path) + index with `step1_load_orders.sql` → 0 tables, 0 fields ❌
+
+The path prefix presence depends on how the workspace zip is structured. User's deployment has the prefix in the index; their CSV has just filenames.
+
+**Current fix (v3.3.88) only works one way** — `basename(index) in allowed_csv` handles index-with-path but NOT csv-with-path:
+```
+Index: step1_load_orders.sql    CSV: multi_workflow/step1_load_orders.sql
+basename("step1_load_orders.sql") = "step1_load_orders.sql"
+"step1_load_orders.sql" in {"multi_workflow/step1_load_orders.sql"} → False ❌
+```
+
+**Correct fix — add basenames to the allowed set when parsing the CSV** (works both ways):
+```python
+# In the CSV parsing loop (workspace.py ~line 140):
+if sn: 
+    allowed_scripts.add(sn)
+    allowed_scripts.add(os.path.basename(sn))  # also match by filename
+if tn: 
+    allowed_tables.add(tn)
+```
+
+**Files:** `backend/app/routers/workspace.py:139-142`

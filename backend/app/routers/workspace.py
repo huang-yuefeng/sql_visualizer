@@ -1,7 +1,9 @@
 """Workspace router — zip upload, workspace CRUD."""
 from fastapi import APIRouter, HTTPException, UploadFile, File
+from app.services.logger import _push, _ts
 import csv
 import io
+import os
 from app.services.workspace_service import (
     create_workspace, get_workspace, delete_workspace,
     get_workspace_dir, cleanup_all_workspaces,
@@ -129,16 +131,37 @@ async def upload_filter_config(ws_id: str,
     allowed_tables = None
     allowed_columns = None
 
+    # ── R16: Filter diagnostic logging ──
+    diag_lines = []
+    W = 80
+    def _diag_box(header, lines):
+        box = [f"┌─ {header} " + "─" * max(0, W - len(header) - 4) + "┐"]
+        for ln in lines:
+            box.append(f"│ {ln.ljust(W-4)}│")
+        box.append(f"└{'─'*(W-2)}┘")
+        return box
+    diag_lines.append(("profile", f"┌─ FILTER DIAGNOSTIC ─{'─'*60}┐"))
+
     if script_table and script_table.filename:
         raw = (await script_table.read()).decode("utf-8", errors="replace")
         allowed_scripts = set()
         allowed_tables = set()
         reader = csv.DictReader(io.StringIO(raw))
-        for row in reader:
+        headers1 = reader.fieldnames or []
+        rows = list(reader)
+        row_count = len(rows)
+        for row in rows:
             sn = row.get("SCRIPT_NAME", "").strip()
             tn = row.get("TABLE_NAME", "").strip()
-            if sn: allowed_scripts.add(sn)
+            if sn: allowed_scripts.add(sn); allowed_scripts.add(os.path.basename(sn))
             if tn: allowed_tables.add(tn)
+        # Diagnostic: file 1
+        diag_lines.append(("profile", f"│ File 1 (script_table): {script_table.filename}  rows={row_count}  headers={','.join(headers1)}".ljust(79)+"│"))
+        for i, row in enumerate(rows[:2]):
+            diag_lines.append(("profile", f"│   Sample {i+1}: {row.get('SCRIPT_NAME','?')}→{row.get('TABLE_NAME','?')}".ljust(79)+"│"))
+        diag_lines.append(("profile", f"│   Parsed: {len(allowed_scripts)} scripts, {len(allowed_tables)} tables".ljust(79)+"│"))
+        if row_count == 0:
+            diag_lines.append(("profile", f"│ ⚠ No data parsed. Check headers: SCRIPT_NAME, TABLE_NAME".ljust(79)+"│"))
 
     if table_col and table_col.filename:
         raw = (await table_col.read()).decode("utf-8", errors="replace")
@@ -146,11 +169,21 @@ async def upload_filter_config(ws_id: str,
             allowed_tables = set()
         allowed_columns = set()
         reader = csv.DictReader(io.StringIO(raw))
-        for row in reader:
+        headers2 = reader.fieldnames or []
+        rows = list(reader)
+        row_count = len(rows)
+        for row in rows:
             tn = row.get("TABLE_NAME", "").strip()
             cn = row.get("COL_NAME", "").strip()
             if tn: allowed_tables.add(tn)
             if cn: allowed_columns.add(cn)
+        # Diagnostic: file 2
+        diag_lines.append(("profile", f"│ File 2 (table_col): {table_col.filename}  rows={row_count}  headers={','.join(headers2)}".ljust(79)+"│"))
+        for i, row in enumerate(rows[:2]):
+            diag_lines.append(("profile", f"│   Sample {i+1}: {row.get('TABLE_NAME','?')}→{row.get('COL_NAME','?')}".ljust(79)+"│"))
+        diag_lines.append(("profile", f"│   Parsed: {len(allowed_columns)} columns, {len(allowed_tables)} tables".ljust(79)+"│"))
+        if row_count == 0:
+            diag_lines.append(("profile", f"│ ⚠ No data parsed. Check headers: TABLE_NAME, COL_NAME".ljust(79)+"│"))
 
     # If neither file uploaded, clear filter
     if allowed_scripts is None and allowed_tables is None and allowed_columns is None:
@@ -172,7 +205,7 @@ async def upload_filter_config(ws_id: str,
         if allowed_tables and tname not in allowed_tables:
             continue
         filtered_scripts = [s for s in tdata.get("scripts", [])
-                           if allowed_scripts is None or s in allowed_scripts]
+                           if allowed_scripts is None or s in allowed_scripts or os.path.basename(s) in allowed_scripts]
         filtered_fields = [f for f in tdata.get("fields", [])
                           if allowed_columns is None or f in allowed_columns]
         if filtered_scripts or filtered_fields:
@@ -187,7 +220,7 @@ async def upload_filter_config(ws_id: str,
         if allowed_columns and fname not in allowed_columns:
             continue
         filtered_scripts = [s for s in fdata.get("scripts", [])
-                           if allowed_scripts is None or s in allowed_scripts]
+                           if allowed_scripts is None or s in allowed_scripts or os.path.basename(s) in allowed_scripts]
         filtered_tables = [t for t in fdata.get("tables", [])
                           if allowed_tables is None or t in allowed_tables]
         if filtered_scripts or filtered_tables:
@@ -201,6 +234,12 @@ async def upload_filter_config(ws_id: str,
         "table_index": filtered_ti,
         "field_index": filtered_fi,
     }, indent=2))
+
+    # ── R16: Diagnostic result ──
+    diag_lines.append(("profile", f"│ Result: {len(filtered_ti)} tables, {len(filtered_fi)} fields in filtered index".ljust(79)+"│"))
+    diag_lines.append(("profile", f"└{'─'*78}┘"))
+    for stage, msg in diag_lines:
+        _push(ws_id, stage, msg)
 
     return {
         "filtered": True,
