@@ -250,6 +250,8 @@ async def upload_filter_config(ws_id: str,
         "filtered": True,
         "table_count": len(filtered_ti),
         "field_count": len(filtered_fi),
+        "filtered_tables": list(filtered_ti.keys()),
+        "filtered_fields": list(filtered_fi.keys()),
     }
 
 

@@ -17,6 +17,8 @@ export default function DataFlowApp() {
   const [selectedScripts, setSelectedScripts] = useState([]);
   const [tableIndex, setTableIndex] = useState({});
   const [fieldIndex, setFieldIndex] = useState({});
+  const [fullTableIndex, setFullTableIndex] = useState({});
+  const [fullFieldIndex, setFullFieldIndex] = useState({});
   const [indexed, setIndexed] = useState(false);
   const [stale, setStale] = useState(false);
   const [views, setViews] = useState([]);
@@ -91,6 +93,8 @@ export default function DataFlowApp() {
       const idxResult = await api.indexWorkspace(result.workspace_id, scripts);
       setTableIndex(idxResult.table_index || {});
       setFieldIndex(idxResult.field_index || {});
+      setFullTableIndex(idxResult.table_index || {});
+      setFullFieldIndex(idxResult.field_index || {});
       setIndexed(true);
       setStale(false);
       setProgress(null);
@@ -430,14 +434,23 @@ export default function DataFlowApp() {
             wsId={wsId}
             tableIndex={tableIndex} fieldIndex={fieldIndex}
             onSearch={handleSearch} loading={loading}
-            onFilterApplied={async () => {
-              setL1Graph(null); setL2Graph(null); setL2Result(null); setLoading(true);
-              try {
-                const idxResult = await api.indexWorkspace(wsId, selectedScripts);
-                setTableIndex(idxResult.table_index || {});
-                setFieldIndex(idxResult.field_index || {});
-              } catch (e) { setError(e.message); }
-              setLoading(false);
+            onFilterApplied={async (filterResult) => {
+              if (filterResult && filterResult.filtered) {
+                const ft = new Set(filterResult.filtered_tables || []);
+                const ff = new Set(filterResult.filtered_fields || []);
+                const filteredTI = {}; const filteredFI = {};
+                for (const [k, v] of Object.entries(fullTableIndex)) {
+                  if (ft.has(k)) filteredTI[k] = v;
+                }
+                for (const [k, v] of Object.entries(fullFieldIndex)) {
+                  if (ff.has(k)) filteredFI[k] = v;
+                }
+                setTableIndex(filteredTI);
+                setFieldIndex(filteredFI);
+              } else {
+                setTableIndex(fullTableIndex);
+                setFieldIndex(fullFieldIndex);
+              }
             }}
           />
         )}

@@ -136,7 +136,7 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
       const result = await api.uploadFilterConfig(wsId, stFile, tcFile);
       setFilterActive(result.filtered);
       setFilterStats(`${result.table_count} tables, ${result.field_count} fields`);
-      if (onFilterApplied) await onFilterApplied();
+      if (onFilterApplied) await onFilterApplied(result);
     } catch (e) { console.error(e); }
     setUploadingFilter(false);
   };
@@ -147,7 +147,7 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
       await api.uploadFilterConfig(wsId, null, null);
       setFilterActive(false);
       setFilterStats(null);
-      if (onFilterApplied) await onFilterApplied();
+      if (onFilterApplied) await onFilterApplied(null);
     } catch (e) { console.error(e); }
   };
 
