@@ -65,7 +65,7 @@ export default function DataFlowApp() {
 
   // ── Upload & Analyze ──────────────────────────────────────────────
   const handleUpload = useCallback(async (file) => {
-    setLoading(true); setError(null);
+    setL1Graph(null); setL2Graph(null); setL2Result(null); setLoading(true); setError(null);
     try {
       // Clean up old workspace before creating new one
       if (wsId) {
@@ -123,7 +123,7 @@ export default function DataFlowApp() {
   // ── Search ────────────────────────────────────────────────────────
   const handleSearch = useCallback(async (table, field) => {
     if (!wsId) return;
-    setLoading(true); setError(null);
+    setL1Graph(null); setL2Graph(null); setL2Result(null); setLoading(true); setError(null);
     try {
       const result = await api.searchDataFlow(wsId, table, field);
       const newView = {
@@ -153,6 +153,7 @@ export default function DataFlowApp() {
   // ── Open L2 (double-click on L1 script node) ──────────────────────
   const handleOpenL2 = useCallback(async (scriptId, scriptName) => {
     if (!wsId || !activeViewId) return;
+    setL2Graph(null);
     setLoading(true);
     try {
       const viewIdForApi = parentViewIdRef.current || activeViewId;
@@ -415,7 +416,7 @@ export default function DataFlowApp() {
             onSelectionChange={setSelectedScripts}
             indexed={indexed} stale={stale}
             onReindex={async () => {
-              setLoading(true);
+              setL1Graph(null); setL2Graph(null); setL2Result(null); setLoading(true);
               try {
                 await api.indexWorkspace(wsId, selectedScripts);
                 setStale(false); setIndexed(true);
@@ -430,7 +431,7 @@ export default function DataFlowApp() {
             tableIndex={tableIndex} fieldIndex={fieldIndex}
             onSearch={handleSearch} loading={loading}
             onFilterApplied={async () => {
-              setLoading(true);
+              setL1Graph(null); setL2Graph(null); setL2Result(null); setLoading(true);
               try {
                 const idxResult = await api.indexWorkspace(wsId, selectedScripts);
                 setTableIndex(idxResult.table_index || {});

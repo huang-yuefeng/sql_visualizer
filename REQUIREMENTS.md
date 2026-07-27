@@ -631,3 +631,38 @@ _push(ws_id, "profile", f"└{'─'*78}┘")
 - [x] Block is photographable (80-char width, ASCII box)
 - [x] Works with 0, 1, or 2 CSV files uploaded
 - [x] No performance impact (push happens once, not per script)
+
+### Known Gaps — Filter Matching (from OCR analysis)
+
+The diagnostic block correctly shows parsed data, but matching fails even after the `basename` fix (v3.3.89). From OCR of a real deployment screenshot:
+
+| CSV | Parsed | Match Result |
+|-----|--------|-------------|
+| script_table (map.csv) | 48 scripts, 8 tables | — |
+| table_col (dict.csv) | 2385 columns, 81 tables | — |
+| **Combined** | — | **0 tables, 0 fields** ❌ |
+
+**Root cause — three levels of name mismatch:**
+
+| Mismatch | Index stores | CSV has | Fix status |
+|----------|-------------|---------|------------|
+| Path prefix | `folder/script.sql` | `script.sql` | ✅ Fixed (basename) |
+| Path prefix (reversed) | `script.sql` | `folder/script.sql` | ✅ Fixed (basename) |
+| **File extension** | `script.sql` | `script` | ❌ Not fixed |
+
+The CSV script names lack the `.sql` extension. The index stores `script_name.sql`, but the CSV has `script_name`. The `basename` fix doesn't cover extension mismatch.
+
+**Required fix — also match by adding `.sql` suffix:**
+
+In the CSV parsing loop, also try adding `.sql` to script names:
+
+```python
+if sn: 
+    allowed_scripts.add(sn)
+    allowed_scripts.add(os.path.basename(sn))
+    if not sn.endswith('.sql'):
+        allowed_scripts.add(sn + '.sql')       # try with extension
+        allowed_scripts.add(os.path.basename(sn) + '.sql')
+```
+
+This handles all three mismatch cases: path prefix (both directions) and missing file extension.
