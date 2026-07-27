@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 
 from app.services.workspace_service import get_workspace, get_workspace_dir
+from app.services.logger import _push, _ts
 from app.services.dataflow_service import (
     _load_views, _save_views,
     create_search, get_level2_graph,
@@ -30,6 +31,29 @@ def _load_index(ws_id: str) -> tuple[dict, dict]:
     return ti, fi
 
 
+
+def _emit_search_diagnostic(ws_id, table, field, filter_active, scope_tables, scope_fields,
+                            table_in_index, field_in_index, table_scripts, field_scripts,
+                            match_scripts, suggestion):
+    """R17: Emit a compact ASCII diagnostic block to the LogPanel after each search."""
+    W = 80
+    lines = []
+    lines.append("┌─ SEARCH DIAGNOSTIC " + "─" * (W - 20) + "┐")
+    lines.append(("│ Query: table=%s  field=%s" % (table, field)).ljust(W - 1) + "│")
+    lines.append(("│ Filter active: %s  (%s tables, %s fields in scope)" % (
+        "YES" if filter_active else "NO", scope_tables, scope_fields)).ljust(W - 1) + "│")
+    lines.append(("│ Table in index: %s  (%s scripts)" % (
+        "YES" if table_in_index else "NO", table_scripts)).ljust(W - 1) + "│")
+    lines.append(("│ Field in index: %s  (%s scripts)" % (
+        "YES" if field_in_index else "NO", field_scripts)).ljust(W - 1) + "│")
+    lines.append(("│ Matching scripts: %s" % match_scripts).ljust(W - 1) + "│")
+    if suggestion != "OK":
+        lines.append(("│ ⚠ %s" % suggestion).ljust(W - 1) + "│")
+    lines.append("└" + "─" * (W - 2) + "┘")
+    for line in lines:
+        _push(ws_id, "profile", line)
+
+
 @router.post("/workspace/{ws_id}/search")
 async def search_dataflow(ws_id: str, body: dict):
     """Search for data flow of table.field. body: {table, field}"""
@@ -50,6 +74,37 @@ async def search_dataflow(ws_id: str, body: dict):
         raise HTTPException(status_code=400, detail="Indexes not found. Run index first.")
 
     result = create_search(ws_id, table, field, ti, fi)
+
+    # ── R17: Search diagnostic logging ──
+    cache_dir = get_workspace_dir(ws_id) / "cache"
+    filter_active = (cache_dir / "filtered_index.json").exists()
+    if filter_active:
+        filtered = json.loads((cache_dir / "filtered_index.json").read_text())
+        scope_tables = len(filtered.get("table_index", {}))
+        scope_fields = len(filtered.get("field_index", {}))
+    else:
+        scope_tables = len(ti)
+        scope_fields = len(fi)
+    tdata = ti.get(table, {})
+    fdata = fi.get(field, {})
+    table_in_index = table in ti
+    field_in_index = field in fi
+    table_scripts = len(tdata.get("scripts", [])) if tdata else 0
+    field_scripts = len(fdata.get("scripts", [])) if fdata else 0
+    match_scripts = len(result.get("script_ids", []))
+    if filter_active and not table_in_index:
+        suggestion = "Table not in filter scope - add to script_table.csv or clear filter"
+    elif filter_active and not field_in_index:
+        suggestion = "Field not in filter scope - add to table_col.csv or clear filter"
+    elif match_scripts == 0 and table_in_index and field_in_index:
+        suggestion = "Table and field exist but no script contains both - try different field"
+    elif match_scripts == 0:
+        suggestion = "No matching scripts - check table/field name spelling"
+    else:
+        suggestion = "OK"
+    _emit_search_diagnostic(ws_id, table, field, filter_active, scope_tables, scope_fields,
+                            table_in_index, field_in_index, table_scripts, field_scripts,
+                            match_scripts, suggestion)
     return result
 
 
