@@ -666,3 +666,71 @@ if sn:
 ```
 
 This handles all three mismatch cases: path prefix (both directions) and missing file extension.
+
+---
+
+## R17 — Search Diagnostic Logging After Filter
+
+> **Priority:** P2 | **Status:** Implemented | **Version:** v3.3.92v3.3.92 | **Date:** 2026-07-27
+
+**Description:** When a search returns empty results after a filter is applied, emit a diagnostic block to the LogPanel showing why — so the user can screenshot it for remote debugging.
+
+### Problem
+
+User applies a filter CSV, then searches for a table+field. The search returns 200 but no results:
+```
+POST /workspace/9c81e5042b96/search → 200 table=ods_gdc_split_fg_rating field=borrower_ids
+```
+No indication of WHY: is the table in the filtered index? Is the field? Are there matching scripts? The user can't tell whether the search failed because of the filter, a typo, or missing data.
+
+### Key design constraint
+
+When a filter is active, the autocomplete dropdowns AND the search scope must be limited to filtered tables/fields only. The filter narrows the entire index — tables not in the CSV should not appear in autocomplete, and searching them should explicitly report they're outside the filter scope.
+
+### Solution
+
+After each search, push a diagnostic block to the SSE log queue (stage: `"profile"`):
+
+```
+┌─ SEARCH DIAGNOSTIC ──────────────────────────────────────────────────────────┐
+│ Query: table=ods_gdc_split_fg_rating  field=borrower_ids                      │
+│ Filter active: YES  (81 tables, 2385 fields in scope)                         │
+│ Table in filtered index: NO ← table not in CSV filter                         │
+│ Field in filtered index: NO ← field not in CSV filter                         │
+│ Matching scripts: 0                                                            │
+│ ⚠ Table not in filter scope — add it to script_table.csv or clear filter      │
+└────────────────────────────────────────────────────────────────────────────────┘
+```
+
+If filter is NOT active, show the full index scope instead:
+```
+│ Filter active: NO  (full index: 500 tables, 12000 fields)                     │
+│ Table in index: YES  (12 scripts)                                              │
+│ Field in index: YES  (5 scripts)                                               │
+│ Matching scripts: 0  (no script contains both)                                 │
+│ ⚠ Table and field exist but no script contains both — try different field      │
+```
+
+### Data to include
+
+| Item | Source | Purpose |
+|------|--------|---------|
+| Query params | Search request | What was searched |
+| Filter state | `filtered_index.json` exists? | Is filter active |
+| Filter scope | `len(filtered_ti)`, `len(filtered_fi)` | How many tables/fields in scope |
+| Table hit | `table in filtered_ti` or `table_index` | Is table in scope |
+| Field hit | `field in filtered_fi` or `field_index` | Is field in scope |
+| Script count | `len(tdata.scripts)` | How many scripts reference this |
+| Warning message | Conditional logic | Actionable suggestion |
+
+### Files
+
+`backend/app/routers/dataflow.py` — `search_dataflow` endpoint: emit diagnostic after search
+
+### Acceptance Criteria
+
+- [x] Diagnostic block appears in LogPanel after every search
+- [x] Shows: query, filter state, filter scope, table hit, field hit, script count, suggestion
+- [x] Works when filter is active AND when filter is cleared
+- [x] Clearly distinguishes "table/field not in filter scope" vs "no matching scripts"
+- [x] Block is photographable (80-char width, ASCII box)
