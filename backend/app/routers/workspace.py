@@ -153,7 +153,12 @@ async def upload_filter_config(ws_id: str,
         for row in rows:
             sn = row.get("SCRIPT_NAME", "").strip()
             tn = row.get("TABLE_NAME", "").strip()
-            if sn: allowed_scripts.add(sn); allowed_scripts.add(os.path.basename(sn))
+            if sn:
+                allowed_scripts.add(sn)
+                allowed_scripts.add(os.path.basename(sn))
+                if not sn.lower().endswith('.sql'):
+                    allowed_scripts.add(sn + '.sql')
+                    allowed_scripts.add(os.path.basename(sn) + '.sql')
             if tn: allowed_tables.add(tn)
         # Diagnostic: file 1
         diag_lines.append(("profile", f"│ File 1 (script_table): {script_table.filename}  rows={row_count}  headers={','.join(headers1)}".ljust(79)+"│"))
