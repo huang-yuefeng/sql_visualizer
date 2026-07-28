@@ -919,14 +919,15 @@ def compute_field_lineage(graph_data: dict, target_table: str,
     for e in edges:
         ed = e.get("data", e)
         src, tgt = ed.get("source"), ed.get("target")
-        etype = ed.get("edge_type", "")
+        etype = ed.get("edge_type") or ed.get("relationship", "")
         adj.setdefault(src, []).append((tgt, etype, "forward"))
         adj.setdefault(tgt, []).append((src, etype, "reverse"))
 
-    # Production edge types: edges that "produce" a target
-    _PRODUCTION = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED", "DML",
-                   "TABLE_FLOW", "ALIAS"}
-    _BIDIR = _PRODUCTION | {"CORRELATED", "INDIRECT", "SET_OP", "SUBSET"}
+    # Production edge types: edges that "produce" a target (NOT TABLE_FLOW — structural)
+    _PRODUCTION = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED", "DML", "ALIAS"}
+    # Structural edges that are always bidirectionally followed (DML handled specially)
+    _ALWAYS_BIDIR = {"TABLE_FLOW", "CORRELATED", "INDIRECT", "SET_OP", "SUBSET"}
+    _BIDIR = _PRODUCTION | _ALWAYS_BIDIR
     _CONDITIONAL = {"JOIN", "FILTER", "SCHEMA"}
 
     # Find seed nodes matching target_table.target_field
@@ -936,8 +937,15 @@ def compute_field_lineage(graph_data: dict, target_table: str,
         nd = n.get("data", n)
         label = nd.get("label", "")
         ntype = nd.get("node_type", nd.get("variable_type", ""))
+        # Match exact full name, exact field name, or suffix after dot
         if label == full_name or label == target_field:
             seed_ids.add(nd.get("id"))
+        elif "." in label:
+            suffix = label.rsplit(".", 1)[-1]
+            if suffix == target_field:
+                # For qualified names like c.customer_id, also check
+                # source_columns to refine matching
+                seed_ids.add(nd.get("id"))
         src_cols = nd.get("source_columns", [])
         if src_cols and (full_name in src_cols or target_field in src_cols):
             seed_ids.add(nd.get("id"))
@@ -947,6 +955,10 @@ def compute_field_lineage(graph_data: dict, target_table: str,
 
     R = set(seed_ids)
     changed = True
+    import logging
+    _log = logging.getLogger('dataflow')
+    _log.info(f'R18 lineage: {len(graph_data.get("nodes",[]))} total nodes, seed={seed_ids}')
+    iteration = 0
 
     while changed:
         changed = False
@@ -958,7 +970,18 @@ def compute_field_lineage(graph_data: dict, target_table: str,
 
                 should_add = False
 
-                if etype in _BIDIR:
+                if etype == "DML":
+                    # DML forward (column->table): always follow
+                    # DML reverse (table->column): only if column has
+                    #   non-DML production from R (prevents all-columns inclusion)
+                    if direction == "forward":
+                        should_add = True
+                    else:
+                        for (n2, e2, d2) in adj.get(neighbor, []):
+                            if n2 in R and e2 in _PRODUCTION:
+                                should_add = True
+                                break
+                elif etype in _BIDIR:
                     # Unconditional bidirectional
                     should_add = True
                 elif etype == "SCHEMA":
@@ -998,7 +1021,11 @@ def compute_field_lineage(graph_data: dict, target_table: str,
         if new_nodes:
             R |= new_nodes
             changed = True
+        iteration += 1
+        if new_nodes:
+            _log.info(f'R18 iteration {iteration}: added {len(new_nodes)} nodes, R size={len(R)}')
 
+    _log.info(f'R18 complete: {len(R)} nodes in lineage ({len(graph_data.get("nodes",[]))} total)')
     return R
 
 
@@ -1040,11 +1067,36 @@ def filter_relevant(graph_data: dict, target_table: str,
         # Fallback: return full graph
         return graph_data
 
-    relevant_nodes = [n for n in nodes if (n.get("data", n).get("id") in lineage)]
+    # ── Post-BFS column filtering ──
+    # BFS propagates via table-level edges; columns inherit filtering
+    # from target field name matching (formal §4: name-based lineage)
+    column_types = {"column", "cte_column"}
+    relevant_nodes = []
+    for n in nodes:
+        nd = n.get("data", n)
+        nid = nd.get("id")
+        vt = nd.get("variable_type", nd.get("node_type", ""))
+        if vt in column_types:
+            # Column: include only if in lineage set AND
+            # field name suffix matches target_field
+            if nid in lineage:
+                label = nd.get("label", "")
+                if "." in label:
+                    suffix = label.rsplit(".", 1)[-1]
+                else:
+                    suffix = label
+                if suffix == target_field or label == f"{target_table}.{target_field}":
+                    relevant_nodes.append(n)
+        else:
+            # Non-column: include if in lineage set
+            if nid in lineage:
+                relevant_nodes.append(n)
+
+    relevant_ids = {n.get("data", n).get("id") for n in relevant_nodes}
     relevant_edges = [
         e for e in edges
-        if (e.get("data", e).get("source") in lineage and
-            e.get("data", e).get("target") in lineage)
+        if (e.get("data", e).get("source") in relevant_ids and
+            e.get("data", e).get("target") in relevant_ids)
     ]
 
     return {
