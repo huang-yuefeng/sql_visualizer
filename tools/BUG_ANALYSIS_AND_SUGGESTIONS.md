@@ -12,7 +12,7 @@
 |-----|----------|--------|-------|
 | Bug 3: Edge Ranges Overlap | P2 | 🔧 PARTIALLY FIXED | step3: 2 lines; step4: 1 line (same-type co-location) |
 | Bug 16: Graph Shadows in Loading | P2 | Open | Likely skeleton placeholders, not real graph |
-| Bug 18: R18 Field-Level Lineage | P1 | Open (3 issues) | TABLE_FLOW silently dropped + fuzzy fallback + missing table_schemas |
+| Bug 18: R18 Field-Level Lineage | P2 | Open (4 issues) | table_schemas not wired + doc/code mismatch + dead edge scan |
 
 ---
 
@@ -113,79 +113,46 @@ The Cytoscape graph colors (blue SCHEMA, green TABLE_FLOW) are definitively pres
 
 ### Remaining issues ❌
 
-**Issue 1 — TABLE_FLOW silently dropped in BFS (P1, critical)**
+**~~Issue 1~~ — TABLE_FLOW silently dropped: NOT A BUG**
 
-`lineage.py:140-178`: the if/elif chain has no clause for TABLE_FLOW. It's not in `_BIDIR`, not in DML/SCHEMA/JOIN/FILTER. Falls through → `should_add` stays False → neighbor never added.
-
-```python
-# line 151-152: _BIDIR = _PRODUCTION | _ALWAYS_BIDIR
-# _PRODUCTION = {"REF","TRANSFORM","AGGREGATE","WINDOW","COMPUTED","DML","ALIAS"}
-# _ALWAYS_BIDIR = {"CORRELATED","INDIRECT","SET_OP","SUBSET"}
-# → TABLE_FLOW NOT in either set
-
-# No TABLE_FLOW clause in the if/elif chain:
-if etype == "DML":        ...     # line 142
-elif etype in _BIDIR:     ...     # line 151 — TABLE_FLOW NOT matched
-elif etype == "SCHEMA":   ...     # line 153
-elif etype == "JOIN":     ...     # line 163
-elif etype == "FILTER":   ...     # line 171
-# TABLE_FLOW → falls through → never added
-```
-
-Impact: BFS can't cross TABLE_FLOW edges → can't reach source tables through output containers → lineage chain broken at the SELECT boundary. Fields that should be included are excluded instead.
-
-**Fix:** Add TABLE_FLOW conditional clause before the fallthrough:
-```python
-elif etype == "TABLE_FLOW":
-    # Conditional: only add when source has a column in R via production
-    for (n2, e2, d2) in adj.get(neighbor, []):
-        if n2 in R and e2 in _PRODUCTION:
-            should_add = True; break
-```
+TABLE_FLOW is always redundant — BFS reaches the same nodes through production edges (DML/TRANSFORM/REF + SCHEMA↑). Confirmed by tracing step2, step5, and simple SELECT. No fix needed.
 
 ---
 
-**Issue 2 — Seed matching still has fuzzy fallback (P2)**
+**Issue 2 — Seed lookup scans graph instead of using table_schemas (P2)**
 
-`lineage.py:110-118`: when SCHEMA-validated lookup finds nothing, falls back to old fuzzy label matching:
-```python
-# Fallback: simple field-name match
-if not seed_ids:
-    for n in nodes:
-        nd = n.get("data", n)
-        label = nd.get("label", "")
-        if label == full_name or label == target_field:  # ← matches ANY table
-            seed_ids.add(nd.get("id"))
-        elif "." in label and label.rsplit(".", 1)[-1] == target_field:
-            seed_ids.add(nd.get("id"))  # ← matches ANY table's column
-```
-The fallback bypasses the table validation. If the queried table doesn't exist in the graph, a column from an unrelated table could silently become the seed.
+Current code (`lineage.py:70-118`): for each search, scans ALL graph nodes × ALL edges (O(n×m)) to answer "does table T have field F?" — a question `table_schemas` already answered at extraction time (O(1)). The scan checks only SCHEMA edges, misses DML, and requires a fragile label-matching fallback.
 
-**Fix:** Remove the fallback block (lines 110-118). If SCHEMA-validated lookup finds nothing, return empty — the table or field doesn't exist in this script's graph. That's correct behavior.
+**Agreed fix — replace graph scan with table_schemas:**
 
----
-
-**Issue 3 — `infer_table_schemas` not used for seed lookup (P3)**
-
-`schema_inference.py` builds `table_schemas` and stores it in the analysis result. But `compute_field_lineage` in `lineage.py` doesn't use it — it still does its own SCHEMA-based node search at lines 70-108. The spec says seed lookup should use `table_schemas` (O(1) dict check: does this table exist? does this field belong to it?).
-
-**Fix:** Pass `table_schemas` into `compute_field_lineage` and validate there:
 ```python
 def compute_field_lineage(graph_data, target_table, target_field, table_schemas=None):
+    # Step 1: Validate via table_schemas (O(1), extraction already computed)
     if table_schemas:
         if target_table not in table_schemas:
-            return set()
+            return set()          # table doesn't exist → invalid search
         if target_field not in table_schemas[target_table]:
-            return set()
-        # table + field validated → proceed to find seed node in graph
+            return set()          # field doesn't belong to table → invalid search
+    
+    # Step 2: Find the seed node (simple node scan, no edge scan needed)
+    seed_ids = set()
+    for n in nodes:
+        nd = n.get("data", n)
+        if target_field in nd.get("label", ""):
+            seed_ids.add(nd.get("id"))
+    
+    if not seed_ids:
+        return set()
+    # ... continue to BFS expansion
 ```
+
+Removes: O(n×m) edge scan (lines 87-108), fuzzy fallback (lines 110-118), table node search (lines 70-86).
 
 ### Files
 
-- `backend/app/extractor/lineage.py:140-178` — add TABLE_FLOW clause (Issue 1)
-- `backend/app/extractor/lineage.py:110-118` — remove fuzzy fallback (Issue 2)
-- `backend/app/extractor/lineage.py:18-19` — accept table_schemas parameter (Issue 3)
-- `backend/app/extractor/schema_inference.py` — ✅ done
+- `backend/app/extractor/lineage.py:70-118` — replace seed lookup with table_schemas validation
+- `backend/app/extractor/lineage.py:18-19` — accept table_schemas parameter
+- `backend/app/extractor/schema_inference.py` — ✅ already done
 
 # dataflow_service.py
 def create_search(ws_id, table, field, ti, fi, lineage_mode=False):
