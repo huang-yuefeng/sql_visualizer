@@ -30,7 +30,7 @@ def compute_field_lineage(graph_data: dict, target_table: str,
       AGGREGATE:  bidirectional, always follow
       WINDOW:     bidirectional, always follow
       COMPUTED:   bidirectional, always follow
-      TABLE_FLOW: bidirectional, always follow
+      TABLE_FLOW: not followed (redundant — DML/REF/SCHEMA↑ already reach source tables)
       ALIAS:      bidirectional, always follow
       DML:        forward (col→table): always; reverse (table→col): production-filtered
       JOIN:       conditional — both ends must be in R via production

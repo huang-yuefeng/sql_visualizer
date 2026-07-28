@@ -902,10 +902,14 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         from app.services.graph_service import build_graph_data
         result = run_full_analysis(sql_text, script_name, ws_id=ws_id)
         graph_data = build_graph_data(result)
+        # R18: build table_schemas for lineage seed validation
+        from app.extractor.schema_inference import infer_table_schemas
+        table_schemas = infer_table_schemas(
+            result.get("variables", []), result.get("dependencies", []))
 
     # Apply relevance filter (if requested)
     if filter_relevant_nodes:
-        filtered = filter_relevant(graph_data, table, field)
+        filtered = filter_relevant(graph_data, table, field, table_schemas=table_schemas)
     else:
         filtered = graph_data
 
@@ -1139,10 +1143,14 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         # Cache for future use
         cache_dir.mkdir(parents=True, exist_ok=True)
         graph_cache_path.write_text(json.dumps(full_graph, default=str))
+        # R18: build table_schemas for lineage seed validation
+        from app.extractor.schema_inference import infer_table_schemas
+        _table_schemas = infer_table_schemas(
+            result.get("variables", []), result.get("dependencies", []))
 
     # Apply relevance filter if requested
     if relevance_filter:
-        graph_data = filter_relevant(full_graph, table, field)
+        graph_data = filter_relevant(full_graph, table, field, table_schemas=_table_schemas)
     else:
         graph_data = full_graph
 
