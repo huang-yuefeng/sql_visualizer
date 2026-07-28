@@ -12,7 +12,7 @@
 |-----|----------|--------|-------|
 | Bug 3: Edge Ranges Overlap | P2 | 🔧 PARTIALLY FIXED | step3: 2 lines; step4: 1 line (same-type co-location) |
 | Bug 16: Graph Shadows in Loading | P2 | Open | Likely skeleton placeholders, not real graph |
-| Bug 18: R18 Lineage Not Filtering | P1 | Open | lineage_mode returns same 47 nodes as full mode |
+| Bug 18: R18 Lineage Not Filtering | P1 | ✅ FIXED (v3.3.96) | DML reverse + seed lookup + extractor/lineage.py |
 
 ---
 
@@ -96,9 +96,9 @@ The Cytoscape graph colors (blue SCHEMA, green TABLE_FLOW) are definitively pres
 
 ---
 
-## Bug 18: R18 Lineage Not Filtering — NOT FIXED (re-test failed)
+## Bug 18: R18 Lineage Not Filtering — ✅ FIXED in v3.3.96
 
-> **Found:** v3.3.95 | **Priority:** P1 | **Status:** Open
+> **Found:** v3.3.95 | **Priority:** P1 | **Status:** Fixed
 
 **Symptom:** `lineage_mode=true` returns same 47 nodes as `lineage_mode=false`. All fields shown.
 
