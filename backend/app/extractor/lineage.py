@@ -16,7 +16,8 @@ _log = logging.getLogger('dataflow')
 
 
 def compute_field_lineage(graph_data: dict, target_table: str,
-                          target_field: str) -> set:
+                          target_field: str,
+                          table_schemas: dict | None = None) -> set:
     """Compute the lineage set R for a target field using edge-type-specific rules.
 
     Uses iterative BFS through 15 edge types from the formal definition
@@ -41,6 +42,16 @@ def compute_field_lineage(graph_data: dict, target_table: str,
     """
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
+
+    # --- R18: Use table_schemas for O(1) table+field validation ---
+    if table_schemas:
+        if target_table not in table_schemas:
+            _log.info(f'R18 lineage: table {target_table} not in schema')
+            return set()
+        if target_field not in table_schemas.get(target_table, set()):
+            _log.info(f'R18 lineage: field {target_field} not in table {target_table}')
+            return set()
+        _log.info(f'R18 lineage: table_schemas validation passed for {target_table}.{target_field}')
 
     # Build adjacency: node_id -> [(neighbor_id, edge_type, direction)]
     adj = {}
@@ -107,16 +118,8 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                     seed_ids.add(nid)
                     break
 
-    # Fallback: simple field-name match
-    if not seed_ids:
-        for n in nodes:
-            nd = n.get("data", n)
-            label = nd.get("label", "")
-            if label == full_name or label == target_field:
-                seed_ids.add(nd.get("id"))
-            elif "." in label and label.rsplit(".", 1)[-1] == target_field:
-                seed_ids.add(nd.get("id"))
-
+    # No fuzzy fallback — if SCHEMA-validated lookup fails,
+    # the table/field doesn't exist in this graph. That's correct.
     if not seed_ids:
         _log.info(f'R18 lineage: no seeds found for {target_table}.{target_field}')
         return set()
@@ -176,7 +179,6 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                             break
                     if has_prod:
                         should_add = True
-
                 if should_add:
                     new_nodes.add(neighbor)
 
@@ -214,7 +216,8 @@ def filter_graph_by_lineage(graph_data: dict, lineage_set: set) -> dict:
 
 
 def filter_relevant(graph_data: dict, target_table: str,
-                    target_field: str) -> dict:
+                    target_field: str,
+                    table_schemas: dict | None = None) -> dict:
     """Filter graph using field-level lineage rules (16 edge types).
 
     Falls back to full graph if lineage returns empty.
@@ -222,7 +225,7 @@ def filter_relevant(graph_data: dict, target_table: str,
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
 
-    lineage = compute_field_lineage(graph_data, target_table, target_field)
+    lineage = compute_field_lineage(graph_data, target_table, target_field, table_schemas)
 
     if not lineage:
         return graph_data
