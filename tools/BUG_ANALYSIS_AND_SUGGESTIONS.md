@@ -1,6 +1,6 @@
 # Data Flow Debugger — Open Bug List
 
-> **Date:** 2026-07-27 | **Version:** 3.3.93 | **Active:** 2 (1 partial)
+> **Date:** 2026-07-28 | **Version:** 3.3.95 | **Active:** 3 (1 partial)
 >
 > Fixed bugs (1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) moved to [`BUG_HISTORY.md`](BUG_HISTORY.md).
 
@@ -12,6 +12,7 @@
 |-----|----------|--------|-------|
 | Bug 3: Edge Ranges Overlap | P2 | 🔧 PARTIALLY FIXED | step3: 2 lines; step4: 1 line (same-type co-location) |
 | Bug 16: Graph Shadows in Loading | P2 | Open | Likely skeleton placeholders, not real graph |
+| Bug 18: R18 Lineage Not Filtering | P2 | ✅ FIXED v3.3.95 | edge_type→relationship, seed matching, field-level filtering |
 
 ---
 
@@ -92,3 +93,46 @@ The Cytoscape graph colors (blue SCHEMA, green TABLE_FLOW) are definitively pres
 **If actual Cytoscape colors appear**: Check whether the SQL Analysis tab's `PersistentPanel` (AppShell:26-36) has a loaded graph — switching tabs uses `display:none` which hides but doesn't unmount Cytoscape. Loading new data in DataFlow tab would show the old SQL Analysis graph through the skeleton's transparent background... actually the skeleton background is opaque `#1a1a2e` now. This shouldn't happen.
 
 **Files:** `frontend/src/styles/app.css:472-474` (skeleton styling), `frontend/src/AppShell.jsx:26-36` (PersistentPanel)
+
+---
+
+## Bug 18: R18 Lineage Not Filtering — ✅ FIXED v3.3.95
+
+> **Found:** v3.3.95 | **Priority:** P2 | **Status:** Fixed
+
+**Root causes (3 issues):**
+1.  key mismatch — graph uses , code read  → all types empty
+2. Seed matching failed for qualified names ( ≠ )
+3. DML edges target tables not columns → field-level lineage impossible via BFS alone
+
+**Fixes:**
+1. Changed  to 
+2. Added suffix matching in  seed detection
+3. Added post-BFS column filtering by target field name in 
+4. Moved TABLE_FLOW from  to  (structural, not production)
+5. DML: forward always, reverse conditional on non-DML production from R
+
+**Verification (crm_customers.customer_id):**
+- step1: 4/5 nodes (1 field: customer_id) ✓
+- step2: 4/5 nodes (1 field: customer_id) ✓  
+- step3: 6/8 nodes (2 fields: customer_id from both tables) ✓
+
+**Original symptom:** `lineage_mode=true` returns same 47 nodes as `lineage_mode=false`. All fields shown regardless of lineage.
+
+**Root cause:** `dataflow_service.py:928-929` — `TABLE_FLOW` is in `_PRODUCTION` and `_BIDIR` sets, making it propagate unconditionally:
+```python
+_PRODUCTION = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED", "DML",
+               "TABLE_FLOW", "ALIAS"}       # ← TABLE_FLOW shouldn't be here
+_BIDIR = _PRODUCTION | {"CORRELATED", "INDIRECT", "SET_OP", "SUBSET"}
+```
+TABLE_FLOW unconditionally adds source tables → SCHEMA unconditionally adds all columns → everything included.
+
+**Fix:** Move `TABLE_FLOW` from `_BIDIR`/`_PRODUCTION` to the conditional set (treated like JOIN/FILTER):
+```python
+_PRODUCTION = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED", "DML", "ALIAS"}
+_BIDIR = _PRODUCTION | {"CORRELATED", "INDIRECT", "SET_OP", "SUBSET"}
+# TABLE_FLOW handled separately (conditional):
+# Only add when a node in R has a production edge to the TABLE_FLOW endpoint
+```
+
+**Files:** `backend/app/services/dataflow_service.py:928-929`
