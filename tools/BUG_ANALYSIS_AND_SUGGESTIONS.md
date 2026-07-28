@@ -12,7 +12,7 @@
 |-----|----------|--------|-------|
 | Bug 3: Edge Ranges Overlap | P2 | 🔧 PARTIALLY FIXED | step3: 2 lines; step4: 1 line (same-type co-location) |
 | Bug 16: Graph Shadows in Loading | P2 | Open | Likely skeleton placeholders, not real graph |
-| Bug 18: R18 Lineage Not Filtering | P1 | ✅ FIXED (v3.3.96) | DML reverse + seed lookup + extractor/lineage.py |
+| Bug 18: R18 Field-Level Lineage | P1 | Open (3 issues) | TABLE_FLOW silently dropped + fuzzy fallback + missing table_schemas |
 
 ---
 
@@ -96,93 +96,96 @@ The Cytoscape graph colors (blue SCHEMA, green TABLE_FLOW) are definitively pres
 
 ---
 
-## Bug 18: R18 Lineage Not Filtering — ✅ FIXED in v3.3.96
+## Bug 18: R18 Field-Level Lineage — 3 remaining issues (v3.3.96)
 
-> **Found:** v3.3.95 | **Priority:** P1 | **Status:** Fixed
+> **Found:** v3.3.95 | **Priority:** P1 | **Status:** Open (3 issues remain)
 
-**Symptom:** `lineage_mode=true` returns same 47 nodes as `lineage_mode=false`. All fields shown.
+### What was done in v3.3.96 ✅
 
-### Root causes (3 issues)
+| Change | File | Status |
+|--------|------|--------|
+| `schema_inference.py` — 7-pass iterative algorithm | `backend/app/extractor/schema_inference.py` | ✅ |
+| `lineage.py` — extracted from dataflow_service | `backend/app/extractor/lineage.py` | ✅ |
+| Post-filter removed from `filter_relevant` | `lineage.py:216-242` | ✅ |
+| `lineage_mode` wired: router → create_search | `dataflow.py:76-77`, `dataflow_service.py:31,94-95` | ✅ |
+| TABLE_FLOW removed from `_ALWAYS_BIDIR` | `lineage.py:67` | ✅ |
+| Seed matching: SCHEMA validation added | `lineage.py:70-108` | ✅ |
 
-**1. Lineage never called from L1 search pipeline.**
+### Remaining issues ❌
 
-`dataflow.py:76` doesn't read `lineage_mode` from request body and doesn't pass it to `create_search()`. `create_search()` signature has no `lineage_mode` parameter. The three lineage functions (`compute_field_lineage`, `filter_relevant`, `filter_graph_by_lineage` at lines 897-1063) are dead code for L1.
+**Issue 1 — TABLE_FLOW silently dropped in BFS (P1, critical)**
 
-**2. Seed matching uses fragile fuzzy rules instead of table-first lookup.**
+`lineage.py:140-178`: the if/elif chain has no clause for TABLE_FLOW. It's not in `_BIDIR`, not in DML/SCHEMA/JOIN/FILTER. Falls through → `should_add` stays False → neighbor never added.
 
-Current seed search (lines 933-951):
 ```python
-full_name = f"{target_table}.{target_field}"
-# Rule 1: label == "stg_customers.customer_id"  → seed
-# Rule 2: label == "customer_id"                → seed  
-# Rule 3: label == "c.customer_id"              → seed (ANY table!)
-# Rule 4: "customer_id" in source_columns       → seed
-```
-Rule 3 matches any table's column with the right suffix — even columns from unrelated tables. No validation that the table exists or that the field belongs to it.
+# line 151-152: _BIDIR = _PRODUCTION | _ALWAYS_BIDIR
+# _PRODUCTION = {"REF","TRANSFORM","AGGREGATE","WINDOW","COMPUTED","DML","ALIAS"}
+# _ALWAYS_BIDIR = {"CORRELATED","INDIRECT","SET_OP","SUBSET"}
+# → TABLE_FLOW NOT in either set
 
-**3. TABLE_FLOW in _BIDIR propagates all source tables unconditionally** (line 929):
-```python
-_ALWAYS_BIDIR = {"TABLE_FLOW", "CORRELATED", "INDIRECT", "SET_OP", "SUBSET"}
-```
-TABLE_FLOW bridges source tables into the output container → SCHEMA adds all columns → everything enters R.
-
-### Solution — 4 steps
-
-**Step 1 — Construct initial R (table-first validated seed):**
-
-Find the table node by exact name. Find a field within that table connected via SCHEMA. If either missing, return empty (invalid search). Initial R = {field_node}.
-
-**Step 2 — Expand R by BFS with edge-type rules:**
-
-For each node in R, walk its edges. Production edges (REF/TRANSFORM/AGGREGATE/WINDOW/COMPUTED/DML/ALIAS) propagate bidirectionally. SCHEMA↑ (column→table) always, SCHEMA↓ (table→column) only if column has production edge from R. TABLE_FLOW/JOIN/FILTER conditional. R stabilizes when no new nodes added.
-
-**Step 3 — Filter graph to R:**
-
-Keep nodes in R, keep edges where both endpoints in R. No post-filter by name — the BFS rules intrinsically exclude unrelated fields via production-filtered propagation.
-
-**Step 4 — Wire into pipeline:**
-
-`dataflow.py`: extract `lineage_mode` from body, pass to `create_search`. `create_search`: when `lineage_mode=true`, call `filter_relevant()` on each script's graph.
-
-### Implementation changes
-
-**A — Remove post-filter** (`dataflow_service.py:1070-1093`):
-Delete the entire "Post-BFS column filtering" block — it's a workaround for broken rules. With correct BFS, columns enter R only via production edges.
-
-**B — Fix seed matching** (`dataflow_service.py:933-951`):
-```python
-# Step 1: Find table node
-table_node = None
-for n in nodes:
-    nd = n.get("data", n)
-    if nd.get("label") == target_table and nd.get("variable_type") == "table":
-        table_node = nd; break
-if not table_node: return set()
-
-# Step 2: Find field connected to table via SCHEMA
-table_id = table_node.get("id")
-seed_ids = set()
-for n in nodes:
-    nd = n.get("data", n)
-    if target_field in nd.get("label", ""):
-        for e in edges:
-            ed = e.get("data", e)
-            if (ed.get("source") == table_id and ed.get("target") == nd.get("id")
-                and ed.get("edge_type") == "SCHEMA"):
-                seed_ids.add(nd.get("id")); break
-if not seed_ids: return set()
+# No TABLE_FLOW clause in the if/elif chain:
+if etype == "DML":        ...     # line 142
+elif etype in _BIDIR:     ...     # line 151 — TABLE_FLOW NOT matched
+elif etype == "SCHEMA":   ...     # line 153
+elif etype == "JOIN":     ...     # line 163
+elif etype == "FILTER":   ...     # line 171
+# TABLE_FLOW → falls through → never added
 ```
 
-**C — Move TABLE_FLOW out of unconditional** (line 929):
+Impact: BFS can't cross TABLE_FLOW edges → can't reach source tables through output containers → lineage chain broken at the SELECT boundary. Fields that should be included are excluded instead.
+
+**Fix:** Add TABLE_FLOW conditional clause before the fallthrough:
 ```python
-_ALWAYS_BIDIR = {"CORRELATED", "INDIRECT", "SET_OP", "SUBSET"}
+elif etype == "TABLE_FLOW":
+    # Conditional: only add when source has a column in R via production
+    for (n2, e2, d2) in adj.get(neighbor, []):
+        if n2 in R and e2 in _PRODUCTION:
+            should_add = True; break
 ```
 
-**D — Wire lineage_mode into create_search** (`dataflow.py:67-76`, `dataflow_service.py:24`):
+---
+
+**Issue 2 — Seed matching still has fuzzy fallback (P2)**
+
+`lineage.py:110-118`: when SCHEMA-validated lookup finds nothing, falls back to old fuzzy label matching:
 ```python
-# dataflow.py
-lineage_mode = body.get("lineage_mode", False)
-result = create_search(ws_id, table, field, ti, fi, lineage_mode=lineage_mode)
+# Fallback: simple field-name match
+if not seed_ids:
+    for n in nodes:
+        nd = n.get("data", n)
+        label = nd.get("label", "")
+        if label == full_name or label == target_field:  # ← matches ANY table
+            seed_ids.add(nd.get("id"))
+        elif "." in label and label.rsplit(".", 1)[-1] == target_field:
+            seed_ids.add(nd.get("id"))  # ← matches ANY table's column
+```
+The fallback bypasses the table validation. If the queried table doesn't exist in the graph, a column from an unrelated table could silently become the seed.
+
+**Fix:** Remove the fallback block (lines 110-118). If SCHEMA-validated lookup finds nothing, return empty — the table or field doesn't exist in this script's graph. That's correct behavior.
+
+---
+
+**Issue 3 — `infer_table_schemas` not used for seed lookup (P3)**
+
+`schema_inference.py` builds `table_schemas` and stores it in the analysis result. But `compute_field_lineage` in `lineage.py` doesn't use it — it still does its own SCHEMA-based node search at lines 70-108. The spec says seed lookup should use `table_schemas` (O(1) dict check: does this table exist? does this field belong to it?).
+
+**Fix:** Pass `table_schemas` into `compute_field_lineage` and validate there:
+```python
+def compute_field_lineage(graph_data, target_table, target_field, table_schemas=None):
+    if table_schemas:
+        if target_table not in table_schemas:
+            return set()
+        if target_field not in table_schemas[target_table]:
+            return set()
+        # table + field validated → proceed to find seed node in graph
+```
+
+### Files
+
+- `backend/app/extractor/lineage.py:140-178` — add TABLE_FLOW clause (Issue 1)
+- `backend/app/extractor/lineage.py:110-118` — remove fuzzy fallback (Issue 2)
+- `backend/app/extractor/lineage.py:18-19` — accept table_schemas parameter (Issue 3)
+- `backend/app/extractor/schema_inference.py` — ✅ done
 
 # dataflow_service.py
 def create_search(ws_id, table, field, ti, fi, lineage_mode=False):

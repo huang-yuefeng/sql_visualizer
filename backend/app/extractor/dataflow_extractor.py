@@ -68,7 +68,7 @@ def extract_script_dataflow(
     # Phase 5: lineage computation (if target specified)
     lineage_set = None
     if target_table and target_field and lineage_mode:
-        lineage_set = compute_field_lineage(graph_data, target_table, target_field)
+        lineage_set = compute_field_lineage(graph_data, target_table, target_field, table_schemas)
         _log.info(f'R18 lineage: {len(lineage_set)} nodes in lineage '
                   f'(out of {len(graph_data.get("nodes",[]))} total)')
 
