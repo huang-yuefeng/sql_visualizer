@@ -130,6 +130,7 @@ async def upload_filter_config(ws_id: str,
     allowed_scripts = None  # None = no filter
     allowed_tables = None
     allowed_columns = None
+    script_table_tables = None  # for scope expansion check
 
     # ── R16: Filter diagnostic logging ──
     diag_lines = []
@@ -167,6 +168,7 @@ async def upload_filter_config(ws_id: str,
         diag_lines.append(("profile", f"│   Parsed: {len(allowed_scripts)} scripts, {len(allowed_tables)} tables".ljust(79)+"│"))
         if row_count == 0:
             diag_lines.append(("profile", f"│ ⚠ No data parsed. Check headers: SCRIPT_NAME, TABLE_NAME".ljust(79)+"│"))
+        script_table_tables = set(allowed_tables) if allowed_tables else set()
 
     if table_col and table_col.filename:
         raw = (await table_col.read()).decode("utf-8", errors="replace")
@@ -240,6 +242,14 @@ async def upload_filter_config(ws_id: str,
         "field_index": filtered_fi,
     }, indent=2))
 
+    # ── R16: Scope expansion warning ──
+    if script_table_tables is not None and allowed_tables is not None:
+        new_tables = allowed_tables - script_table_tables
+        if len(new_tables) > 0:
+            diag_lines.append(("profile", ("│ ⚠ table_col.csv added %s new tables not in script_table scope" % len(new_tables)).ljust(79)+"│"))
+            diag_lines.append(("profile", ("│   (%s from script_table + %s from table_col = %s total)" % (
+                len(script_table_tables), len(new_tables), len(allowed_tables))).ljust(79)+"│"))
+            diag_lines.append(("profile", "│   Consider: move tables from table_col to script_table instead".ljust(79)+"│"))
     # ── R16: Diagnostic result ──
     diag_lines.append(("profile", f"│ Result: {len(filtered_ti)} tables, {len(filtered_fi)} fields in filtered index".ljust(79)+"│"))
     diag_lines.append(("profile", f"└{'─'*78}┘"))

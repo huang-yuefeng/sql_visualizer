@@ -558,7 +558,7 @@ Each edge type has dedicated tests verifying its creation, plus regression tests
 
 ## R16 — Filter CSV Diagnostic Logging
 
-> **Priority:** P2 | **Status:** ✅ Implemented | **Version:** v3.3.87 | **Date:** 2026-07-27
+> **Priority:** P2 | **Status:** ✅ Implemented | **Version:** v3.3.94 | **Date:** 2026-07-27
 
 **Description:** When user uploads filter CSV files (script→table, table→column), emit a diagnostic profile block to the LogPanel showing what was parsed — so the user can screenshot it for remote debugging when the filter returns unexpected results (e.g., "0 tables, 0 fields").
 
@@ -648,7 +648,7 @@ The diagnostic block correctly shows parsed data, but matching fails even after 
 |----------|-------------|---------|------------|
 | Path prefix | `folder/script.sql` | `script.sql` | ✅ Fixed (basename) |
 | Path prefix (reversed) | `script.sql` | `folder/script.sql` | ✅ Fixed (basename) |
-| **File extension** | `script.sql` | `script` | ❌ Not fixed |
+| **File extension** | `script.sql` | `script` | ✅ Fixed (v3.3.91) |
 
 The CSV script names lack the `.sql` extension. The index stores `script_name.sql`, but the CSV has `script_name`. The `basename` fix doesn't cover extension mismatch.
 
@@ -666,6 +666,23 @@ if sn:
 ```
 
 This handles all three mismatch cases: path prefix (both directions) and missing file extension.
+
+### Filter Diagnostic: Scope Expansion Warning
+
+When both `script_table.csv` and `table_col.csv` are uploaded, the diagnostic should warn if `table_col.csv` introduces many new tables not in `script_table.csv`'s scope:
+
+```
+┌─ FILTER DIAGNOSTIC ───────────────────────────────────────────────────┐
+│ File 1 (script_table): ... rows=48  Parsed: 96 scripts, 8 tables       │
+│ File 2 (table_col): ... rows=3136  Parsed: 2385 columns, 81 tables     │
+│ ⚠ table_col.csv added 73 new tables not in script_table scope          │
+│   (8 from script_table + 73 from table_col = 81 total in scope)        │
+│   Consider: move tables from table_col to script_table instead          │
+│ Result: 60 tables, 537 fields in filtered index                         │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+This tells the user: "Your `table_col.csv` is adding 73 extra tables. If you want only 8 tables, move those table names to `script_table.csv` instead."
 
 ---
 
