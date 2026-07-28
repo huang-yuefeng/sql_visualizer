@@ -100,6 +100,129 @@ The visualization should handle cycles by using layered layout (topological sort
 
 ---
 
+## Column Flow Extraction
+
+### Purpose
+
+After variable extraction, build a complete `table_schemas` mapping from every table to its known columns. This is the foundation for field-level data flow — a column exists in the data flow if and only if it can be inferred to belong to a table.
+
+### Algorithm
+
+Iterative stabilization over 8 passes. Repeat all passes until no table gains new columns:
+
+```python
+def infer_table_schemas(variables, dependencies):
+    schemas = {}  # {table_name: {column_name, ...}}
+    
+    changed = True
+    while changed:
+        prev_sizes = {t: len(c) for t, c in schemas.items()}
+        
+        # Pass 1: SCHEMA — table owns column
+        for edge in dependencies:
+            if edge.relationship == "SCHEMA":
+                table = resolve_name(edge.source)
+                col = resolve_name(edge.target)
+                schemas.setdefault(table, set()).add(col)
+        
+        # Pass 2: DML — column flows into table
+        for edge in dependencies:
+            if edge.relationship == "DML":
+                col = resolve_name(edge.source)
+                table = resolve_name(edge.target)
+                schemas.setdefault(table, set()).add(col)
+        
+        # Pass 3-5: Inheritance — output container inherits source columns
+        for rel in ("TABLE_FLOW", "JOIN", "SET_OP"):
+            for edge in dependencies:
+                if edge.relationship == rel:
+                    src = resolve_name(edge.source)
+                    tgt = resolve_name(edge.target)
+                    if src in schemas:
+                        schemas.setdefault(tgt, set()).update(schemas[src])
+        
+        # Pass 6: ALIAS — original inherits to alias
+        for edge in dependencies:
+            if edge.relationship == "ALIAS":
+                original = resolve_name(edge.source)
+                alias = resolve_name(edge.target)
+                if original in schemas:
+                    schemas[alias] = schemas[original].copy()
+        
+        # Pass 7: Clean — strip "table." prefix
+        cleaned = {}
+        for table, cols in schemas.items():
+            cleaned[table] = set()
+            for col in cols:
+                cleaned[table].add(col.split(".")[-1] if "." in col else col)
+        schemas = cleaned
+        
+        # Check stabilization
+        new_sizes = {t: len(c) for t, c in schemas.items()}
+        if new_sizes == prev_sizes:
+            changed = False
+    
+    return schemas
+```
+
+### Column-Carrying Edges
+
+| Edge | Direction | Example | Pass |
+|------|-----------|---------|------|
+| SCHEMA | table → column | `c` owns `c.customer_id` | 1 |
+| DML | column → table | `c.customer_id` flows into `stg_customers` | 2 |
+| TABLE_FLOW | source → output | `c`'s columns → `⟐ output` | 3 |
+| JOIN | table → output | `so`'s columns → JOIN result | 4 |
+| SET_OP | branch → parent | UNION branch → combined result | 5 |
+| ALIAS | original → alias | `crm_customers` inherits `c`'s schema | 6 |
+
+Edges that do NOT carry column ownership: REF, TRANSFORM, AGGREGATE, WINDOW, COMPUTED, FILTER, INDIRECT, SUBSET, CORRELATED. These describe data flow operations but not structural column-to-table relationships.
+
+### Iterative Propagation
+
+Columns propagate through multi-hop chains. For example:
+
+```
+crm_customers ──[ALIAS]──> c ──[TABLE_FLOW]──> ⟐ output
+                                                │
+                                          [SCHEMA]
+                                                ▼
+                                          c.customer_id ──[DML]──> stg_customers
+```
+
+Single-pass processing fails if edges are processed out of order. The `while changed` loop guarantees all chains resolve regardless of edge order.
+
+### Worked Example
+
+For step2 (`INSERT INTO stg_customers SELECT c.customer_id, ... FROM crm_customers c`):
+
+```
+Iteration 1:
+  Pass 1 (SCHEMA):    c → {c.customer_id, c.full_name, c.segment, c.region, c.is_active}
+                       ⟐ output → {c.customer_id, c.full_name, c.segment, c.region}
+  Pass 2 (DML):       stg_customers → {c.customer_id, c.full_name, c.segment, c.region}
+  Pass 3-5:           (no new inheritance chains yet)
+  Pass 6 (ALIAS):     crm_customers inherits c → {c.customer_id, ...c.is_active}
+  Pass 7 (clean):     c → {customer_id, full_name, segment, region, is_active}
+                       ⟐ output → {customer_id, full_name, segment, region}
+                       stg_customers → {customer_id, full_name, segment, region}
+                       crm_customers → {customer_id, full_name, segment, region, is_active}
+  Sizes changed → continue
+
+Iteration 2:
+  No new edges to propagate → sizes stable → done.
+  
+Result:
+  table_schemas = {
+    "crm_customers": {customer_id, full_name, segment, region, is_active},
+    "c":             {customer_id, full_name, segment, region, is_active},
+    "stg_customers": {customer_id, full_name, segment, region},
+    "⟐ output":      {customer_id, full_name, segment, region},
+  }
+```
+
+---
+
 ## Field-Level Data Flow
 
 When a user queries a specific field (`table=T, field=Y`), the L1 and L2 graphs are filtered to show only nodes and edges on the data flow path of field Y. UI/UX unchanged — same graph structure, same L1/L2 interactions, fewer elements.
