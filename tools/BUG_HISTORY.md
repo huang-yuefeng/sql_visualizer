@@ -1082,3 +1082,29 @@ if tn:
 ```
 
 **Files:** `backend/app/routers/workspace.py:139-142`
+
+---
+
+## Bug 16: Graph Shadows Behind Loading — Upload Path Not Fixed — FIXED ✅ v3.3.91
+
+> **Found:** v3.3.89 | **Priority:** P2 | **Status:** Closed
+
+Bug 14 fix only covered handleSearch. Upload path (handleUpload:68) and L2 path (handleOpenL2:157) didn't clear graph before setLoading(true).
+
+**Fix:** Added setL1Graph(null); setL2Graph(null) before setLoading(true) at all loading entry points (lines 68, 157, 419, 434).
+
+**Files:** frontend/src/DataFlowApp.jsx:68,157,419,434
+
+---
+
+## Bug 17: Filter Does Not Narrow Autocomplete — FIXED ✅ v3.3.93
+
+> **Found:** v3.3.92 | **Priority:** P1 | **Status:** Closed
+
+**Symptom:** After filter CSV applied, autocomplete still showed full index (12 tables instead of 5).
+
+**Fix:** `onFilterApplied` callback in DataFlowApp:437-454 — after filter, rebuilds `tableIndex`/`fieldIndex` from `fullTableIndex`/`fullFieldIndex` using `filterResult.filtered_tables`/`filtered_fields` returned by backend. On clear, restores full index.
+
+**Verified:** 12→5 tables, fields narrowed to 6 ✅
+
+**Files:** `frontend/src/DataFlowApp.jsx:437-454`, `backend/app/routers/workspace.py:253-254`

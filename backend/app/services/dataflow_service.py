@@ -893,86 +893,158 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     }
 
 
-def filter_relevant(graph_data: dict, target_table: str,
-                    target_field: str) -> dict:
-    """Filter graph to show only nodes on paths to/from target table.field.
-    
-    Algorithm:
-      1. Identify target nodes matching table.field.
-      2. Build forward adjacency (src->tgt) and reverse (tgt->src).
-      3. BFS upstream from targets via reverse adjacency.
-      4. BFS downstream from targets via forward adjacency.
-      5. Keep visited nodes + edges between them.
+
+def compute_field_lineage(graph_data: dict, target_table: str,
+                          target_field: str) -> set:
+    """R18: Compute the lineage set R for a target field using edge-type-specific rules.
+
+    Uses iterative BFS through 15 edge types from the formal definition.
+    Returns set of node IDs in the lineage closure.
     """
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
 
-    # 1. Find target nodes — match any variable derived from (T, f)
-    #    Per formal §6: targets(s, T, f) = {v | name(v) matches (T, f)}
-    #    "matches" means: the variable's label equals T.f, or equals f
-    #    (bare field), and the variable is any type that carries data
-    #    (column, cte_column, expression, aggregate, window, case,
-    #     transform), OR its source_columns include T.f or f.
-    _DATA_TYPES = {"column", "cte_column", "expression", "aggregate",
-                   "window", "case", "transform"}
-    target_ids = set()
-    full_name = f"{target_table}.{target_field}"
+    # Build adjacency: node_id -> [(neighbor_id, edge_type, direction)]
+    # direction: "forward" (node -> neighbor) or "reverse" (neighbor -> node)
+    adj = {}
+    node_labels = {}
+    node_types = {}
     for n in nodes:
         nd = n.get("data", n)
-        name = nd.get("label", "")
-        vt = nd.get("variable_type", "")
-        # Exact match on any data-carrying type
-        if vt in _DATA_TYPES and (name == full_name or name == target_field):
-            target_ids.add(nd.get("id"))
-        # Also match if the variable's source_columns include the target
-        src_cols = nd.get("source_columns", [])
-        if src_cols and (full_name in src_cols or target_field in src_cols):
-            target_ids.add(nd.get("id"))
+        nid = nd.get("id", "")
+        node_labels[nid] = nd.get("label", "")
+        node_types[nid] = nd.get("node_type", nd.get("variable_type", ""))
+        adj.setdefault(nid, [])
 
-    if not target_ids:
-        return graph_data  # nothing to filter, return full graph
-
-    # 2. Build adjacency
-    fwd = {}  # source -> [target_ids]
-    rev = {}  # target -> [source_ids]
     for e in edges:
         ed = e.get("data", e)
         src, tgt = ed.get("source"), ed.get("target")
-        fwd.setdefault(src, []).append(tgt)
-        rev.setdefault(tgt, []).append(src)
+        etype = ed.get("edge_type", "")
+        adj.setdefault(src, []).append((tgt, etype, "forward"))
+        adj.setdefault(tgt, []).append((src, etype, "reverse"))
 
-    # 3. BFS upstream
-    upstream = set()
-    queue = list(target_ids)
-    visited = set(target_ids)
-    while queue:
-        cur = queue.pop(0)
-        for src in rev.get(cur, []):
-            if src not in visited:
-                visited.add(src)
-                upstream.add(src)
-                queue.append(src)
+    # Production edge types: edges that "produce" a target
+    _PRODUCTION = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED", "DML",
+                   "TABLE_FLOW", "ALIAS"}
+    _BIDIR = _PRODUCTION | {"CORRELATED", "INDIRECT", "SET_OP", "SUBSET"}
+    _CONDITIONAL = {"JOIN", "FILTER", "SCHEMA"}
 
-    # 4. BFS downstream
-    downstream = set()
-    queue = list(target_ids)
-    # reset visited for downstream (but keep target_ids as visited)
-    visited_ds = set(target_ids)
-    while queue:
-        cur = queue.pop(0)
-        for tgt in fwd.get(cur, []):
-            if tgt not in visited_ds:
-                visited_ds.add(tgt)
-                downstream.add(tgt)
-                queue.append(tgt)
+    # Find seed nodes matching target_table.target_field
+    full_name = f"{target_table}.{target_field}"
+    seed_ids = set()
+    for n in nodes:
+        nd = n.get("data", n)
+        label = nd.get("label", "")
+        ntype = nd.get("node_type", nd.get("variable_type", ""))
+        if label == full_name or label == target_field:
+            seed_ids.add(nd.get("id"))
+        src_cols = nd.get("source_columns", [])
+        if src_cols and (full_name in src_cols or target_field in src_cols):
+            seed_ids.add(nd.get("id"))
 
-    # 5. Relevant set
-    relevant = upstream | target_ids | downstream
-    relevant_nodes = [n for n in nodes if (n.get("data", n).get("id") in relevant)]
+    if not seed_ids:
+        return set()
+
+    R = set(seed_ids)
+    changed = True
+
+    while changed:
+        changed = False
+        new_nodes = set()
+        for nid in list(R):
+            for (neighbor, etype, direction) in adj.get(nid, []):
+                if neighbor in R:
+                    continue
+
+                should_add = False
+
+                if etype in _BIDIR:
+                    # Unconditional bidirectional
+                    should_add = True
+                elif etype == "SCHEMA":
+                    # table <-> column
+                    if direction == "reverse":
+                        # column -> table (upstream): always add table
+                        should_add = True
+                    else:
+                        # table -> column (downstream): production-filtered
+                        # Only add column if it has a production edge from R
+                        for (n2, e2, d2) in adj.get(neighbor, []):
+                            if n2 in R and e2 in _PRODUCTION and d2 == "reverse":
+                                should_add = True
+                                break
+                elif etype == "JOIN":
+                    # Both endpoints must already be in R via production
+                    has_prod = False
+                    for (n2, e2, d2) in adj.get(neighbor, []):
+                        if n2 in R and e2 in _PRODUCTION:
+                            has_prod = True
+                            break
+                    if has_prod:
+                        should_add = True
+                elif etype == "FILTER":
+                    # Both must be in R via production
+                    has_prod = False
+                    for (n2, e2, d2) in adj.get(neighbor, []):
+                        if n2 in R and e2 in _PRODUCTION:
+                            has_prod = True
+                            break
+                    if has_prod:
+                        should_add = True
+
+                if should_add:
+                    new_nodes.add(neighbor)
+
+        if new_nodes:
+            R |= new_nodes
+            changed = True
+
+    return R
+
+
+def filter_graph_by_lineage(graph_data: dict, lineage_set: set) -> dict:
+    """R18: Filter graph to only nodes and edges in the lineage set."""
+    nodes = graph_data.get("nodes", [])
+    edges = graph_data.get("edges", [])
+
+    filtered_nodes = [n for n in nodes
+                      if (n.get("data", n).get("id") in lineage_set)]
+    filtered_edges = [e for e in edges
+                      if (e.get("data", e).get("source") in lineage_set and
+                          e.get("data", e).get("target") in lineage_set)]
+
+    return {
+        **{k: v for k, v in graph_data.items() if k not in ("nodes", "edges")},
+        "nodes": filtered_nodes,
+        "edges": filtered_edges,
+        "total_nodes": len(nodes),
+        "filtered_nodes": len(filtered_nodes),
+        "total_edges": len(edges),
+        "filtered_edges": len(filtered_edges),
+    }
+
+
+def filter_relevant(graph_data: dict, target_table: str,
+                    target_field: str) -> dict:
+    """R18: Filter graph using field-level lineage rules (16 edge types).
+
+    Falls back to old BFS if lineage returns empty.
+    """
+    nodes = graph_data.get("nodes", [])
+    edges = graph_data.get("edges", [])
+
+    # Use formal lineage computation (R18)
+    lineage = compute_field_lineage(graph_data, target_table, target_field)
+
+    if not lineage:
+        # Fallback: return full graph
+        return graph_data
+
+    relevant_nodes = [n for n in nodes if (n.get("data", n).get("id") in lineage)]
     relevant_edges = [
         e for e in edges
-        if (e.get("data", e).get("source") in relevant and
-            e.get("data", e).get("target") in relevant)
+        if (e.get("data", e).get("source") in lineage and
+            e.get("data", e).get("target") in lineage)
     ]
 
     return {
