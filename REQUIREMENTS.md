@@ -751,3 +751,85 @@ If filter is NOT active, show the full index scope instead:
 - [x] Works when filter is active AND when filter is cleared
 - [x] Clearly distinguishes "table/field not in filter scope" vs "no matching scripts"
 - [x] Block is photographable (80-char width, ASCII box)
+
+---
+
+## R18 — Field-Level Data Flow Extraction
+
+> **Priority:** P2 | **Status:** Implemented (v3.3.95) | **Date:** 2026-07-28
+
+**Description:** When a user searches for a specific field (`table=T, field=Y`), filter both L1 and L2 graphs to show only nodes and edges on the data flow path of field Y. UI/UX unchanged — same graph, same L1/L2 interactions, fewer elements.
+
+### Formal Definition
+
+See [`wiki/DATAFLOW_FORMAL_DEFINITION.md`](../wiki/DATAFLOW_FORMAL_DEFINITION.md) — Field-Level Data Flow section for the complete 16 edge-type rule table, Lineage Set R definition, worked example, and design framework.
+
+See [`wiki/REQUIREMENTS_TRACEABILITY.md`](../wiki/REQUIREMENTS_TRACEABILITY.md) — for traceability mapping.
+
+### Design Framework
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ EXISTING                                                  │
+│ search_dataflow(table, field)                             │
+│   → find scripts involving table                         │
+│   → build L1 graph (scripts + table nodes)               │
+│   → build L2 graph (per-script: tables + fields + edges) │
+├──────────────────────────────────────────────────────────┤
+│ NEW                                                       │
+│ compute_field_lineage(Y, graph)                           │
+│   → BFS from Y through 16 edge-type-specific rules       │
+│   → returns lineage set R (fields + tables + scripts)    │
+│                                                           │
+│ filter_graph(graph, R)                                    │
+│   → keep nodes ∈ R, drop rest                            │
+│   → keep edges where both endpoints ∈ R                  │
+│   → same structure, fewer elements                       │
+│                                                           │
+│ search_dataflow(table, field, lineage_mode=true)          │
+│   → same pipeline + field-level filter at the end        │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Lineage Set R
+
+R is the transitive closure of queried field Y, computed by applying 16 edge-type-specific rules. Key principles:
+
+- **Production edges** (REF/TRANSFORM/AGGREGATE/WINDOW/COMPUTED/DML): propagate bidirectionally
+- **Structural edges** (SCHEMA/ALIAS/TABLE_FLOW): provide context, SCHEMA↓ is production-filtered
+- **Conditional edges** (JOIN/FILTER): only include nodes already in R via production edges
+- **Always edges** (SUBSET/SET_OP/CORRELATED/INDIRECT): always followed for connectivity
+
+### What Changes
+
+| | Current | Desired |
+|---|---|---|
+| L1 graph | All scripts + fields for table T | Only fields in Y's lineage chain |
+| L2 graph | All fields in table T | Only Y's upstream sources + downstream targets |
+| UI/UX | Click L1→L2, click edge→SQL | Unchanged |
+| Unrelated same-table fields | Shown | Hidden |
+
+### Example
+
+`INSERT INTO stg_customers SELECT c.customer_id, c.full_name, c.segment FROM crm_customers c WHERE c.region='NA'`
+**Query:** `table=stg_customers, field=customer_id`
+
+| Field | Shown? | Reason |
+|-------|--------|--------|
+| `stg_customers.customer_id` | ✅ | Seed |
+| `c.customer_id` | ✅ | DML ↑ produces it |
+| `c.full_name` | ❌ | No production edge connects to customer_id |
+| `c.segment` | ❌ | Same |
+| `c.region` | ❌ | FILTER only, no production edge |
+
+### Implementation
+
+1. `dataflow_service.py`: `compute_field_lineage(Y, graph)` — BFS with 16 edge rules
+2. `dataflow_service.py`: `filter_graph(graph, R)` — filter to lineage set
+3. `dataflow.py`: add `lineage_mode` to `search_dataflow`
+
+### Files
+
+- `wiki/DATAFLOW_FORMAL_DEFINITION.md` — ✅ formal definition with 16 edge-type rules (done)
+- `backend/app/services/dataflow_service.py` — `compute_field_lineage()`, `filter_graph()`
+- `backend/app/routers/dataflow.py` — `lineage_mode` parameter
