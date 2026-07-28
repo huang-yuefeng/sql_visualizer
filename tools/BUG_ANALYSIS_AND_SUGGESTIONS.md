@@ -1,6 +1,6 @@
 # Data Flow Debugger — Open Bug List
 
-> **Date:** 2026-07-28 | **Version:** 3.3.95 | **Active:** 3 (1 partial)
+> **Date:** 2026-07-28 | **Version:** 3.3.100 | **Active:** 2 (1 partial)
 >
 > Fixed bugs (1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) moved to [`BUG_HISTORY.md`](BUG_HISTORY.md).
 
@@ -12,7 +12,7 @@
 |-----|----------|--------|-------|
 | Bug 3: Edge Ranges Overlap | P2 | 🔧 PARTIALLY FIXED | step3: 2 lines; step4: 1 line (same-type co-location) |
 | Bug 16: Graph Shadows in Loading | P2 | Open | Likely skeleton placeholders, not real graph |
-| Bug 18: R18 Field-Level Lineage | P2 | Open (4 issues) | table_schemas not wired + doc/code mismatch + dead edge scan |
+| Bug 18: R18 Field-Level Lineage | P1 | ✅ FIXED (v3.3.100) | All 4 issues resolved: table_schemas wired, docstring fixed, seed simplified |
 
 ---
 
