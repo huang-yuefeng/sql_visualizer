@@ -157,16 +157,4 @@ Node types are grouped into these categories for frontend filtering:
 | Set Operation | union_branch | Grey |
 | Computed Value | aggregate, window, case, transform, expression | Teal/Purple/Orange/Pink/Yellow |
 | Literal | literal | Grey |
-
----
-
-## Version History
-
-- v2.1.0: Renamed types to align with SQL data objects:
-  - database_table → table, table_column → column, cte_table → cte
-  - intermediate → expression, window_result → window, case_result → case
-  - function_result → transform, subquery_result → subquery
-  - Added categories and display names
-- v2.0.0: Edge types renamed to SQL-meaningful names (14 types)
-- v1.x: Original type system
 """

@@ -1,6 +1,6 @@
 # Data Flow Debugger — Open Bug List
 
-> **Date:** 2026-07-27 | **Version:** 3.3.89 | **Active:** 1 partial (Bug 3)
+> **Date:** 2026-07-27 | **Version:** 3.3.93 | **Active:** 2 (1 partial)
 >
 > Fixed bugs (1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) moved to [`BUG_HISTORY.md`](BUG_HISTORY.md).
 
@@ -11,6 +11,7 @@
 | Bug | Priority | Status | Notes |
 |-----|----------|--------|-------|
 | Bug 3: Edge Ranges Overlap | P2 | 🔧 PARTIALLY FIXED | step3: 2 lines; step4: 1 line (same-type co-location) |
+| Bug 16: Graph Shadows in Loading | P2 | Open | Likely skeleton placeholders, not real graph |
 
 ---
 
@@ -65,9 +66,29 @@ Would resolve remaining Bug 3 overlap. Already partially done.
 ### Simplification 3: Extract L2 graph builder
 
 `dataflow_service.py` at ~1950 lines → split out `l2_graph_builder.py` (~700 lines).
----
 
 ---
 
----
+## Bug 16: Graph Shadows Visible During Loading — Confirmed
 
+> **Found:** v3.3.89 | **Priority:** P2 | **Status:** Open
+
+**Confirmed by pixel analysis of background.png (1905×837):**
+
+| Graph element | Color | Pixel count | Matches |
+|--------------|-------|-------------|---------|
+| Blue rectangles | RGB(0,120,240) | 252 px | SCHEMA edges (#3498DB) |
+| Green lines | RGB(30,240,120) | 163 px | TABLE_FLOW edges (#2ECC71) |
+| Horizontal segments | ≥30px | 138 | Edge lines |
+| Vertical segments | ≥10px | 1332 | Node borders |
+| Total bright pixels | >dark bg | 9750 px | Graph artifacts |
+
+The Cytoscape graph colors (blue SCHEMA, green TABLE_FLOW) are definitively present in the loading screen background. The `setL1Graph(null)` before `setLoading(true)` fix at upload/search paths isn't sufficient — the graph elements appear from a different source.
+
+**DOM trace (first visit, during loading):** Zero canvases, zero Cytoscape containers, zero `.graph-canvas` elements. The graph is NOT persisting — it's properly cleared before loading.
+
+**Revised analysis:** The "slight rects and lines" are likely the **skeleton component's own CSS placeholders** — `.skeleton-node` (60×24px rounded rectangles, `background:#444`) and `.skeleton-edge` (2px lines, `background:#555`). These are designed to preview the graph layout during loading. Combined with green upload buttons (#2ECC71) and blue UI accents (#3498DB) visible elsewhere on the page, they create the impression of graph shadows.
+
+**If actual Cytoscape colors appear**: Check whether the SQL Analysis tab's `PersistentPanel` (AppShell:26-36) has a loaded graph — switching tabs uses `display:none` which hides but doesn't unmount Cytoscape. Loading new data in DataFlow tab would show the old SQL Analysis graph through the skeleton's transparent background... actually the skeleton background is opaque `#1a1a2e` now. This shouldn't happen.
+
+**Files:** `frontend/src/styles/app.css:472-474` (skeleton styling), `frontend/src/AppShell.jsx:26-36` (PersistentPanel)
