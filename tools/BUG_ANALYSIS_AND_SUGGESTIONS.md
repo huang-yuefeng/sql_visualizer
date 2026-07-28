@@ -12,7 +12,7 @@
 |-----|----------|--------|-------|
 | Bug 3: Edge Ranges Overlap | P2 | 🔧 PARTIALLY FIXED | step3: 2 lines; step4: 1 line (same-type co-location) |
 | Bug 16: Graph Shadows in Loading | P2 | Open | Likely skeleton placeholders, not real graph |
-| Bug 18: R18 Lineage Not Filtering | P2 | ✅ FIXED v3.3.95 | edge_type→relationship, seed matching, field-level filtering |
+| Bug 18: R18 Lineage Not Filtering | P1 | Open | lineage_mode returns same 47 nodes as full mode |
 
 ---
 
@@ -96,43 +96,106 @@ The Cytoscape graph colors (blue SCHEMA, green TABLE_FLOW) are definitively pres
 
 ---
 
-## Bug 18: R18 Lineage Not Filtering — ✅ FIXED v3.3.95
+## Bug 18: R18 Lineage Not Filtering — NOT FIXED (re-test failed)
 
-> **Found:** v3.3.95 | **Priority:** P2 | **Status:** Fixed
+> **Found:** v3.3.95 | **Priority:** P1 | **Status:** Open
 
-**Root causes (3 issues):**
-1.  key mismatch — graph uses , code read  → all types empty
-2. Seed matching failed for qualified names ( ≠ )
-3. DML edges target tables not columns → field-level lineage impossible via BFS alone
+**Symptom:** `lineage_mode=true` returns same 47 nodes as `lineage_mode=false`. All fields shown.
 
-**Fixes:**
-1. Changed  to 
-2. Added suffix matching in  seed detection
-3. Added post-BFS column filtering by target field name in 
-4. Moved TABLE_FLOW from  to  (structural, not production)
-5. DML: forward always, reverse conditional on non-DML production from R
+### Root causes (3 issues)
 
-**Verification (crm_customers.customer_id):**
-- step1: 4/5 nodes (1 field: customer_id) ✓
-- step2: 4/5 nodes (1 field: customer_id) ✓  
-- step3: 6/8 nodes (2 fields: customer_id from both tables) ✓
+**1. Lineage never called from L1 search pipeline.**
 
-**Original symptom:** `lineage_mode=true` returns same 47 nodes as `lineage_mode=false`. All fields shown regardless of lineage.
+`dataflow.py:76` doesn't read `lineage_mode` from request body and doesn't pass it to `create_search()`. `create_search()` signature has no `lineage_mode` parameter. The three lineage functions (`compute_field_lineage`, `filter_relevant`, `filter_graph_by_lineage` at lines 897-1063) are dead code for L1.
 
-**Root cause:** `dataflow_service.py:928-929` — `TABLE_FLOW` is in `_PRODUCTION` and `_BIDIR` sets, making it propagate unconditionally:
+**2. Seed matching uses fragile fuzzy rules instead of table-first lookup.**
+
+Current seed search (lines 933-951):
 ```python
-_PRODUCTION = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED", "DML",
-               "TABLE_FLOW", "ALIAS"}       # ← TABLE_FLOW shouldn't be here
-_BIDIR = _PRODUCTION | {"CORRELATED", "INDIRECT", "SET_OP", "SUBSET"}
+full_name = f"{target_table}.{target_field}"
+# Rule 1: label == "stg_customers.customer_id"  → seed
+# Rule 2: label == "customer_id"                → seed  
+# Rule 3: label == "c.customer_id"              → seed (ANY table!)
+# Rule 4: "customer_id" in source_columns       → seed
 ```
-TABLE_FLOW unconditionally adds source tables → SCHEMA unconditionally adds all columns → everything included.
+Rule 3 matches any table's column with the right suffix — even columns from unrelated tables. No validation that the table exists or that the field belongs to it.
 
-**Fix:** Move `TABLE_FLOW` from `_BIDIR`/`_PRODUCTION` to the conditional set (treated like JOIN/FILTER):
+**3. TABLE_FLOW in _BIDIR propagates all source tables unconditionally** (line 929):
 ```python
-_PRODUCTION = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED", "DML", "ALIAS"}
-_BIDIR = _PRODUCTION | {"CORRELATED", "INDIRECT", "SET_OP", "SUBSET"}
-# TABLE_FLOW handled separately (conditional):
-# Only add when a node in R has a production edge to the TABLE_FLOW endpoint
+_ALWAYS_BIDIR = {"TABLE_FLOW", "CORRELATED", "INDIRECT", "SET_OP", "SUBSET"}
+```
+TABLE_FLOW bridges source tables into the output container → SCHEMA adds all columns → everything enters R.
+
+### Solution — 4 steps
+
+**Step 1 — Construct initial R (table-first validated seed):**
+
+Find the table node by exact name. Find a field within that table connected via SCHEMA. If either missing, return empty (invalid search). Initial R = {field_node}.
+
+**Step 2 — Expand R by BFS with edge-type rules:**
+
+For each node in R, walk its edges. Production edges (REF/TRANSFORM/AGGREGATE/WINDOW/COMPUTED/DML/ALIAS) propagate bidirectionally. SCHEMA↑ (column→table) always, SCHEMA↓ (table→column) only if column has production edge from R. TABLE_FLOW/JOIN/FILTER conditional. R stabilizes when no new nodes added.
+
+**Step 3 — Filter graph to R:**
+
+Keep nodes in R, keep edges where both endpoints in R. No post-filter by name — the BFS rules intrinsically exclude unrelated fields via production-filtered propagation.
+
+**Step 4 — Wire into pipeline:**
+
+`dataflow.py`: extract `lineage_mode` from body, pass to `create_search`. `create_search`: when `lineage_mode=true`, call `filter_relevant()` on each script's graph.
+
+### Implementation changes
+
+**A — Remove post-filter** (`dataflow_service.py:1070-1093`):
+Delete the entire "Post-BFS column filtering" block — it's a workaround for broken rules. With correct BFS, columns enter R only via production edges.
+
+**B — Fix seed matching** (`dataflow_service.py:933-951`):
+```python
+# Step 1: Find table node
+table_node = None
+for n in nodes:
+    nd = n.get("data", n)
+    if nd.get("label") == target_table and nd.get("variable_type") == "table":
+        table_node = nd; break
+if not table_node: return set()
+
+# Step 2: Find field connected to table via SCHEMA
+table_id = table_node.get("id")
+seed_ids = set()
+for n in nodes:
+    nd = n.get("data", n)
+    if target_field in nd.get("label", ""):
+        for e in edges:
+            ed = e.get("data", e)
+            if (ed.get("source") == table_id and ed.get("target") == nd.get("id")
+                and ed.get("edge_type") == "SCHEMA"):
+                seed_ids.add(nd.get("id")); break
+if not seed_ids: return set()
 ```
 
-**Files:** `backend/app/services/dataflow_service.py:928-929`
+**C — Move TABLE_FLOW out of unconditional** (line 929):
+```python
+_ALWAYS_BIDIR = {"CORRELATED", "INDIRECT", "SET_OP", "SUBSET"}
+```
+
+**D — Wire lineage_mode into create_search** (`dataflow.py:67-76`, `dataflow_service.py:24`):
+```python
+# dataflow.py
+lineage_mode = body.get("lineage_mode", False)
+result = create_search(ws_id, table, field, ti, fi, lineage_mode=lineage_mode)
+
+# dataflow_service.py
+def create_search(ws_id, table, field, ti, fi, lineage_mode=False):
+    ...
+    if lineage_mode:
+        for r in results:
+            r["graph"] = filter_relevant(r["graph"], table, field)
+```
+
+### Files
+
+- `backend/app/services/dataflow_service.py:1070-1093` — **remove** post-filter block
+- `backend/app/services/dataflow_service.py:933-951` — replace seed matching
+- `backend/app/services/dataflow_service.py:928-929` — move TABLE_FLOW
+- `backend/app/routers/dataflow.py:67-76` — extract lineage_mode
+- `backend/app/services/dataflow_service.py:24-25` — accept lineage_mode

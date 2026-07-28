@@ -1,0 +1,14 @@
+# Temporary production build config for release
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gps-sql-visualizer:latest
+    container_name: gps-sql-prod-build
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DEBUG=false
+    restart: "no"

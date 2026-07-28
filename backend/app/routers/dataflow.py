@@ -73,7 +73,8 @@ async def search_dataflow(ws_id: str, body: dict):
     if not ti and not fi:
         raise HTTPException(status_code=400, detail="Indexes not found. Run index first.")
 
-    result = create_search(ws_id, table, field, ti, fi)
+    lineage_mode = body.get("lineage_mode", True)  # R18: default True
+    result = create_search(ws_id, table, field, ti, fi, lineage_mode=lineage_mode)
 
     # ── R17: Search diagnostic logging ──
     cache_dir = get_workspace_dir(ws_id) / "cache"

@@ -348,7 +348,7 @@ Each edge type has dedicated tests verifying its creation, plus regression tests
 
 ## R14 — Server-Side Progress Logging in Frontend
 
-> **Priority:** P2 | **Status:** ✅ Implemented | **Version:** v3.3.73 | **Date:** 2026-07-23
+> **Priority:** P2 | **Date:** 2026-07-23
 
 **Description:** Stream pipeline progress logs from backend to frontend in real-time, so users see what's happening during long-running analysis operations (critical for air-gapped deployment with large SQL scripts).
 
@@ -464,7 +464,7 @@ Each edge type has dedicated tests verifying its creation, plus regression tests
 
 ## R15 — Script Profile Summary for Remote Debugging
 
-> **Priority:** P2 | **Status:** ✅ Implemented (all 3 gaps fixed) | **Version:** v3.3.75 | **Date:** 2026-07-23
+> **Priority:** P2 | **Date:** 2026-07-23
 
 **Description:** After each SQL script is analyzed during folder indexing, emit a compact ASCII-boxed "profile" summary containing enough structural metadata to allow an external developer to mock a structurally similar SQL script — without needing access to the original SQL text.
 
@@ -558,7 +558,7 @@ Each edge type has dedicated tests verifying its creation, plus regression tests
 
 ## R16 — Filter CSV Diagnostic Logging
 
-> **Priority:** P2 | **Status:** ✅ Implemented | **Version:** v3.3.94 | **Date:** 2026-07-27
+> **Priority:** P2 | **Date:** 2026-07-27
 
 **Description:** When user uploads filter CSV files (script→table, table→column), emit a diagnostic profile block to the LogPanel showing what was parsed — so the user can screenshot it for remote debugging when the filter returns unexpected results (e.g., "0 tables, 0 fields").
 
@@ -688,7 +688,7 @@ This tells the user: "Your `table_col.csv` is adding 73 extra tables. If you wan
 
 ## R17 — Search Diagnostic Logging After Filter
 
-> **Priority:** P2 | **Status:** Implemented | **Version:** v3.3.92v3.3.92 | **Date:** 2026-07-27
+> **Priority:** P2 | **Date:** 2026-07-27
 
 **Description:** When a search returns empty results after a filter is applied, emit a diagnostic block to the LogPanel showing why — so the user can screenshot it for remote debugging.
 
@@ -756,7 +756,7 @@ If filter is NOT active, show the full index scope instead:
 
 ## R18 — Field-Level Data Flow Extraction
 
-> **Priority:** P2 | **Status:** Implemented (v3.3.95) | **Date:** 2026-07-28
+> **Priority:** P2 | **Date:** 2026-07-28
 
 **Description:** When a user searches for a specific field (`table=T, field=Y`), filter both L1 and L2 graphs to show only nodes and edges on the data flow path of field Y. UI/UX unchanged — same graph, same L1/L2 interactions, fewer elements.
 
@@ -822,14 +822,45 @@ R is the transitive closure of queried field Y, computed by applying 16 edge-typ
 | `c.segment` | ❌ | Same |
 | `c.region` | ❌ | FILTER only, no production edge |
 
-### Implementation
+### Algorithm
 
-1. `dataflow_service.py`: `compute_field_lineage(Y, graph)` — BFS with 16 edge rules
-2. `dataflow_service.py`: `filter_graph(graph, R)` — filter to lineage set
-3. `dataflow.py`: add `lineage_mode` to `search_dataflow`
+```
+Step 1: Construct initial R   — find table node, find field via SCHEMA, validate both exist
+Step 2: Expand R by BFS        — walk edges with type-specific rules, R stabilizes
+Step 3: Filter graph           — keep nodes/edges in R, drop rest (no name-based post-filter)
+Step 4: Wire into pipeline     — create_search accepts lineage_mode, calls filter_relevant
+```
+
+Key design: filtering is intrinsic to the BFS rules. SCHEMA↓ is production-filtered — only columns with a production edge from R enter the lineage. No separate name-matching step needed.
+
+### Acceptance Criteria
+
+- [ ] `infer_table_schemas()` runs after extraction for every script
+- [ ] `table_schemas` dict maps every table to its inferred columns
+- [ ] Seed lookup uses table_schemas (O(1)) instead of fuzzy label matching
+- [ ] `lineage_mode=true` returns fewer fields than `lineage_mode=false` for the same query
+- [ ] Field `customer_id` in `stg_customers` excludes `full_name`, `segment`, `region`
+- [ ] Field not in table_schemas → error "field not found in table"
+- [ ] Works for SELECT-only, INSERT...SELECT, UPDATE, MERGE, CTAS
+- [ ] Works with multi-hop chains (ALIAS → TABLE_FLOW → DML)
+- [ ] L1 graph shows only lineage fields when lineage_mode=true
+- [ ] L2 graph shows only lineage fields when viewing per-script
+
+### Test Plan
+
+- [ ] Unit test: `infer_table_schemas()` for each SQL operation type (INSERT, SELECT, JOIN, UNION, CTE)
+- [ ] Unit test: multi-hop chain (ALIAS → TABLE_FLOW → DML) produces correct schemas
+- [ ] Unit test: iterative stabilization — verify passes repeat until stable
+- [ ] Unit test: seed lookup validates table + field existence
+- [ ] Integration test: `lineage_mode=true` on step2 excludes `full_name`/`segment`/`region`
+- [ ] Integration test: `lineage_mode=false` still shows all fields
+- [ ] Regression test: existing multi_workflow tests still pass
 
 ### Files
 
-- `wiki/DATAFLOW_FORMAL_DEFINITION.md` — ✅ formal definition with 16 edge-type rules (done)
-- `backend/app/services/dataflow_service.py` — `compute_field_lineage()`, `filter_graph()`
+- `wiki/DATAFLOW_FORMAL_DEFINITION.md` — ✅ formal definition (done)
+- `wiki/SOLUTION_DESIGN.md` — ✅ schema inference + lineage design (done)
+- `backend/app/extractor/variable_extractor_v2.py` — `infer_table_schemas()`
+- `backend/app/services/dataflow_service.py` — `compute_field_lineage()`, `filter_relevant()`
 - `backend/app/routers/dataflow.py` — `lineage_mode` parameter
+- `backend/tests/test_field_lineage.py` — new test file

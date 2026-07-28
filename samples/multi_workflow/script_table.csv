@@ -1,0 +1,8 @@
+SCRIPT_NAME,TABLE_NAME
+step1_load_orders.sql,raw_orders
+step1_load_orders.sql,stg_orders
+step2_enrich_customers.sql,crm_customers
+step2_enrich_customers.sql,stg_customers
+step3_join_orders_customers.sql,stg_orders
+step3_join_orders_customers.sql,stg_customers
+step3_join_orders_customers.sql,analytics_orders
