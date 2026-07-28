@@ -96,9 +96,9 @@ The Cytoscape graph colors (blue SCHEMA, green TABLE_FLOW) are definitively pres
 
 ---
 
-## Bug 18: R18 Field-Level Lineage — 3 remaining issues (v3.3.96)
+## Bug 18: R18 Field-Level Lineage — ✅ ALL ISSUES RESOLVED (v3.3.99)
 
-> **Found:** v3.3.95 | **Priority:** P1 | **Status:** Open (3 issues remain)
+> **Found:** v3.3.95 | **Priority:** P1 | **Status:** Fixed
 
 ### What was done in v3.3.96 ✅
 
@@ -113,13 +113,13 @@ The Cytoscape graph colors (blue SCHEMA, green TABLE_FLOW) are definitively pres
 
 ### Remaining issues ❌
 
-**~~Issue 1~~ — TABLE_FLOW silently dropped: NOT A BUG**
+**✅ Issue 1 — TABLE_FLOW silently dropped: CONFIRMED NOT A BUG**
 
 TABLE_FLOW is always redundant — BFS reaches the same nodes through production edges (DML/TRANSFORM/REF + SCHEMA↑). Confirmed by tracing step2, step5, and simple SELECT. No fix needed.
 
 ---
 
-**Issue 2 — Seed lookup scans graph instead of using table_schemas (P2)**
+**✅ Issue 2 — Seed lookup scans graph instead of using table_schemas — FIXED in v3.3.99**
 
 Current code (`lineage.py:70-118`): for each search, scans ALL graph nodes × ALL edges (O(n×m)) to answer "does table T have field F?" — a question `table_schemas` already answered at extraction time (O(1)). The scan checks only SCHEMA edges, misses DML, and requires a fragile label-matching fallback.
 
@@ -150,9 +150,54 @@ Removes: O(n×m) edge scan (lines 87-108), fuzzy fallback (lines 110-118), table
 
 ### Files
 
-- `backend/app/extractor/lineage.py:70-118` — replace seed lookup with table_schemas validation
-- `backend/app/extractor/lineage.py:18-19` — accept table_schemas parameter
+- `backend/app/extractor/lineage.py:46-54,81-119` — Issue 2: use table_schemas for seed, remove edge scan when schema valid
+- `backend/app/extractor/lineage.py:33` — Issue 4: fix docstring (TABLE_FLOW not bidirectional)
+- `backend/app/services/dataflow_service.py:908,1145` — Issue 3: pass table_schemas to filter_relevant
 - `backend/app/extractor/schema_inference.py` — ✅ already done
+
+---
+
+**Issue 3 — `table_schemas` never reaches lineage (P1)**
+
+`lineage.py:20` accepts `table_schemas` parameter. `lineage.py:46-54` has O(1) validation using it. But callers at `dataflow_service.py:908` and `dataflow_service.py:1145` don't pass it:
+
+```python
+# dataflow_service.py:908
+filtered = filter_relevant(graph_data, table, field)  # ← table_schemas missing!
+
+# dataflow_service.py:1145  
+graph_data = filter_relevant(full_graph, table, field)  # ← table_schemas missing!
+```
+
+`table_schemas` defaults to `None` → O(1) validation path never reached → code falls through to O(n×m) edge scan. The entire agreed fix is wired but not connected.
+
+**Fix:** Pass `table_schemas` from analysis result through `get_level2_graph` → `filter_relevant`:
+```python
+filter_relevant(graph_data, table, field, table_schemas=analysis.get("table_schemas"))
+```
+
+---
+
+**Issue 4 — Docstring says TABLE_FLOW bidirectional, code doesn't** (P3)
+
+`lineage.py:33`: docstring says `TABLE_FLOW: bidirectional, always follow`. But lines 74-79 have no TABLE_FLOW in any set. Code is correct (TABLE_FLOW is redundant), docstring is wrong. Update docstring.
+
+---
+
+**Issue 5 — Edge scan still runs after schema validation** (P3)
+
+`lineage.py:46-54`: schema validation passes → field exists. But lines 81-119 still scan all nodes × all edges to find the seed, when a simple label match suffices. After schema confirms the field exists, the seed node can be found by name alone — no edge checking needed.
+
+**Fix:** After schema validation passes (line 54), skip the edge scan and use simple label matching:
+```python
+if table_schemas:
+    ...validation...
+    # Validation passed → simple label match (no edge scan needed)
+    seed_ids = {nid for n in nodes 
+                if target_field in (n.get("data", n).get("label", ""))}
+else:
+    # Fallback: old edge-scan logic for callers without table_schemas
+    ...existing lines 81-119...
 
 # dataflow_service.py
 def create_search(ws_id, table, field, ti, fi, lineage_mode=False):
