@@ -489,11 +489,19 @@ class RangeBuilder:
         if end_line < start_line:
             end_line = start_line
         
+        # Bug 43: Compute column positions from matched line
+        matched_text = self.all_lines[self.matched_line] if 0 <= self.matched_line < len(self.all_lines) else ""
+        stripped = matched_text.lstrip()
+        computed_start_col = len(matched_text) - len(stripped) + 1  # 1-based
+        computed_end_col = len(matched_text.rstrip())  # last non-whitespace
+        if computed_end_col < computed_start_col:
+            computed_end_col = computed_start_col
+        
         return SqlRange(
             start_line=start_line + 1,
-            start_col=1,
+            start_col=computed_start_col,
             end_line=end_line + 1,
-            end_col=len(self.all_lines[end_line])
+            end_col=len(self.all_lines[end_line]) if end_line < len(self.all_lines) else len(matched_text.rstrip())
         )
 
 
@@ -623,7 +631,7 @@ def partition_edge_ranges(edges: list[dict], n_lines: int) -> list[dict]:
             new_start = owned[0]
             new_end = owned[-1]
             # Update sql_range to partitioned range (more specific)
-            ed['sql_range'] = [new_start, 1, new_end, 1]
+            ed['sql_range'] = [new_start, max(1, ed.get('sql_range', [1,1,1,1])[1]), new_end, ed.get('sql_range', [1,1,1,1])[3]]
             # Also narrow per-type sql_ranges to be within the partition
             sr_dict = ed.get('sql_ranges', {})
             if sr_dict:
@@ -635,20 +643,20 @@ def partition_edge_ranges(edges: list[dict], n_lines: int) -> list[dict]:
                         cs = max(new_start, rs)
                         ce = min(new_end, re)
                         if cs <= ce:
-                            narrowed[etype] = [cs, 1, ce, 1]
+                            narrowed[etype] = [cs, max(1, rng[1] if len(rng) > 1 else 1), ce, rng[3] if len(rng) > 3 else 1]
                 if narrowed:
                     ed['sql_ranges'] = narrowed
         else:
             # Edge lost all lines to higher/same-priority edges.
             # Give it a minimal 1-line range at its original center.
             center = (orig_start + orig_end) // 2
-            ed['sql_range'] = [center, 1, center, 1]
+            ed['sql_range'] = [center, max(1, ed.get('sql_range', [1,1,center,1])[1]), center, ed.get('sql_range', [1,1,center,1])[3]]
             sr_dict = ed.get('sql_ranges', {})
             if sr_dict:
                 narrowed = {}
                 for etype, rng in sr_dict.items():
                     if rng and len(rng) >= 3:
-                        narrowed[etype] = [center, 1, center, 1]
+                        narrowed[etype] = [center, max(1, rng[1] if len(rng) > 1 else 1), center, rng[3] if len(rng) > 3 else 1]
                 if narrowed:
                     ed['sql_ranges'] = narrowed
         # Every edge must have sql_range so clicking it shows the corresponding SQL.
