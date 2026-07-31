@@ -4,6 +4,7 @@ Extracted from dataflow_service.py per ARCHITECTURE_REVIEW S3.
 Builds L1 pipeline view: scripts + tables + reads_from/writes_to edges.
 """
 import json
+import re
 import uuid
 import hashlib
 import logging
@@ -11,6 +12,8 @@ import traceback
 
 from app.services.workspace_service import get_workspace_dir
 from app.extractor.lineage import compute_field_lineage, PRODUCTION_EDGES
+
+_log = logging.getLogger("sql_visualizer.dataflow")
 
 # ── L1 helper functions ──────────────────────────────────────────────
 
@@ -183,6 +186,44 @@ def detect_role(script_analysis: dict, target_table: str, target_field: str) -> 
             roles.add("CORRELATED")
 
     return sorted(roles)
+
+
+def _extract_table_field_pairs(lineage_set: set, nodes: list,
+                               alias_map: dict,
+                               valid_table_fields: set | None = None,
+                               skip_virtual: bool = False) -> set:
+    """Collect (table_name, field_name) pairs from lineage nodes.
+
+    Only nodes whose id is in lineage_set. Table/field taken from
+    table_name/field_name, falling back to the label's "table.field"
+    suffix split when either is missing. Alias prefixes are resolved
+    via alias_map. When valid_table_fields is not None, pairs are
+    validated against it (exact match to the current loops' behavior:
+    an empty set means no validation). skip_virtual drops pairs whose
+    (resolved) table name starts with the virtual-table marker ⟐.
+    """
+    pairs = set()
+    for n in nodes:
+        nd = n.get("data", n)
+        if nd.get("id") not in lineage_set:
+            continue
+        tn = nd.get("table_name", "")
+        fn = nd.get("field_name", "")
+        if not tn or not fn:
+            label = nd.get("label", "")
+            if "." in label:
+                parts = label.rsplit(".", 1)
+                tn = tn or parts[0]
+                fn = fn or parts[1]
+        if not (tn and fn):
+            continue
+        tn = alias_map.get(tn, tn)
+        if valid_table_fields is not None and (tn, fn) not in valid_table_fields:
+            continue
+        if skip_virtual and tn.startswith("⟐"):
+            continue
+        pairs.add((tn, fn))
+    return pairs
 
 
 def _build_l1_graph(ws_id: str, script_names: list[str],
@@ -381,8 +422,9 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                     sname = adata.get("script_name", "")
                     if sname:
                         analysis_cache_map[sname] = adata
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _log.warning("L1: failed to read analysis cache %s: %s",
+                                 af_path.name, exc)
 
         for s in all_scripts:
             sid = s.get("script_id", "")
@@ -707,6 +749,10 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             for gc_path in sorted(cache_dir.glob("graph_*.json")):
                 try:
                     gdata = json.loads(gc_path.read_text())
+                    # CW7: normalize edge_type on cache read (cache stores "relationship")
+                    for _e in gdata.get("edges", []):
+                        _ed = _e.get("data", _e)
+                        _ed.setdefault("edge_type", _ed.get("relationship", "REF"))
                     # Item 4: cache format versioning — warn once per stale cache file
                     if gdata.get("format_version") != 3:
                         logging.getLogger("sql_visualizer.dataflow").warning(
@@ -715,8 +761,9 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                     g_alias = gdata.get("alias_map", {})
                     if g_alias:
                         global_alias_map.update(g_alias)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _log.warning("L1: failed to read graph cache %s: %s",
+                                 gc_path.name, exc)
         # Fallback to analysis caches if no graph caches have alias_map
         if not global_alias_map and cache_dir.exists():
             for af_path in sorted(cache_dir.glob("analysis_*.json")):
@@ -728,8 +775,9 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                         src_tables = v.get("source_tables", [])
                         if vt in ("table",) and src_tables:
                             global_alias_map[name] = src_tables[0]
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _log.warning("L1: failed to read analysis cache %s: %s",
+                                 af_path.name, exc)
 
         # P1: Read table_fields from graph caches (P4 pre-built) — single source of truth
         all_table_fields = set()
@@ -737,12 +785,17 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             for gc_path in sorted(cache_dir.glob("graph_*.json")):
                 try:
                     gdata = json.loads(gc_path.read_text())
+                    # CW7: normalize edge_type on cache read (cache stores "relationship")
+                    for _e in gdata.get("edges", []):
+                        _ed = _e.get("data", _e)
+                        _ed.setdefault("edge_type", _ed.get("relationship", "REF"))
                     tf = gdata.get("table_fields", {})
                     for tbl, flds in tf.items():
                         for fn in flds:
                             all_table_fields.add((tbl, fn))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _log.warning("L1: failed to read graph cache %s: %s",
+                                 gc_path.name, exc)
 
         # Single extraction: run compute_field_lineage per script,
         # intersect reached nodes with all_table_fields
@@ -754,30 +807,15 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             try:
                 lineage_set = compute_field_lineage(gdata, table, field,
                                                     edge_filter=PRODUCTION_EDGES | {"SCHEMA"})
-            except Exception:
+            except Exception as exc:
+                _log.error("compute_field_lineage failed for %s.%s: %s",
+                           table, field, exc, exc_info=True)
                 continue
-            node_by_id = {}
-            for n in gdata.get("nodes", []):
-                nd = n.get("data", n)
-                node_by_id[nd.get("id", "")] = nd
-            for n in gdata.get("nodes", []):
-                nd = n.get("data", n)
-                if nd.get("id") not in lineage_set:
-                    continue
-                tn = nd.get("table_name", "")
-                fn = nd.get("field_name", "")
-                if not tn or not fn:
-                    label = nd.get("label", "")
-                    if "." in label:
-                        parts = label.rsplit(".", 1)
-                        tn = tn or parts[0]
-                        fn = fn or parts[1]
-                if tn and fn:
-                    tn = global_alias_map.get(tn, tn)
-                    # P1: intersect with P4 table_fields — only keep validated pairs
-                    if (tn, fn) in all_table_fields or not all_table_fields:
-                        if tn and not tn.startswith("⟐"):
-                            lineage_field_pairs.add((tn, fn))
+            # CW3: shared pair extraction — P1 validation + virtual-table skip
+            lineage_field_pairs |= _extract_table_field_pairs(
+                lineage_set, gdata.get("nodes", []), global_alias_map,
+                valid_table_fields=all_table_fields or None,
+                skip_virtual=True)
 
         # Always include target field
         lineage_field_pairs.add((table, field))
@@ -799,27 +837,18 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                     try:
                         lineage_set = compute_field_lineage(gdata, tn, fn,
                                                             edge_filter=PRODUCTION_EDGES | {"SCHEMA"})
-                    except Exception:
+                    except Exception as exc:
+                        _log.error("compute_field_lineage failed for %s.%s: %s",
+                                   tn, fn, exc, exc_info=True)
                         continue
-                    for n in gdata.get("nodes", []):
-                        nd = n.get("data", n)
-                        if nd.get("id") not in lineage_set:
-                            continue
-                        ctn = nd.get("table_name", "")
-                        cfn = nd.get("field_name", "")
-                        if not ctn or not cfn:
-                            label = nd.get("label", "")
-                            if "." in label:
-                                parts = label.rsplit(".", 1)
-                                ctn = ctn or parts[0]
-                                cfn = cfn or parts[1]
-                        if ctn and cfn:
-                            ctn = global_alias_map.get(ctn, ctn)
-                            pair = (ctn, cfn)
-                            # P1: intersect with P4 table_fields
-                            if (pair in all_table_fields or not all_table_fields) and pair not in lineage_field_pairs:
-                                lineage_field_pairs.add(pair)
-                                added = True
+                    # CW3: shared pair extraction — P1 validation, no virtual-table skip
+                    for pair in _extract_table_field_pairs(
+                            lineage_set, gdata.get("nodes", []),
+                            global_alias_map,
+                            valid_table_fields=all_table_fields or None):
+                        if pair not in lineage_field_pairs:
+                            lineage_field_pairs.add(pair)
+                            added = True
             if not added:
                 break
 

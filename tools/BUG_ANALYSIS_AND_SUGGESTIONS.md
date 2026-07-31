@@ -1478,6 +1478,13 @@ This fixes both the table-suggestion direction and the reverse direction (`getFi
 # Code Review Findings — v3.3.129 (2026-07-31)
 
 > **Reviewer:** AI Code Review | **Scope:** Full codebase | **Files reviewed:** 42 Python + 12 JS/JSX
+>
+> **⚠️ Human-reviewed verdicts (2026-07-31):** Not all findings are correct. Verified against code:
+> - ✅ **VALID — FIXED & VERIFIED (v3.3.129):** CW1 (6 inner `except Exception` now log warning/error; top-level safety net kept), CW3 (`_extract_table_field_pairs` helper replaces both duplicate loops, semantics preserved), CW7 (edge_type normalized on cache read in l1+l2; `or`-chains kept), CW8 (all 3 sql_range paths end in `or [1,1,1,1]`; JOIN-survival enriches labels before find_sql_range; verified 0 edges with None on fresh+cache-hit), CW9 (`import re` added; NameError reproduced-then-fixed; latent but one-line insurance)
+> - ⚠️ **PARTIAL:** CW2 (defensive `n.get("data", n)` already pervasive; dataclass refactor speculative), CW4 (factual monolith; P1 overstated), CW10 (upload+index covered via API helpers, but L1/L2 tested via direct builder calls — HTTP journey test is a legit gap; "would have caught Bug 42" wrong — that was frontend wiring)
+> - ❌ **WRONG/STALE:** CW5 (format_version: 3 **already implemented** — `folder_index_service.py:96`, `l2_builder.py:97-111`, `l1_builder.py:711`, Lessons Learned item 4), CW6 (4-file layout split is documented intentional design — CLAUDE.md:61 frozen offsets; "field drift" unverified; suggested fix contradicts design)
+>
+> **Corrected priority:** CW8, CW1, CW3, CW7, CW9 (take) — not the original "CW1, CW9, CW10". All five taken items implemented and independently reviewed (APPROVE), 334 tests pass.
 
 ---
 
@@ -1805,17 +1812,17 @@ def test_full_user_flow_multi_workflow(client, sample_zip):
 
 ## Summary Table — Code Review Findings
 
-| ID | Title | Priority | Type | Effort |
-|----|-------|----------|------|--------|
-| CW1 | Silent `except Exception` swallowing | P1 | Systemic | Low |
-| CW2 | Unguarded nested dict access | P1 | Systemic | Medium |
-| CW3 | Duplicate extraction logic in L1 | P2 | Code smell | Low |
-| CW4 | L2 builder 750-line monolith | P1 | Architecture | High |
-| CW5 | Unversioned cache format | P2 | Data contract | Low |
-| CW6 | Fragmented layout code | P2 | Architecture | Medium |
-| CW7 | `edge_type`/`relationship` dual naming | P3 | Code smell | Low |
-| CW8 | `sql_range` None propagation | P2 | Defect | Low |
-| CW9 | Missing `import re` | P1 | Defect | Low |
-| CW10 | No integration test | P1 | Test gap | Medium |
+| ID | Title | Priority | Type | Effort | Verdict |
+|----|-------|----------|------|--------|---------|
+| CW1 | Silent `except Exception` swallowing | P1→P2 | Systemic | Low | ✅ FIXED (logs added) |
+| CW2 | Unguarded nested dict access | P1→P3 | Systemic | Medium | ⚠️ PARTIAL — speculative |
+| CW3 | Duplicate extraction logic in L1 | P2 | Code smell | Low | ✅ FIXED (`_extract_table_field_pairs`) |
+| CW4 | L2 builder 750-line monolith | P1→P3 | Architecture | High | ⚠️ PARTIAL — factual, not urgent |
+| CW5 | Unversioned cache format | P2 | Data contract | Low | ❌ WRONG — already done (format_version) |
+| CW6 | Fragmented layout code | P2 | Architecture | Medium | ❌ WRONG — contradicts documented design |
+| CW7 | `edge_type`/`relationship` dual naming | P3 | Code smell | Low | ✅ FIXED (normalize on cache read) |
+| CW8 | `sql_range` None propagation | P2 | Defect | Low | ✅ FIXED (safe default + enriched survival) |
+| CW9 | Missing `import re` | P1→P2 | Defect | Low | ✅ FIXED (module-level import) |
+| CW10 | No integration test | P1→P2 | Test gap | Medium | ⚠️ PARTIAL — HTTP journey test is a legit gap |
 
-**Top 3 to fix first (max impact / min effort):** CW1, CW9, CW10
+**Corrected top 3 to fix first:** CW8, CW1, CW9 (one-line insurance) — with CW3 and CW7 as cheap follow-ups.
