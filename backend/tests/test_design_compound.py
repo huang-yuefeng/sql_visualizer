@@ -26,59 +26,91 @@ from app.services.dataflow_service import _build_l1_graph, _build_l2_graph
 class TestCompoundNodesDesign:
     """TC-C1..C5: Compound node structure per design §5.1"""
 
-    def test_l1_has_table_nodes_and_script_nodes(self):
+    def test_l1_has_table_nodes_and_script_nodes(self, d2_zip):
         """L1 graph must contain both table nodes and script nodes (pipeline)."""
-        result = _build_l1_graph("test_ws", ["step1.sql", "step2.sql"],
-                                  "customers", "customer_id")
+        from app.services.workspace_service import create_workspace, delete_workspace
+        from app.services.folder_index_service import index_scripts, scan_folder
+        ws_id = create_workspace(d2_zip)
+        tree = scan_folder(ws_id)
+        scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
+        index_scripts(ws_id, scripts)
+        result = _build_l1_graph(ws_id, scripts, "orders", "amount")
         nodes = result.get("nodes", [])
         types = {n["data"]["type"] for n in nodes}
-        # Must have at least script_node and one of the table types
         assert "script_node" in types, "L1 must have script nodes"
         table_types = {"source_table", "intermediate_table", "output_table"}
         assert types & table_types, f"L1 must have table nodes, got types: {types}"
+        delete_workspace(ws_id)
 
-    def test_l1_script_nodes_have_roles(self):
+    def test_l1_script_nodes_have_roles(self, d2_zip):
         """Script nodes in L1 must carry role badges per design §2.2."""
-        result = _build_l1_graph("test_ws", ["step1.sql", "step2.sql"],
-                                  "customers", "customer_id")
+        from app.services.workspace_service import create_workspace, delete_workspace
+        from app.services.folder_index_service import index_scripts, scan_folder
+        ws_id = create_workspace(d2_zip)
+        tree = scan_folder(ws_id)
+        scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
+        index_scripts(ws_id, scripts)
+        result = _build_l1_graph(ws_id, scripts, "orders", "amount")
         nodes = result.get("nodes", [])
         script_nodes = [n for n in nodes if n["data"]["type"] == "script_node"]
         for sn in script_nodes:
             assert "roles" in sn["data"], f"Script {sn['data']['label']} missing roles"
+        delete_workspace(ws_id)
 
-    def test_l1_edges_have_role_badges(self):
+    def test_l1_edges_have_role_badges(self, d2_zip):
         """L1 edges must carry role badges for target variable."""
-        result = _build_l1_graph("test_ws", ["step1.sql", "step2.sql"],
-                                  "customers", "customer_id")
+        from app.services.workspace_service import create_workspace, delete_workspace
+        from app.services.folder_index_service import index_scripts, scan_folder
+        ws_id = create_workspace(d2_zip)
+        tree = scan_folder(ws_id)
+        scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
+        index_scripts(ws_id, scripts)
+        result = _build_l1_graph(ws_id, scripts, "orders", "amount")
         edges = result.get("edges", [])
-        # At least some edges should have roles
         edges_with_roles = [e for e in edges
                            if e["data"].get("roles") or e["data"].get("role")]
         assert len(edges_with_roles) > 0, "L1 edges must carry role badges"
+        delete_workspace(ws_id)
 
-    def test_l1_table_classification(self):
+    def test_l1_table_classification(self, d2_zip):
         """Tables must be classified as source/intermediate/output per design §2.1."""
-        result = _build_l1_graph("test_ws", ["step1.sql", "step2.sql"],
-                                  "customers", "customer_id")
+        from app.services.workspace_service import create_workspace, delete_workspace
+        from app.services.folder_index_service import index_scripts, scan_folder
+        ws_id = create_workspace(d2_zip)
+        tree = scan_folder(ws_id)
+        scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
+        index_scripts(ws_id, scripts)
+        result = _build_l1_graph(ws_id, scripts, "orders", "amount")
         nodes = result.get("nodes", [])
         table_nodes = [n for n in nodes
                        if n["data"]["type"] in ("source_table", "intermediate_table", "output_table")]
-        types = {n["data"]["type"] for n in table_nodes}
         assert len(table_nodes) > 0, "L1 must have classified table nodes"
+        delete_workspace(ws_id)
 
-    def test_l1_output_includes_target(self):
+    def test_l1_output_includes_target(self, d2_zip):
         """L1 result must include the target table.field."""
-        result = _build_l1_graph("test_ws", ["step1.sql", "step2.sql"],
-                                  "customers", "customer_id")
+        from app.services.workspace_service import create_workspace, delete_workspace
+        from app.services.folder_index_service import index_scripts, scan_folder
+        ws_id = create_workspace(d2_zip)
+        tree = scan_folder(ws_id)
+        scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
+        index_scripts(ws_id, scripts)
+        result = _build_l1_graph(ws_id, scripts, "orders", "amount")
         assert "target" in result
-        assert "customers.customer_id" in result["target"]
+        assert "orders.amount" in result["target"]
+        delete_workspace(ws_id)
 
-    def test_l1_graph_is_not_empty_for_multiple_scripts(self):
+    def test_l1_graph_is_not_empty_for_multiple_scripts(self, d2_zip):
         """L1 graph for 2+ scripts must have nodes and edges."""
-        result = _build_l1_graph("test_ws", ["step1.sql", "step2.sql", "step3.sql"],
-                                  "orders", "amount")
+        from app.services.workspace_service import create_workspace, delete_workspace
+        from app.services.folder_index_service import index_scripts, scan_folder
+        ws_id = create_workspace(d2_zip)
+        tree = scan_folder(ws_id)
+        scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
+        index_scripts(ws_id, scripts)
+        result = _build_l1_graph(ws_id, scripts, "orders", "amount")
         assert len(result["nodes"]) > 0, "L1 graph must have nodes"
-        # Edges may be zero for single script, but for multi-script should have edges
+        delete_workspace(ws_id)
 
 
 class TestL2CompoundNodes:

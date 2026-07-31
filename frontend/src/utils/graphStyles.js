@@ -459,6 +459,28 @@ export const COMPOUND_STYLES = [
       'text-halign': 'center',
     },
   },
+
+  // Alias table (orange, dashed border — L2 only)
+  {
+    selector: 'node[type="alias_table"]',
+    style: {
+      'shape': 'rectangle',
+      'width': 'data(_tableWidth)',
+      'height': 'data(_tableHeight)',
+      'background-color': '#F39C12',
+      'background-opacity': 0.35,
+      'border-width': 2,
+      'border-color': '#E67E22',
+      'border-style': 'dashed',
+      'label': 'data(label)',
+      'font-size': 12,
+      'color': '#FAD7A1',
+      'text-outline-color': '#1a1a2e',
+      'text-outline-width': 1,
+      'text-valign': 'top',
+      'text-halign': 'center',
+    },
+  },
 ];
 
 // ══════════════════════════════════════════════════════════════════
@@ -569,6 +591,13 @@ export const CATEGORY_EDGE_STYLES = [
       'target-arrow-color': '#5DADE2',
       'target-arrow-shape': 'triangle',
       'arrow-scale': 1.2,
+    },
+  },
+  // ALIAS edges (use unbundled-bezier to reduce crossing)
+  {
+    selector: 'edge[edge_type="ALIAS"]',
+    style: {
+      'curve-style': 'unbundled-bezier',
     },
   },
   // Structure (SCHEMA, ALIAS, SUBSET)

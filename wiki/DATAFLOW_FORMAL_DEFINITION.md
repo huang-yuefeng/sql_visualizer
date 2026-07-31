@@ -21,6 +21,43 @@ A named piece of data. Types:
 - **union_branch**: UNION / INTERSECT / EXCEPT branch
 - **subquery**: subquery in FROM/JOIN
 
+### Table Type Invariants
+
+These invariant rules prevent the most common class of field-display bugs. The rules are **operations-triggered**: specific edge types in the dependency graph determine field placement — no blind inheritance, no heuristics.
+
+#### Alias Table — Field Synchronization
+
+An alias table (`c`, `so`, `sc`) is created via the **ALIAS edge** (`original_table → alias_table`). It is a temporary name mapping within a single script.
+
+**Operation:** When an ALIAS edge exists, copy field nodes between the two tables in both directions. The alias and its canonical table always have identical field sets.
+
+```
+ALIAS edge detected: crm_customers → c
+  → c's fields → copy to crm_customers
+  → crm_customers's fields → copy to c
+```
+
+**In L1:** Aliases are script-local — resolve to canonical names. `c` → `crm_customers`. Only canonical names appear.
+
+**In L2:** Both alias and canonical table are shown, with synchronized field sets.
+
+#### Output Table — SCHEMA-Defined Fields
+
+An output table (`⟐ output`) is a virtual table created for SELECT results and intermediate flows.
+
+**Operation:** An output table's fields = {columns with a **SCHEMA edge from this output table**}. Every column that was SELECTed has a SCHEMA edge from `⟐ output`. No blind inheritance — the extractor already recorded the exact column list.
+
+```
+SCHEMA edges from ⟐ output:
+  ⟐ output → c.customer_id    → field: customer_id
+  ⟐ output → c.full_name      → field: full_name
+  ⟐ output → c.segment        → field: segment
+  ⟐ output → c.region         → field: region
+No SCHEMA to c.is_active       → WHERE only, not in output
+```
+
+**In L1+L2:** Output table compound nodes display exactly the columns listed by their outgoing SCHEMA edges. If the SCHEMA edges were filtered by lineage, only lineage-relevant fields appear.
+
 ### Script
 A single SQL file. Contains statements (SELECT, INSERT, CREATE, etc.) that produce and consume variables.
 
@@ -241,6 +278,18 @@ repeat until R stabilizes:
 ```
 
 Nodes not in R are excluded from the graph. Edges where either endpoint is absent from R are excluded.
+
+Additionally, after filtering by R: **table nodes with zero remaining field children are removed from the graph**, with one exception: the **immediate downstream table** (direct output of a script that has ≥1 lineage field) is kept as a **termination marker**. This table appears empty (no field children) to visually indicate: "the field's value reaches this script but does not propagate into this table's columns." The edge from the producing script to this terminal table is also kept.
+
+**Scripts connected to the terminal marker are kept** — even though their output tables are removed. The edges from the terminal marker to these scripts are preserved. This allows users to open each connected script's L2 view and manually verify that the queried field is not used in data-producing operations (e.g., used only in JOIN, not INSERT). The terminal marker shows where automatic lineage tracing stops; the connected scripts enable manual confirmation.
+
+All further downstream tables (outputs of terminal-connected scripts) are removed.
+
+### Name ≠ Lineage
+
+Fields with the **same name** as the queried field are not automatically in the lineage. Edge-type-specific BFS rules determine membership in R. Example: querying `stg_customers.customer_id` — `raw_orders.customer_id` has the same name but is produced independently in a different branch (step1 → stg_orders → JOIN). It is NOT in `stg_customers.customer_id`'s lineage because the JOIN edge is conditional (both ends must be in R via production). Name matching is never a substitute for lineage computation.
+
+This enforces the principle that lineage follows the data flow of the field's **value**: if the queried field Y does not reach a table's columns (e.g., used only in a JOIN condition but not INSERTed), that table is structurally downstream but not in Y's lineage. The termination marker is the sole exception — it provides visual confirmation of where the flow ends.
 
 ### Edge-Type Rules
 
@@ -558,9 +607,31 @@ Excluded: c.full_name, c.segment, c.region, c.is_active
 │ filter_graph(graph, R)                                    │
 │   → keep nodes ∈ R, drop rest                            │
 │   → keep edges where both endpoints ∈ R                  │
+│   → post-cleanup: remove table nodes with 0 field children│
 │   → same structure, fewer elements                       │
 └──────────────────────────────────────────────────────────┘
 ```
+
+### Cross-Script Lineage Union
+
+L1 spans multiple scripts. L2 computes lineage per script. For L1, the lineage set R₁ is the **constrained union** of per-script R sets:
+
+R₁ = ⋃ R(scriptᵢ)  subject to: if a field is excluded from R in any script due to conditional edge rules (JOIN, FILTER), it is excluded from R₁ regardless of its presence in other scripts' R sets.
+
+Rationale: two scripts may independently include a field in their isolated R sets, but a third script connecting them via a conditional edge (e.g., JOIN ON equality) breaks the propagation. The cross-script constraint ensures that conditional edges spanning script boundaries are respected.
+
+### Terminal Marker Edge Rules
+
+After R₁ filtering and table cleanup:
+- **Incoming edges** to the terminal marker from field-connected scripts are **kept** (shows where the data flow ends)
+- **Outgoing edges** from the terminal marker to scripts are **kept** (enables manual L2 verification)
+- **Scripts connected to the terminal marker** are **kept** — they can be opened for L2 inspection
+- **Further downstream tables** (outputs of terminal-connected scripts) are **removed**
+- **Disconnected scripts** (no remaining table connections after cleanup) are removed from L1
+
+### Single Lineage Engine
+
+Both L1 and L2 must use `compute_field_lineage` (edge-type-specific BFS). Name matching is never a substitute for lineage computation. L1's filter is the constrained union of per-script `compute_field_lineage` results, not an independent filtering algorithm.
 
 ### Backward Compatibility
 

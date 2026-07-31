@@ -17,7 +17,8 @@ _log = logging.getLogger('dataflow')
 
 def compute_field_lineage(graph_data: dict, target_table: str,
                           target_field: str,
-                          table_schemas: dict | None = None) -> set:
+                          table_schemas: dict | None = None,
+                          edge_filter: set | None = None) -> set:
     """Compute the lineage set R for a target field using edge-type-specific rules.
 
     Uses iterative BFS through 15 edge types from the formal definition
@@ -30,7 +31,7 @@ def compute_field_lineage(graph_data: dict, target_table: str,
       AGGREGATE:  bidirectional, always follow
       WINDOW:     bidirectional, always follow
       COMPUTED:   bidirectional, always follow
-      TABLE_FLOW: not followed (redundant — DML/REF/SCHEMA↑ already reach source tables)
+      TABLE_FLOW: bidirectional — always follow (via _ALWAYS_BIDIR — DML/REF/SCHEMA↑ already reach source tables)
       ALIAS:      bidirectional, always follow
       DML:        forward (col→table): always; reverse (table→col): production-filtered
       JOIN:       conditional — both ends must be in R via production
@@ -75,7 +76,7 @@ def compute_field_lineage(graph_data: dict, target_table: str,
     # Production edges "produce" a value in the target
     _PRODUCTION = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED", "DML", "ALIAS"}
     # Structural edges always bidirectionally followed
-    _ALWAYS_BIDIR = {"CORRELATED", "INDIRECT", "SET_OP", "SUBSET"}
+    _ALWAYS_BIDIR = {"CORRELATED", "INDIRECT", "SET_OP", "SUBSET", "SUBQUERY", "TABLE_FLOW"}
     _BIDIR = _PRODUCTION | _ALWAYS_BIDIR
 
     # --- Seed matching: table-first validated lookup ---
@@ -95,6 +96,22 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                 table_node_id = nd.get("id")
                 break
 
+    # --- Bug 35: Build ALIAS-transitive closure from target table ---
+    # SCHEMA edges from the target table's aliases must also be accepted.
+    alias_sources = {table_node_id} if table_node_id else set()
+    if table_node_id:
+        queue = [table_node_id]
+        while queue:
+            nid = queue.pop(0)
+            for e in edges:
+                ed = e.get("data", e)
+                etype = ed.get("edge_type") or ed.get("relationship", "")
+                if etype == "ALIAS" and ed.get("source") == nid:
+                    alias_tgt = ed.get("target")
+                    if alias_tgt not in alias_sources:
+                        alias_sources.add(alias_tgt)
+                        queue.append(alias_tgt)
+
     seed_ids = set()
     full_name = f"{target_table}.{target_field}"
     if table_node_id:
@@ -108,20 +125,38 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                 src_cols = nd.get("source_columns", [])
                 if not (src_cols and (full_name in src_cols or target_field in src_cols)):
                     continue
-            # Validate: connected to table via SCHEMA edge
+            # Bug 35: Validate via SCHEMA from target table OR any of its aliases
             for e in edges:
                 ed = e.get("data", e)
                 etype = ed.get("edge_type") or ed.get("relationship", "")
                 if (etype == "SCHEMA" and
-                    ed.get("source") == table_node_id and
+                    ed.get("source") in alias_sources and
                     ed.get("target") == nid):
                     seed_ids.add(nid)
                     break
+    
+    # Bug 39: DML-based seed search when SCHEMA alone can't find seeds.
+    # When a column belongs to a different table's alias (e.g., c.customer_id
+    # on alias "c" of crm_customers, DML'd INTO stg_customers), SCHEMA from
+    # the target table won't match. Instead, search DML edges INTO the target.
+    if not seed_ids and table_node_id:  # Bug 39: works without table_schemas for constrained union
+        for e in edges:
+            ed = e.get("data", e)
+            etype = ed.get("edge_type") or ed.get("relationship", "")
+            if etype == "DML" and ed.get("target") == table_node_id:
+                src_node_id = ed.get("source")
+                for n in nodes:
+                    nd = n.get("data", n)
+                    if nd.get("id") == src_node_id:
+                        fn = nd.get("field_name", "")
+                        if not fn and "." in nd.get("label", ""):
+                            fn = nd["label"].rsplit(".", 1)[-1]
+                        if fn == target_field:
+                            seed_ids.add(src_node_id)
 
-    # No fuzzy fallback — if SCHEMA-validated lookup fails,
-    # the table/field doesn't exist in this graph. That's correct.
+    # P6: No fallback — if no seeds after SCHEMA + DML search, return empty
     if not seed_ids:
-        _log.info(f'R18 lineage: no seeds found for {target_table}.{target_field}')
+        _log.info(f'R18 lineage: no seeds (SCHEMA+DML) found for {target_table}.{target_field}')
         return set()
 
     R = set(seed_ids)
@@ -143,7 +178,9 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                 # DML special handling (before _BIDIR check):
                 # forward (col→table): always; reverse (table→col): production-filtered
                 if etype == "DML":
-                    if direction == "forward":
+                    if edge_filter is not None and etype not in edge_filter:
+                        pass  # skip
+                    elif direction == "forward":
                         should_add = True
                     else:
                         # table→column: only if column has non-DML production from R
@@ -152,9 +189,12 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                                 should_add = True
                                 break
                 elif etype in _BIDIR:
-                    should_add = True
+                    if edge_filter is None or etype in edge_filter:
+                        should_add = True
                 elif etype == "SCHEMA":
-                    if direction == "reverse":
+                    if edge_filter is not None and etype not in edge_filter:
+                        pass  # skip
+                    elif direction == "reverse":
                         # column → table (upstream): always add table
                         should_add = True
                     else:
@@ -164,21 +204,27 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                                 should_add = True
                                 break
                 elif etype == "JOIN":
-                    has_prod = False
-                    for (n2, e2, d2) in adj.get(neighbor, []):
-                        if n2 in R and e2 in _PRODUCTION:
-                            has_prod = True
-                            break
-                    if has_prod:
-                        should_add = True
+                    if edge_filter is not None and etype not in edge_filter:
+                        pass  # skip
+                    else:
+                        has_prod = False
+                        for (n2, e2, d2) in adj.get(neighbor, []):
+                            if n2 in R and e2 in _PRODUCTION:
+                                has_prod = True
+                                break
+                        if has_prod:
+                            should_add = True
                 elif etype == "FILTER":
-                    has_prod = False
-                    for (n2, e2, d2) in adj.get(neighbor, []):
-                        if n2 in R and e2 in _PRODUCTION:
-                            has_prod = True
-                            break
-                    if has_prod:
-                        should_add = True
+                    if edge_filter is not None and etype not in edge_filter:
+                        pass  # skip
+                    else:
+                        has_prod = False
+                        for (n2, e2, d2) in adj.get(neighbor, []):
+                            if n2 in R and e2 in _PRODUCTION:
+                                has_prod = True
+                                break
+                        if has_prod:
+                            should_add = True
                 if should_add:
                     new_nodes.add(neighbor)
 
@@ -228,7 +274,27 @@ def filter_relevant(graph_data: dict, target_table: str,
     lineage = compute_field_lineage(graph_data, target_table, target_field, table_schemas)
 
     if not lineage:
-        return graph_data
+        # Fallback: name-based filtering — keep only nodes mentioning target field/table
+        _log.info('R18 filter_relevant: lineage empty, using name-based fallback')
+        fallback_nodes = []
+        for n in nodes:
+            nd = n.get('data', n)
+            label = nd.get('label', '')
+            src_cols = nd.get('source_columns', [])
+            if (target_field in label or target_table in label or
+                any(target_field in sc or target_table in sc for sc in src_cols)):
+                fallback_nodes.append(n)
+        if fallback_nodes:
+            fallback_ids = {n.get('data', n).get('id') for n in fallback_nodes}
+            fallback_edges = [e for e in edges
+                if (e.get('data', e).get('source') in fallback_ids and
+                    e.get('data', e).get('target') in fallback_ids)]
+            return {
+                **{k: v for k, v in graph_data.items() if k not in ('nodes', 'edges')},
+                'nodes': fallback_nodes,
+                'edges': fallback_edges,
+            }
+        return graph_data  # truly nothing found
 
     relevant_nodes = [n for n in nodes if (n.get("data", n).get("id") in lineage)]
     relevant_edges = [

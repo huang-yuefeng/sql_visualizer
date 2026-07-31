@@ -24,7 +24,7 @@ class TestSearch:
         workspace_client.index(ws_id)
         result = workspace_client.search(ws_id, "staging_orders", "amount")
         nodes = result["l1_graph"].get("nodes", [])
-        valid_types = {"script_node", "source_table", "intermediate_table", "output_table", "field"}
+        valid_types = {"script_node", "source_table", "intermediate_table", "output_table", "field", "query_output", "cte_table"}
         found_script = False
         for n in nodes:
             nd = n.get("data", n)

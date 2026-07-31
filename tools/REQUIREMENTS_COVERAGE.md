@@ -1,7 +1,7 @@
 # Requirements Coverage Analysis — E2E Test vs Spec
 
-> **Date:** 2026-07-20
-> **Requirements source:** `REQUIREMENTS.md` (R1-R13) + `requirements_v2.md` (1-8)
+> **Date:** 2026-07-20 | **Reviewed:** 2026-07-30
+> **Requirements source:** `REQUIREMENTS.md` (R1-R18.1)
 
 ---
 
@@ -171,8 +171,12 @@ This is a design constraint, not testable. ✅ Satisfied by architecture.
 
 | Gap | Feature | Root Cause | Fix Needed |
 |-----|---------|-----------|------------|
-| **G9** | Export config upload | Config panel only accessible when L2 + SQL panel are visible. The third L2 open (for export) fails because `window.__cy1` backup timing is off — the backup hasn't been restored yet when export tries to use it. | Wait for cy restore, or open export immediately after L2 session (before Escape close). |
-| **G10** | Custom config export | Depends on G9 — once Config panel is accessible, the file input and toggles are available. | Same as G9. |
+| **G9** | Export config upload | Config panel timing issue | Wait for cy restore |
+| **G10** | Custom config export | Depends on G9 | Same as G9 |
+
+### R14-R18 Coverage (2026-07-30)
+
+E2E tests do not yet cover R14-R18 (SSE logging, script profile, filter diagnostics, search diagnostics, field-level lineage). These are tested via API-level verification and manual screenshot review. Adding E2E coverage is P3.
 
 ### BUG DETECTED During Testing
 
