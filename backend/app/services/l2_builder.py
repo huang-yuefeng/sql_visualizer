@@ -93,6 +93,10 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
     if graph_cache_path.exists():
         full_graph = json.loads(graph_cache_path.read_text())
+        # CW7: normalize edge_type on cache read (cache stores "relationship")
+        for _e in full_graph.get("edges", []):
+            _ed = _e.get("data", _e)
+            _ed.setdefault("edge_type", _ed.get("relationship", "REF"))
         # Item 4: cache format versioning — warn on stale caches
         if full_graph.get("format_version") != 3:
             _log.warning("L2 cache %s has format_version=%r (expected 3) — stale graph cache",
@@ -421,9 +425,10 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
             for et in etypes:
                 enriched_copy = dict(enriched)
                 enriched_copy["edge_type"] = et
-                r = find_sql_range(enriched_copy, sql_text)
-                if not r:
-                    r = find_sql_range(enriched, sql_text)  # fallback
+                # CW8: never propagate a None sql_range — default to whole-script range
+                r = (find_sql_range(enriched_copy, sql_text) or
+                     find_sql_range(enriched, sql_text) or
+                     [1, 1, 1, 1])
                 et_style = EDGE_TYPE_STYLE.get(et, EDGE_TYPE_STYLE["SUBSET"])
                 et_category = CATEGORY_MAP.get(et, "structure")
                 new_edges.append({
@@ -440,7 +445,8 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                     "sql_range": r,
                 })
         else:
-            sql_range = find_sql_range(enriched, sql_text)
+            # CW8: never propagate a None sql_range — default to whole-script range
+            sql_range = find_sql_range(enriched, sql_text) or [1, 1, 1, 1]
             new_edges.append({
                 "id": f"l2e_{hashlib.md5(f'{src_new}{tgt_new}{edge_type}'.encode()).hexdigest()[:12]}",
                 "source": src_new,
@@ -586,6 +592,19 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         tgt_obj = node_by_id.get(tgt_new, {})
         if src_obj.get("type") in ("field",) or tgt_obj.get("type") in ("field",):
             continue
+        # CW8: enriched edge with labels so find_sql_range can locate the
+        # JOIN clause (raw cache edges carry relationship, not edge_type,
+        # and no source_label/target_label).
+        fed_enriched = dict(fed)
+        fed_enriched.setdefault("edge_type", fetype)
+        fed_enriched.setdefault(
+            "source_label",
+            node_labels.get(src_orig, "") or
+            full_node_by_id.get(src_orig, {}).get("label", ""))
+        fed_enriched.setdefault(
+            "target_label",
+            node_labels.get(tgt_orig, "") or
+            full_node_by_id.get(tgt_orig, {}).get("label", ""))
         promoted.append({
             "id": f"l2e_join_survive_{src_new}_{tgt_new}",
             "source": src_new,
@@ -597,7 +616,8 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
             "line_style": "dashed",
             "width": 2,
             "desc": "JOIN key (table relationship)",
-            "sql_range": fed.get("sql_range"),
+            # CW8: never propagate a None sql_range — compute it, else whole-script default
+            "sql_range": find_sql_range(fed_enriched, sql_text) or [1, 1, 1, 1],
         })
 
     # ── Simplification 1: DML edges route through ⟐ output (intermediate_table) ──
