@@ -5,7 +5,10 @@ Builds L2 detail view: tables + fields + all 16 edge types for a single script.
 """
 import json
 import hashlib
+import logging
 from pathlib import Path
+
+_log = logging.getLogger("sql_visualizer.dataflow")
 
 from app.services.workspace_service import get_workspace_dir
 from app.extractor.adapter import run_full_analysis
@@ -13,11 +16,9 @@ from app.services.graph_service import (
     build_graph_data,
     get_edge_style as _get_edge_style,
     get_category as _get_category,
-    get_category_color as _get_category_color,
     EDGE_TYPE_STYLE,
     CATEGORY_MAP,
 )
-from app.services.logger import api_request, stage_graph
 from app.extractor.schema_inference import infer_table_schemas
 from app.extractor.lineage import filter_relevant
 from app.services.sql_range_finder import partition_edge_ranges
@@ -82,7 +83,7 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
 
 
     ws_dir = get_workspace_dir(ws_id)
-    from app.services.logger import api_request, stage_graph
+    from app.services.logger import stage_graph
 
     cache_dir = ws_dir / "cache"
     cache_key = hashlib.md5((script_name + sql_text).encode()).hexdigest()[:12]
@@ -92,6 +93,10 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
     if graph_cache_path.exists():
         full_graph = json.loads(graph_cache_path.read_text())
+        # Item 4: cache format versioning — warn on stale caches
+        if full_graph.get("format_version") != 3:
+            _log.warning("L2 cache %s has format_version=%r (expected 3) — stale graph cache",
+                         graph_cache_path.name, full_graph.get("format_version"))
         stage_graph(len(full_graph.get('nodes',[])), len(full_graph.get('edges',[])), ws_id=ws_id)
         # Bug 25: load cached table_schemas on cache hit
         _table_schemas = None
@@ -102,6 +107,8 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         full_graph = build_graph_data(result)
         # Cache for future use
         cache_dir.mkdir(parents=True, exist_ok=True)
+        # Item 4: cache format version — bump when graph schema changes
+        full_graph["format_version"] = 3
         graph_cache_path.write_text(json.dumps(full_graph, default=str))
         # R18: build table_schemas for lineage seed validation
         _table_schemas = infer_table_schemas(
@@ -183,31 +190,21 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                     queue.append(tgt)
 
     # ── Phase 0: Build alias map before classifying nodes ──
-    # Aliases are table-like variables that reference another table via source_tables
-    alias_map = {}  # alias_name -> canonical_table_name
-    for n in nodes:
-        nd = n.get("data", n)
-        vt = nd.get("variable_type", "")
-        src_tables = nd.get("source_tables", [])
-        label = nd.get("label", "")
-        if vt in ("table", "view", "cte", "subquery", "virtual_table",
-                   "merge_target", "union_branch") and src_tables and len(src_tables) == 1:
-            alias_map[label] = src_tables[0]
-    # Also detect short lowercase aliases (typical SQL pattern)
-    for n in nodes:
-        nd = n.get("data", n)
-        label = nd.get("label", "")
-        vt = nd.get("variable_type", "")
-        if vt in ("table", "view") and label and len(label) <= 3 and label.islower() and label.isalpha():
-            # Find what this alias points to from edges
-            for e in edges:
-                ed = e.get("data", e)
-                if ed.get("target") == nd.get("id") and ed.get("relationship") == "ALIAS":
-                    for n2 in nodes:
-                        n2d = n2.get("data", n2)
-                        if n2d.get("id") == ed.get("source"):
-                            alias_map[label] = n2d.get("label", "")
-                            break
+    # Bug 48: Read alias_map from graph cache (pre-built by extractor + folder_index_service).
+    # Falls back to node+edge scan if cache doesn't have alias_map (old test data).
+    alias_map = full_graph.get("alias_map", {})
+    if not alias_map:
+        # Fallback: reconstruct from nodes for backwards compatibility
+        _log.warning("L2 fallback: no alias_map in cache for %s — reconstructing from nodes (stale cache?)",
+                     script_name)
+        for n in nodes:
+            nd = n.get("data", n)
+            vt = nd.get("variable_type", "")
+            src_tables = nd.get("source_tables", [])
+            label = nd.get("label", "")
+            if vt in ("table", "view", "cte", "subquery", "virtual_table",
+                       "merge_target", "union_branch") and src_tables and len(src_tables) == 1:
+                alias_map[label] = src_tables[0]
 
     # Classify each node
     for n in nodes:
@@ -315,6 +312,8 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                         break
             if not parent_table_id and table_nodes:
                 # Fallback: attach to first table node
+                _log.warning("L2 fallback: %s (%s) has no source table — attached to first table node '%s'",
+                             label, vt, list(table_nodes.values())[0]["table_name"])
                 parent_table_id = list(table_nodes.values())[0]["id"]
             
             is_target = (nid in target_node_ids)
@@ -338,6 +337,8 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
 
         # Fallback: attach unknown node as field child to first available table
         if table_nodes:
+            _log.warning("L2 fallback: unknown node '%s' (vt=%s) has no parent — attached to first table node '%s'",
+                         label, vt if vt else "unknown", list(table_nodes.values())[0]["table_name"])
             parent_table_id = list(table_nodes.values())[0]["id"]
             field_id = f"fld_{hashlib.md5(nid.encode()).hexdigest()[:10]}"
             field_nodes.append({
@@ -404,7 +405,7 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         keyword_match_types = {'FILTER', 'WHERE', 'HAVING', 'JOIN', 'GROUP_BY', 'ORDER_BY',
                               'DML', 'CTE', 'CREATE', 'ALTER', 'DROP', 'SCHEMA', 'AGGREGATE',
                               'WINDOW', 'TRANSFORM', 'CASE', 'COMPUTED', 'SUBQUERY',
-                              'SUBSET', 'ALIAS', 'INDIRECT', 'REF', 'CORRELATED'}
+                              'SUBSET', 'ALIAS', 'INDIRECT', 'REF', 'CORRELATED', 'TABLE_FLOW'}
         if tgt_label and lines and edge_type not in keyword_match_types:
             tgt_clean = tgt_label.split('.')[-1].strip().lower()
             if len(tgt_clean) > 2 and tgt_clean not in ('select','from','where','insert','into','values','join','table'):
@@ -529,6 +530,15 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     # need a production path). But JOIN edges are semantically valuable — they show
     # table relationships even without value flow. After promotion, re-add JOIN
     # edges from the full graph that connect tables in the current L2 graph.
+    #
+    # Bug 45: Build full_node_by_id for fallback resolution when id_map misses
+    # (field-level endpoints filtered out). Resolve to parent table via label prefix
+    # or source_tables.
+    full_node_by_id = {}
+    for fn in full_graph.get("nodes", []):
+        fnd = fn.get("data", fn)
+        full_node_by_id[fnd.get("id", "")] = fnd
+
     seen_join_keys = set()
     for e in new_edges:
         if e.get("edge_type") == "JOIN":
@@ -543,6 +553,29 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         tgt_orig = fed.get("target", "")
         src_new = id_map.get(src_orig)
         tgt_new = id_map.get(tgt_orig)
+
+        # Bug 45: When field-level endpoint was filtered out, resolve to parent table
+        if not src_new and src_orig in full_node_by_id:
+            src_node = full_node_by_id[src_orig]
+            src_label = src_node.get("label", "")
+            src_tables = src_node.get("source_tables", [])
+            src_parent = (src_tables[0] if src_tables else
+                          src_label.rsplit(".", 1)[0] if "." in src_label else "")
+            for tn in table_nodes.values():
+                if tn.get("table_name") == src_parent:
+                    src_new = tn["id"]
+                    break
+        if not tgt_new and tgt_orig in full_node_by_id:
+            tgt_node = full_node_by_id[tgt_orig]
+            tgt_label = tgt_node.get("label", "")
+            tgt_tables = tgt_node.get("source_tables", [])
+            tgt_parent = (tgt_tables[0] if tgt_tables else
+                          tgt_label.rsplit(".", 1)[0] if "." in tgt_label else "")
+            for tn in table_nodes.values():
+                if tn.get("table_name") == tgt_parent:
+                    tgt_new = tn["id"]
+                    break
+
         if not src_new or not tgt_new or src_new == tgt_new:
             continue
         key = (src_new, tgt_new)
@@ -584,14 +617,25 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
             break
 
     # Collect DML target tables and DML source→target pairs
+    # Bug 46: Populate from full_graph.edges (unfiltered), not new_edges.
+    # filter_relevant() removes DML edges whose source columns are not in
+    # the lineage set, making dml_targets empty. The redirect pass at line
+    # ~635 needs dml_targets to route TABLE_FLOW through intermediate_id.
     dml_targets = set()
     dml_sources = set()
     dml_pairs = set()  # (source, target) pairs from DML edges
-    for e in new_edges:
-        if "DML" in e.get("edge_type", "").upper():
-            dml_targets.add(e.get("target", ""))
-            dml_sources.add(e.get("source", ""))
-            dml_pairs.add((e.get("source", ""), e.get("target", "")))
+    for fe in full_graph.get("edges", []):
+        fed = fe.get("data", fe)
+        rel = fed.get("edge_type", "") or fed.get("relationship", "")
+        if "DML" in rel.upper():
+            tgt_new = id_map.get(fed.get("target", ""))
+            src_new = id_map.get(fed.get("source", ""))
+            if tgt_new:
+                dml_targets.add(tgt_new)
+            if src_new:
+                dml_sources.add(src_new)
+            if src_new and tgt_new:
+                dml_pairs.add((src_new, tgt_new))
 
     new_dml_edges = []
     for e in new_edges:
@@ -778,288 +822,3 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         "total_edges": total_edges,
         "target": target_full,
     }
-
-
-
-def _estimate_sql_range(edge_data: dict, lines: list) -> list | None:
-    """Estimate SQL line/column range from edge metadata.
-
-    Returns [start_line, start_col, end_line, end_col] or None.
-    Strategy (in order):
-      1) Explicit line_num if present
-      2) defined_in context match
-      3) Edge-type→SQL-keyword mapping (with statement extension)
-      4) Source/target label search (variable/table names)
-      5) Ultimate fallback: return full script range
-    """
-    import re as _re
-
-    if not lines:
-        return None
-
-    def _extend_to_statement(line_idx: int) -> list:
-        """Extend from a matched line to the full SQL statement boundaries."""
-        start_line = line_idx
-        end_line = line_idx
-        # Extend backward to statement start (look for SELECT, WITH, INSERT, etc.)
-        # Statement-level keywords: start entirely NEW statements
-        # These correctly stop backward extension.
-        # NOTE: SELECT is NOT in this list because it can be part of INSERT...SELECT.
-        # Only keywords that DEFINITELY start a new top-level statement stop backward.
-        STMT_START_KW = ('WITH', 'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'CREATE',
-                         'ALTER', 'DROP', 'TRUNCATE', 'UNION')
-        # Forward: after blank line, only statement-start keywords indicate new statement.
-        # Clause-level keywords (FROM, JOIN, etc.) within a statement are continuation lines.
-        while start_line > 0:
-            prev_raw = lines[start_line - 1].strip()
-            prev = prev_raw.upper()
-            if not prev or prev.startswith('--'):
-                break
-            # CTE boundary: ) pattern that closes a CTE definition in a WITH chain.
-            # Matches patterns like:
-            #   ),           — comma-separated CTE boundary  
-            #   ), cte2 AS   — next CTE follows immediately
-            #   )            — standalone closing paren (CTE end)
-            # Avoid extending into a previous CTE's body.
-            if prev.startswith(')') and (
-                len(prev) <= 3 or          # ')' or '),'
-                prev.startswith('),')      # '), cte_name ...'
-            ):
-                break
-            # Also detect ), at end of line: e.g. '...sq1),'
-            if prev_raw.rstrip().endswith('),'):
-                break
-            # Backward: only stop at true statement starts (not clause keywords)
-            if any(prev.startswith(kw) for kw in STMT_START_KW):
-                start_line -= 1  # include the statement-start line itself
-                break
-            start_line -= 1
-        # Extend forward to statement end (semicolon or blank line followed by new statement)
-        while end_line < len(lines) - 1:
-            nxt_raw = lines[end_line + 1].strip()
-            nxt = nxt_raw.upper()
-            if not nxt or nxt.startswith('--'):
-                # Check if the line after blank/comment starts a new statement
-                if end_line + 2 < len(lines):
-                    after = lines[end_line + 2].strip().upper()
-                    # Only stop at statement-level keywords (include SELECT here
-                    # because after a blank line, SELECT definitely starts new stmt)
-                    FWD_KW = STMT_START_KW + ('SELECT',)
-                    if any(after.startswith(kw) for kw in FWD_KW):
-                        break
-                else:
-                    break
-            # CTE boundary: ),  pattern that closes this CTE and starts the next one.
-            # When we see ),  we've reached the end of the current CTE definition.
-            if nxt.startswith(')') and (
-                len(nxt) <= 3 or          # ')' or '),'
-                nxt.startswith('),')      # '), cte_name ...'
-            ):
-                break
-            # Also detect ), at end of line: e.g. '...sq1),'
-            if nxt_raw.rstrip().endswith('),'):
-                break
-            end_line += 1
-            if nxt_raw.rstrip().endswith(';'):
-                break
-        # Cap range to max 50 lines for deeply nested CTE chains
-        range_len = end_line - start_line + 1
-        if range_len > 50:
-            end_line = start_line + 49  # cap at 50 lines
-            if end_line >= len(lines):
-                end_line = len(lines) - 1
-        return [start_line + 1, 1, end_line + 1, len(lines[end_line])]
-
-    # 1) Explicit line number
-    line_num = edge_data.get("line_num") or edge_data.get("line_number") or edge_data.get("line")
-    if line_num is not None:
-        try:
-            ln = int(line_num) - 1  # convert to 0-based
-            if 0 <= ln < len(lines):
-                return _extend_to_statement(ln)
-        except (ValueError, TypeError):
-            pass
-
-    # 2) defined_in context
-    defined_in = (edge_data.get("defined_in") or "").upper()
-    if defined_in:
-        for i, line in enumerate(lines):
-            if defined_in in line.upper():
-                return _extend_to_statement(i)
-
-    edge_type = (edge_data.get("edge_type") or edge_data.get("relationship") or "").upper()
-    label = edge_data.get("label", "")
-    src_label = (edge_data.get("source_label") or "")
-    tgt_label = (edge_data.get("target_label") or "")
-
-    # 3) Edge-type→SQL-keyword mapping — try each type in priority order
-    # Split compound types like "JOIN,FILTER" into individual types
-    _SQL_KEYWORDS = {
-        "JOIN":     [r"\b(LEFT|RIGHT|INNER|OUTER|CROSS|FULL)?\s*JOIN\b"],
-        "FILTER":   [r"\bWHERE\b", r"\bHAVING\b"],
-        "WHERE":    [r"\bWHERE\b"],
-        "GROUP_BY": [r"\bGROUP\s+BY\b"],
-        "ORDER_BY": [r"\bORDER\s+BY\b"],
-        "AGGREGATE":[r"\b(SUM|COUNT|AVG|MIN|MAX|ROW_NUMBER|RANK|DENSE_RANK|LAG|LEAD)\s*\("],
-        "UNION":    [r"\bUNION\b"],
-        "DML":      [r"\bINSERT\s+(INTO\s+)?", r"\bUPDATE\s+", r"\bDELETE\s+FROM\s+",
-                      r"\bMERGE\s+INTO\s+"],
-        "TRANSFORM":[r"\b(CAST|COALESCE|CONCAT|SUBSTR|SUBSTRING|TRIM|UPPER|LOWER|IFNULL|NVL|NULLIF|COALESCE)\s*\("],
-        "CASE":     [r"\bCASE\b"],
-        "CTE":      [r"\bWITH\b"],
-        "CREATE":   [r"\bCREATE\s+(TABLE|VIEW|TEMP)"],
-        "INDIRECT":   [
-            r"\bHAVING\b",                       # indirect ref often in HAVING
-            r"\bWHERE\b",                        # correlated subquery in WHERE
-        ],
-        "SUBSET":     [
-            r"\bWHERE\b",                        # WHERE filters to subset
-            r"\bHAVING\b",                       # HAVING filters aggregates
-        ],
-        "TABLE_FLOW":[
-            r"\bINSERT\s+INTO\b.*\bSELECT\b", # INSERT...SELECT pattern
-            r"\bFROM\b",                          # FROM for simple SELECT
-        ],
-        "ALIAS":    [
-            r"\bAS\s+\w+",                       # explicit AS alias
-            r"\bFROM\s+\w+\s+\w+",            # implicit alias: FROM table alias
-            r"\bJOIN\s+\w+\s+\w+",            # implicit alias: JOIN table alias
-        ],
-        "SCHEMA":   [
-            r"\bCREATE\s+(TABLE|VIEW|TEMP)\b",  # schema definition
-            r"\bALTER\s+(TABLE|VIEW)\b",        # schema alteration
-            r"\bDROP\s+(TABLE|VIEW)\b",         # schema removal
-        ],
-        "REF":      [
-            # Keyword matching too generic for REF — rely on
-            # dynamic source/target label patterns added below
-        ],
-        "SUBQUERY": [r"\bSELECT\b"],
-        "COMPUTED": [r"\b(SELECT|SET|CASE|COALESCE|CAST|CONCAT)\b"],
-        "WINDOW":   [r"\b(OVER|PARTITION\s+BY|ROW_NUMBER|RANK|DENSE_RANK|LAG|LEAD)\b"],
-        "CORRELATED": [r"\bEXISTS\b", r"\bIN\s*\("],
-    }
-
-    # Split compound edge types (JOIN,FILTER) — try each in priority order
-    edge_types_to_try = [t.strip() for t in edge_type.split(',')] if edge_type else []
-    edge_types_to_try.append(label.upper())  # also try label as fallback
-    
-    all_keywords = []
-    for et in edge_types_to_try:
-        kws = _SQL_KEYWORDS.get(et, [])
-        if kws:
-            all_keywords.extend(kws)
-    
-    if not all_keywords:
-        all_keywords = _SQL_KEYWORDS.get(label.upper(), [])
-    
-    # V3.3.13: Dynamically add source/target label patterns for TABLE_FLOW and REF.
-    # Generic keywords (FROM, SELECT, WHERE) match too broadly. Using the actual
-    # table/column names from the edge labels makes matching specific.
-    dynamic_patterns = []
-    if "TABLE_FLOW" in edge_types_to_try or "TABLE_FLOW" in (label.upper(),):
-        # Use target label as table name pattern
-        for lbl in (tgt_label, src_label):
-            if lbl and len(lbl) > 2:
-                clean = lbl.strip().split(".")[-1].strip()  # take last part after dot
-                if clean:
-                    dynamic_patterns.append(r"\b" + re.escape(clean) + r"\b")
-    if "REF" in edge_types_to_try or "REF" in (label.upper(),):
-        # Use source label as column name pattern
-        for lbl in (src_label, tgt_label):
-            if lbl and len(lbl) > 2:
-                for part in lbl.split(","):
-                    clean = part.strip().split(".")[-1].strip()
-                    if clean:
-                        dynamic_patterns.append(r"\b" + re.escape(clean) + r"\b")
-    
-    keywords = all_keywords + dynamic_patterns
-
-    for pat in keywords:
-        try:
-            for i, line in enumerate(lines):
-                stripped = line.strip()
-                # Skip comment-only lines
-                if stripped.startswith('--'):
-                    continue
-                if _re.search(pat, line, _re.IGNORECASE):
-                    return _extend_to_statement(i)
-        except Exception:
-            continue
-
-    # 4) Search SQL for source/target labels (variable/table names)
-    # Strip dots: "stg_orders.order_id" → search for "order_id" and "stg_orders"
-    search_terms = []
-    for lbl in (src_label, tgt_label, label):
-        if not lbl:
-            continue
-        # Handle comma-separated compound labels
-        for part_label in lbl.split(","):
-            clean = part_label.strip().split(".")[0].strip()  # take first part before dot
-            if clean and len(clean) > 2:
-                search_terms.append(clean)
-            # If dotted, add each part
-            if "." in part_label.strip():
-                for part in part_label.strip().split("."):
-                    if len(part.strip()) > 1:
-                        search_terms.append(part.strip())
-
-    # Remove duplicates, sort by length descending (more specific first)
-    search_terms = sorted(set(t.lower() for t in search_terms), key=len, reverse=True)
-
-    # Score all lines by how many search terms they match
-    # PLUS context bonus: some edge types prefer certain SQL contexts
-    best_score = 0
-    best_line = None
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith('--'):
-            continue
-        score = 0
-        uline = line.upper()
-        # Base score: how many search terms appear
-        for term in search_terms:
-            if term in ("select", "from", "where", "insert", "into", "values", "join", "table"):
-                continue
-            if term in line.lower():
-                score += 2  # each matching term = 2 points
-        # Context bonus: weight lines higher based on edge type context
-        if edge_type in ("REF", "COMPUTED", "TRANSFORM"):
-            if "SELECT" in uline:
-                score += 3  # REF prefers SELECT lines
-        elif edge_type == "ALIAS":
-            if "FROM" in uline or "JOIN" in uline:
-                score += 3  # ALIAS prefers FROM/JOIN lines
-        elif edge_type == "TABLE_FLOW":
-            if "INSERT" in uline or "INTO" in uline:
-                score += 3  # TABLE_FLOW prefers INSERT/INTO lines
-        elif edge_type == "SCHEMA":
-            if "CREATE" in uline or "ALTER" in uline or "DROP" in uline:
-                score += 3  # SCHEMA prefers DDL lines
-        elif edge_type == "SUBSET":
-            if "WHERE" in uline or "HAVING" in uline:
-                score += 3  # SUBSET prefers filter lines
-        if score > best_score:
-            best_score = score
-            best_line = i
-    
-    if best_line is not None:
-        return _extend_to_statement(best_line)
-
-    # 5) Ultimate fallback: return the first substantive line range
-    # Try to find FROM/SELECT line
-    for i, line in enumerate(lines):
-        uline = line.upper().strip()
-        if not uline or uline.startswith('--'):
-            continue
-        if "FROM " in uline or "SELECT " in uline:
-            return _extend_to_statement(i)
-
-    # Last resort: return full script range so user sees something
-    if lines:
-        return [1, 1, len(lines), len(lines[-1])]
-
-    return None
-
-
-

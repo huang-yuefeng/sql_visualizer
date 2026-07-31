@@ -598,6 +598,8 @@ export const CATEGORY_EDGE_STYLES = [
     selector: 'edge[edge_type="ALIAS"]',
     style: {
       'curve-style': 'unbundled-bezier',
+      'control-point-distances': [-30, 30],
+      'control-point-weights': [0.3, 0.7],
     },
   },
   // Structure (SCHEMA, ALIAS, SUBSET)
