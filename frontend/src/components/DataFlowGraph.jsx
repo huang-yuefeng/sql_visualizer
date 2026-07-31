@@ -22,7 +22,15 @@ export default function DataFlowGraph(props) {
     showRoleBadges: true,
     onEdgeTap: (e) => {
       const data = e.target.data();
-      onEdgeClick?.({ id: e.target.id(), ...data, sql_range: data.sql_range || null });
+      // Bug 42: Preserve both sql_range (array) and sql_ranges (dict) from edge data.
+      // Cytoscape may serialize these, so explicitly ensure they survive.
+      const sqlRange = Array.isArray(data.sql_range) && data.sql_range.length >= 3 ? data.sql_range : null;
+      onEdgeClick?.({
+        id: e.target.id(),
+        ...data,
+        sql_range: sqlRange,
+        sql_ranges: data.sql_ranges || null,
+      });
     },
     onEdgeHover: (e) => {
       if (e.target.isEdge?.()) {

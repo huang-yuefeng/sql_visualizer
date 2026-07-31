@@ -394,7 +394,20 @@ class RangeBuilder:
     # satisfying the partition invariant (minimal overlap between edges).
     
     def build(self) -> SqlRange:
-        """Build the final range: matched line ± proportional window, capped by statement boundaries."""
+        """Build the final range: matched line ± proportional window, capped by statement boundaries.
+        
+        Bug 43 fix: Clamp matched_line to valid 0-based range to prevent off-by-1 errors
+        when edge_data.line_num is already 1-based.
+        """
+        # Bug 43: Clamp matched_line to valid 0-based range
+        valid_max = len(self.all_lines) - 1
+        if self.matched_line > valid_max:
+            # Likely a 1-based line number was passed; convert to 0-based
+            if self.matched_line <= valid_max + 1:
+                self.matched_line = max(0, self.matched_line - 1)
+            else:
+                self.matched_line = valid_max
+        self.matched_line = max(0, min(self.matched_line, valid_max))
         stmt_start_0 = self.statement.start_line - 1  # 0-based
         stmt_end_0 = self.statement.end_line - 1      # 0-based
         
@@ -407,7 +420,7 @@ class RangeBuilder:
         #   (keyword may be in middle of statement)
         # Other types use balanced window.
         total_lines = len(self.all_lines)
-        max_extend = max(1, min(3, total_lines // 10))
+        max_extend = max(2, min(3, total_lines // 10))  # Bug 1 fix: floor 2 ensures WHERE/AND continuation lines captured
         
         edge_type = (self.edge_data.get('edge_type') or '').upper()
         _FORWARD_ONLY = {'FILTER', 'WHERE', 'HAVING', 'JOIN', 'GROUP_BY', 'ORDER_BY',

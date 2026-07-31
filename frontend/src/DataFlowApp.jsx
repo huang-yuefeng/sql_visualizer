@@ -316,7 +316,7 @@ export default function DataFlowApp() {
     const srDict = edgeData.sql_ranges;
     if (srDict && typeof srDict === 'object' && Object.keys(srDict).length > 0) {
       let best = null, bestLen = Infinity;
-      for (const [etype, r] of Object.entries(srDict)) {
+      for (const [, r] of Object.entries(srDict)) {
         if (r && r.length >= 4) {
           const span = r[2] - r[0];
           if (span >= 0 && span < bestLen) { best = r; bestLen = span; }
@@ -324,8 +324,13 @@ export default function DataFlowApp() {
       }
       if (best) return best;
     }
-    // Fall back to union range
-    return edgeData.sql_range || null;
+    // Fall back to union range (Bug 42: validate array format)
+    const sr = edgeData.sql_range;
+    if (Array.isArray(sr) && sr.length >= 3 && sr[0] > 0) return sr;
+    // Last resort: use line_num if available (single-line highlight)
+    const ln = edgeData.line_num || edgeData.line_number || edgeData.line;
+    if (ln) return [Number(ln), 1, Number(ln), 1];
+    return null;
   }, []);
   // ── Edge click → SQL highlighting ──────────────────────────────────
   const handleEdgeClick = useCallback((edgeData) => {

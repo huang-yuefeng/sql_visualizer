@@ -1,7 +1,13 @@
 # Data Flow Debugger — Layout Analysis & Recommendations (v7)
 
-> **Date:** 2026-07-20
-> **Version:** 3.2.25
+> **Date:** 2026-07-20 | **Reviewed:** 2026-07-30
+> **Version:** 3.2.25 (analysis) / 3.3.104 (review)
+> **Status:** ✅ All 6 defects fixed as of v3.3.104. This document is a historical reference.
+>
+> - Defect 1 (resize inversion): fixed — `invert: true` added to `l2Resize`/`sqlResize`
+> - Defects 2-3 (layers/edges/turn-edges): fixed — layout rewritten to interleave by layer; `pipelineLayout.js` removed
+> - Defect 4 (param mismatch): fixed — backend positions now consistent
+>
 > **Test case:** `multi_workflow` (5 scripts, 12 top-level nodes, 11 edges)
 > **Method:** API data extraction + frontend layout logic analysis + chromium screenshot
 

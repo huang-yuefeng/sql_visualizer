@@ -111,9 +111,58 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                         table_index.setdefault(table_name, {"fields": set(), "scripts": set()})
                         table_index[table_name]["fields"].add(field_name)
 
+            # Bug 41: Cross-reference DML dependencies so that INSERT column
+            # names (e.g., total_amount) are indexed alongside SELECT aliases
+            # (e.g., total) for autocomplete. This lets users find fields by
+            # either the INSERT column name or the SELECT alias.
+            dependencies = result.get("dependencies", [])
+            if dependencies:
+                var_by_id = {v2.get("id"): v2 for v2 in variables}
+                for dep in dependencies:
+                    if dep.get("relationship") != "DML":
+                        continue
+                    src = var_by_id.get(dep.get("source_id"))
+                    tgt = var_by_id.get(dep.get("target_id"))
+                    if not (src and tgt):
+                        continue
+                    if src.get("variable_type") != "column" or tgt.get("variable_type") != "column":
+                        continue
+                    src_name = src.get("name", "")
+                    tgt_name = tgt.get("name", "")
+                    # Target: "daily_summary.total_amount" -> table=daily_summary, field=total_amount
+                    tgt_field = tgt_name.split(".", 1)[-1] if "." in tgt_name else tgt_name
+                    tgt_table = tgt_name.split(".", 1)[0] if "." in tgt_name else ""
+                    # Source: "total" or "analytics_orders.total" -> field=total
+                    src_field = src_name.split(".", 1)[-1] if "." in src_name else src_name
+                    if not tgt_table:
+                        continue
+                    # Map both names to the INSERT target table
+                    table_index.setdefault(tgt_table, {"fields": set(), "scripts": set()})
+                    table_index[tgt_table]["fields"].add(src_field)
+                    table_index[tgt_table]["fields"].add(tgt_field)
+                    # Index both names in field_index with target table
+                    for fn in (src_field, tgt_field):
+                        field_index.setdefault(fn, {"tables": set(), "scripts": set()})
+                        field_index[fn]["tables"].add(tgt_table)
+                        field_index[fn]["scripts"].add(rel_path)
+
         except Exception as e:
             errors.append({"script": rel_path, "error": str(e)})
             _set_progress(ws_id, i + 1, total, "analyzing")
+
+
+    # P1: Build pair_index[(table,field)] → {scripts} for fast seed-script lookup.
+    # Used by Algorithm 2 step 2a to find seed scripts without scanning all data.
+    cache_dir = get_workspace_dir(ws_id) / "cache"
+    pair_index = {}
+    for field_name, fdata in field_index.items():
+        for table_name in fdata.get("tables", []):
+            key = f"{table_name}.{field_name}"
+            pair_index.setdefault(key, set()).update(fdata.get("scripts", []))
+    
+    # Cache pair_index
+    (cache_dir / "pair_index.json").write_text(json.dumps(
+        {k: sorted(v) for k, v in pair_index.items()}, indent=2))
 
     # Convert sets to sorted lists for JSON
     for ti in table_index.values():

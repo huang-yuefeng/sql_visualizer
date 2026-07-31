@@ -1,7 +1,7 @@
-# Requirements Traceability Matrix — V3.2.1
+# Requirements Traceability Matrix — V3.3.104
 
-> Maps all requirements from REQUIREMENTS.md and requirements_v2.md to implementation status.
-> Last updated: 2026-07-17
+> Maps all requirements from REQUIREMENTS.md to implementation status.
+> Last updated: 2026-07-30
 
 ## Legend
 - ✅ Implemented & verified
@@ -109,16 +109,82 @@
 | R9.4 | 7 edge categories for visualization | ✅ | copy/compute/aggregate/filter/combine/write/structure |
 | R9.5 | BFS-based direct/indirect classification | ✅ | Upstream + downstream BFS from target nodes |
 
+## R10 — Node Type Per-Type Coverage (53 tests)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R10.1 | 53 node type coverage tests | ✅ | tests/test_node_per_type.py |
+
+## R11 — Edge Type Per-Type Coverage (36 tests)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R11.1 | 36 edge type coverage tests | ✅ | tests/test_edge_per_type.py |
+
+## R12 — Key Bug Fixes
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R12.1 | qo_ node eliminated | ✅ | v3.3.71 — Simplification 1 |
+| R12.2 | Edge range overlap reduced | ✅ | v3.3.72 |
+| R12.3 | Compound edge types split | ✅ | v3.3.69 |
+| R12.4 | Alias detection via semantic analysis | ✅ | Bug 5 fixed v3.3.67 |
+
+## R13 — Sample Library
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R13.1 | multi_workflow sample | ✅ | 5-script pipeline |
+| R13.2 | multi_test sample | ✅ | GPS transactions |
+| R13.3 | tpcds_qualified sample | ✅ | 103 TPC-DS scripts |
+| R13.4 | dialect_test sample | ✅ | BigQuery/MaxCompute/Snowflake |
+| R13.5 | financial sample | ✅ | 18 financial scripts |
+
+## R14 — Server-Side Progress Logging
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R14.1 | SSE endpoint for pipeline logs | ✅ | `/api/logs/{ws_id}/stream` |
+| R14.2 | LogPanel with collapsible display | ✅ | Frontend LogPanel component |
+| R14.3 | Color-coded stages | ✅ | Indexing/Search/Graph stages |
+| R14.4 | Thread-safe queue.Queue | ✅ | backend/app/services/logger.py |
+
+## R15 — Script Profile Summary
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R15.1 | ASCII-box diagnostic block | ✅ | Size/Lines/Stmts/Clauses/Funcs/Vars/Edges/Nesting/Timing |
+| R15.2 | Emitted after pipeline completion | ✅ | SSE log stream |
+
+## R16 — Filter CSV Diagnostic Logging
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R16.1 | Filter CSV diagnostic output | ✅ | Scope table, row counts, mismatch warnings |
+| R16.2 | Two-way CSV path matching | ✅ | Bug 15 fixed v3.3.89 |
+
+## R17 — Search Diagnostic Logging
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R17.1 | Search diagnostic after filter | ✅ | Scope tables, field counts, filter stats |
+
+## R18 — Field-Level Data Flow Extraction
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R18.1 | compute_field_lineage BFS | ✅ | 16 edge-type rules in lineage.py |
+| R18.2 | filter_relevant graph filtering | ✅ | L1 + L2 filtering wired |
+| R18.3 | infer_table_schemas (7-pass) | ✅ | schema_inference.py |
+| R18.4 | lineage_mode in create_search | ✅ | Default True |
+| R18.5 | original_id bridge (L1 ↔ analysis) | ✅ | Bug 19 fixed v3.3.103 |
+| R18.6 | table_schemas on cache hit/miss | ✅ | Bug 20 fixed v3.3.103 |
+
+### R18.1 — Empty Table Cleanup
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R18.1.1 | Remove tables with 0 field children | ✅ | v3.3.105 — primary + fallback paths |
+| R18.1.2 | Keep termination marker table | ✅ | v3.3.105 — terminal table + edge preserved |
+
 ## Summary
 | Metric | Count |
 |--------|-------|
-| ✅ Implemented | 48 (all) |
-| ❌ Missing | 0 |
-| Backend tests | 314 passed |
-| Frontend build | Clean |
-| Version | 3.2.1 |
+| ✅ Implemented | 75 (all) |
+| ❌ Not yet | 0 |
+| Version | 3.3.105 |
 
-## Key Fixes in V3.2.1
+## Key Fixes since V3.2.1
 | Fix | Description |
 |-----|-------------|
 | Category mapping | _get_category() now returns 7 categories (copy/compute/aggregate/filter/combine/write/structure) instead of edge_type directly |

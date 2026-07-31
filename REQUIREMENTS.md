@@ -762,7 +762,7 @@ If filter is NOT active, show the full index scope instead:
 
 ### Formal Definition
 
-See [`wiki/DATAFLOW_FORMAL_DEFINITION.md`](../wiki/DATAFLOW_FORMAL_DEFINITION.md) — Field-Level Data Flow section for the complete 16 edge-type rule table, Lineage Set R definition, worked example, and design framework.
+See [`wiki/DATAFLOW_FORMAL_DEFINITION.md`](../wiki/DATAFLOW_FORMAL_DEFINITION.md) — Field-Level Data Flow section for the complete 16 edge-type rule table, Lineage Set R definition, worked example, and design framework; and the **Table Type Invariants** section for field synchronization (alias ↔ original) and output table flow completion rules.
 
 See [`wiki/REQUIREMENTS_TRACEABILITY.md`](../wiki/REQUIREMENTS_TRACEABILITY.md) — for traceability mapping.
 
@@ -784,6 +784,7 @@ See [`wiki/REQUIREMENTS_TRACEABILITY.md`](../wiki/REQUIREMENTS_TRACEABILITY.md) 
 │ filter_graph(graph, R)                                    │
 │   → keep nodes ∈ R, drop rest                            │
 │   → keep edges where both endpoints ∈ R                  │
+│   → post-cleanup: remove tables with 0 field children    │
 │   → same structure, fewer elements                       │
 │                                                           │
 │ search_dataflow(table, field, lineage_mode=true)          │
@@ -804,12 +805,19 @@ R is the transitive closure of queried field Y, computed by applying 16 edge-typ
 
 | | Current | Desired |
 |---|---|---|
-| L1 graph | All scripts + fields for table T | Only fields in Y's lineage chain |
+| L1 graph | All scripts + fields for table T | Only fields in Y's lineage chain (via `compute_field_lineage`, not name matching) |
 | L2 graph | All fields in table T | Only Y's upstream sources + downstream targets |
 | UI/UX | Click L1→L2, click edge→SQL | Unchanged |
 | Unrelated same-table fields | Shown | Hidden |
+| Unrelated same-name fields | Shown (name match) | **Hidden** (not in lineage) |
 
-### Example
+### Lineage vs Name Matching
+
+**Name matching is not lineage.** Two fields with the same name (e.g., `customer_id` in `stg_customers` and `stg_orders`) are NOT automatically in each other's lineage. Lineage follows the data flow of the field's **value** — which table/expression produced it, which edges carried it.
+
+`compute_field_lineage` in `lineage.py` is the single source of truth for lineage computation. Both L1 and L2 must use it. L1 must NOT use name-based filtering as a substitute.
+
+### Example 1: Same-script fields
 
 `INSERT INTO stg_customers SELECT c.customer_id, c.full_name, c.segment FROM crm_customers c WHERE c.region='NA'`
 **Query:** `table=stg_customers, field=customer_id`
@@ -822,6 +830,21 @@ R is the transitive closure of queried field Y, computed by applying 16 edge-typ
 | `c.segment` | ❌ | Same |
 | `c.region` | ❌ | FILTER only, no production edge |
 
+### Example 2: Cross-branch same-name fields
+
+**Query:** `stg_customers.customer_id` in multi_workflow
+```
+crm_customers.customer_id → step2 → stg_customers.customer_id → step3(JOIN)
+raw_orders.customer_id    → step1 → stg_orders.customer_id    → same JOIN
+```
+
+| Field | Shown? | Reason |
+|-------|--------|--------|
+| `stg_customers.customer_id` | ✅ | Seed |
+| `crm_customers.customer_id` | ✅ | DML ↑ via step2 |
+| `stg_orders.customer_id` | ❌ | JOIN only — not in production chain for stg_customers |
+| `raw_orders.customer_id` | ❌ | Produces stg_orders.customer_id, different branch |
+
 ### Algorithm
 
 ```
@@ -829,9 +852,64 @@ Step 1: Construct initial R   — find table node, find field via SCHEMA, valida
 Step 2: Expand R by BFS        — walk edges with type-specific rules, R stabilizes
 Step 3: Filter graph           — keep nodes/edges in R, drop rest (no name-based post-filter)
 Step 4: Wire into pipeline     — create_search accepts lineage_mode, calls filter_relevant
+
+Step 5 (L1 only): Cross-script constrained union
+    — For each script in the pipeline, compute Rᵢ via compute_field_lineage
+    — R₁ = ⋃ Rᵢ, constrained: fields excluded by conditional edges (JOIN/FILTER)
+      in ANY script are excluded from R₁
+Step 6 (L1+L2): Post-filter cleanup (R18.1)
+    — Remove tables with 0 field children (except terminal marker)
+    — Keep immediate downstream table as terminal marker (empty)
+    — Keep scripts connected to terminal marker (for manual L2 verification)
+    — Keep edges: terminal marker ↔ scripts (incoming + outgoing)
+    — Remove further downstream tables (not connected to terminal marker scripts)
 ```
 
-Key design: filtering is intrinsic to the BFS rules. SCHEMA↓ is production-filtered — only columns with a production edge from R enter the lineage. No separate name-matching step needed.
+**Key design constraint:** Both L1 and L2 use `compute_field_lineage` as the single lineage engine. L1 does NOT use name matching. L1 is the constrained union of per-script L2 results, not an independent filter.
+
+### R18.1 — Empty Table Cleanup After Lineage Filtering
+
+> **Priority:** P2 | **Date:** 2026-07-30
+
+**Description:** After lineage filtering removes non-lineage field nodes, some table nodes may have **0 remaining field children**. This happens when the queried field's value does NOT propagate into a downstream table — e.g., `customer_id` is used only in a JOIN condition (`ON so.customer_id = sc.customer_id`) but is not INSERTed into the output table. The data flow of the field's value terminates at the last table that carries it.
+
+Downstream tables without the queried field are removed — **except for the immediate termination point**: keep the FIRST downstream table that lacks the field as a **terminal marker** (empty, 0 field children). Scripts connected to the terminal marker are **kept with their edges** — users can open each script's L2 view to manually verify that the queried field is not used in data-producing operations (e.g., only in JOIN, not INSERT). All further downstream tables (outputs of terminal-connected scripts) are removed.
+
+**Design principle:** Lineage follows **data flow of the field's value**, not structural table dependency. The terminal marker shows where automatic lineage tracing stops. Connected scripts are preserved for manual inspection — the user can click through to confirm the field is absent from each script's data flow, rather than trusting the algorithm blindly.
+
+**What changes:**
+
+| | Current | Desired |
+|---|---|---|
+| Immediate empty table | Shown (empty) | **Kept** (terminal marker) + edge from producer script |
+| Scripts connected to terminal marker | Shown | **Kept** — users can open L2 to verify field absence |
+| Outgoing edges to terminal-connected scripts | Shown | **Kept** — shows which scripts to inspect |
+| Further downstream tables (outputs of terminal scripts) | Shown (empty) | **Removed** — not in lineage chain |
+| Disconnected scripts (no tables after cleanup) | Shown | **Removed** |
+
+**Example** (`stg_customers.customer_id` in multi_workflow):
+
+```
+step3(JOIN) ──writes_to──> analytics_orders  ← KEPT (empty, terminal marker)
+                            analytics_orders ──reads_from──> step4  ← KEPT (inspect in L2)
+                            analytics_orders ──reads_from──> step5  ← KEPT (inspect in L2)
+step4(AGGREGATE) ──writes_to──> daily_summary  ← REMOVED (not in lineage chain)
+step5(SELECT) ──writes_to──> report            ← REMOVED (not in lineage chain)
+```
+
+`analytics_orders` stays (empty) to show: "step3 processes `customer_id`, but `customer_id` doesn't reach `analytics_orders`'s columns." step4 and step5 stay connected — the user can double-click them to open L2 and manually verify that `customer_id` is absent from their INSERT/SELECT operations. `daily_summary` and `report` (outputs of step4/step5) are removed.
+
+**Implementation:**
+
+- **L1** (`_filter_l1_by_lineage`): after identifying `terminal_table_ids`:
+  1. Keep all edges involving the terminal marker (do NOT remove outgoing)
+  2. Remove further downstream tables (outputs of terminal-connected scripts) not in `field_parent_ids` or `terminal_table_ids`
+  3. Remove scripts with no remaining table connections
+- **L2**: terminal-connected scripts are fully interactive (openable, SQL highlights work)
+
+**Files:**
+- `backend/app/services/dataflow_service.py:336-377` — L1 cleanup
+- `backend/app/services/dataflow_service.py:1681-1684` — L2 cleanup
 
 ### Acceptance Criteria
 

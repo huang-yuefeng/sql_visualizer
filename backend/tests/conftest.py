@@ -63,3 +63,59 @@ def sample_fin_query5() -> str:
 def sample_tables_financial() -> str:
     """GPS financial DDL."""
     return read_sample_sql("financial/tables_financial.sql")
+
+import io, zipfile
+from pathlib import Path
+
+@pytest.fixture
+def d2_zip():
+    """ETL Pipeline: 5 scripts."""
+    d2_dir = Path(__file__).resolve().parent / "test_dataflow" / "D2_etl_pipeline"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for fpath in sorted(d2_dir.rglob('*')):
+            if fpath.is_file():
+                arcname = str(fpath.relative_to(d2_dir))
+                zf.write(fpath, arcname)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def workspace_client():
+    """Create workspace via service layer (fast, no HTTP)."""
+    from app.services.workspace_service import (
+        create_workspace, get_workspace, delete_workspace,
+        get_workspace_dir,
+    )
+
+    class Client:
+        def create(self, zip_bytes):
+            ws_id = create_workspace(zip_bytes)
+            return ws_id
+
+        def get(self, ws_id):
+            return get_workspace(ws_id)
+
+        def delete(self, ws_id):
+            return delete_workspace(ws_id)
+
+        def scan(self, ws_id):
+            from app.services.folder_index_service import scan_folder
+            return scan_folder(ws_id)
+
+        def index(self, ws_id, scripts=None):
+            from app.services.folder_index_service import index_scripts
+            if scripts is None:
+                tree = self.scan(ws_id)
+                scripts = self._collect_sql(tree)
+            return index_scripts(ws_id, scripts)
+
+        def _collect_sql(self, tree):
+            paths = []
+            if tree.get('type') == 'file' and tree.get('is_sql'):
+                paths.append(tree['path'])
+            for c in tree.get('children', []):
+                paths.extend(self._collect_sql(c))
+            return paths
+
+    return Client()

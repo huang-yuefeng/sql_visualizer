@@ -16,10 +16,22 @@ def _classify_tables(variables: list[dict]) -> tuple[set[str], set[str]]:
 
     DML scripts: output = target tables (INSERT/UPDATE/DELETE/MERGE/CTAS)
     SELECT scripts: output = virtual table (⟐ output) — temporary result set
+
+    P3: Uses canonical names — resolves alias prefixes via source_tables.
     """
     input_tables: set[str] = set()
     output_tables: set[str] = set()
     has_dml_output = False
+
+    # P3: Build alias_map to resolve aliases to canonical names
+    alias_map = {}
+    for v in variables:
+        src_tbls = v.get("source_tables", [])
+        if src_tbls and v.get("variable_type") in ("table", "view", "cte"):
+            alias_map[v["name"]] = src_tbls[0]
+
+    def canonical(name: str) -> str:
+        return alias_map.get(name, name)
 
     for v in variables:
         vt = v.get("variable_type", "")
@@ -27,7 +39,7 @@ def _classify_tables(variables: list[dict]) -> tuple[set[str], set[str]]:
         di = (v.get("defined_in") or "").upper()
 
         if vt == "merge_target":
-            output_tables.add(name)
+            output_tables.add(canonical(name))
             has_dml_output = True
             continue
 
@@ -35,17 +47,19 @@ def _classify_tables(variables: list[dict]) -> tuple[set[str], set[str]]:
             continue
 
         if "FROM" in di or "JOIN" in di:
-            input_tables.add(name)
+            input_tables.add(canonical(name))
 
         if any(kw in di for kw in ("INSERT", "UPDATE", "DELETE", "MERGE")):
-            output_tables.add(name)
+            output_tables.add(canonical(name))
             has_dml_output = True
 
         if "CREATE" in di or "SELECT INTO" in di:
-            output_tables.add(name)
+            output_tables.add(canonical(name))
             has_dml_output = True
 
-    # SELECT-only scripts: the virtual table IS the output
+    # P3: SELECT-only scripts — the virtual table IS the output
+    if not has_dml_output:
+        output_tables.add("⟐ result")
 
     return input_tables, output_tables
 
@@ -67,9 +81,7 @@ def analyze_multiple_scripts(
         variables = result.get("variables", [])
         graph_data = build_graph_data(result)
         input_tables, output_tables = _classify_tables(variables)
-        # SELECT-only scripts: add unique virtual output per script
-        if not output_tables:
-            output_tables.add(f"⟐ {name}")
+
         results.append({
             "script_id": result["script_id"],
             "script_name": name,
