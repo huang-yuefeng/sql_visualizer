@@ -14,6 +14,37 @@ import logging
 
 _log = logging.getLogger('dataflow')
 
+# ── Edge semantics table (single source of truth) ──
+# Item 5 (Lessons Learned): all 16 edge types declare their lineage behavior here.
+#   propagates_value: the edge carries a produced value into the target (production edge)
+#   always_bidir:      the edge is always followed in both directions by the BFS
+# JOIN/FILTER are conditional (both ends need a production path); SCHEMA has its
+# own directionality rules handled in the BFS below.
+EDGE_SEMANTICS = {
+    "REF":        {"propagates_value": True,  "always_bidir": False},
+    "TRANSFORM":  {"propagates_value": True,  "always_bidir": False},
+    "AGGREGATE":  {"propagates_value": True,  "always_bidir": False},
+    "WINDOW":     {"propagates_value": True,  "always_bidir": False},
+    "COMPUTED":   {"propagates_value": True,  "always_bidir": False},
+    "DML":        {"propagates_value": True,  "always_bidir": False},
+    "ALIAS":      {"propagates_value": True,  "always_bidir": False},
+    "CORRELATED": {"propagates_value": False, "always_bidir": True},
+    "INDIRECT":   {"propagates_value": False, "always_bidir": True},
+    "SET_OP":     {"propagates_value": False, "always_bidir": True},
+    "SUBSET":     {"propagates_value": False, "always_bidir": True},
+    "SUBQUERY":   {"propagates_value": False, "always_bidir": True},
+    "TABLE_FLOW": {"propagates_value": False, "always_bidir": True},
+    "JOIN":       {"propagates_value": False, "always_bidir": False},
+    "FILTER":     {"propagates_value": False, "always_bidir": False},
+    "SCHEMA":     {"propagates_value": False, "always_bidir": False},
+}
+
+# Production edges "produce" a value in the target — derived from EDGE_SEMANTICS,
+# shared with the L1 builder (app/services/l1_builder.py).
+PRODUCTION_EDGES = {k for k, v in EDGE_SEMANTICS.items() if v["propagates_value"]}
+# Structural edges always bidirectionally followed by the BFS.
+ALWAYS_BIDIR_EDGES = {k for k, v in EDGE_SEMANTICS.items() if v["always_bidir"]}
+
 
 def compute_field_lineage(graph_data: dict, target_table: str,
                           target_field: str,
@@ -74,10 +105,9 @@ def compute_field_lineage(graph_data: dict, target_table: str,
 
     # --- Edge type classification ---
     # Production edges "produce" a value in the target
-    _PRODUCTION = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED", "DML", "ALIAS"}
-    # Structural edges always bidirectionally followed
-    _ALWAYS_BIDIR = {"CORRELATED", "INDIRECT", "SET_OP", "SUBSET", "SUBQUERY", "TABLE_FLOW"}
-    _BIDIR = _PRODUCTION | _ALWAYS_BIDIR
+    _PRODUCTION = PRODUCTION_EDGES
+    # Structural edges always bidirectionally followed (derived from EDGE_SEMANTICS)
+    _BIDIR = _PRODUCTION | ALWAYS_BIDIR_EDGES
 
     # --- Seed matching: table-first validated lookup ---
     table_node_id = None

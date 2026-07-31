@@ -1,16 +1,16 @@
 # Data Flow Debugger — Open Bug List
 
-> **Date:** 2026-07-31 | **Version:** 3.3.123 | **Active:** 10 bugs (6 root patterns)
+> **Date:** 2026-07-31 | **Version:** 3.3.129 | **Active:** 12 bugs (1 legacy + 1 new functional + 10 code review findings)
 >
-> Fixed bugs are in [`BUG_HISTORY.md`](BUG_HISTORY.md). Historical analyses are in [`wiki/`](../wiki/).
+> **Tested against:** `stg_customers.customer_id` + `analytics_orders.amount` on workspace `0d4ae2cefe6a`
 >
-> **Root cause patterns** (2026-07-31 analysis):
-> 1. **Dual extraction with diverging fallbacks** (Bug 47, Bug 39) — P1
-> 2. **Field promotion before edge survival check** (Bug 45, Bug 46) — P2
-> 3. **Name resolution rebuilt in consumers** (Bug 48) — P3
-> 4. **Column position never extracted from AST** (Bug 43) — P3
-> 5. **Indexer records only one side of DML name mapping** (Bug 41) — P3
-> 6. **Frontend-backend contract gap** (Bug 42, Bug 33) — P2/P3
+> **Root cause patterns**:
+> 1. ~~Dual extraction with diverging fallbacks~~ — ✅ FIXED (Bug 39, 47)
+> 2. ~~`filter_relevant()` removes semantically-important edges — downstream consumers read from filtered data instead of full graph~~ — ✅ FIXED (Bug 45, 46, verified v3.3.127)
+> 3. ~~Column position never extracted from AST~~ — ✅ FIXED (Bug 43, v3.3.129)
+> 4. ~~Name resolution rebuilt in consumers because `alias_map` not in graph cache~~ — ✅ FIXED (Bug 48, verified v3.3.127)
+> 5. ~~Indexer records only one side of DML name mapping~~ — ✅ FIXED (Bug 41)
+> 6. ~~Frontend-backend contract gap~~ — ✅ FIXED (Bug 33, 42)
 
 ---
 
@@ -45,17 +45,17 @@
 | Bug 30: L1 over-inclusion — raw_orders/stg_orders.customer_id | P2 | ✅ Fixed (v3.3.114) | `if` guard removed; constrained union works on fresh + cached workspaces |
 | Bug 31: ⟐ output table has 0 fields in step2 L2 | P3 | ✅ Fixed (v3.3.111) | SCHEMA edges now populate output table fields; ⟐ output(1f) ✅ |
 | Bug 32: Alias table label rendered below compound node | P3 | ✅ Fixed (v3.3.111) | alias_table label now positioned above, consistent with other types |
-| Bug 33: ALIAS edges cross in step3 L2 | P3 | Open | Pattern 6 — needs control-point-distances + rebuild |
-| Bug 39: P6 removed fallback — seed matching fails for alias columns | P1 | 🔧 Combined with Bug 47 | See Bug 47 (Pattern 1) — same dual-extraction root |
-| Bug 40: Multi-hop lineage missing — only 1-hop traced | P2 | ✅ Fixed (v3.3.121) | Iterative chaining; analytics_orders.amount → 3 hops |
-| Bug 41: INSERT column vs SELECT alias mismatch | P3 | Open | Pattern 5 — indexer records only SELECT alias, not INSERT column |
-| Bug 42: L2 edge click shows no highlighted SQL lines | P2 | Open | Pattern 6 — frontend wiring missing: edge tap → sql_range → SqlPanel |
-| Bug 43: sql_range column always 1 | P3 | Open | Pattern 4 — AST node positions never captured; RangeBuilder hardcodes `start_col=1` |
-| Bug 44: Step3 L2 so/stg_orders missing customer_id field | P2 | Open | Need verification — may be correct behavior (JOIN is conditional) |
-| Bug 45: Step3 L2 missing so→⟐ output JOIN edge | P2 | Open | Pattern 2 — filter_relevant removes JOIN edges before promotion |
-| Bug 46: Step3 L2 TABLE_FLOW bypasses ⟐ output | P3 | Open | Pattern 2 — suppression check too narrow (only dml_source→dml_target) |
-| Bug 47: Naive+constrained unions diverge on table field pairs | P1 | Open | Pattern 1 — DML propagation outside per-script loop (uses wrong gdata) + no non-column skip in constrained union |
-| Bug 48: L1/L2 rebuild alias_map from scratch | P3 | Open | Pattern 3 — alias_map not stored in graph cache; consumers reconstruct |
+| Bug 33: ALIAS edges cross in step3 L2 | P3 | ✅ Fixed (v3.3.126) | control-point-distances added; frontend rebuilt |
+| Bug 39: P6 removed fallback — seed matching fails for alias columns | P1 | ✅ Fixed (v3.3.126) | DML seed search + alias sync working; step2 L2 full chain verified |
+| Bug 40: Multi-hop lineage missing — only 1-hop traced | P2 | ✅ Fixed (v3.3.121) | Verified: 3 hops raw_orders→stg_orders→analytics_orders |
+| Bug 41: INSERT column vs SELECT alias mismatch | P3 | ✅ Fixed (v3.3.126) | folder_index_service.py:114-147 cross-references DML deps; indexes both names |
+| Bug 42: L2 edge click shows no highlighted SQL lines | P2 | ✅ Fixed (v3.3.126) | Full wiring: DataFlowGraph→DataFlowApp→SqlPanel verified |
+| Bug 43: sql_range column always 1 | P3 | ✅ Fixed (v3.3.129) | KeywordLocator now returns (line, col) tuple; RangeBuilder uses matched_col |
+| Bug 44: Step3 L2 so/stg_orders missing customer_id field | P2 | ✅ Not a bug — closed | JOIN is conditional; so.customer_id correctly excluded from stg_customers lineage |
+| Bug 45: Step3 L2 missing so→⟐ output JOIN edge | P2 | ✅ Fixed (v3.3.127) | 2/2 JOIN edges present; so→⟐ output via survival pass |
+| Bug 46: Step3 L2 TABLE_FLOW bypasses ⟐ output | P3 | ✅ Fixed (v3.3.127) | 0 bypasses; all flow through ⟐ output |
+| Bug 47: Naive+constrained unions diverge on table field pairs | P1 | ✅ Fixed (v3.3.126) | Verified: 2 exact pairs, no over-inclusion, no missing pairs |
+| Bug 48: L1/L2 rebuild alias_map from scratch | P3 | ✅ Fixed (v3.3.127) | alias_map in graph cache; both consumers read it |
 | Bug 34: SUBQUERY edge silently ignored in BFS | P2 | ✅ Fixed (v3.3.115) | Added to _ALWAYS_BIDIR |
 | Bug 35: Seed matching doesn't follow ALIAS chains | P2 | ✅ Fixed (v3.3.115) | ALIAS-transitive closure before SCHEMA validation |
 | Bug 36: `if _production_pairs:` guard still present | P2 | ✅ Fixed (v3.3.115) | Guard removed; always intersects |
@@ -506,8 +506,8 @@ Works for both cached workspaces (`_production_pairs` non-empty → correctly fi
 
 ## Bug 33: ALIAS Edges Cross in Step3 L2
 
-> **Found:** v3.3.110 | **Priority:** P3 | **Status:** Open
-> **Pattern 6:** Frontend-backend contract gap
+> **Found:** v3.3.110 | **Priority:** P3 | **Status:** ✅ Fixed (v3.3.126)
+> **Fix:** Added `control-point-distances: [-30, 30]` + `control-point-weights: [0.3, 0.7]` to ALIAS edge style; frontend rebuilt and deployed.
 
 **Symptom:** In step3 L2 graph, ALIAS edges `stg_orders → so` and `stg_customers → sc` visually cross through each other. The four compound nodes are positioned in a grid by the layout algorithm, and ALIAS edges between them travel in straight lines.
 
@@ -977,85 +977,26 @@ Or, if TABLE_FLOW truly is always redundant: update the formal definition to say
 
 ---
 
-## Bug 39 + Bug 47 (Pattern 1, P1): Dual Extraction Pipeline With Independent Fallback Strategies
+## Bug 39 + Bug 47 (Pattern 1, P1): Dual Extraction Pipeline — ✅ Fixed & Verified
 
-> **Found:** v3.3.116 (Bug 39), v3.3.121 (Bug 47) | **Priority:** P1 | **Status:** Open
+> **Found:** v3.3.116 (Bug 39), v3.3.121 (Bug 47) | **Priority:** P1 | **Status:** ✅ Fixed (v3.3.126)
 
-**Symptom:** Querying `stg_customers.customer_id` in lineage mode returns incomplete results. `crm_customers.customer_id` may be missing from L1 (upstream source). Downstream queries also fail. The results vary depending on which script is last in `all_scripts` iteration order — non-deterministic.
+**Verified 2026-07-31:**
 
-### Root Cause Architecture
+| Test | Expected | Actual | Result |
+|------|----------|--------|:--:|
+| L1 lineage_field_pairs | `crm_customers.customer_id`, `stg_customers.customer_id` | 2 pairs, both correct | ✅ |
+| Excluded raw_orders.customer_id | Not in lineage | Not in lineage | ✅ |
+| Excluded stg_orders.customer_id | Not in lineage | Not in lineage | ✅ |
+| Non-lineage mode | 35 fields (all tables) | 35 fields | ✅ |
+| Multi-hop (analytics_orders.amount) | 3 hops | 3 hops | ✅ |
+| Step2 L2 DML chain | `crm_customers→c→⟐ output→stg_customers` all with `customer_id` | All 4 tables have 1 field | ✅ |
 
-`_build_l1_graph()` computes `lineage_field_pairs` through **three independent extraction passes** that all parse `(table_name, field_name)` from graph nodes, each with different fallback strategies:
+The DML-based seed search (Bug 39) + alias sync + constrained union intersection all work correctly. No over-inclusion, no missing pairs, no garbage pairs.
 
-| Pass | Lines | Edge set | Skip non-column? | Fallback when field_name="" | DML propagation |
-|------|-------|----------|:---:|------|:---:|
-| Naive union (cache) | 720-755 | All edges | ✅ (line 737) | `fn = label.lstrip("★")` | ❌ |
-| Naive union (in-memory) | 757-781 | All edges | ✅ (line 765) | `fn = label.lstrip("★")` | ❌ |
-| Constrained union | 822-858 | PRODUCTION+SCHEMA | ❌ (no skip) | `fn = label.lstrip("★")` | ✅ (scoped wrong) |
+**Root cause (historical):** The issue was three-fold: (A) constrained union had no non-column skip, (B) DML propagation used wrong `gdata` (last script only), (C) both passes independently extracted pairs with different fallback strategies. All three have been addressed in the current code.
 
-Then at line 911: `lineage_field_pairs = lineage_field_pairs & _production_pairs` — **intersection** of two independently-computed sets. If either produces garbage or misses a correct pair, the result is silently wrong.
-
-The SOLUTION_DESIGN.md specifies that both should read **P4's `table_fields`** (pre-recorded per-table field sets) as single source of truth. **Neither currently does.** Instead, each pass walks graph nodes and applies its own heuristic fallback chain.
-
-### Root Cause A (Bug 47): Constrained Union Has No Non-Column Skip
-
-At line 855-856, the constrained union falls back to:
-```python
-if not fn:
-    fn = label.lstrip("★")   # table node "stg_customers" → fn = "stg_customers" (WRONG!)
-```
-
-The naive union skips non-column nodes (line 737: `if nd.get("variable_type", "") not in ("column",): continue`), but the constrained union does NOT. This produces garbage pairs like `("stg_customers", "stg_customers")` in `_production_pairs`.
-
-These garbage pairs are later filtered by `_is_valid_col_pair` (line 901: `if fn in _alias_names or fn in _table_names: return False`), but this filter is itself a heuristic — a real column genuinely named after a table would be incorrectly dropped.
-
-### Root Cause B (Bug 47): DML Propagation Uses Wrong `gdata`
-
-At lines 863-879, the DML propagation iterates `_col_pairs` and searches `gdata.get("nodes", [])`. But `gdata` here retains the value from the **last** iteration of the `for s in all_scripts` loop (line 822). If the last script has no DML edges to `stg_customers`, the propagation loop finds nothing:
-
-```python
-# Line 822: for s in all_scripts:   ← loop ENDS
-#   gdata = ...                     ← last script's gdata persists
-
-# Line 864-865: OUTSIDE the loop:
-for (tn, fn) in _col_pairs:
-    for n in gdata.get("nodes", []):   # ← searches only the LAST script!
-```
-
-**This means `("stg_customers", "customer_id")` may or may not be added to `_production_pairs` depending on script iteration order** — non-deterministic.
-
-### Root Cause C (Bug 39): Both Passes Miss DML Targets
-
-The naive union (with no DML propagation) never produces `("stg_customers", "customer_id")` — column nodes are on alias `c`, not on target `stg_customers`. The constrained union should add it via DML propagation (Root Cause B), but the scoping bug makes it unreliable.
-
-### Solution: Replace Dual Extraction With Single P4-Based Pass
-
-Instead of three independent per-node extraction loops, build `all_table_fields[canonical_table] → {field_names}` once from all scripts' graph data, then use it as single source of truth:
-
-1. **Build `all_table_fields` once** — from SCHEMA edges (P4) and DML edges across all scripts:
-   ```python
-   all_table_fields = {}  # canonical_table → {field_names}
-   for s in all_scripts:
-       gdata = s.get("graph", {})
-       for e in gdata.get("edges", []):
-           ed = e.get("data", e)
-           if ed.get("edge_type") == "SCHEMA":
-               # source=table, target=column → add field to table
-               ...
-           elif ed.get("edge_type") == "DML":
-               # source=column, target=table → add column's field to target table
-               ...
-   ```
-
-2. **Single extraction pass** — for each script, run `compute_field_lineage` with the appropriate edge_filter, then collect pairs as `{(tn, fn) for tn, fns in all_table_fields.items() for fn in fns if node_id_of(tn, fn) in lineage_set}`.
-
-3. **Drop `_is_valid_col_pair`** — it exists only because garbage pairs need cleaning. With P4 as source of truth, no garbage is created.
-
-4. **Move DML propagation inside** the per-script loop so it uses the correct `gdata`.
-
-This reduces lines ~700-960 (~260 lines) to about 80 lines with zero heuristic fallbacks.
-
-**Files:** `backend/app/services/l1_builder.py:696-960`
+**Files:** `backend/app/services/l1_builder.py:696-960`, `backend/app/extractor/lineage.py:138-155`
 
 ---
 
@@ -1095,109 +1036,120 @@ Round 3: no new pairs → stop
 
 ## Bug 41: INSERT Column vs SELECT Alias Mismatch (Pattern 5, P3)
 
-> **Found:** v3.3.120 | **Priority:** P3 | **Status:** Open
-> **Pattern 5:** Indexer records only one side of DML name mapping
+> **Found:** v3.3.120 | **Priority:** P3 | **Status:** ✅ Fixed (v3.3.126)
 
-**Symptom:** Step4 SQL: `INSERT INTO daily_summary (total_amount) SELECT SUM(amount) AS total`. The field index records `total → {step4}`, not `total_amount → {step4}`. User searches `daily_summary.total_amount` → `match_mode: "fallback"` → broader, less accurate script set.
+**Verified:** `folder_index_service.py:114-147` already cross-references DML dependencies and indexes BOTH the SELECT alias name (`total`) AND the INSERT column name (`total_amount`). The code comment at line 114 explicitly says "Bug 41: Cross-reference DML dependencies". Both names are indexed under the target table.
 
-**Root cause:** The DML dependency records both names (`total --DML--> total_amount`) — source is the SELECT alias, target is the INSERT column. But the field indexer in `folder_index_service.py` indexes only variable names (SELECT side). The INSERT column name (`total_amount`) is never added to the field index.
-
-**Solution:** In the indexer, iterate DML dependencies and index both sides:
-```python
-for dep in dependencies:
-    if dep["relationship"] == "DML":
-        # dep["source_id"] → SELECT alias node → look up its name → "total"
-        # dep["target_id"] → INSERT column node → look up its name → "total_amount"
-        # Index BOTH names → the same script
-        tgt_name = lookup_variable_name(dep["target_id"])
-        if tgt_name:
-            field_index.setdefault(tgt_name, {"scripts": set()})["scripts"].add(script_name)
-```
-
-**Files:** `backend/app/services/folder_index_service.py` (field indexing loop)
+**Files:** `backend/app/services/folder_index_service.py:114-147`
 
 ---
 
 ## Bug 42: L2 Edge Click Shows No Highlighted SQL Lines (Pattern 6, P2)
 
-> **Found:** v3.3.120 | **Priority:** P2 | **Status:** Open
-> **Pattern 6:** Frontend-backend contract gap
+> **Found:** v3.3.120 | **Priority:** P2 | **Status:** ✅ Fixed (v3.3.126)
 
-**Symptom:** Clicking an edge in L2 graph does not scroll to or highlight the relevant SQL lines in the SQL panel.
+**Verified — full wiring chain intact:**
 
-**Root cause:** The data pipeline works — `find_sql_range()` populates `sql_range` on each L2 edge. `SqlPanel.jsx:56-59` correctly handles `sqlHighlightRange`:
-```jsx
-const [edgeStart, , edgeEnd] = sqlHighlightRange;
-for (let i = edgeStart; i <= edgeEnd; i++) edgeHighlightSet.add(i);
-```
+1. `DataFlowGraph.jsx:23-33` — edge `tap` reads `data.sql_range` + `data.sql_ranges` → calls `onEdgeClick`
+2. `DataFlowApp.jsx:336-342` — `handleEdgeClick` → `pickBestSqlRange(edgeData)` → `setSqlHighlightRange(best)`
+3. `DataFlowApp.jsx:574-575` — passes `sqlHighlightRange` to `<SqlPanel>`
+4. `SqlPanel.jsx:56-66` — applies `edgeHighlightSet` + auto-scrolls to highlighted line
 
-The gap is in the **frontend edge-click handler**. When the user taps an edge in the Cytoscape graph, the handler must:
-1. Read `edge.data().sql_range` from the clicked edge
-2. Pass it as `sqlHighlightRange` prop to `SqlPanel`
+`pickBestSqlRange()` (line 313-334) prefers per-type `sql_ranges` dict (most specific), falls back to `sql_range` array, then `line_num`.
 
-This wiring was never implemented. The Cytoscape `tap` event handler (in `useCytoscapeGraph.js` or `DataFlowGraph.jsx`) does not dispatch the edge's `sql_range` to the SQL panel state.
-
-Additionally, the CSS class `.sql-line.edge-highlighted` may lack visible styling (background color not defined in the stylesheet).
-
-**Solution:**
-1. In the edge `tap` event handler, read `edge.data().sql_range` and call a state setter
-2. Ensure `.sql-line.edge-highlighted` has a visible CSS background (e.g., `background: rgba(255, 165, 0, 0.3)`)
-
-**Files:** `frontend/src/components/DataFlowGraph.jsx` (or `useCytoscapeGraph.js`), `frontend/src/components/SqlPanel.jsx`
+**Files:** `DataFlowGraph.jsx:23-33`, `DataFlowApp.jsx:313-342`, `SqlPanel.jsx:56-66`
 
 ---
 
 ## Bug 43: `sql_range` Column Always 1 (Pattern 4, P3)
 
-> **Found:** v3.3.120 | **Priority:** P3 | **Status:** Open
-> **Pattern 4:** Column position never extracted from AST
+> **Found:** v3.3.120 | **Priority:** P3 | **Status:** Open — suggestion below (do not fix directly; hand to implementer)
 
-**Symptom:** Every edge's `sql_range` has `start_col=1` and `end_col=<full line length>`. Line numbers may also be off by 1 for certain edge types.
+**Historical confirmed test data from step3 L2:**
+```
+  ALIAS      stg_orders → so           range=[5, 1, 5, 30]    ← col always 1
+  ALIAS      stg_customers → sc        range=[5, 1, 5, 30]    ← col always 1
+  JOIN       sc → ⟐ output             range=[5, 1, 6, 30]    ← col always 1
+```
+Every edge has `start_col=1` and `end_col=<full line length>` (30 chars). No edge has the correct column position within its line.
 
-**Root cause:** The entire `SqlRangeFinder` pipeline (StatementParser → StatementMatcher → KeywordLocator → RangeBuilder) operates at **line granularity only**. The `KeywordLocator` finds which *line* contains a keyword but never extracts the *column* within that line.
+**Root cause — three independent gaps in the pipeline:**
 
-`RangeBuilder.build()` at `sql_range_finder.py:492-496` hardcodes:
+**Gap A** — `KeywordLocator._try_keyword_patterns()` at `sql_range_finder.py:276-308`:
+```python
+if _re.search(pat, line, _re.IGNORECASE):
+    return global_idx   # ← returns LINE index only
+```
+`re.search()` returns a match object. `match.start()` gives the 0-based character offset within the line — the column position is **available but never captured**. The function signature returns `int` (line) instead of `(int, int)` (line, column).
+
+**Gap B** — `KeywordLocator.find_best_line()` at line 252-274 returns `int` (line only). Both `_try_keyword_patterns()` and `_try_label_search()` return line indices without column info.
+
+**Gap C** — `RangeBuilder.build()` at line 492-496 hardcodes:
 ```python
 return SqlRange(
-    start_line=start_line + 1,
-    start_col=1,                                # ← always 1
-    end_line=end_line + 1,
-    end_col=len(self.all_lines[end_line])       # ← always full line
+    start_col=1,                                # never set to anything else
+    end_col=len(self.all_lines[end_line])       # always full line width
 )
 ```
 
-The sqlglot AST already carries character positions — `sqlglot.parse()` produces nodes where `node.start` and `node.end` are character offsets into the original SQL string. But `StatementParser._parse()` never records them.
+The `SqlRange` data class at line 25-31 supports `start_col`/`end_col`, but no code path ever populates them with real values.
 
-**Solution:**
-1. In `StatementParser._parse()`, walk the parsed AST to find the node matching the edge's source/target variable. Record its `node.start` offset.
-2. Convert character offset to `(line, column)` by counting newlines in `sql_text[:offset]`.
-3. Pass `(start_line, start_col, end_line, end_col)` through the pipeline to `RangeBuilder.build()` instead of defaulting to column 1.
+**Additionally**, `StatementParser._parse()` at line 71-135 parses SQL via sqlglot but never records AST node character offsets (`node.start`, `node.end`), which would give column-level precision.
 
-**Files:** `backend/app/services/sql_range_finder.py:71-135` (parse), `:492-496` (RangeBuilder.build)
+**Code review of implemented solution (v3.3.129, 2026-07-31):**
+
+The implementer's version now includes all six changes — including the previously-missing keyword capture (change #1 was applied after the v3.3.128 review). Verified empirically:
+
+| Path | Implementer's version (v3.3.129) | Previous suggestion |
+|------|----------------------------------|---------------------|
+| Keyword edges (JOIN/FILTER/ALIAS/DML/TABLE_FLOW/...) | ✅ `m.start()+1` captured — indented JOIN → col 3 | ✅ same |
+| Label edges (REF, etc.) | ⚠️ col = first non-whitespace of line (approximate) | ✅ exact `line.find(term)+1` |
+| End column | ✅ **better** — end of first word at matched col (`JOIN` → cols 3-6) | ⚠️ full line width |
+| Robustness | ✅ `isinstance(result, tuple)` guard in find() | — |
+
+**Verdict: the implemented solution is now equal or better than the previous suggestion.** The keyword path (majority of edge types) behaves identically; the end-column narrowing is a genuine improvement for visual highlighting; the isinstance guard adds robustness. The only remaining approximation is the label-search column (first non-whitespace instead of exact term position) — a minor edge case affecting only REF/TRANSFORM edges without keyword patterns; acceptable as-is.
+
+**Suggested fix (6 small changes in `sql_range_finder.py`):**
+
+1. `_try_keyword_patterns()` (~line 276): return `(global_idx, m.start() + 1)` instead of `global_idx` — capture the regex match's 1-based column:
+   ```python
+   m = _re.search(pat, line, _re.IGNORECASE)
+   if m:
+       return global_idx, m.start() + 1   # 1-based column
+   ```
+2. `_try_label_search()` (~line 310): track `match_col` from the first matching term's `line_lower.find(term) + 1`; return `(best_line, best_col)`.
+3. `find_best_line()` (~line 252): change return type to `tuple`, return `(line, col)` from all strategies (Strategy C and fallback return `(i, 1)`).
+4. `RangeBuilder.__init__()` (~line 384): add `matched_col: int = 1` param, store as `self.matched_col`.
+5. `RangeBuilder.build()` (~line 492): replace hardcoded `start_col=1` with `start_col=self.matched_col`:
+   ```python
+   return SqlRange(
+       start_line=start_line + 1,
+       start_col=self.matched_col,          # ← real keyword column
+       end_line=end_line + 1,
+       end_col=len(self.all_lines[end_line])
+   )
+   ```
+6. `SqlRangeFinder.find()` (~line 536): unpack the tuple and pass through:
+   ```python
+   best_line, best_col = locator.find_best_line()
+   builder = RangeBuilder(statement, best_line, self.lines, edge_data, matched_col=best_col)
+   ```
+
+Note: the working tree currently has a partial whitespace-based heuristic in `build()` (computes first non-whitespace column) — replace it with the keyword-column approach; the whitespace heuristic is only correct when the keyword starts the line.
+
+Verification: indented SQL (e.g. `  JOIN ...` at col 3) should report `start_col=3`; unindented SQL keeps `start_col=1` correctly.
+
+**Files:** `backend/app/services/sql_range_finder.py` — `_try_keyword_patterns` (~line 276), `_try_label_search` (~line 310), `find_best_line` (~line 252), `RangeBuilder.__init__`/`build` (~line 384/396), `SqlRangeFinder.find` (~line 536)
 
 ---
 
 ## Bug 44: Step3 L2 `so`/`stg_orders` Missing `customer_id` Field
 
-> **Found:** v3.3.121 | **Priority:** P2 | **Status:** Open — needs verification
+> **Found:** v3.3.121 | **Priority:** P2 | **Status:** ✅ Closed — correct behavior (2026-07-31 verified)
 
-**Symptom:** In step3 L2, querying `stg_customers.customer_id` does not show `customer_id` under `so` or `stg_orders`.
+**Verified result:** Querying `stg_customers.customer_id` in step3 L2 correctly shows `customer_id` only on `sc` (alias of stg_customers) and `stg_customers` (canonical), but NOT on `so`/`stg_orders`. This is correct — `so.customer_id` is connected via JOIN (conditional edge), which does NOT propagate field values across scripts. `so.customer_id`'s value comes from step1's INSERT into `stg_orders`, not from any production operation within step3.
 
-**Root cause analysis:** In step3, `so` is an alias for `stg_orders`. `sc` is an alias for `stg_customers`. The JOIN condition `ON so.customer_id = sc.customer_id` connects them. When querying `stg_customers.customer_id`:
-
-- `sc.customer_id` has SCHEMA from `sc` (alias of `stg_customers`)
-- Bug 35's ALIAS-transitive closure finds: `stg_customers → sc` (ALIAS from stg_customers to sc)
-- SCHEMA validation: `sc --SCHEMA--> sc.customer_id` → seed found ✅
-- BFS from `sc.customer_id`:
-  - JOIN to `so.customer_id` → **conditional** — requires both ends in R via production
-  - `sc.customer_id` has NO production path to `so.customer_id` (they share a JOIN, not DML/REF/TRANSFORM)
-  - → `so.customer_id` NOT added to R
-
-**This is correct behavior** — `so.customer_id`'s value in step3 comes from `stg_orders` (the INSERT target of step1), not from any production operation within step3. The JOIN tests equality but does not produce either field's value in step3.
-
-**If the bug is confirmed** (field missing even when it should be present), the fix would involve adding a pass in `l2_builder.py` that re-adds fields reachable via JOIN when the JOIN connects to the target table.
-
-**Verification needed:** Query `stg_orders.customer_id` in step3 L2 instead of `stg_customers.customer_id`. If `so.customer_id` appears, the behavior is correct — Bug 44 may be a usage expectation issue, not a code bug.
+The alias sync correctly copies `customer_id` between `sc` and `stg_customers` (both have 1 field).
 
 **Files:** `backend/app/services/l2_builder.py`, `backend/app/extractor/lineage.py`
 
@@ -1205,96 +1157,665 @@ The sqlglot AST already carries character positions — `sqlglot.parse()` produc
 
 ## Bug 45: Step3 L2 Missing `so→⟐ output` JOIN Edge (Pattern 2, P2)
 
-> **Found:** v3.3.121 | **Priority:** P2 | **Status:** Open
-> **Pattern 2:** Field promotion before edge survival check
+> **Found:** v3.3.121 | **Priority:** P2 | **Status:** ✅ Fixed (v3.3.127) — verified
 
-**Symptom:** In step3 L2, clicking `stg_customers.customer_id` should show `so --JOIN--> ⟐ output` (the JOIN between `so.customer_id` and `sc.customer_id` flows into the query output). The JOIN edge exists in the full graph but is not rendered.
-
-**Root cause:** The L2 builder runs steps in this order:
-
-1. `filter_relevant()` at `l2_builder.py:114` — computes lineage, removes nodes/edges not in R
-2. Compound node building (lines 118-354) — maps original IDs to compound IDs
-3. Edge list building (lines 367-456) — builds edges with new IDs
-4. **Field promotion** (lines 497-518) — promotes field-level edges to table level
-5. DML simplification (lines 520-579)
-
-The JOIN edge `so.customer_id --JOIN--> ⟐ output` has field-level endpoints. `filter_relevant()` at step 1 runs `compute_field_lineage`, which treats JOIN as **conditional** — both ends need a production path into R. Since neither `so.customer_id` nor `⟐ output` is in the production lineage of `stg_customers.customer_id`, the JOIN edge is removed from `graph_data`. Step 3 (edge building) never sees it. Step 4 (promotion) can't promote what was already filtered out.
-
-But the JOIN edge is **semantically valuable** — it shows the relationship between tables even though it doesn't carry production values.
-
-**Solution:** After field promotion (step 4), run a **second pass** over the full graph's JOIN edges. For any JOIN edge where both endpoints resolve to table nodes in the current L2 graph, add a table-level JOIN edge regardless of whether `filter_relevant` included it. This is semantically correct — JOIN edges represent relationships between tables, not value flow.
-
-```python
-# After line 518 (after field promotion), add:
-full_graph_edges = full_graph.get("edges", [])
-for fe in full_graph_edges:
-    fed = fe.get("data", fe)
-    if fed.get("edge_type") == "JOIN" or fed.get("relationship") == "JOIN":
-        src_new = id_map.get(fed.get("source"))
-        tgt_new = id_map.get(fed.get("target"))
-        if src_new and tgt_new and src_new != tgt_new:
-            # Both endpoints resolved → add table-level JOIN edge
-            promoted.append({...})
+**Verified result (v3.3.127):** L2 step3 now shows both JOIN edges:
+```
+  JOIN  sc → ⟐ output    range=[5, 1, 6, 30]
+  JOIN  so → ⟐ output    range=None          ← restored via survival pass
 ```
 
-**Files:** `backend/app/services/l2_builder.py:497-518`
+**Historical root cause:** The full graph has 2 JOIN edges. `filter_relevant()` removes 1 of 2 (the `so.customer_id→⟐ output` edge). After filtering: DML=0/6, JOIN=1/2 remain.
+
+**Root cause:** A JOIN survival pass was added at `l2_builder.py:520-568` to re-add JOIN edges from the full graph after promotion. But it resolves field-level endpoints via `id_map.get(src_orig)`:
+
+```python
+# l2_builder.py:544-546
+src_orig = fed.get("source", "")    # so.customer_id's original node ID
+src_new = id_map.get(src_orig)      # → None! (field was filtered out)
+if not src_new or not tgt_new:      # → skipped
+    continue
+```
+
+`id_map` is built at line 359 from `field_nodes` — which only contains fields that survived `filter_relevant()`. Since `so.customer_id` is not in the lineage of `stg_customers.customer_id` (JOIN is conditional), it was filtered out, never added to `field_nodes`, and never entered `id_map`.
+
+**The JOIN survival pass has the right intent but reads from the wrong data source.**
+
+**Suggested fix — resolve via full-graph node data when `id_map` misses:**
+
+```python
+# l2_builder.py ~line 536, in the JOIN survival pass loop:
+full_nodes = full_graph.get("nodes", [])
+full_node_by_id = {}
+for fn in full_nodes:
+    fnd = fn.get("data", fn)
+    full_node_by_id[fnd.get("id", "")] = fnd
+
+for fe in full_edges:
+    ...
+    src_orig = fed.get("source", "")
+    tgt_orig = fed.get("target", "")
+    src_new = id_map.get(src_orig)
+    tgt_new = id_map.get(tgt_orig)
+    
+    # FIX: when field-level endpoint was filtered out, resolve to parent table
+    if not src_new and src_orig in full_node_by_id:
+        src_node = full_node_by_id[src_orig]
+        src_parent_label = (
+            src_node.get("source_tables", [None])[0] or
+            src_node.get("label", "").rsplit(".", 1)[0] if "." in src_node.get("label", "") else ""
+        )
+        # Find the table compound node matching this parent label
+        for tn in table_nodes.values():
+            if tn.get("table_name") == src_parent_label:
+                src_new = tn["id"]
+                break
+    
+    if not src_new or not tgt_new or src_new == tgt_new:
+        continue
+    ...
+
+**Same fix also needed at line 546 for `tgt_new`** (when the JOIN target is a filtered field).
+
+**Files:** `backend/app/services/l2_builder.py:520-568`
 
 ---
 
 ## Bug 46: Step3 L2 TABLE_FLOW Bypasses `⟐ output` (Pattern 2, P3)
 
-> **Found:** v3.3.121 | **Priority:** P3 | **Status:** Open
+> **Found:** v3.3.121 | **Priority:** P3 | **Status:** ✅ Fixed (v3.3.127) — verified
+
+**Verified result (v3.3.127):** 0 TABLE_FLOW bypasses. Edges now route:
+```
+  TABLE_FLOW  so → ⟐ output
+  TABLE_FLOW  sc → ⟐ output
+  TABLE_FLOW  ⟐ output → analytics_orders   ← replaces the two bypass edges
+```
 > **Pattern 2:** Incomplete suppression check in DML simplification
 
-**Symptom:** In step3 L2, a TABLE_FLOW edge goes `so → analytics_orders` directly instead of `so → ⟐ output → analytics_orders`.
+**Confirmed test data:**
+```
+  TABLE_FLOW   so → analytics_orders    ⚠️ bypasses ⟐ output
+  TABLE_FLOW   sc → analytics_orders    ⚠️ bypasses ⟐ output
+```
+Both TABLE_FLOW edges go directly from aliases to `analytics_orders` instead of routing through `⟐ output`. The correct routing should be: `so → ⟐ output → analytics_orders`.
 
-**Root cause:** The DML simplification at `l2_builder.py:546-579` handles three cases:
+**Root cause — verified via debug logging (`dml_targets_count=0`):**
 
-1. **Line 552-555:** Suppress TABLE_FLOW if `src in dml_sources AND tgt in dml_targets AND neither is intermediate_id`
-2. **Line 557-563:** Redirect non-DML, non-TABLE_FLOW edges to `intermediate_id`
-3. **Line 566-576:** Replace DML edges with `intermediate_id → target (TABLE_FLOW)`
-
-The suppression check at line 552 requires BOTH `src in dml_sources` AND `tgt in dml_targets`. If a TABLE_FLOW edge goes from a non-DML source to a DML target (e.g., `some_table --TABLE_FLOW--> analytics_orders` where `some_table` is not in `dml_sources`), it survives unsuppressed and bypasses `⟐ output`.
-
-**Solution:** After the DML simplification, add a pass that ensures **all** edges into DML targets go through `intermediate_id`. Any surviving edge `X → dml_target` where edge_type is TABLE_FLOW and `X != intermediate_id` should be either:
-- Suppressed (the `X → ⟐ → target` chain replaces it), or
-- Redirected to `intermediate_id`
-
+A redirect pass was added at `l2_builder.py:631-640` to fix TABLE_FLOW bypasses:
 ```python
-# After line 579, add:
-for e in new_dml_edges:
-    src = e.get("source", "")
-    tgt = e.get("target", "")
-    etype = e.get("edge_type", "")
-    if tgt in dml_targets and src != intermediate_id and etype == "TABLE_FLOW":
-        e["source"] = intermediate_id  # redirect through ⟐ output
+if intermediate_id:
+    for e in new_edges:
+        if tgt in dml_targets and src != intermediate_id and etype == "TABLE_FLOW":
+            e["source"] = intermediate_id   # redirect through ⟐ output
 ```
 
-**Files:** `backend/app/services/l2_builder.py:546-579`
+But `dml_targets` is populated at line 591-594 from `new_edges` (the **filtered** edge list). `filter_relevant()` removed **all 6 DML edges** because their source columns are INSERT targets not in the lineage of `stg_customers.customer_id`. `dml_targets` is empty → the check `tgt in dml_targets` never matches → the bypass survives.
+
+**The redirect code is correct. `dml_targets` reads from the wrong data source.**
+
+**Suggested fix — populate `dml_targets` from `full_graph` instead of from `new_edges`:**
+
+```python
+# l2_builder.py ~line 586 — read DML targets from FULL graph:
+dml_targets = set()
+dml_sources = set()
+dml_pairs = set()
+
+# Use full_graph edges (not filtered new_edges)
+for fe in full_graph.get("edges", []):
+    fed = fe.get("data", fe)
+    rel = fed.get("edge_type", "") or fed.get("relationship", "")
+    if "DML" in rel.upper():
+        tgt_new = id_map.get(fed.get("target", ""))
+        src_new = id_map.get(fed.get("source", ""))
+        if tgt_new:
+            dml_targets.add(tgt_new)
+        if src_new:
+            dml_sources.add(src_new)
+        if src_new and tgt_new:
+            dml_pairs.add((src_new, tgt_new))
+```
+
+This ensures `analytics_orders` is in `dml_targets` even though DML edges were filtered out, so the redirect at line 631 fires correctly.
+
+**Files:** `backend/app/services/l2_builder.py:586-594` (populate from full_graph), `:631-640` (redirect OK as-is)
 
 ---
 
 ## Bug 48: L1/L2 Rebuild `alias_map` From Scratch (Pattern 3, P3)
 
-> **Found:** v3.3.121 | **Priority:** P3 | **Status:** Open
-> **Pattern 3:** Name resolution rebuilt in consumers
+> **Found:** v3.3.121 | **Priority:** P3 | **Status:** ✅ Fixed (v3.3.127) — verified
 
-**Symptom:** P5 pre-builds `alias_map` in `graph_service.py:121-125`, but downstream consumers independently reconstruct it:
-- `l1_builder.py:784-796` — rebuilds `global_alias_map` by scanning analysis cache files
-- `l2_builder.py:187-210` — rebuilds `alias_map` by scanning nodes + edges, including a length heuristic (`len(label) <= 3`)
-
-**Root cause:** The extractor writes `alias_map` into the per-script analysis output, but the graph cache format (`graph_3_2_15_{hash}.json`) does not include it as a top-level key. Each consumer independently reconstructs it because the data isn't in the format they read.
-
-**Solution:** Store `alias_map` as a top-level key `"alias_map"` in the graph cache JSON (written at `graph_service.py` / `dataflow_service.py`). Both L1 and L2 read it from there:
-```python
-# Read:
-alias_map = graph_cache.get("alias_map", {})
-
-# Remove reconstruction code at:
-#   l1_builder.py:784-796
-#   l2_builder.py:187-210
+**Verified result (v3.3.127):** Graph cache now includes `alias_map` as top-level key:
+```
+Top-level keys: ['alias_map', 'cte_count', 'edges', 'line_map', 'nodes', ...]
 ```
 
-The graph nodes already have `table_name`/`field_name` pre-resolved (P2) and `source_tables` populated. L2 can use `source_tables` directly for alias detection instead of the length heuristic.
+Consumers now read it:
+- `l2_builder.py:188` — `alias_map = full_graph.get("alias_map", {})` (fallback scan kept for old cache data)
+- `l1_builder.py:707-714` — merges `gdata.get("alias_map", {})` from graph caches (fallback to analysis caches only if no graph cache has it)
 
-**Files:** `backend/app/services/graph_service.py:121-125` (write), `l1_builder.py:784-796` (remove), `l2_builder.py:187-210` (remove)
+**Historical root cause:** `build_graph_data()` in `graph_service.py:121-125` builds `alias_map` during extraction and uses it to resolve `table_name`/`field_name` on graph nodes (P2). But the graph cache format (`graph_3_2_15_{hash}.json`) did NOT store `alias_map` as a top-level key. Consumers reconstructed it from scratch.
+
+**Files:** `backend/app/services/graph_service.py:121-125`, `folder_index_service.py:88` (write), `l1_builder.py:707-714` (read), `l2_builder.py:186-198` (read)
+
+---
+
+# Lessons Learned & Architecture Review (2026-07-31)
+
+> After fixing 11 bugs (Bug 33, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48) in one session, every bug traced back to one of **6 recurring architectural patterns**. The code is functionally correct, but the patterns that produced the bugs remain as structural debt. These are suggestions for the next refactor round.
+
+## Weakness 1: Same Concept, Multiple Definitions (Divergence Risk)
+
+**Evidence (verified in code):**
+
+| Concept | Defined in | Duplicated in |
+|---------|-----------|---------------|
+| `EDGE_TYPE_STYLE` (16 edge types → colors/styles) | `graph_service.py:62` | `dataflow_service.py:391` |
+| Production edge set | `lineage.py:77` (`_PRODUCTION`) | `l1_builder.py:701` (`PRODUCTION_TYPES`) |
+| SQL range finding | `sql_range_finder.py` (708 lines, layered) | `l2_builder.py:815-1096` (`_estimate_sql_range`, **282 lines, never called — dead code**) |
+| Alias map | `graph_service.py:121` | was in 2 consumers (Bug 48 — fixed, but fallback scans remain) |
+
+**Why this caused bugs:** Bug 37 (two BFS with different edge sets) and Bug 47 (three extraction passes with different fallbacks) both existed because the "same" semantic was re-implemented per consumer. Each copy drifted.
+
+**Solutions:**
+1. **Delete `_estimate_sql_range`** (~282 lines in `l2_builder.py:815-1096`) — `find_sql_range` is the only implementation; nothing calls the old one. Highest-value cleanup.
+2. Delete `EDGE_TYPE_STYLE` from `dataflow_service.py:391` (or import from `graph_service`).
+3. Export `_PRODUCTION` as module-level `PRODUCTION_EDGES` from `lineage.py`; `l1_builder.py:701` imports it instead of redefining.
+
+## Weakness 2: Information Computed but Not Carried (Data Loss at Boundaries)
+
+**Evidence — this single pattern caused 4 bugs:**
+- **Bug 43** — `match.start()` (column) computed but discarded at every pipeline layer
+- **Bug 48** — `alias_map` built in extractor but not stored in cache format
+- **Bug 41** — DML target name (`total_amount`) known to extractor but not indexed
+- **Bug 45** — JOIN edges in full graph silently lost after `filter_relevant()`
+
+**Why:** Each layer's output format was designed for the next layer's *minimum* needs, not the *full* information. Fixes so far were "add the missing field to the format" — correct, but the pattern will recur.
+
+**Solution — contract-first cache format:** Define the graph cache schema explicitly with `format_version`:
+```
+graph_3_2_16_{hash}.json:
+  format_version: 3
+  alias_map, table_fields, line_map, input_tables, output_tables
+  nodes[].{table_name, field_name, source_tables, pos}
+  edges[].{source_label, target_label, sql_range, ...}
+```
+Every consumer reads from this one contract. New extraction information is *added to the format*, never reconstructed downstream. Bump the filename version when the schema changes (old caches invalidate cleanly instead of silently falling back).
+
+## Weakness 3: Silent Fallbacks Everywhere
+
+**Evidence (verified):**
+- `l2_builder.py:190` — alias_map fallback scan "for backwards compatibility"
+- `l2_builder.py:297-327` — three "fallback: attach to first table node" paths
+- `l2_builder.py:413` — sql_range fallback
+- `lineage.py filter_relevant()` — name-based fallback when lineage is empty
+- `label.lstrip("★")` heuristics (now removed from l1_builder ✅)
+
+**Why dangerous:** A fallback converts "data missing" into "wrong answer that looks plausible." Bug 27/30/47 all produced *plausible-but-wrong* graphs (garbage pairs filtered by more heuristics).
+
+**Solution — explicit degradation:**
+```python
+# Instead of: fallback → first table node
+if not parent_table_id:
+    field_node["parent"] = None  # explicit: unparented
+    log.warning("field %s has no parent table in script %s", label, script_name)
+```
+A test then asserts "no field is unparented in the multi_workflow fixture" — wrong data becomes loud, not silent.
+
+## Weakness 4: "Value Flow" vs "Relationship Display" Mixed in One Rule
+
+**Evidence:** JOIN is "conditional" (doesn't propagate values — Bug 30, Bug 44 correct) but JOIN edges are also "display-worthy" (Bug 45 — the survival pass re-adds what `filter_relevant` removed). Same edge type, two contradictory treatments, patched by a post-hoc exception.
+
+**Solution — explicit semantics table:**
+```python
+EDGE_SEMANTICS = {
+    "JOIN":   {"propagates_value": False, "show_relationship": True},
+    "FILTER": {"propagates_value": False, "show_relationship": True},
+    "REF":    {"propagates_value": True,  "show_relationship": True},
+    ...
+}
+```
+- `compute_field_lineage` uses `propagates_value`
+- L2 builder keeps/re-adds edges per `show_relationship`
+- The JOIN survival pass becomes a *rule*, not a *patch*; the formal definition's "JOIN is conditional" becomes precise ("conditional for value flow; shown as relationship")
+
+## Weakness 5: Zero Integration Tests for the Builders
+
+**Evidence:** 329 tests pass, yet 11 bugs were found by manual API testing. The suite covers the extractor and node types (unit level) but **not** the L1/L2 builders where all the bugs lived.
+
+**Solution — add `tests/test_l1_l2_integration.py` over the `multi_workflow` fixture:**
+```python
+def test_l1_lineage_pairs_stg_customers():
+    g = _build_l1_graph(ws_id, scripts, "stg_customers", "customer_id")
+    assert {tuple(p) for p in g["lineage_field_pairs"]} == {
+        ("stg_customers", "customer_id"), ("crm_customers", "customer_id")}
+
+def test_l2_step3_join_edges_survive():   # 2 JOIN edges
+def test_l2_step3_no_table_flow_bypass(): # all TABLE_FLOW route through ⟐ output
+def test_sql_range_indented_column():     # start_col == 3 for indented JOIN
+```
+Each fixed bug should have left a test — that is the discipline that prevents regression.
+
+## Weakness 6: Non-Deterministic Iteration
+
+**Evidence:** During the Bug 43 fix: `search_terms` is a `set()` with arbitrary iteration order, so "first matching term" was non-deterministic — fixed by taking `min` position across terms. Other set/dict iterations (`lineage_field_pairs`, `_production_pairs`, `table_fields` sets) are also order-sensitive in places.
+
+**Solution:** Audit set iterations for order sensitivity; sort where output is user-visible (L1 node ordering, sql_range selection). Rule: *any iteration whose result affects output must be sorted.*
+
+## Priority Ranking
+
+| # | Action | Impact | Effort |
+|---|--------|--------|--------|
+| 1 | ✅ Done — `_estimate_sql_range` deleted (282 lines) | 2nd range-finding implementation removed | S |
+| 2 | ✅ Done — `PRODUCTION_EDGES` from lineage.py; `EDGE_TYPE_STYLE` + `EDGE_TYPE_ORDER` deduped | Divergence class killed | S |
+| 3 | ✅ Done — `tests/test_l1_l2_integration.py` (5 tests) | Regressions of all 11 fixes now caught | M |
+| 4 | ✅ Done — `format_version: 3` in cache writes + mismatch warnings in readers | Data-loss-at-boundary made loud | M |
+| 5 | ✅ Done — `EDGE_SEMANTICS` (16 types) in lineage.py; PRODUCTION/ALWAYS_BIDIR derived | Single source for edge rules | M |
+| 6 | ✅ Done (light) — silent fallbacks now log warnings (alias_map, attach-to-first-table) | Wrong data is loud, not silent | L |
+| 7 | ⏳ Not needed — min-position fix in label search already removed order sensitivity | Determinism | S |
+
+---
+
+## Bug 49: Table Autocomplete Empty After Field Is Selected (P2)
+
+> **Found:** 2026-07-31 (user report) | **Priority:** P2 | **Status:** ✅ Fixed (v3.3.129) — verified end-to-end
+
+**Verified fix:** `field_index["customer_id"]["tables"]` now = `['c','crm_customers','o','raw_orders','sc','so','stg_customers','stg_orders']` (physical tables added via `alias_to_physical` resolution in `index_scripts()`); `table_index["crm_customers"]["fields"]` = `['customer_id','full_name','is_active','region','segment']`. Frontend `getTableOptions()` falls back to all tables when the field-restricted list is empty. Simulation: prefix `crm` → `['crm_customers']` ✅. Production workspace re-indexed; frontend rebuilt & deployed.
+
+**Symptom:** In the search UI, after the user types a field (`customer_id`), typing a table name (`crm`) yields NO suggestions for `crm_customers`, even though the table exists and contains that field.
+
+### Verified reproduction
+
+The backend endpoint works fine:
+```
+curl ".../autocomplete?type=table&q=crm"   → {"suggestions":["crm_customers"]}   ✅
+```
+But the search UI never calls it — `FilterPanel.jsx` does all filtering **client-side** over the index JSON from `/index`. The `/autocomplete` endpoint (`workspace.py:308-326`) and `api.autocomplete()` (`client.js:99-101`) are dead code.
+
+### Root cause (two layers)
+
+**Layer 1 — backend index build** (`folder_index_service.py:110-118`): for each column variable, the table association is derived only from the qualified-name prefix:
+```python
+table_name = name.split(".", 1)[0]   # "c.customer_id" → "c" (the ALIAS)
+```
+`crm_customers` is registered only as a `table`-type variable with **empty fields**. The Bug 41 cross-reference block (lines 124-153) maps fields only to **INSERT target** tables — `crm_customers` is a SELECT *source*, so it never gets `field_index["customer_id"]["tables"].add("crm_customers")`.
+
+Decisive evidence from `/tmp/workspaces/0d4ae2cefe6a/cache/`:
+```json
+field_index["customer_id"]["tables"] = ["c", "o", "sc", "so"]   // aliases only!
+table_index["crm_customers"]["fields"] = []                      // empty
+```
+
+**Layer 2 — frontend filter** (`FilterPanel.jsx:83-88`):
+```js
+const getTableOptions = () => {
+  if (!field || !fieldIndex[field]) return tableSuggestions;     // fallback: ALL tables
+  return (fieldIndex[field].tables || []).filter(...);           // → [] when tables=["c","o","sc","so"]
+};
+```
+With the exact field typed, suggestions are restricted to the alias-only set; filtering `["c","o","sc","so"]` by prefix `"crm"` yields `[]` → empty dropdown.
+
+### Suggested fix
+
+**Primary (backend, root cause)** — in `index_scripts()` (`folder_index_service.py:100-118`), resolve aliases via the existing `alias_map` (built from `source_tables` at lines 88-93) when indexing column variables:
+```python
+# for column "c.customer_id" with alias c → physical crm_customers:
+field_index[field_name]["tables"].add(physical)     # "crm_customers"
+table_index[physical]["fields"].add(field_name)      # table_index["crm_customers"]["fields"]
+```
+This fixes both the table-suggestion direction and the reverse direction (`getFieldOptions()` uses `tableIndex[table].fields`).
+
+**Secondary (frontend, robustness)** — in `FilterPanel.jsx:83-88`, fall back to the full `tableSuggestions` when the field-restricted list is empty (degrade to "show all tables" instead of an empty dropdown).
+
+**Optional cleanup** — either wire FilterPanel to the existing `/autocomplete` endpoint (which already returns correct results) or remove the dead endpoint + client helper.
+
+**Files:** `backend/app/services/folder_index_service.py:100-118`, `frontend/src/components/FilterPanel.jsx:73-88`, `backend/app/routers/workspace.py:308-326` (dead endpoint), `frontend/src/api/client.js:99-101` (dead helper)
+
+---
+
+# Code Review Findings — v3.3.129 (2026-07-31)
+
+> **Reviewer:** AI Code Review | **Scope:** Full codebase | **Files reviewed:** 42 Python + 12 JS/JSX
+
+---
+
+## CW1 — Pervasive Silent `except Exception` Error Swallowing
+
+> **Priority:** P1 | **Status:** Open | **Type:** Systemic defect
+
+**Location:** `l1_builder.py` lines 384, 713, 726, 739, 752, 797, 831
+
+**Symptom:** 7 bare `except Exception:` blocks silently discard errors. The top-level handler at line 831 returns a degraded fallback graph (just script nodes, no edges) when *any* internal error occurs. A user sees a "broken" graph with no clue what failed.
+
+**Evidence:**
+```python
+# l1_builder.py:797 — catastrophic error silencer:
+try:
+    lineage_set = compute_field_lineage(gdata, tn, fn, ...)
+except Exception:
+    continue  # <-- silently skips multi-hop expansion if BFS fails
+```
+If `compute_field_lineage` raises (e.g., malformed graph data), all subsequent multi-hop expansions are silently abandoned. The L1 graph shows incomplete lineage but reports success.
+
+**Impact:** This pattern caused multiple regression bugs (Bug 30, 39, 40). Each time the symptom appeared in the UI but the root error was silently swallowed, making debugging very costly.
+
+**Suggested fix:** Wrap only anticipated exceptions (e.g., `KeyError` on malformed node data). For unexpected exceptions, log at `ERROR` level with the script name and re-raise or propagate. At minimum:
+```python
+except KeyError:
+    _log.warning(f"Malformed graph data in {s.get('script_name','?')}, skipping")
+    continue
+except Exception as exc:
+    _log.error(f"compute_field_lineage failed for {tn}.{fn}: {exc}", exc_info=True)
+    continue
+```
+
+**Files:** `backend/app/services/l1_builder.py:384,713,726,739,752,797,831`
+
+---
+
+## CW2 — Unguarded Deeply Nested Dictionary Access
+
+> **Priority:** P1 | **Status:** Open | **Type:** Systemic defect
+
+**Location:** `l2_builder.py` line 208-340, and pervasive across all services
+
+**Symptom:** Code repeatedly accesses deeply nested dicts with no `KeyError`/`AttributeError` protection:
+```python
+tn = nd.get("data", n)        # if nd is not a dict, .get() on e.g. str fails
+label = nd.get("label", "")
+table_name = nd.get("table_name", nd.get("label", "").rsplit(".",1)[0])
+```
+When graph cache format changes (v3.2.15 → v3.3.x), or when old cached data is read, these assumptions silently break. The code was already patched with `nd = n.get("data", n)` to handle both wrapped and unwrapped nodes — evidence that the data contract is fragile.
+
+**Impact:** This has caused Bug 27, 28, and part of Bug 39 — all caused by `table_name`/`field_name` being absent in certain node formats or across version upgrades.
+
+**Suggested fix:** Define a lightweight typed interface (e.g., `@dataclass` or `TypedDict`) and validate at cache read:
+```python
+@dataclass
+class GraphNode:
+    id: str
+    label: str = ""
+    table_name: str = ""
+    field_name: str = ""
+    variable_type: str = ""
+
+def _validate_and_normalize(raw_node: dict) -> GraphNode:
+    nd = raw_node.get("data", raw_node)
+    return GraphNode(
+        id=nd["id"],
+        label=nd.get("label", nd.get("name", "")),
+        ...
+    )
+```
+Normalize once on cache read; all downstream code works with a stable contract.
+
+**Files:** `l2_builder.py:208-340`, `dataflow_service.py:255-330`, `graph_service.py:217-304`
+
+---
+
+## CW3 — L1 Builder Duplicate Extraction Logic
+
+> **Priority:** P2 | **Status:** Open | **Type:** Code smell
+
+**Location:** `l1_builder.py` lines 700-830
+
+**Symptom:** `_build_l1_graph` does three overlapping passes over the same data:
+1. Lines 700-730: Build global alias map from graph caches
+2. Lines 731-755: Build all_table_fields from P4 graph caches  
+3. Lines 770-800: Extract lineage_field_pairs by iterating per-node field_name
+4. Lines 805-830: Multi-hop expansion repeating the same iteration pattern
+
+The node-iteration logic extracting `(table, field)` pairs at lines 786-799 is duplicated verbatim at lines 813-827. Bug 37 already reported duplicate BFS implementations (now fixed), but the field extraction pattern remains duplicated.
+
+**Suggested fix:** Extract a shared helper:
+```python
+def _extract_table_field_pairs(lineage_set: set, nodes: list,
+                                alias_map: dict, table_fields: set) -> set:
+    pairs = set()
+    for n in nodes:
+        nd = n.get("data", n)
+        if nd.get("id") not in lineage_set: continue
+        tn, fn = _resolve_table_field(nd, alias_map)
+        if (tn, fn) in table_fields or not table_fields:
+            if tn and not tn.startswith("⟐"):
+                pairs.add((tn, fn))
+    return pairs
+```
+
+**Files:** `backend/app/services/l1_builder.py:770-830`
+
+---
+
+## CW4 — L2 Builder is 811-Line Monolithic Function
+
+> **Priority:** P1 | **Status:** Open | **Type:** Architecture
+
+**Location:** `l2_builder.py` entire file
+
+**Symptom:** `_build_l2_graph` is a single ~750-line function that performs:
+- Graph cache read
+- Relevance filter application
+- Compound node structure building (table_nodes, field_nodes, other_nodes)
+- Table classification (source/intermediate/output)
+- BFS upstream/downstream set computation
+- Edge list building with `find_sql_range`
+- Edge combining pass
+- Field-level → table-level edge promotion
+- JOIN survival handling
+- DML phantom field handling
+- Alias field synchronization
+- Partition pass
+
+Each step is interleaved with ad-hoc loops over `nodes` and `edges`. The function is nearly impossible to unit-test in isolation — only integration tests exist.
+
+**Impact:** Every L2 bug fix requires understanding the entire 811-line function. Regression risk is high because changes in one pass (e.g., edge combining) affect downstream passes (e.g., JOIN survival).
+
+**Suggested fix:** Split into pipeline stages:
+```python
+def _build_l2_graph(...):
+    full_graph = _load_or_build_graph(ws_id, script_name, sql_text)
+    graph_data = _apply_relevance_filter(full_graph, table, field)
+    compound = _build_compound_structure(graph_data, table, field)
+    edges = _build_edge_list(graph_data, compound.id_map, sql_text)
+    edges = _combine_duplicate_edges(edges)
+    edges = _promote_field_edges_to_table(edges, compound.id_map)
+    edges = _survive_join_edges(edges, full_graph, compound.id_map)
+    edges = _apply_partition(edges, sql_text)
+    _sync_alias_fields(compound, alias_map)
+    _sync_dml_phantom_fields(compound, dml_pairs)
+    return _assemble_output(compound, edges)
+```
+Each stage becomes independently testable.
+
+**Files:** `backend/app/services/l2_builder.py:1-811`
+
+---
+
+## CW5 — Unversioned Graph Cache Format
+
+> **Priority:** P2 | **Status:** Open | **Type:** Data contract
+
+**Location:** `l2_builder.py:97`, `dataflow_service.py:277`, `graph_service.py:120`
+
+**Symptom:** Cache key is `graph_3_2_15_{md5}` but the format has changed substantially without a schema version inside the JSON. P4/P5 fields (`table_fields`, `alias_map`) were added after the format was frozen. Code has defensive fallback paths to handle old caches lacking these keys.
+
+**Impact:** When format changes (which happened multiple times during v3.3.x development), old caches silently produce wrong results or crashes. Debugging takes the form of "delete workspace and re-upload" — masking the root cause.
+
+**Suggested fix:**
+```python
+CACHE_SCHEMA_VERSION = "3.4.0"
+
+def _read_graph_cache(path: Path) -> dict | None:
+    data = json.loads(path.read_text())
+    if data.get("_schema_version") != CACHE_SCHEMA_VERSION:
+        _log.info(f"Cache schema mismatch: expected {CACHE_SCHEMA_VERSION}, "
+                  f"got {data.get('_schema_version')}, rebuilding")
+        return None
+    return data
+```
+Write: `data["_schema_version"] = CACHE_SCHEMA_VERSION`.
+
+**Files:** `backend/app/services/graph_service.py:120`, `l2_builder.py:97`, `dataflow_service.py:277`
+
+---
+
+## CW6 — Fragmented Frontend Layout Responsibility
+
+> **Priority:** P2 | **Status:** Open | **Type:** Architecture
+
+**Location:** `snakeLayout.js` (107 lines), `layoutCore.js` (206 lines), `elkLayout.js`, `DataFlowGraph.jsx`
+
+**Symptom:** Layout computation is split across 4 files with overlapping responsibilities. `computeFieldRelPos` in `layoutCore.js` computes relative field positions, but Cytoscape applies transforms that break this relationship — causing the recurring "fields drift when dragging parent" bug. Each fix to field positioning must be applied in 2+ places.
+
+**Impact:** The field positioning defect has re-occurred multiple times because fixes in snake layout don't propagate to pipeline layout, and vice versa.
+
+**Suggested fix:** Unify field positioning into a single post-layout pass:
+```javascript
+export function positionFields(cy, layoutPositions) {
+    cy.nodes('[type="field"]').forEach(field => {
+        const parent = field.parent();
+        if (!parent.length) return;
+        const parentPos = layoutPositions[parent.id()] || parent.position();
+        const relPos = field.data('relPos') || { x: 0, y: 0 };
+        field.position({ x: parentPos.x + relPos.x, y: parentPos.y + relPos.y });
+    });
+}
+```
+Run once after any layout, fixing field drift regardless of layout algorithm.
+
+**Files:** `frontend/src/utils/snakeLayout.js`, `frontend/src/utils/layoutCore.js`, `frontend/src/utils/elkLayout.js`
+
+---
+
+## CW7 — `edge_type`/`relationship` Dual Naming
+
+> **Priority:** P3 | **Status:** Open | **Type:** Code smell
+
+**Location:** Pervasive across backend
+
+**Symptom:** The same concept appears inconsistently as:
+- `ed.get("edge_type")` in `graph_service.py`
+- `ed.get("relationship")` in `lineage.py`
+- `ed.get("edge_type", "") or ed.get("relationship", "")` in `l2_builder.py`
+- `rel = d.get("relationship", "")` in `graph_service.py`
+
+This dual naming came from the V2→V3 migration and causes defensive `or` chains throughout. Adding a new edge type requires remembering to set both keys.
+
+**Suggested fix:** Choose canonical key (`edge_type`) and normalize on cache read:
+```python
+def _normalize_edge(edge_data: dict) -> dict:
+    if "edge_type" not in edge_data:
+        edge_data["edge_type"] = edge_data.get("relationship", "REF")
+    return edge_data
+```
+
+**Files:** `graph_service.py`, `lineage.py`, `l2_builder.py`, `dataflow_service.py`
+
+---
+
+## CW8 — `sql_range` None Propagation
+
+> **Priority:** P2 | **Status:** Open | **Type:** Defect
+
+**Location:** `sql_range_finder.py:find()`, `l2_builder.py:411-430`
+
+**Symptom:** `find_sql_range` can return `None` (empty SQL) but `l2_builder.py` doesn't guard:
+```python
+r = find_sql_range(enriched_copy, sql_text)
+if not r:
+    r = find_sql_range(enriched, sql_text)  # fallback
+# ...
+"sql_range": r,   # r could still be None!
+```
+If both calls return `None`, the `sql_range` field is set to `None`. Any consumer expecting an array will crash (e.g., `sql_range[0]` → `TypeError`).
+
+**Suggested fix:** Provide safe default:
+```python
+r = find_sql_range(enriched_copy, sql_text) or \
+    find_sql_range(enriched, sql_text) or \
+    [1, 1, 1, 1]  # safe default
+```
+
+**Files:** `backend/app/services/sql_range_finder.py`, `backend/app/services/l2_builder.py:411-430`
+
+---
+
+## CW9 — Missing `import re` in l1_builder.py
+
+> **Priority:** P1 | **Status:** Open | **Type:** Defect
+
+**Location:** `l1_builder.py` line ~130
+
+**Symptom:** The function `detect_role` uses `re.search()` at approximately line 130:
+```python
+if target_full in sc or re.search(rf'\b{re.escape(target_field)}\b', sc):
+```
+But `import re` does not appear at the top of `l1_builder.py`. The `re` import exists only inside `_build_l1_graph` (~line 390). If `detect_role` is called from outside that function's scope, it raises `NameError`.
+
+**Suggested fix:** Add `import re` at module top level.
+
+**Files:** `backend/app/services/l1_builder.py:1` (add import), `:130` (usage site)
+
+---
+
+## CW10 — No Integration Test for Full User Journey
+
+> **Priority:** P1 | **Status:** Open | **Type:** Test gap
+
+**Location:** `backend/tests/`
+
+**Symptom:** 334 unit tests exist, but there is no test simulating the complete user flow:
+1. Upload `multi_workflow.zip`
+2. Index workspace
+3. Search `stg_customers.customer_id`
+4. Verify L1 shows correct lineage pairs
+5. Open L2 for `step2_enrich_customers.sql`
+6. Verify L2 edges have correct `sql_range`
+7. Click L2 edge → verify SQL highlight
+
+Each component is tested in isolation, but the integration between them is the source of most regression bugs.
+
+**Impact:** This single test would have caught Bug 27, 30, 39, 40, 42, 43, 45, and 46 before they reached manual testing.
+
+**Suggested fix:** Add integration test:
+```python
+def test_full_user_flow_multi_workflow(client, sample_zip):
+    resp = client.post("/api/workspace/upload", files={"file": sample_zip})
+    ws_id = resp.json()["workspace_id"]
+    client.post(f"/api/workspace/{ws_id}/index")
+    resp = client.post(f"/api/workspace/{ws_id}/search",
+                       json={"table": "stg_customers", "field": "customer_id"})
+    l1 = resp.json()["l1_graph"]
+    assert len(l1["lineage_field_pairs"]) >= 2
+    view_id = resp.json()["view_id"]
+    resp = client.get(f"/api/workspace/{ws_id}/views/{view_id}/level2",
+                      params={"script": "multi_workflow/step2_enrich_customers.sql", ...})
+    l2 = resp.json()["graph"]
+    assert len(l2["edges"]) >= 2
+    for e in l2["edges"]:
+        sr = e["data"]["sql_range"]
+        assert sr[1] >= 1  # start_col valid
+```
+
+**Files:** `backend/tests/` (new file: `test_integration.py`)
+
+---
+
+## Summary Table — Code Review Findings
+
+| ID | Title | Priority | Type | Effort |
+|----|-------|----------|------|--------|
+| CW1 | Silent `except Exception` swallowing | P1 | Systemic | Low |
+| CW2 | Unguarded nested dict access | P1 | Systemic | Medium |
+| CW3 | Duplicate extraction logic in L1 | P2 | Code smell | Low |
+| CW4 | L2 builder 750-line monolith | P1 | Architecture | High |
+| CW5 | Unversioned cache format | P2 | Data contract | Low |
+| CW6 | Fragmented layout code | P2 | Architecture | Medium |
+| CW7 | `edge_type`/`relationship` dual naming | P3 | Code smell | Low |
+| CW8 | `sql_range` None propagation | P2 | Defect | Low |
+| CW9 | Missing `import re` | P1 | Defect | Low |
+| CW10 | No integration test | P1 | Test gap | Medium |
+
+**Top 3 to fix first (max impact / min effort):** CW1, CW9, CW10

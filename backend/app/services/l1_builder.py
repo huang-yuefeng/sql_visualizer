@@ -10,7 +10,7 @@ import logging
 import traceback
 
 from app.services.workspace_service import get_workspace_dir
-from app.extractor.lineage import compute_field_lineage
+from app.extractor.lineage import compute_field_lineage, PRODUCTION_EDGES
 
 # ── L1 helper functions ──────────────────────────────────────────────
 
@@ -697,13 +697,28 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
         # Instead of three independent passes with diverging fallbacks,
         # build all_table_fields once from SCHEMA + DML edges across all
         # scripts, then use it as single source of truth.
-        from app.extractor.lineage import compute_field_lineage
-        PRODUCTION_TYPES = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW",
-                            "COMPUTED", "DML", "ALIAS"}
+        # (PRODUCTION_EDGES imported from app.extractor.lineage at module level)
 
-        # Build global alias map from all analysis caches
+        # Build global alias map from all graph caches (Bug 48)
+        # Graph caches already have pre-built alias_map — no need to scan
+        # analysis caches and re-derive aliases from variables.
         global_alias_map = {}
         if cache_dir.exists():
+            for gc_path in sorted(cache_dir.glob("graph_*.json")):
+                try:
+                    gdata = json.loads(gc_path.read_text())
+                    # Item 4: cache format versioning — warn once per stale cache file
+                    if gdata.get("format_version") != 3:
+                        logging.getLogger("sql_visualizer.dataflow").warning(
+                            "L1 cache %s has format_version=%r (expected 3) — stale graph cache",
+                            gc_path.name, gdata.get("format_version"))
+                    g_alias = gdata.get("alias_map", {})
+                    if g_alias:
+                        global_alias_map.update(g_alias)
+                except Exception:
+                    pass
+        # Fallback to analysis caches if no graph caches have alias_map
+        if not global_alias_map and cache_dir.exists():
             for af_path in sorted(cache_dir.glob("analysis_*.json")):
                 try:
                     adata = json.loads(af_path.read_text())
@@ -716,41 +731,18 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                 except Exception:
                     pass
 
-        # Build all_table_fields[(table,field)] from SCHEMA+DML across all scripts
+        # P1: Read table_fields from graph caches (P4 pre-built) — single source of truth
         all_table_fields = set()
-        for s in all_scripts:
-            gdata = s.get("graph", {})
-            g_nodes = gdata.get("nodes", [])
-            g_edges = gdata.get("edges", [])
-            g_node_by_id = {}
-            for n in g_nodes:
-                nd = n.get("data", n)
-                g_node_by_id[nd.get("id", "")] = nd
-            for e in g_edges:
-                ed = e.get("data", e)
-                etype = ed.get("edge_type", "") or ed.get("relationship", "")
-                if etype == "SCHEMA":
-                    src = g_node_by_id.get(ed.get("source", ""), {})
-                    tgt = g_node_by_id.get(ed.get("target", ""), {})
-                    tn = src.get("table_name", "") or src.get("label", "")
-                    fn = tgt.get("field_name", "")
-                    if not fn:
-                        lbl = tgt.get("label", "")
-                        fn = lbl.rsplit(".", 1)[-1] if "." in lbl else lbl
-                    if tn and fn:
-                        all_table_fields.add((tn, fn))
-                elif etype == "DML":
-                    tgt = g_node_by_id.get(ed.get("target", ""), {})
-                    tn = tgt.get("table_name", "")
-                    if not tn:
-                        lbl = tgt.get("label", "")
-                        tn = lbl.rsplit(".", 1)[0] if "." in lbl else ""
-                    fn = tgt.get("field_name", "")
-                    if not fn:
-                        lbl = tgt.get("label", "")
-                        fn = lbl.rsplit(".", 1)[-1] if "." in lbl else lbl
-                    if tn and fn:
-                        all_table_fields.add((tn, fn))
+        if cache_dir.exists():
+            for gc_path in sorted(cache_dir.glob("graph_*.json")):
+                try:
+                    gdata = json.loads(gc_path.read_text())
+                    tf = gdata.get("table_fields", {})
+                    for tbl, flds in tf.items():
+                        for fn in flds:
+                            all_table_fields.add((tbl, fn))
+                except Exception:
+                    pass
 
         # Single extraction: run compute_field_lineage per script,
         # intersect reached nodes with all_table_fields
@@ -761,7 +753,7 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                 continue
             try:
                 lineage_set = compute_field_lineage(gdata, table, field,
-                                                    edge_filter=PRODUCTION_TYPES | {"SCHEMA"})
+                                                    edge_filter=PRODUCTION_EDGES | {"SCHEMA"})
             except Exception:
                 continue
             node_by_id = {}
@@ -782,8 +774,10 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                         fn = fn or parts[1]
                 if tn and fn:
                     tn = global_alias_map.get(tn, tn)
-                    if tn and not tn.startswith("⟐"):
-                        lineage_field_pairs.add((tn, fn))
+                    # P1: intersect with P4 table_fields — only keep validated pairs
+                    if (tn, fn) in all_table_fields or not all_table_fields:
+                        if tn and not tn.startswith("⟐"):
+                            lineage_field_pairs.add((tn, fn))
 
         # Always include target field
         lineage_field_pairs.add((table, field))
@@ -804,7 +798,7 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                         continue
                     try:
                         lineage_set = compute_field_lineage(gdata, tn, fn,
-                                                            edge_filter=PRODUCTION_TYPES | {"SCHEMA"})
+                                                            edge_filter=PRODUCTION_EDGES | {"SCHEMA"})
                     except Exception:
                         continue
                     for n in gdata.get("nodes", []):
@@ -822,7 +816,8 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                         if ctn and cfn:
                             ctn = global_alias_map.get(ctn, ctn)
                             pair = (ctn, cfn)
-                            if pair not in lineage_field_pairs:
+                            # P1: intersect with P4 table_fields
+                            if (pair in all_table_fields or not all_table_fields) and pair not in lineage_field_pairs:
                                 lineage_field_pairs.add(pair)
                                 added = True
             if not added:

@@ -1,4 +1,4 @@
-# Welcome to SQL Data Flow Team
+# Welcome to TF-AI
 
 ## How We Use Claude
 
@@ -35,11 +35,16 @@ Top MCP Servers:
 
 ## Team Tips
 
-_TODO_
+None yet — team guidance will be added here as it develops. (Workflow note: bug analysis and fix suggestions live in `tools/BUG_ANALYSIS_AND_SUGGESTIONS.md`; reviews should suggest into that doc rather than editing source directly.)
 
 ## Get Started
 
-_TODO_
+**Starter task: optimize the sql_visualizer solution.**
+
+1. Start from the **Lessons Learned & Architecture Review** section at the bottom of `tools/BUG_ANALYSIS_AND_SUGGESTIONS.md` — it catalogs the 6 recurring architectural weaknesses and the 7-item priority ranking (items 1-7 are done; review them first).
+2. Run the current state: `docker exec gps-sql-backend python3 -m pytest tests/ -q` (expect 334 passed, 5 skipped) and the integration tests `tests/test_l1_l2_integration.py`.
+3. Look for optimization opportunities: performance (L1/L2 builder hot paths, cache usage), correctness gaps not yet covered by tests, and the deferred architectural items noted in the bug list.
+4. Propose changes in `tools/BUG_ANALYSIS_AND_SUGGESTIONS.md` first; implement after approval.
 
 <!-- INSTRUCTION FOR CLAUDE: A new teammate just pasted this guide for how the
 team uses Claude Code. You're their onboarding buddy — warm, conversational,

@@ -85,7 +85,15 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
             try:
                 from app.services.graph_service import build_graph_data
                 graph_data = build_graph_data(result)
+                # Bug 48: Add alias_map to graph cache so consumers don't rebuild it
+                graph_data["alias_map"] = {
+                    v["name"]: v["source_tables"][0]
+                    for v in result.get("variables", [])
+                    if v.get("source_tables") and v.get("variable_type") in ("table", "view", "cte")
+                }
                 graph_cache_path = cache_dir / f"graph_{cache_key}.json"
+                # Item 4: cache format version — consumers warn on stale caches
+                graph_data["format_version"] = 3
                 graph_cache_path.write_text(json.dumps(graph_data, indent=2, ensure_ascii=False))
                 precomputed += 1
             except Exception:
@@ -93,6 +101,12 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
 
             # Build indexes from variables
             variables = result.get("variables", [])
+            # Bug 49: map SQL aliases → physical tables ("c" → "crm_customers")
+            # so column variables register against the real table, not just the alias
+            alias_to_physical = {}
+            for v in variables:
+                if v.get("variable_type") in ("table", "view", "cte") and v.get("source_tables"):
+                    alias_to_physical[v.get("name", "")] = v.get("source_tables", [None])[0]
             for v in variables:
                 vt = v.get("variable_type", "")
                 name = v.get("name", "")
@@ -106,10 +120,14 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                     table_name = name.split(".", 1)[0] if "." in name else ""
                     field_index.setdefault(field_name, {"tables": set(), "scripts": set()})
                     field_index[field_name]["scripts"].add(rel_path)
+                    # Bug 49: also register the physical table (alias → canonical),
+                    # so autocomplete surfaces crm_customers.customer_id, not just c.customer_id
                     if table_name:
-                        field_index[field_name]["tables"].add(table_name)
-                        table_index.setdefault(table_name, {"fields": set(), "scripts": set()})
-                        table_index[table_name]["fields"].add(field_name)
+                        physical = alias_to_physical.get(table_name, table_name)
+                        for tname in {table_name, physical}:
+                            field_index[field_name]["tables"].add(tname)
+                            table_index.setdefault(tname, {"fields": set(), "scripts": set()})
+                            table_index[tname]["fields"].add(field_name)
 
             # Bug 41: Cross-reference DML dependencies so that INSERT column
             # names (e.g., total_amount) are indexed alongside SELECT aliases

@@ -17,7 +17,8 @@ from app.extractor.lineage import (
 
 
 from app.services.l1_builder import _build_l1_graph
-from app.services.l2_builder import _build_l2_graph, _compute_highlight_ranges, _estimate_sql_range
+from app.services.l2_builder import _build_l2_graph, _compute_highlight_ranges
+from app.services.graph_service import EDGE_TYPE_STYLE, EDGE_TYPE_ORDER
 
 @dataclass
 class SearchView:
@@ -387,31 +388,10 @@ def delete_view(ws_id: str, view_id: str) -> bool:
 # Per formal definition §10.3
 # ══════════════════════════════════════════════════════════════════════
 
-# V3.2.1: Per-type edge visualization — each of 16 formal edge types has its own color + style
-EDGE_TYPE_STYLE = {
-    "TABLE_FLOW": {"color": "#2ECC71", "line": "solid",   "width": 3, "desc": "Table feeds output"},
-    "ALIAS":      {"color": "#1ABC9C", "line": "dashed",  "width": 1, "desc": "Original → alias"},
-    "REF":        {"color": "#27AE60", "line": "solid",   "width": 1, "desc": "Column reference"},
-    "AGGREGATE":  {"color": "#8E44AD", "line": "solid",   "width": 3, "desc": "SUM/COUNT/AVG"},
-    "TRANSFORM":  {"color": "#D35400", "line": "dashed",  "width": 2, "desc": "COALESCE/CAST/CONCAT"},
-    "WINDOW":     {"color": "#9B59B6", "line": "dashed",  "width": 2, "desc": "ROW_NUMBER/RANK/LAG"},
-    "COMPUTED":   {"color": "#E67E22", "line": "dotted",  "width": 2, "desc": "CASE WHEN result"},
-    "SCHEMA":     {"color": "#3498DB", "line": "dotted",  "width": 1, "desc": "Table→Column ownership"},
-    "INDIRECT":   {"color": "#C0392B", "line": "dot-dash","width": 1, "desc": "HAVING→SELECT match"},
-    "FILTER":     {"color": "#E74C3C", "line": "solid",   "width": 2, "desc": "WHERE/JOIN ON condition"},
-    "JOIN":       {"color": "#E91E63", "line": "dashed",  "width": 2, "desc": "JOIN key condition"},
-    "CORRELATED": {"color": "#FF5722", "line": "dotted",  "width": 2, "desc": "Correlated subquery"},
-    "DML":        {"color": "#2980B9", "line": "double",  "width": 3, "desc": "INSERT/UPDATE/DELETE/MERGE"},
-    "SET_OP":     {"color": "#F1C40F", "line": "dashed",  "width": 2, "desc": "UNION/INTERSECT/EXCEPT"},
-    "SUBQUERY":   {"color": "#16A085", "line": "dotted",  "width": 2, "desc": "Subquery reference"},
-    "SUBSET":     {"color": "#7F8C8D", "line": "dotted",  "width": 1, "desc": "Disconnected bridge"},
-}
-
-EDGE_TYPE_ORDER = [
-    "TABLE_FLOW", "ALIAS", "REF", "AGGREGATE", "TRANSFORM", "WINDOW",
-    "COMPUTED", "SCHEMA", "INDIRECT", "FILTER", "JOIN", "CORRELATED",
-    "DML", "SET_OP", "SUBQUERY", "SUBSET",
-]
+# V3.2.1: Per-type edge visualization — EDGE_TYPE_STYLE and EDGE_TYPE_ORDER
+# (16 formal types, each with color + style) are defined once in
+# app/services/graph_service.py and imported at the top of this module —
+# single source of truth.
 
 def _get_edge_style(edge_type: str) -> dict:
     """Get per-type display style for an edge."""

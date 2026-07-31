@@ -249,9 +249,10 @@ class KeywordLocator:
         self.all_lines = all_lines
         self._stmt_lines = all_lines[statement.start_line - 1:statement.end_line]
     
-    def find_best_line(self) -> int:
+    def find_best_line(self):
         """
-        Find the best line number (0-based index in all_lines) for this edge.
+        Find the best (line, col) for this edge.
+        Returns (line_idx, col) tuple — line is 0-based, col is 1-based.
         Tries multiple strategies in priority order.
         """
         # Strategy A: keyword patterns for this edge type
@@ -268,13 +269,14 @@ class KeywordLocator:
         for i in range(self.statement.start_line - 1, self.statement.end_line):
             line = self.all_lines[i].strip()
             if line and not line.startswith('--'):
-                return i
+                return (i, 1)  # col=1 as fallback
         
         # Fallback: statement start
-        return self.statement.start_line - 1
+        return (self.statement.start_line - 1, 1)
     
-    def _try_keyword_patterns(self) -> Optional[int]:
-        """Try matching edge type → keyword regex patterns."""
+    def _try_keyword_patterns(self):
+        """Try matching edge type → keyword regex patterns.
+        Returns (line_idx, col) tuple or None. col is 1-based."""
         edge_type = (self.edge_data.get('edge_type') or '').upper()
         label = (self.edge_data.get('label') or '').upper()
         
@@ -300,15 +302,17 @@ class KeywordLocator:
                 continue
             for pat in all_patterns:
                 try:
-                    if _re.search(pat, line, _re.IGNORECASE):
-                        return global_idx
+                    m = _re.search(pat, line, _re.IGNORECASE)
+                    if m:
+                        return (global_idx, m.start() + 1)  # 1-based column
                 except Exception:
                     continue
         
         return None
     
-    def _try_label_search(self) -> Optional[int]:
-        """Score lines by how many source/target labels they contain, with context bonus."""
+    def _try_label_search(self):
+        """Score lines by how many source/target labels they contain, with context bonus.
+        Returns (line_idx, col) tuple or None. col is 1-based."""
         src_label = (self.edge_data.get('source_label') or '').strip()
         tgt_label = (self.edge_data.get('target_label') or '').strip()
         edge_type = (self.edge_data.get('edge_type') or '').upper()
@@ -338,32 +342,40 @@ class KeywordLocator:
         context_bonus = self._CONTEXT_BONUS.get(edge_type, {})
         best_score = 0
         best_line = None
-        
+        best_col = 1
+
         for start_offset in range(len(self._stmt_lines)):
             global_idx = self.statement.start_line - 1 + start_offset
             line = self.all_lines[global_idx]
             stripped = line.strip()
             if stripped.startswith('--'):
                 continue
-            
+
             line_lower = line.lower()
             line_upper = line.upper()
-            
+
             score = 0
+            match_col = None  # earliest matching-term position (1-based)
             for term in search_terms:
                 if term in line_lower:
                     score += 2  # base: 2 points per matching term
-            
+                    pos = line_lower.find(term) + 1  # 1-based column
+                    if match_col is None or pos < match_col:
+                        match_col = pos
+
             # Context bonus
             for ctx_kw, bonus in context_bonus.items():
                 if ctx_kw in line_upper:
                     score += bonus
-            
+
             if score > best_score:
                 best_score = score
                 best_line = global_idx
-        
-        return best_line
+                best_col = match_col if match_col else 1
+
+        if best_line is not None:
+            return (best_line, best_col)
+        return None
 
 
 # ── Layer 4: Range Builder ───────────────────────────────────────────
@@ -382,9 +394,10 @@ class RangeBuilder:
     )
     
     def __init__(self, statement: SqlStatement, matched_line: int, all_lines: list,
-                 edge_data: dict = None):
+                 edge_data: dict = None, matched_col: int = 1):
         self.statement = statement
         self.matched_line = matched_line  # 0-based index in all_lines
+        self.matched_col = matched_col     # 1-based column in matched_line
         self.all_lines = all_lines
         self.edge_data = edge_data or {}
     
@@ -489,13 +502,20 @@ class RangeBuilder:
         if end_line < start_line:
             end_line = start_line
         
-        # Bug 43: Compute column positions from matched line
+        # Bug 43: Use actual matched column from keyword/label search
         matched_text = self.all_lines[self.matched_line] if 0 <= self.matched_line < len(self.all_lines) else ""
-        stripped = matched_text.lstrip()
-        computed_start_col = len(matched_text) - len(stripped) + 1  # 1-based
-        computed_end_col = len(matched_text.rstrip())  # last non-whitespace
+        computed_start_col = self.matched_col  # from KeywordLocator match position
+        # End column: end of first meaningful word on the matched line
+        remaining = matched_text[computed_start_col - 1:] if computed_start_col - 1 < len(matched_text) else ""
+        word_end = 0
+        for i, ch in enumerate(remaining):
+            if ch.isalnum() or ch == '_':
+                word_end = i + 1
+            elif word_end > 0:
+                break
+        computed_end_col = computed_start_col + word_end - 1
         if computed_end_col < computed_start_col:
-            computed_end_col = computed_start_col
+            computed_end_col = len(matched_text.rstrip())
         
         return SqlRange(
             start_line=start_line + 1,
@@ -548,12 +568,16 @@ class SqlRangeFinder:
             # Fallback: use first line of script
             return [1, 1, 1, len(self.lines[0]) if self.lines else 1]
         
-        # Layer 3: Find best matching line within the statement
+        # Layer 3: Find best matching (line, col) within the statement
         locator = KeywordLocator(statement, edge_data, self.lines)
-        best_line = locator.find_best_line()
+        result = locator.find_best_line()
+        if isinstance(result, tuple):
+            best_line, best_col = result
+        else:
+            best_line, best_col = result, 1
         
         # Layer 4: Build range extended to statement boundaries
-        builder = RangeBuilder(statement, best_line, self.lines, edge_data)
+        builder = RangeBuilder(statement, best_line, self.lines, edge_data, matched_col=best_col)
         return builder.build().to_list()
 
 

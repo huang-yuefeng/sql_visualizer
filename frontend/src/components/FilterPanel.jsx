@@ -82,9 +82,12 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
   // Filter table options by selected field
   const getTableOptions = () => {
     if (!field || !fieldIndex[field]) return tableSuggestions;
-    return (fieldIndex[field].tables || []).filter(t =>
+    const filtered = (fieldIndex[field].tables || []).filter(t =>
       !table || t.toLowerCase().includes(table.toLowerCase())
     );
+    // Bug 49: fall back to full suggestions when the field has no indexed tables
+    // (e.g. field only seen under an alias) — otherwise the dropdown is empty
+    return filtered.length > 0 ? filtered : tableSuggestions;
   };
 
   const canSearch = table && field && tableIndex[table] && fieldIndex[field];
