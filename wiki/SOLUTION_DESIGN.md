@@ -261,6 +261,35 @@ Output: L2 graph {nodes, edges}
 
 ---
 
+## Validation — Orphan Field Check (fields without any table)
+
+Companion to Bug 53: a field with no table attribution cannot be found
+via table→field autocomplete, cannot attach in L1/L2, and silently
+vanishes from filter results. The check surfaces these so extraction
+gaps are visible instead of silent.
+
+**Signal (verified):** `field_index[field]["tables"] == []` ⇔ orphan
+field. The indexer always registers fields in field_index (only the
+TABLE association is gated by the name prefix), so the orphan set is
+exact — confirmed on a Bug-53-style script (unqualified columns →
+`customer_id`/`full_name` orphaned, both tables show `fields: []`).
+
+**Three levels:**
+
+| Level | Where | What it reports |
+|-------|-------|-----------------|
+| 1. Extraction (per script) | R15 profile "Vars:" line | `orphan=N` — column variables with no prefix AND no `source_tables`; instant per-script visibility at analysis time |
+| 2. Index (per workspace) | `index_scripts()` | compute orphans → persist `cache/orphan_fields.json` `{field: [scripts]}`; return `orphan_field_count` + samples in the index response; push an R16-style diagnostic block ("⚠ N fields have no table attribution — check scripts […]") |
+| 3. Filter (R19 diagnostic) | `upload_filter_config` | one line: fields in the filtered field_index that carry no tables (survived via scripts only) + samples |
+
+**Use:** pairs with the existing "tables without fields" per-table
+diagnostics — the two sets pinpoint the exact extractor divergence
+(Bug 53 exposure). An orphan spike after any extractor change is a
+regression signal. Levels 1+2 are the primary check; level 3 covers
+the filter path.
+
+---
+
 ## What Gets Removed (After Prerequisites)
 
 | Current code | Why removable |

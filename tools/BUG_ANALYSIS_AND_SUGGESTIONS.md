@@ -2035,3 +2035,20 @@ Extract a `filter_service.py` (parse → scopes → intersect → filter) per th
 - §8.3 "sqlglot.optimizer.scope resolves customer_id → table" — **verified WRONG**: `scope.columns` leaves `table=''`; the working API is `qualify.qualify(..., validate_qualify_columns=False)`, and it covers only single-source SELECT contexts (NOT UPDATE/DELETE/multi-table joins). Design doc 1c′ records the full evaluation.
 - §9 category 2 (alias coverage, tpcds dim tables) — worth a targeted check: do the tpcds dimension tables get 0 fields because of unqualified column-name-prefix access (category 1) or a real alias_map coverage gap? Check before implementing Bug 53.
 - §9 advice "classify fieldless tables into 4 categories; only category 1 is a hard defect" — adopted (SQL-evidence diagnostic already surfaces 3+4).
+
+---
+
+## Bug 54: Orphan Field Check — field-without-table validation (feature)
+
+> **Requested:** 2026-08-04 (user) | **Priority:** P2 | **Status:** Design done (SOLUTION_DESIGN.md "Validation — Orphan Field Check")
+
+**Purpose:** surface fields with no table attribution so extraction gaps (Bug 53) are visible instead of silent. Verified signal: `field_index[field]["tables"] == []` ⇔ orphan field (exact — the indexer always registers fields, only table association is gated).
+
+**Design (3 levels):**
+1. **Extraction** — R15 profile "Vars:" line gains `orphan=N` (column vars with no prefix and no source_tables)
+2. **Index** — `index_scripts()` computes orphans → `cache/orphan_fields.json` `{field: [scripts]}`; index response gains `orphan_field_count` + samples; R16-style diagnostic block pushed
+3. **Filter** — R19 diagnostic gains one line: filtered fields with no tables + samples
+
+**Files (to implement):** `folder_index_service.py` (level 2), extractor profile line (level 1), `workspace.py` R19 diagnostic (level 3)
+
+**Pairs with:** Bug 53 (unqualified column resolution) — orphan count is the regression meter for the Bug 53 fix.
