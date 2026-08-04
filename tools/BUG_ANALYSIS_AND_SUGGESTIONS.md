@@ -2100,3 +2100,23 @@ ORPHAN fields (283): Call_Center, Call_Center_Name, Manager,
 ```
 
 **Classification:** the tpcds fieldless tables are NOT (mostly) Bug 53 unqualified-column cases — they are accessed via aliased/qualified patterns (category 2 suspicion) and the orphan pool is dominated by **SELECT-expression aliases** (a distinct orphan flavor). Implication: (a) the superseded 1c′ fix would not have covered them — the report-only decision is the right one; (b) the Bug 54 orphan report will surface a rich mix — the SQL-segment per field is essential for the human to classify alias-vs-expression-vs-unqualified.
+
+---
+
+## Orphan Scan Record — all samples (2026-08-04, team scan)
+
+**10 workspaces, 330 scripts, 661 orphans.** Full table + classifications in the session report.
+
+| Class | Share | Meaning |
+|-------|-------|---------|
+| expression-alias | ~2/3 | derived/aggregate/window/CTE aliases — mostly legitimate (aliases are not table columns) |
+| unqualified | ~1/3 | Bug 53 pattern — human should check/fix SQL |
+| qualified-but-unattributed | **0** | attribution mechanism (Bug 49 alias map + Bug 41 DML) is sound |
+
+Key facts:
+- `orphan_field_count` == `orphan_fields.json` size in every sample (check consistent)
+- tpcds fieldless dim tables (call_center etc.) legitimately empty — FROM/JOIN/*/COUNT only
+- spider_complex fieldless tables == exactly the tables its orphans query (unqualified access)
+- dwh_analytics is a broken sample (12/13 scripts are 404 placeholders); its orphans are information_schema columns
+- standalone/multi_workflow clean (fully qualified)
+- Design option (pending user): report could mark each orphan's class ([alias] vs [unqualified]) to reduce review noise
