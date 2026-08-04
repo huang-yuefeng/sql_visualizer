@@ -168,6 +168,14 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                 elif vt == "column":
                     field_name = name.split(".", 1)[-1] if "." in name else name
                     table_name = name.split(".", 1)[0] if "." in name else ""
+                    # R20: unqualified columns resolved by the extractor (S1-S3)
+                    # carry source_tables — surface them in the index too.
+                    # Skip ⟐-prefixed entries (output containers are script-scoped).
+                    if not table_name:
+                        for _st in v.get("source_tables", []):
+                            if _st and not _st.startswith("⟐"):
+                                table_name = _st
+                                break
                     field_index.setdefault(field_name, {"tables": set(), "scripts": set()})
                     field_index[field_name]["scripts"].add(rel_path)
                     # Bug 49: also register the physical table (alias → canonical),
