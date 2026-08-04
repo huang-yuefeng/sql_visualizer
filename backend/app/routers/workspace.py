@@ -299,13 +299,18 @@ async def upload_filter_config(ws_id: str,
         shown_drop_detail = 0
         for tname in common_tables[:15]:
             idx_scripts = ti.get(tname, {}).get("scripts", [])
+            idx_fields = ti.get(tname, {}).get("fields", [])
             matched = [s for s in idx_scripts
                        if allowed_scripts is None or s in allowed_scripts or os.path.basename(s) in allowed_scripts]
             kept = tname in filtered_ti
             nfields = len(filtered_ti.get(tname, {}).get("fields", [])) if kept else 0
-            diag_lines.append(("profile", ("│   %s %-35s scripts %d/%d fields %d"
+            # fields N/M: N = kept in filter, M = total in index (divergence
+            # means the table's index fields aren't among the CSV columns in
+            # scope — see the field-detail lines below)
+            diag_lines.append(("profile", ("│   %s %-35s scripts %d/%d fields %d/%d"
                                            % ("KEEP" if kept else "DROP", tname[:35],
-                                              len(matched), len(idx_scripts), nfields)).ljust(79)+"│"))
+                                              len(matched), len(idx_scripts),
+                                              nfields, len(idx_fields))).ljust(79)+"│"))
             if not kept and not matched and shown_drop_detail < 6:
                 shown_drop_detail += 1
                 if idx_scripts:
@@ -326,6 +331,15 @@ async def upload_filter_config(ws_id: str,
                         diag_lines.append(("profile", ("│     index has similar: %s" % similar[:4]).ljust(79)+"│"))
                     else:
                         diag_lines.append(("profile", "│     NOT in index — no similar table (scripts missing/not uploaded?)".ljust(79)+"│"))
+            # Field divergence: kept table whose index fields got filtered out
+            elif kept and nfields < len(idx_fields) and shown_drop_detail < 6:
+                shown_drop_detail += 1
+                if not idx_fields:
+                    diag_lines.append(("profile", "│     index has no fields for this table".ljust(79)+"│"))
+                else:
+                    diag_lines.append(("profile", ("│     index fields: %s" % idx_fields[:4]).ljust(79)+"│"))
+                    diag_lines.append(("profile", ("│     csv columns in scope: %s"
+                                                   % sorted(allowed_columns)[:4] if allowed_columns else "[]").ljust(79)+"│"))
         if len(common_tables) > 15:
             diag_lines.append(("profile", ("│   ... %d more common tables" % (len(common_tables)-15)).ljust(79)+"│"))
         if distinct_scripts:
