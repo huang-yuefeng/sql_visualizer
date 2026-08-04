@@ -46,7 +46,13 @@ Output: graph {nodes, edges, input_tables, output_tables}
 
     → VariableDefinition[] (15 types)
 
-1c′. Resolve unqualified column references (Bug 53)
+1c′. Resolve unqualified column references (Bug 53) — SUPERSEDED
+    Decision 2026-08-04: NO auto-resolution is implemented. The
+    extractor stays as-is; orphan fields are REPORTED (see
+    "Validation — Orphan Field Check") for human review instead of
+    being fixed automatically. The analysis below is kept for
+    reference.
+
     Problem: "SELECT customer_id FROM crm_customers" records the column
     with NO table — every consumer derives the table from the name
     prefix, so the table ends up with 0 fields despite real columns in
@@ -91,7 +97,10 @@ Output: graph {nodes, edges, input_tables, output_tables}
 
     → columns like customer_id now carry source_tables=["crm_customers"]
 
-1c″. Consumer cascade — fall back to source_tables when prefix is empty
+1c″. Consumer cascade — fall back to source_tables when prefix is empty — SUPERSEDED
+    (2026-08-04 decision: no fallback/patch — report-only. See the
+    Orphan Field Check section.)
+
     The extractor fix only helps if consumers USE source_tables.
     All three currently derive the table from the name prefix only:
 
@@ -288,20 +297,30 @@ diagnostics — the two sets pinpoint the exact extractor divergence
 regression signal. Levels 1+2 are the primary check; level 3 covers
 the filter path.
 
-**Action on detection (triage, in order):**
-1. **Auto-fix at extraction** — the Bug 53 fix (step 1c′) attributes
-   single-FROM unqualified columns; most orphans disappear automatically.
-2. **Indexer fallback** — step 1c″ uses source_tables where the prefix
-   is empty (second net).
-3. **Report for manual review** — remaining orphans (ambiguous
-   multi-table joins, genuine gaps) are listed WITH their scripts and
-   SQL-evidence lines; the user fixes the SQL (qualify columns) or
-   accepts. Never auto-attribute blindly (would corrupt the index).
-4. **Future auto-repair** — after Bug 53 lands, infer_table_schemas
-   gains the resolution data and can support a second-pass attribution
-   for multi-table unambiguous columns. (Verified: schema inference is
-   currently blind to unqualified columns — same root gap — so this
-   must come AFTER the extractor fix.)
+**Action on detection (2026-08-04 decision): REPORT ONLY — no
+auto-fix, no fallback, no patch.** After the scripts are extracted,
+orphans are reported in the diagnostic info for human review. The
+report MUST include, per orphan field, the corresponding script
+segment (the SQL lines where the field appears), so the reviewer can
+judge and fix the SQL (qualify columns) without opening other tools.
+
+Report format (R16-style block, pushed after extraction):
+```
+┌─ ORPHAN FIELD REPORT ────────────────────────────────────────────┐
+│ 3 fields have no table attribution (check SQL, then re-index)     │
+│ ───────────────────────────────────────────────────────────────── │
+│ field: customer_id    script: load_customers.sql                  │
+│    L2: INSERT INTO stg_customers (customer_id, full_name)         │
+│    L3: SELECT customer_id, full_name FROM crm_customers;          │
+│ field: full_name      script: load_customers.sql                  │
+│    L2: INSERT INTO stg_customers (customer_id, full_name)         │
+│    L3: SELECT customer_id, full_name FROM crm_customers;          │
+└───────────────────────────────────────────────────────────────────┘
+```
+Implementation: for each orphan field, its scripts come from
+`field_index[field]["scripts"]`; the SQL lines come from a
+case-insensitive line search of the field name in the script file
+(same mechanism as the filter's SQL-evidence diagnostic).
 
 ---
 
