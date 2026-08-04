@@ -47,16 +47,18 @@ if [ ! -f checksums.md5 ]; then
     echo -e "${RED}ERROR: checksums.md5 not found${NC}"
     exit 1
 fi
+echo "  Joining pieces..."
+cat part_* > "$(basename "$IMAGE_FILE")"
+echo "  Done: $(ls -lh "$(basename "$IMAGE_FILE")" | awk '{print $5}')"
 echo "  Verifying checksums..."
+# Verify AFTER joining — the tarball is gitignored and only exists
+# on a fresh clone after the cat above (Bug fix 2026-08-04).
 if md5sum -c checksums.md5; then
     echo -e "${GREEN}  Checksums OK${NC}"
 else
     echo -e "${RED}  Checksum verification FAILED${NC}"
     exit 1
 fi
-echo "  Joining pieces..."
-cat part_* > "$(basename "$IMAGE_FILE")"
-echo "  Done: $(ls -lh "$(basename "$IMAGE_FILE")" | awk '{print $5}')"
 cd ..
 
 # ── 2. Tag current as previous (for rollback) ────────────────────────
