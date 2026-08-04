@@ -2,7 +2,6 @@
 import json
 import uuid
 import hashlib
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -18,7 +17,6 @@ from app.extractor.lineage import (
 
 from app.services.l1_builder import _build_l1_graph
 from app.services.l2_builder import _build_l2_graph, _compute_highlight_ranges
-from app.services.graph_service import EDGE_TYPE_STYLE, EDGE_TYPE_ORDER
 
 @dataclass
 class SearchView:
@@ -381,65 +379,3 @@ def delete_view(ws_id: str, view_id: str) -> bool:
     if found:
         _save_views(ws_id, new_views)
     return found
-
-
-# ══════════════════════════════════════════════════════════════════════
-# V3.2: Edge Category Mapping (14 formal types → 7 visual categories)
-# Per formal definition §10.3
-# ══════════════════════════════════════════════════════════════════════
-
-# V3.2.1: Per-type edge visualization — EDGE_TYPE_STYLE and EDGE_TYPE_ORDER
-# (16 formal types, each with color + style) are defined once in
-# app/services/graph_service.py and imported at the top of this module —
-# single source of truth.
-
-def _get_edge_style(edge_type: str) -> dict:
-    """Get per-type display style for an edge."""
-    return EDGE_TYPE_STYLE.get(edge_type, EDGE_TYPE_STYLE["SUBSET"])
-
-
-# V3.2.1: 7-category mapping for visual grouping
-CATEGORY_MAP = {
-    # copy: value flows without transformation
-    "REF": "copy",
-    # compute: transformation functions
-    "TRANSFORM": "compute",
-    "COMPUTED": "compute",
-    # aggregate: summarization
-    "AGGREGATE": "aggregate",
-    "WINDOW": "aggregate",
-    # filter: gate conditions
-    "FILTER": "filter",
-    "JOIN": "filter",
-    "INDIRECT": "filter",
-    "CORRELATED": "filter",
-    # combine: set operations, subqueries
-    "SET_OP": "combine",
-    "SUBQUERY": "combine",
-    # write: DML operations
-    "DML": "write",
-    # structure: ownership, aliasing, bridging
-    "SCHEMA": "structure",
-    "ALIAS": "structure",
-    "SUBSET": "structure",
-    "TABLE_FLOW": "structure",
-}
-
-def _get_category(edge_type: str) -> str:
-    """Map edge type to one of 7 visual categories."""
-    return CATEGORY_MAP.get(edge_type, "structure")
-
-
-def _get_category_color(edge_type: str) -> str:
-    """Get per-type color."""
-    return EDGE_TYPE_STYLE.get(edge_type, {}).get("color", "#7F8C8D")
-
-
-# ══════════════════════════════════════════════════════════════════════
-# V3.2: _build_l2_graph — Per-script graph with compound nodes + sql_range
-# ══════════════════════════════════════════════════════════════════════
-
-def target_field_sc(sc: str, target_field: str) -> bool:
-    """Check if source_column matches target_field."""
-    import re
-    return bool(re.search(rf'\b{re.escape(target_field)}\b', sc))

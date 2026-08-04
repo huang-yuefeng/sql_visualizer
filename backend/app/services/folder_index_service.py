@@ -91,10 +91,21 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                     for v in result.get("variables", [])
                     if v.get("source_tables") and v.get("variable_type") in ("table", "view", "cte")
                 }
-                graph_cache_path = cache_dir / f"graph_{cache_key}.json"
+                # M2: write under the canonical name L2 reads (graph_3_2_15_) so
+                # index-time precomputation is actually used by L2 cache hits.
+                graph_cache_path = cache_dir / f"graph_3_2_15_{cache_key}.json"
                 # Item 4: cache format version — consumers warn on stale caches
                 graph_data["format_version"] = 3
                 graph_cache_path.write_text(json.dumps(graph_data, indent=2, ensure_ascii=False))
+                # M2: also precompute table_schemas (Bug 25 path) so L2 cache hits
+                # have schemas without re-running analysis.
+                from app.extractor.schema_inference import infer_table_schemas
+                schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
+                if not schemas_cache_path.exists():
+                    schemas_cache_path.write_text(json.dumps(
+                        infer_table_schemas(result.get("variables", []),
+                                            result.get("dependencies", [])),
+                        default=str))
                 precomputed += 1
             except Exception:
                 pass  # graph pre-computation is optional

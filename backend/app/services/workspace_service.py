@@ -1,5 +1,6 @@
 """Workspace service — zip extraction, directory management, multi-user isolation."""
 import json
+import re
 import shutil
 import zipfile
 import uuid
@@ -7,6 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 WORKSPACE_ROOT = Path("/tmp/workspaces")
+
+# H1: ws_id is uuid4().hex[:12] — reject anything else (path traversal guard)
+_WS_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 
 
 import time
@@ -92,6 +96,8 @@ def create_workspace(zip_bytes: bytes) -> str:
 
 def get_workspace(ws_id: str) -> dict | None:
     """Return workspace metadata, or None if not found."""
+    if not _WS_ID_RE.fullmatch(ws_id):
+        return None
     ws_dir = WORKSPACE_ROOT / ws_id
     meta_path = ws_dir / "meta.json"
     if not meta_path.exists():
@@ -105,6 +111,8 @@ def get_workspace(ws_id: str) -> dict | None:
 
 def delete_workspace(ws_id: str) -> bool:
     """Remove workspace directory recursively."""
+    if not _WS_ID_RE.fullmatch(ws_id):
+        return False
     ws_dir = WORKSPACE_ROOT / ws_id
     if not ws_dir.exists():
         return False
