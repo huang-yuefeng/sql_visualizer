@@ -333,7 +333,13 @@ Based on the consolidated classification of 659 orphans across all
 samples (unq_multi 57.5%, expr_alias 22.3%, plain_alias 14.9%,
 unq_single 4.7%, other 0.6%, sys_table 1.2%).
 
-### Resolution strategies (implemented in the extractor)
+### Resolution pipeline — two phases, all inside extraction
+
+All resolution happens in the extraction phase (per script + a
+post-index pass); no SQL is mended. Phase 1 needs no schema; phase 2
+uses the workspace schemas once all scripts are parsed.
+
+**Phase 1 — per-script extraction (`variable_extractor_v2.py`):**
 
 **S1 — plain_alias (14.9%): alias inherits the source column's table.**
 `sb.total_amount AS batch_total` → `batch_total` gets `total_amount`'s
@@ -354,21 +360,52 @@ with the D1 fix — count distinct PHYSICAL tables, not alias+canonical).
 Verified: nearest-scope is the correct measure (statement-level
 counting zeroes unq_single in TPC-DS — every statement nests subqueries).
 
+**Phase 2 — post-index schema pass (index time, after all scripts
+parsed + `infer_table_schemas`):**
+
 **S4 — unq_multi (57.5%): bare column, ≥2 physical tables → schema-based
-resolution.** `infer_table_schemas` per workspace; exact/word-boundary
-name match (R4 invariant — `id` must never match `customer_id`); unique
-owner → attribute; multiple/unknown → leave unattributed + report.
-The big lever for TPC-DS (join predicates `wr_web_page_sk = wp_web_page_sk`,
-filters `d_year=1999`).
+resolution.** exact/word-boundary name match (R4 invariant — `id` must
+never match `customer_id`); unique owner → attribute; multiple/unknown
+→ leave unattributed + report. The big lever for TPC-DS (join
+predicates `wr_web_page_sk = wp_web_page_sk`, filters `d_year=1999`).
+
+**Classification (both phases):**
 
 **S5 — sys_table (1.2%): INFORMATION_SCHEMA & system tables — exclude/
-mark as system, never a defect.**
+mark as system, never a defect (excluded from the unresolved count).**
 
 **S6 — other (0.6%): pseudocolumns (LEVEL), trigger vars (new/old) —
-dialect exclusion lists; stay reported as expected.**
+dialect exclusion lists; marked expected (excluded from the unresolved
+count).**
 
 **Two-hop aliases** (`(select d_year AS ss_sold_year)`, ~48/sample in
 tpcds): chain S1 → S3/S4 (alias → source column → table).
+
+### Coverage report (R20 — extraction feedback loop)
+
+After all scripts are parsed (index time), the diagnostic reports the
+resolution coverage so humans can confirm and discover bad cases:
+
+```
+┌─ ORPHAN RESOLUTION REPORT ────────────────────────────────────────┐
+│ column vars: 320 | resolved: 313 (97.8%) | unresolved: 7           │
+│   by strategy: plain_alias=98 expr_alias=147 scope=31 schema=37    │
+│ ────────────────────────────────────────────────────────────────── │
+│ UNRESOLVED orphans — possible bad cases, check SQL:                │
+│ field: LEVEL   script: oracle_decode_nvl.sql                       │
+│    L9: SELECT LEVEL AS org_level FROM dual CONNECT BY LEVEL <= 10  │
+│ ... (up to 10 fields, then '... N more')                           │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+- **Coverage %** = resolved / total column variables (resolved counted
+  per strategy via extractor counters S1–S4 aggregated at index time).
+- **Unresolved** = fields still with `tables == []` after S1–S6,
+  EXCLUDING S5/S6 marked-expected entries. Listed with their SQL
+  segments (the existing ORPHAN FIELD REPORT mechanism).
+- **Purpose**: a coverage drop after an extractor change = regression
+  signal; real usage surfaces bad cases for the extraction to learn
+  from (new SQL patterns → new strategies).
 
 ### Coverage (verified from the classification)
 

@@ -979,3 +979,35 @@ When both files are uploaded:
 - [ ] No files → filter cleared
 - [ ] R16 diagnostic shows ignored-table count
 - [ ] Existing tests still pass (334 + new)
+
+---
+
+## R20 — Orphan Resolution Coverage Report (extraction-phase resolution feedback)
+
+> **Priority:** P1 | **Date:** 2026-08-04 | **Status:** Design done (SOLUTION_DESIGN.md "Orphan Resolution")
+
+**Description:** All orphan fields (columns with no table attribution) are resolved automatically **in the extraction phase** — the solution must understand any SQL, never require the SQL to be mended. After all scripts are parsed, the diagnostic reports the resolution **coverage** (fixed vs total) and lists the **unresolved** orphans with their SQL segments, so humans can confirm and discover bad cases (extraction gaps, new SQL patterns) in real usage.
+
+### Requirement
+
+1. **Extraction-phase resolution** (per script): unqualified columns and alias columns are attributed to their tables by the extractor:
+   - S1 plain alias inheritance (`t.col AS x` → inherits `t.col`'s table)
+   - S2 expression-alias output attribution (CTE output / ⟐ output / INSERT target via Bug 41)
+   - S3 nearest-scope resolution (bare column, exactly 1 physical table in the nearest SELECT scope)
+   - S4 schema-based resolution (bare column, ≥2 tables — resolved at index time after `infer_table_schemas`, exact/word-boundary match, unique owner only)
+   - S5 system tables (INFORMATION_SCHEMA) excluded/marked — never a defect
+   - S6 pseudocolumns/trigger vars (LEVEL, new, old) marked expected — never counted as unresolved defects
+2. **Coverage data** (after all scripts parsed, at index time): the diagnostic reports
+   - total column variables, resolved count, coverage % (resolved / total)
+   - per-strategy resolution counts (S1–S4)
+3. **Unresolved orphans reported** with their SQL segments (field, script, lines mentioning the field) — the human-visible residual. Unresolved = fields still with no table after S1–S6, excluding S5/S6 marked-expected entries.
+4. The coverage data is a **regression meter**: a coverage drop after an extractor change signals a new bad case; usage of the system surfaces more bad cases for the extraction to learn from.
+
+### Acceptance criteria
+
+- [ ] Coverage % + per-strategy counts appear in the index-time diagnostic
+- [ ] Unresolved orphans listed with field + script + SQL lines (existing ORPHAN FIELD REPORT format)
+- [ ] S5/S6 entries excluded from the unresolved count (marked expected)
+- [ ] Coverage is computed AFTER all scripts are parsed (post-extraction/index)
+- [ ] Existing samples: coverage ≥ 90% after S1–S6 (per the verified strategy estimates)
+- [ ] Existing tests still pass (355+)
