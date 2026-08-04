@@ -71,6 +71,8 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     # extractor's per-script resolution counters, aggregated at index time.
     script_schemas = []   # list of {table -> set(fields)}
     total_columns = 0     # sum of per-script column-variable counts
+    extractor_unresolved = set()  # R20: fields the extractor could not resolve (S1-S3, S5/S6 excluded)
+    stats_seen = False    # any script carried resolution_stats (fallback gate)
     by_strategy = {"plain_alias": 0, "expr_alias": 0, "scope": 0,
                    "schema": 0, "sys": 0, "other": 0}
 
@@ -96,13 +98,21 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
             # ── R20: aggregate per-script resolution stats ──
             # The extractor emits `resolution_stats` in new analyses; old
             # caches / mid-flight versions may not — read defensively.
+            # Reviewer finding (R20): the index-level orphan set must follow
+            # the extractor's OWN `unresolved` lists (single source of truth)
+            # — they exclude S5/S6-marked and CTE/alias-resolved fields, which
+            # the tables==[] test alone cannot distinguish.
             rs = result.get("resolution_stats")
-            if isinstance(rs, dict):
+            stats_seen = isinstance(rs, dict)
+            if stats_seen:
                 total_columns += rs.get("total_columns", 0) or 0
                 rb = rs.get("resolved_by")
                 if isinstance(rb, dict):
                     for _k in by_strategy:
                         by_strategy[_k] += rb.get(_k, 0) or 0
+                for _f in rs.get("unresolved", []) or []:
+                    if isinstance(_f, str):
+                        extractor_unresolved.add(_f)
 
             # ── S4 input (Phase 2): per-script inferred schemas ──
             # schema_inference expects attribute-style objects; the analysis
@@ -154,9 +164,12 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
             # Bug 49: map SQL aliases → physical tables ("c" → "crm_customers")
             # so column variables register against the real table, not just the alias
             alias_to_physical = {}
+            cte_names = set()  # R20 reviewer fix: CTEs are script-scoped —
             for v in variables:
                 if v.get("variable_type") in ("table", "view", "cte") and v.get("source_tables"):
                     alias_to_physical[v.get("name", "")] = v.get("source_tables", [None])[0]
+                if v.get("variable_type") == "cte":
+                    cte_names.add(v.get("name", ""))
             for v in variables:
                 vt = v.get("variable_type", "")
                 name = v.get("name", "")
@@ -170,10 +183,12 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                     table_name = name.split(".", 1)[0] if "." in name else ""
                     # R20: unqualified columns resolved by the extractor (S1-S3)
                     # carry source_tables — surface them in the index too.
-                    # Skip ⟐-prefixed entries (output containers are script-scoped).
+                    # Skip ⟐-prefixed entries (output containers + S5/S6 markers
+                    # are script-scoped) and CTE names (script-scoped; must not
+                    # become workspace-wide tables or S4 candidates).
                     if not table_name:
                         for _st in v.get("source_tables", []):
-                            if _st and not _st.startswith("⟐"):
+                            if _st and not _st.startswith("⟐") and _st not in cte_names:
                                 table_name = _st
                                 break
                     field_index.setdefault(field_name, {"tables": set(), "scripts": set()})
@@ -289,9 +304,22 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     # RESIDUAL layer of the resolution pipeline (S1–S4): only fields the
     # extractor genuinely cannot attribute are listed, with SQL evidence,
     # alongside the coverage numbers (resolved / total column variables).
-    orphan_fields = {fname: sorted(fdata.get("scripts", []))
-                     for fname, fdata in field_index.items()
-                     if not fdata.get("tables")}
+    # Reviewer fix: the orphan set follows the extractor's own `unresolved`
+    # lists (excludes S5/S6-marked and CTE/alias-resolved fields). When the
+    # analysis caches lack resolution_stats (old data), fall back to the
+    # tables==[] test.
+    if stats_seen:
+        # Extractor-driven: its `unresolved` already excludes S5/S6-marked,
+        # CTE/alias-resolved fields. Post-S4 attribution removes more.
+        orphan_fields = {fname: sorted(fdata.get("scripts", []))
+                         for fname, fdata in field_index.items()
+                         if fname in extractor_unresolved
+                         and not fdata.get("tables")}
+    else:
+        # Old caches without resolution_stats: tables==[] fallback.
+        orphan_fields = {fname: sorted(fdata.get("scripts", []))
+                         for fname, fdata in field_index.items()
+                         if not fdata.get("tables")}
     (cache_dir / "orphan_fields.json").write_text(json.dumps(orphan_fields, indent=2))
 
     total = total_columns

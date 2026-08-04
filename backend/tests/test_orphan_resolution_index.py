@@ -199,3 +199,36 @@ def test_tc5_old_analysis_without_resolution_stats(monkeypatch, tc3_ws):
     # unresolved still computed from field_index (2 ambiguous orphans)
     assert stats["unresolved"] == 2, stats
     assert result["orphan_field_count"] == 2, result
+
+
+class TestReviewerFixes:
+    """R20 reviewer findings: S5/S6 excluded from index-level unresolved;
+    CTE names must not leak into table_index or S4 candidates."""
+
+    def test_s5_sys_table_not_counted_unresolved(self):
+        """INFORMATION_SCHEMA columns are marked expected — not orphans."""
+        ws = _make_ws({"sys.sql":
+                       "SELECT TABLE_NAME, TABLE_SCHEMA FROM INFORMATION_SCHEMA.TABLES;"})
+        r = index_scripts(ws, ["sys.sql"])
+        assert r["orphan_field_count"] == 0, r
+        assert r["resolution_stats"]["unresolved"] == 0, r["resolution_stats"]
+        assert r["resolution_stats"]["by_strategy"]["sys"] >= 1
+
+    def test_s6_pseudocolumn_not_counted_unresolved(self):
+        """LEVEL is a pseudocolumn — marked expected, not an orphan."""
+        ws = _make_ws({"pseudo.sql":
+                       "SELECT LEVEL FROM dual CONNECT BY LEVEL <= 10;"})
+        r = index_scripts(ws, ["pseudo.sql"])
+        assert r["orphan_field_count"] == 0, r
+        assert r["resolution_stats"]["unresolved"] == 0, r["resolution_stats"]
+        assert r["resolution_stats"]["by_strategy"]["other"] >= 1
+
+    def test_cte_name_not_in_table_index(self):
+        """CTE names are script-scoped — must not become workspace tables."""
+        ws = _make_ws({"cte.sql":
+                       "WITH c AS (SELECT SUM(a) AS s FROM t) SELECT s FROM c;"})
+        r = index_scripts(ws, ["cte.sql"])
+        ti = json.loads((get_workspace_dir(ws) / "cache" / "table_index.json").read_text())
+        assert "c" not in ti, "CTE name leaked into table_index"
+        # the CTE-resolved field is not an orphan (extractor resolved it)
+        assert r["orphan_field_count"] == 0, r
