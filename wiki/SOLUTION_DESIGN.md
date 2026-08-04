@@ -48,26 +48,53 @@ Output: graph {nodes, edges, input_tables, output_tables}
 
 1c′. Resolve unqualified column references (Bug 53)
     Problem: "SELECT customer_id FROM crm_customers" records the column
-    with NO table — the indexer derives the table from the name prefix,
-    so the table ends up with 0 fields despite real columns in the SQL.
+    with NO table — every consumer derives the table from the name
+    prefix, so the table ends up with 0 fields despite real columns in
+    the SQL. Verified: unqualified columns occur in ALL common SQL
+    patterns (single-table SELECT, INSERT...SELECT, UPDATE SET,
+    DELETE WHERE, aggregates, CASE, subqueries, CTE bodies).
 
-    Mechanism — visible-table scope stack during the walk:
-      - walker keeps self._scope_stack: list[set[str]]
-      - entering a FROM/JOIN-bearing statement (SELECT, INSERT...SELECT,
-        UPDATE, DELETE, MERGE, CREATE...AS): push visible tables
-        (canonical name + alias, e.g. {"crm_customers", "c"})
-      - exit: pop (try/finally — subqueries/CTEs nest naturally)
+    Mechanism — per-statement visible-table scope (threaded, not a
+    global stack):
+      - _walk_select computes its FROM/JOIN visible tables
+        (canonical name + alias, e.g. {"crm_customers", "c"}) and
+        passes them down to column registration
+      - nested subqueries / CTE bodies call _walk_select recursively
+        with their OWN scope (inner FROM wins — no outer leakage)
+      - UPDATE/DELETE/MERGE: the target table is the scope for
+        SET/WHERE columns
       - unqualified column (col.table == ""):
           exactly 1 visible table → source_tables = [canonical_name]
           ≥2 visible tables      → unattributed (ambiguous without
                                    schema — safe, no over-attribution)
 
-    Only exp.Table sources count (subquery/CTE scope entries skipped).
-    Qualified columns unchanged (prefix-based index attribution).
-    INSERT...SELECT: SELECT columns get the SELECT's FROM table; the
-    Bug 41 DML cross-reference then maps them to the INSERT target.
+    Verified scope coverage (extractor tests):
+      - INSERT...SELECT / CREATE...AS SELECT columns resolve to the
+        SELECT's FROM table; the Bug 41 DML cross-reference then maps
+        them to the INSERT/CTAS target (targets get fields via DML)
+      - INSERT column lists (INSERT INTO t (a,b)) are NOT registered
+        as variables — nothing to fix there
+      - subquery inner + CTE body columns resolve to their inner FROM
 
     → columns like customer_id now carry source_tables=["crm_customers"]
+
+1c″. Consumer cascade — fall back to source_tables when prefix is empty
+    The extractor fix only helps if consumers USE source_tables.
+    All three currently derive the table from the name prefix only:
+
+      | Consumer | Change |
+      |----------|--------|
+      | folder_index_service.py (indexer) | unqualified column → table = source_tables[0] instead of skip (Bug 49 alias resolution stays for qualified) |
+      | graph_service.py build_graph_data | unqualified column → table_name = source_tables[0] (fixes L1/L2 node attachment too) |
+      | lineage.py | no change needed — reads table_name/field_name from graph nodes, benefits automatically |
+
+    DML targets (INSERT/UPDATE/CTAS) need no change: their fields come
+    from the Bug 41 DML cross-reference, which reads the SELECT side.
+
+    Future work (documented limitation): multi-table statements with
+    unambiguous unqualified columns (JOIN where the column exists in
+    exactly one table) remain unattributed. A post-index second pass
+    using infer_table_schemas could resolve them — out of scope here.
 
 1d. Classify input/output tables per script (canonical names only)
     For each table variable:
