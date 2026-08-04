@@ -2137,3 +2137,24 @@ Key facts:
 | R6 | ℹ️ Info | tpcds orphan `Call_Center` is a TABLE NAME listed as an orphan field (from `cc_call_center_id Call_Center`). | ✅ **Taken (taxonomy guard class)** | Orphan-type taxonomy gains a **field-name == table-name collision** class — the resolver must never mis-attribute these; count them separately from plain unqualified. |
 
 **Folded into the orphan solution design:** R4 (word-boundary invariant) + R6 (collision class) — see the orphan type analysis (tpcds/financial agents, in progress) and the upcoming solution design.
+
+---
+
+## Orphan Type Classification — subagent results (2026-08-04, batch 2)
+
+> Source: orphan-type analysis agents (sqlglot scope-based classifier). Batch 1 = financial/spider_complex/dialect_test/mock_sql_test/multi_test (73 occurrences). Batch 2 (tpcds 283+303) pending.
+
+**Per-class tallies (73 occurrences, 5 samples):**
+
+| Class | Count | % | Meaning |
+|-------|------:|---:|---------|
+| plain_alias | 27 | 37.0% | `t.col AS x` — alias of a plain qualified column |
+| expr_alias | 23 | 31.5% | `SUM(x) AS total` / `CAST(...) AS y` — expression output |
+| unq_multi | 18 | 24.7% | bare column, statement ≥2 table sources |
+| other | 4 | 5.5% | pseudocolumns (LEVEL), trigger vars (new/old) |
+| unq_single | 1 | 1.4% | bare column, exactly 1 table source |
+| sys_table | 0 | — | (dwh_analytics earlier scan: 8 info_schema orphans) |
+
+**Strategy coverage:** (c) CTE/query-output attribution 68.5% — dominant; (b) schema-based 24.7% (13.7% genuinely schema-required); (a) scope resolution 1.4% whole-statement, **~12% with nearest-scope rule** (8 of 18 unq_multi have a local scope with exactly 1 FROM — e.g. `SELECT DISTINCT blocked_merchant_id FROM gps_risk_scores`); (e) unresolvable 5.5%.
+
+**Design refinement from data:** resolve unqualified columns against the NEAREST enclosing SELECT's FROM (not the whole statement) — lifts scope resolution 1.4% → ~12% with no schema needed. The extractor already stores `sql_expression`/`source_columns` on alias vars — plain_alias resolution mostly consumes existing fields + alias map.
