@@ -1999,3 +1999,39 @@ The indexer (`folder_index_service.py`) derives the table from the name prefix (
 **Suggested fix (extractor):** resolve unqualified column identifiers to their FROM table during extraction (sqlglot scope analysis: `sqlglot.optimizer.scope` can resolve `customer_id` → `crm_customers.customer_id`). Then `source_tables` is populated and the indexer attributes fields correctly. Alternative lighter fix: in the indexer, when a column variable has no prefix but the script has a single FROM table, attribute to it (heuristic — less robust).
 
 **Note:** the R19 filter diagnostic now logs SQL evidence for every common table with result-fields 0 (actual SQL lines + extractor columns), so users can manually verify whether a fieldless table is real before trusting the filter result.
+
+---
+
+## Follow-up Review Findings — F1–F6 (from wiki/CODE_REVIEW_2026-08-04.md §7.3, verified)
+
+> Review dated 2026-08-04 evening. Human triage: F1 + F2 are real defects; F3–F6 are improvements.
+
+### F1 (HIGH) — Search HTTP 400 after empty-intersection filter
+
+After a TC9-style filter (both files, no common tables), `filtered_index.json` = `{"table_index": {}, "field_index": {}}`. `_load_index` (`dataflow.py:26-30`) returns `({}, {})` → `search_dataflow` raises `400 "Indexes not found. Run index first."` even though indexing succeeded. **Fix:** persist a `"filtered": true` marker; `_load_index`/search treats filtered+empty as "filter active, 0 results" + R17 diagnostic instead of 400.
+
+### F2 (MEDIUM) — Falsy empty `allowed_tables` means "no constraint"
+
+Guards use `if allowed_tables and tname not in allowed_tables: continue` — an empty set (file-1-only upload with zero table rows) skips the constraint → all tables kept. Inconsistent with the R19 empty-intersection override (0/0 = match nothing). **Fix:** `is not None` guard style (same as Bug 36) + a test locking the semantics.
+
+### F3 (LOW/MED) — COL_NAME-only rows silently dropped
+
+`if tn:` wraps `if cn:` → rows with a column but empty TABLE_NAME are discarded silently. At minimum log a warning count.
+
+### F4 (LOW) — ignored_count not in the API payload
+
+The filter response lacks `ignored_tables`/`ignored_count`/`warning` — the frontend banner can't explain vanished tables. Add to payload.
+
+### F5 (LOW) — Case mismatch → silent 0/0, similar-table hint disabled
+
+`STG_CUSTOMERS` vs `stg_customers` → intersection empty → the Bug-52 similar-hint loop (over A∩B) never runs. Suggest case-insensitive near-match scan over A/B names.
+
+### F6 (MEDIUM, maintainability) — `upload_filter_config` ~240 lines
+
+Extract a `filter_service.py` (parse → scopes → intersect → filter) per the project's l1/l2 builder split; keeps the router thin and makes F1–F5 testable without HTTP fixtures.
+
+### Review verification notes (Bug 53 section)
+
+- §8.3 "sqlglot.optimizer.scope resolves customer_id → table" — **verified WRONG**: `scope.columns` leaves `table=''`; the working API is `qualify.qualify(..., validate_qualify_columns=False)`, and it covers only single-source SELECT contexts (NOT UPDATE/DELETE/multi-table joins). Design doc 1c′ records the full evaluation.
+- §9 category 2 (alias coverage, tpcds dim tables) — worth a targeted check: do the tpcds dimension tables get 0 fields because of unqualified column-name-prefix access (category 1) or a real alias_map coverage gap? Check before implementing Bug 53.
+- §9 advice "classify fieldless tables into 4 categories; only category 1 is a hard defect" — adopted (SQL-evidence diagnostic already surfaces 3+4).
