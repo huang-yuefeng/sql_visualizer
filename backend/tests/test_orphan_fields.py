@@ -4,11 +4,12 @@ TC-A–TC-D per spec. Fixture pattern from test_l1_l2_integration.py
 (zip upload + index_scripts on the real workspace path).
 
 Note (R20): unqualified columns whose table is UNIQUELY inferable are now
-auto-attributed by the S4 schema pass (index-time resolution) — the old
-TC-A fixture (`INSERT INTO stg_customers (customer_id, full_name) SELECT
-customer_id, full_name FROM crm_customers`) now resolves to stg_customers.
-The orphan cases that remain are AMBIGUOUS ones, where ≥2 tables claim the
-field — that is what this fixture models.
+auto-attributed by the extractor (S3 nearest-scope, single physical table)
+or the S4 schema pass (index-time resolution, unique schema owner). A field
+stays an orphan only when it is genuinely AMBIGUOUS: ≥2 physical tables in
+the nearest scope (S3 skips) AND ≥2 tables claiming it in the inferred
+schemas (S4 skips). The TC-A fixture below models exactly that — the bare
+`id`/`name` in the JOIN SELECT cannot be attributed to either `a` or `b`.
 """
 
 import io
@@ -30,10 +31,14 @@ from app.services.workspace_service import (
 from app.services.folder_index_service import index_scripts
 
 # TC-A: unqualified columns (no table qualifier) whose schema owner is
-# ambiguous (t1 AND t2 both infer id/name) → no table attribution.
+# ambiguous (a AND b both infer id/name) → no table attribution.
+# The INSERT column lists seed a's and b's inferred schemas with id/name;
+# the third statement's bare `id`/`name` join over BOTH tables, so S3 (≥2
+# physical tables in scope) and S4 (≥2 schema owners) both decline.
 TC_A_SQL = (
-    "INSERT INTO t1 (id, name) SELECT id, name FROM a;\n"
-    "INSERT INTO t2 (id, name) SELECT id, name FROM b;\n"
+    "INSERT INTO a (id, name) SELECT p, q FROM src1;\n"
+    "INSERT INTO b (id, name) SELECT r, s FROM src2;\n"
+    "SELECT id, name FROM a JOIN b ON a.x = b.y;\n"
 )
 # TC-B: qualified columns → attribution via alias map (c → crm_customers).
 TC_B_SQL = "SELECT c.customer_id FROM crm_customers c;\n"
@@ -103,5 +108,5 @@ def test_tc_d_diagnostic_contains_field_and_sql(monkeypatch, tc_a_ws):
     joined = "\n".join(m for s, m in messages if s == "profile")
     assert "ORPHAN RESOLUTION REPORT" in joined, "report block must be pushed via _push"
     assert "field: id" in joined, joined
-    assert "INSERT INTO t1 (id" in joined, \
+    assert "INSERT INTO a (id" in joined, \
         "a SQL line mentioning the field must be shown in the report"

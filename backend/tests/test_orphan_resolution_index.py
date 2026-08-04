@@ -33,11 +33,13 @@ from app.services.folder_index_service import index_scripts
 TC1_SQL = (
     "INSERT INTO t1 (id) SELECT id FROM a JOIN b ON a.x = b.y;\n"
 )
-# TC3/TC5: ambiguous owners (t1 AND t2 both infer id/name) → S4 must NOT
-# guess; both fields stay orphans and land in the UNRESOLVED section.
+# TC3/TC5: genuinely ambiguous owners (a AND b both infer id/name) → S3
+# (≥2 physical tables in the JOIN scope) and S4 (≥2 schema owners) must
+# NOT guess; both fields stay orphans and land in the UNRESOLVED section.
 TC3_SQL = (
-    "INSERT INTO t1 (id, name) SELECT id, name FROM a;\n"
-    "INSERT INTO t2 (id, name) SELECT id, name FROM b;\n"
+    "INSERT INTO a (id, name) SELECT p, q FROM src1;\n"
+    "INSERT INTO b (id, name) SELECT r, s FROM src2;\n"
+    "SELECT id, name FROM a JOIN b ON a.x = b.y;\n"
 )
 # TC2: qualified-only multi-script workflow (mirrors samples/multi_workflow).
 MWF_SCRIPTS = {
@@ -145,7 +147,7 @@ def test_tc3_report_block_pushed(monkeypatch, tc3_ws):
     assert "unresolved: 2" in joined, joined
     assert "UNRESOLVED orphans — possible bad cases, check SQL:" in joined, joined
     assert "field: id   script: t.sql" in joined, joined
-    assert "L1: INSERT INTO t1 (id" in joined, \
+    assert "L1: INSERT INTO a (id" in joined, \
         "a SQL line mentioning the field must be shown in the UNRESOLVED section"
 
 
