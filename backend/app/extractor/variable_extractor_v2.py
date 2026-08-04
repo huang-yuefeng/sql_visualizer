@@ -35,6 +35,7 @@ from app.models.variable import VariableDefinition, VariableType
 # (INFORMATION_SCHEMA / mysql / pg_catalog / sys). No real table node
 # carries this name — it is a marker for the stats report only.
 SYSTEM_TABLE_SENTINEL = "⟐system"
+OTHER_SENTINEL = "⟐pseudo"  # E4: S6-marked vars (pseudocolumns/trigger idioms)
 
 # S5: schema names that make a resolved table a "system table".
 _SYSTEM_SCHEMAS = {"information_schema", "mysql", "pg_catalog", "sys"}
@@ -491,9 +492,7 @@ class _RoleBasedExtractor:
             if v.variable_type != VariableType.COLUMN:
                 continue
             if "." in v.name or v.source_tables:
-                continue  # prefix-attributed or resolved by S1/S2/S3/S5
-            if v.name.lower() in _PSEUDOCOLUMN_NAMES:
-                continue  # S6 — marked expected
+                continue  # prefix-attributed or resolved by S1/S2/S3/S5/S6
             if v.name in seen:
                 continue
             seen.add(v.name)
@@ -830,9 +829,22 @@ class _RoleBasedExtractor:
             return
         if col_name.lower() in _PSEUDOCOLUMN_NAMES:
             # S6 — known pseudocolumn / trigger var (LEVEL, ROWNUM, new, old):
-            # marked expected, excluded from unresolved, never attributed.
-            self._resolution_stats["resolved_by"]["other"] += 1
-            return
+            # marked expected (OTHER_SENTINEL), excluded from unresolved,
+            # never attributed.
+            # E4 (reviewer): new/old are only trigger idioms inside
+            # row_to_json/trigger bodies — a REAL column named "new"/"old"
+            # elsewhere must NOT be misclassified; fall through to S3 then.
+            _parent = col.parent
+            trigger_idiom = (col_name.lower() in ("new", "old")
+                             and _parent is not None
+                             and ((isinstance(_parent, exp.Func)
+                                   and _parent.sql_name().lower() == "row_to_json")
+                                  or (isinstance(_parent, exp.Anonymous)
+                                      and _parent.name.lower() == "row_to_json")))
+            if col_name.lower() in ("level", "rownum") or trigger_idiom:
+                var.source_tables = [OTHER_SENTINEL]
+                self._resolution_stats["resolved_by"]["other"] += 1
+                return
         if scope is None or not self._in_scope_owner(col, scope):
             return  # no scope, or the subquery-copy artifact (outer context)
         # S2 — unqualified reference to a CTE output column

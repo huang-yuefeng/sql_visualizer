@@ -171,7 +171,8 @@ def test_tc4_response_has_resolution_stats(tc3_ws):
     result = index_scripts(tc3_ws, ["t.sql"])
     stats = result["resolution_stats"]
     assert set(stats) == {"total_columns", "resolved", "unresolved",
-                          "coverage_pct", "by_strategy"}, stats
+                          "container_resolved", "coverage_pct",
+                          "by_strategy"}, stats
     assert set(stats["by_strategy"]) == {"plain_alias", "expr_alias", "scope",
                                          "schema", "sys", "other"}, stats
     assert stats["unresolved"] == result["orphan_field_count"] == 2, stats
