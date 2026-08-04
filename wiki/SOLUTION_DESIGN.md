@@ -76,6 +76,19 @@ Output: graph {nodes, edges, input_tables, output_tables}
         as variables — nothing to fix there
       - subquery inner + CTE body columns resolve to their inner FROM
 
+    Evaluated alternative — sqlglot qualify (review suggestion, verified):
+      - sqlglot.optimizer.scope.columns does NOT resolve unqualified
+        columns to base tables (table stays '') — wrong API for this
+      - sqlglot.optimizer.qualify.qualify(stmt, schema=None,
+        validate_qualify_columns=False) resolves single-source SELECT
+        contexts (SELECT/INSERT...SELECT/CTE body) — battle-tested
+      - BUT it does NOT resolve UPDATE/DELETE SET/WHERE columns and
+        multi-table joins (stays '?'), and raises OptimizeError unless
+        validate_qualify_columns=False
+      - Verdict: per-statement visible-table scope (above) covers a
+        superset (SELECT contexts + UPDATE/DELETE targets) with no
+        sqlglot-version dependence — chosen over qualify.
+
     → columns like customer_id now carry source_tables=["crm_customers"]
 
 1c″. Consumer cascade — fall back to source_tables when prefix is empty
