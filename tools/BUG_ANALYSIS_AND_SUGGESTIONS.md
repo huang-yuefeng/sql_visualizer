@@ -1931,3 +1931,44 @@ Fixture: workspace from `samples/multi_workflow.zip` + index (reuse pattern from
 
 **In-progress batch (this session):** H1, H2, H3, M1, M2, M3 (R19 + test_filter_config.py), M5, L4, L5 — per Codex action order.
 **Deferred:** M4, L1, L2, L3, L6, L7 + CLAUDE.md/ONBOARDING.md refresh.
+
+---
+
+## Bug 52: Filter Diagnostic Reports 96 Scripts From 48 Rows (P3, diagnostic)
+
+> **Found:** 2026-08-04 (user report + screenshot parse_filer_error.png) | **Priority:** P3 | **Status:** Open
+
+**Symptom:** `script_table.csv` has 48 rows, but the R16 diagnostic says `Parsed: 96 scripts, 8 tables`. One row = one script → count is 2× inflated.
+
+**Root cause (verified in `workspace.py:163-169`):** each row expands into matching variants:
+```python
+allowed_scripts.add(sn)                    # bare name
+allowed_scripts.add(os.path.basename(sn))  # basename (dedup when no path)
+allowed_scripts.add(sn + '.sql')           # + .sql variant (if no .sql)
+allowed_scripts.add(os.path.basename(sn) + '.sql')
+```
+For names without `.sql` and without path → 2 unique variants per row → 48×2=96. The diagnostic reports `len(allowed_scripts)` (variant set size) as "scripts". Variants are required for Bug 15 matching (index stores path+`.sql`); only the **count/reporting** is wrong.
+
+**Observed diagnostic (OCR from screenshot):**
+```
+File 1 (script_table): script-table.csv rows=48
+  Parsed: 96 scripts, 8 tables            ← inflated
+File 2 (table_col): table-column.csv rows=3136
+  Parsed: 2385 columns, 81 tables         ← correct (no variants)
+R19: ignored 73 tables from table_col.csv (81−8=73) ✅
+Result: 2 tables, 74 fields               ← ⚠️ only 2 of 8 common tables survived script matching — needs user-data verification
+```
+
+**Suggested fix:** track distinct scripts separately during file-1 parsing:
+```python
+distinct_scripts = set()   # raw SCRIPT_NAME values, dedup
+...
+if sn:
+    distinct_scripts.add(sn)
+    allowed_scripts.add(sn)
+    ...
+# Diagnostic:
+f"│   Parsed: {len(distinct_scripts)} scripts ({len(allowed_scripts)} matching variants), {len(allowed_tables)} tables"
+```
+
+**Files:** `backend/app/routers/workspace.py:163-172` (parse), `:172` (diagnostic line)

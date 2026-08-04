@@ -156,10 +156,12 @@ async def upload_filter_config(ws_id: str,
         headers1 = reader.fieldnames or []
         rows = list(reader)
         row_count = len(rows)
+        distinct_scripts = set()  # Bug 52: raw SCRIPT_NAME values (one per row)
         for row in rows:
             sn = row.get("SCRIPT_NAME", "").strip()
             tn = row.get("TABLE_NAME", "").strip()
             if sn:
+                distinct_scripts.add(sn)
                 allowed_scripts.add(sn)
                 allowed_scripts.add(os.path.basename(sn))
                 if not sn.lower().endswith('.sql'):
@@ -170,7 +172,8 @@ async def upload_filter_config(ws_id: str,
         diag_lines.append(("profile", f"│ File 1 (script_table): {script_table.filename}  rows={row_count}  headers={','.join(headers1)}".ljust(79)+"│"))
         for i, row in enumerate(rows[:2]):
             diag_lines.append(("profile", f"│   Sample {i+1}: {row.get('SCRIPT_NAME','?')}→{row.get('TABLE_NAME','?')}".ljust(79)+"│"))
-        diag_lines.append(("profile", f"│   Parsed: {len(allowed_scripts)} scripts, {len(allowed_tables)} tables".ljust(79)+"│"))
+        # Bug 52: report distinct scripts; variants (path/.sql) shown separately
+        diag_lines.append(("profile", f"│   Parsed: {len(distinct_scripts)} scripts ({len(allowed_scripts)} matching variants), {len(allowed_tables)} tables".ljust(79)+"│"))
         if row_count == 0:
             diag_lines.append(("profile", f"│ ⚠ No data parsed. Check headers: SCRIPT_NAME, TABLE_NAME".ljust(79)+"│"))
         script_table_tables = set(allowed_tables) if allowed_tables else set()
