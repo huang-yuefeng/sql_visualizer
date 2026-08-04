@@ -1972,3 +1972,30 @@ f"│   Parsed: {len(distinct_scripts)} scripts ({len(allowed_scripts)} matching
 ```
 
 **Files:** `backend/app/routers/workspace.py:163-172` (parse), `:172` (diagnostic line)
+
+---
+
+## Bug 53: Unqualified Column References Get No Table Attribution (P2, extractor)
+
+> **Found:** 2026-08-04 (user investigation) | **Priority:** P2 | **Status:** Open — verified
+
+**Symptom:** A table whose columns are referenced WITHOUT an alias/qualifier can end up with zero fields in the index — even though the SQL clearly uses its columns.
+
+**Verified (extractor test):**
+```sql
+INSERT INTO stg_customers (customer_id, full_name)
+SELECT customer_id, full_name FROM crm_customers;
+```
+```python
+col: name='customer_id'  source_tables=[]     ← NOT attributed to crm_customers
+col: name='full_name'    source_tables=[]
+```
+The indexer (`folder_index_service.py`) derives the table from the name prefix (`name.split(".",1)[0]`) — for unqualified columns the prefix is empty → the source table gets no field. This is the same "information computed but not carried" family (Weakness 2), now at the extractor→index boundary.
+
+**Answer to "is a table without fields ever right?"** — yes in two cases:
+1. Table mentioned only in comments / not used by any uploaded script (SQL-evidence diagnostic shows "table name NOT found in SQL text")
+2. Table referenced with all columns unqualified (`SELECT customer_id FROM t`) — currently LOST (this bug)
+
+**Suggested fix (extractor):** resolve unqualified column identifiers to their FROM table during extraction (sqlglot scope analysis: `sqlglot.optimizer.scope` can resolve `customer_id` → `crm_customers.customer_id`). Then `source_tables` is populated and the indexer attributes fields correctly. Alternative lighter fix: in the indexer, when a column variable has no prefix but the script has a single FROM table, attribute to it (heuristic — less robust).
+
+**Note:** the R19 filter diagnostic now logs SQL evidence for every common table with result-fields 0 (actual SQL lines + extractor columns), so users can manually verify whether a fieldless table is real before trusting the filter result.
