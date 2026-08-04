@@ -132,6 +132,7 @@ async def upload_filter_config(ws_id: str,
     allowed_columns = None
     script_table_tables = None  # file 1 table scope (A), for R19 intersection
     distinct_scripts = set()    # Bug 52: raw SCRIPT_NAME values from file 1 rows
+    script_table_rows = []      # file 1 rows (for SQL-evidence lookup of table→scripts)
     table_col_tables = set()    # file 2 table scope (B), for R19 intersection
     table_columns = {}          # file 2: table -> set(columns) (Bug 51/R19)
     ignored_count = 0           # B − A: table_col tables outside script scope
@@ -157,6 +158,7 @@ async def upload_filter_config(ws_id: str,
         headers1 = reader.fieldnames or []
         rows = list(reader)
         row_count = len(rows)
+        script_table_rows = rows  # keep for SQL-evidence diagnostics
         for row in rows:
             sn = row.get("SCRIPT_NAME", "").strip()
             tn = row.get("TABLE_NAME", "").strip()
@@ -296,7 +298,48 @@ async def upload_filter_config(ws_id: str,
         common_tables = sorted(allowed_tables & script_table_tables)
         diag_lines.append(("profile", ("│ Common tables (A∩B): %d — per-table match:  [index total: %d tables]"
                                        % (len(common_tables), len(ti))).ljust(79)+"│"))
+
+        # SQL-evidence machinery: script file lookup + analysis cache (extractor
+        # column vars), used to log tables whose RESULT has no fields so the
+        # user can manually verify the SQL (parse bug vs genuinely absent).
+        ws_dir = get_workspace_dir(ws_id)
+        scripts_dir = ws_dir / "scripts"
+        cache_dir = ws_dir / "cache"
+        analysis_by_script = {}  # script_name (+ basename) -> analysis dict
+        try:
+            if cache_dir.exists():
+                for af in sorted(cache_dir.glob("analysis_*.json")):
+                    try:
+                        ad = json.loads(af.read_text())
+                        sn = ad.get("script_name", "")
+                        if sn:
+                            analysis_by_script.setdefault(sn, ad)
+                            analysis_by_script.setdefault(os.path.basename(sn), ad)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        def _resolve_script(name: str):
+            """Locate a script file by CSV/index name (path, basename, ±.sql)."""
+            if not name:
+                return None
+            cands = [name]
+            if not name.lower().endswith(".sql"):
+                cands.append(name + ".sql")
+            for c in list(cands):
+                cands.append(os.path.basename(c))
+            for c in cands:
+                p = scripts_dir / c
+                if p.exists():
+                    return p
+            for p in scripts_dir.rglob("*.sql"):
+                if p.name in cands or str(p.relative_to(scripts_dir)) in cands:
+                    return p
+            return None
+
         shown_drop_detail = 0
+        shown_sql = 0
         for tname in common_tables[:15]:
             idx_scripts = ti.get(tname, {}).get("scripts", [])
             idx_fields = ti.get(tname, {}).get("fields", [])
@@ -340,6 +383,57 @@ async def upload_filter_config(ws_id: str,
                     diag_lines.append(("profile", ("│     index fields: %s" % idx_fields[:4]).ljust(79)+"│"))
                     diag_lines.append(("profile", ("│     csv columns in scope: %s"
                                                    % sorted(allowed_columns)[:4] if allowed_columns else "[]").ljust(79)+"│"))
+            # SQL evidence: log every common table whose RESULT has no fields
+            # (nfields == 0 — covers both 0/0 and 0/N), with the actual SQL
+            # lines and extractor columns, so the user can verify manually.
+            if nfields == 0 and shown_sql < 4:
+                shown_sql += 1
+                cand_scripts = set(idx_scripts)
+                for row in script_table_rows:
+                    if row.get("TABLE_NAME", "").strip() == tname:
+                        sn = row.get("SCRIPT_NAME", "").strip()
+                        if sn:
+                            cand_scripts.add(sn)
+                if not cand_scripts:
+                    diag_lines.append(("profile", ("│   [%s] no script declares this table" % tname[:30]).ljust(79)+"│"))
+                    continue
+                diag_lines.append(("profile", ("│   [%s] SQL evidence — scripts: %s"
+                                               % (tname[:30], sorted(cand_scripts)[:3])).ljust(79)+"│"))
+                for cname in sorted(cand_scripts)[:2]:
+                    sp = _resolve_script(cname)
+                    if not sp:
+                        diag_lines.append(("profile", ("│     script %r — FILE NOT FOUND in workspace" % cname).ljust(79)+"│"))
+                        continue
+                    try:
+                        sql_txt = sp.read_text(encoding="utf-8", errors="replace")
+                    except Exception:
+                        sql_txt = ""
+                    hit_lines = [ln for ln in sql_txt.split("\n") if tname.lower() in ln.lower()]
+                    if not hit_lines:
+                        diag_lines.append(("profile", ("│     script %s — table name NOT found in SQL text" % cname).ljust(79)+"│"))
+                        continue
+                    diag_lines.append(("profile", ("│     script %s — %d line(s) mention it:"
+                                                   % (cname, len(hit_lines))).ljust(79)+"│"))
+                    for ln in hit_lines[:3]:
+                        diag_lines.append(("profile", ("│       %s" % ln.strip()[:74]).ljust(79)+"│"))
+                    ad = analysis_by_script.get(cname) or analysis_by_script.get(os.path.basename(cname))
+                    if ad:
+                        cols = [v.get("name", "") for v in ad.get("variables", [])
+                                if v.get("variable_type") == "column"]
+                        rel = []
+                        for v in ad.get("variables", []):
+                            if v.get("variable_type") != "column":
+                                continue
+                            nm = v.get("name", "")
+                            src = [s.lower() for s in v.get("source_tables", [])]
+                            if tname.lower() in nm.lower() or tname.lower() in src:
+                                rel.append(nm)
+                        diag_lines.append(("profile", ("│     extractor columns: %d total, %d related to %s"
+                                                       % (len(cols), len(rel), tname[:24])).ljust(79)+"│"))
+                        if rel:
+                            diag_lines.append(("profile", ("│       related: %s" % rel[:6]).ljust(79)+"│"))
+                    else:
+                        diag_lines.append(("profile", ("│     analysis cache for %s — NOT FOUND" % cname).ljust(79)+"│"))
         if len(common_tables) > 15:
             diag_lines.append(("profile", ("│   ... %d more common tables" % (len(common_tables)-15)).ljust(79)+"│"))
         if distinct_scripts:
