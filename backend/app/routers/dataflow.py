@@ -77,10 +77,10 @@ async def search_dataflow(ws_id: str, body: dict):
 
     ti, fi, filtered_active = _load_index(ws_id)
     if not ti and not fi:
-        if filtered_active and ws.get("indexed"):
-            # F1: filter active but empty (empty intersection) — the workspace
-            # IS indexed; the filter simply matches nothing. Return a
-            # successful empty result instead of a misleading 400.
+        if filtered_active:
+            # F1: filter active but empty (empty intersection) — indexing
+            # already passed (see 400 guard above); the filter simply matches
+            # nothing. Return a successful empty result instead of a 400.
             return {
                 "view_id": uuid.uuid4().hex[:12],
                 "table": table,
