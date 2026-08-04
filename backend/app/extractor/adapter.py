@@ -136,6 +136,7 @@ def run_full_analysis(sql_text: str, script_name: str, ws_id: str | None = None)
         "total_variables": len(extract_result.variables),
         "total_dependencies": len(dependencies),
         "template_replacements": extract_result.template_replacements,
+        "resolution_stats": extract_result.resolution_stats,
     }
 
 

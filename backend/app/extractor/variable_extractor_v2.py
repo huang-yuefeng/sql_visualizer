@@ -29,6 +29,31 @@ from sqlglot import exp
 from app.models.variable import VariableDefinition, VariableType
 
 
+# ── Orphan resolution (R20) constants ─────────────────────────────────
+
+# S5: sentinel attribution for columns resolved to a system schema
+# (INFORMATION_SCHEMA / mysql / pg_catalog / sys). No real table node
+# carries this name — it is a marker for the stats report only.
+SYSTEM_TABLE_SENTINEL = "⟐system"
+
+# S5: schema names that make a resolved table a "system table".
+_SYSTEM_SCHEMAS = {"information_schema", "mysql", "pg_catalog", "sys"}
+
+# S6: known pseudocolumn / trigger variable names (case-insensitive).
+# LEVEL (Oracle CONNECT BY), ROWNUM, trigger vars new/old.
+_PSEUDOCOLUMN_NAMES = {"level", "rownum", "new", "old"}
+
+
+def default_resolution_stats() -> dict:
+    """Fresh resolution_stats shape (R20) — also the ExtractionResult default."""
+    return {
+        "total_columns": 0,
+        "resolved_by": {"plain_alias": 0, "expr_alias": 0, "scope": 0,
+                        "schema": 0, "sys": 0, "other": 0},
+        "unresolved": [],
+    }
+
+
 # ── Aggregate / Window function name sets ───────────────────────────────
 
 _AGGREGATE_NAMES = {
@@ -199,6 +224,23 @@ class ExtractionResult:
     script_name: str
     variables: list[VariableDefinition] = field(default_factory=list)
     template_replacements: list[str] = field(default_factory=list)
+    resolution_stats: dict = field(default_factory=default_resolution_stats)
+
+
+@dataclass
+class _SelectScope:
+    """Per-statement table context used by orphan resolution (R20 S1/S3/S5).
+
+    Built once per SELECT/UPDATE/DELETE while its FROM/JOIN are walked,
+    then threaded to every column registration inside that statement.
+    Physical tables are recorded as (db, name) so S5 can detect system
+    schemas; CTE references are kept separate because they are not
+    physical tables (S3 counts physical tables only).
+    """
+    owner: Optional[exp.Expression] = None        # the statement node this scope belongs to
+    tables: list = field(default_factory=list)    # [(db, name)] physical tables in FROM/JOIN
+    aliases: dict = field(default_factory=dict)   # alias → physical table name (S1)
+    ctes: list = field(default_factory=list)      # CTE names referenced in FROM/JOIN (S2)
 
 
 def _detect_dialect(sql_text: str) -> str:
@@ -330,6 +372,8 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
         if statement is not None:
             extractor.process_statement(statement, "TOP")
 
+    # R20: orphan resolution coverage report
+    result.resolution_stats = extractor.build_resolution_stats()
     return result
 
 
@@ -344,6 +388,9 @@ class _RoleBasedExtractor:
         self._cte_names: set[str] = set()
         self._table_aliases: dict[str, str] = {}  # alias → real table name
         self._seen: set[tuple[str, str]] = set()   # (name, type) dedup
+        # R20 orphan resolution state
+        self._resolution_stats: dict = default_resolution_stats()
+        self._cte_output_columns: dict[str, set[str]] = {}  # cte name → output column names (S2)
         self._subq_counter: int = 0  # unique subquery IDs
         # Pre-tokenize SQL for accurate position lookups (Bug 4 fix)
         try:
@@ -419,7 +466,39 @@ class _RoleBasedExtractor:
             is_output=is_output,
         )
         self.result.variables.append(var)
+        # R20: count every column-type variable actually created.
+        if var_type == VariableType.COLUMN:
+            self._resolution_stats["total_columns"] += 1
         return var
+
+    # ── R20 resolution stats (orphan coverage report) ────────────────
+
+    def build_resolution_stats(self) -> dict:
+        """Final resolution_stats for this script.
+
+        unresolved = names of column-type vars (VariableType.COLUMN) that
+        still have no table attribution after S1–S3 — no source_tables, no
+        qualifier prefix — excluding S5 (⟐system) and S6 (pseudocolumn)
+        marked-expected entries. Names are deduped, creation order kept.
+        """
+        stats = {
+            "total_columns": self._resolution_stats["total_columns"],
+            "resolved_by": dict(self._resolution_stats["resolved_by"]),
+            "unresolved": [],
+        }
+        seen = set()
+        for v in self.result.variables:
+            if v.variable_type != VariableType.COLUMN:
+                continue
+            if "." in v.name or v.source_tables:
+                continue  # prefix-attributed or resolved by S1/S2/S3/S5
+            if v.name.lower() in _PSEUDOCOLUMN_NAMES:
+                continue  # S6 — marked expected
+            if v.name in seen:
+                continue
+            seen.add(v.name)
+            stats["unresolved"].append(v.name)
+        return stats
 
     # ── Top-level dispatch ──────────────────────────────────────────
 
@@ -489,6 +568,10 @@ class _RoleBasedExtractor:
 
     def _walk_select(self, select: exp.Select, context: str, is_cte: bool = False):
         """Walk a SELECT/UPDATE/DELETE and classify every Identifier found."""
+        # R20: per-statement scope — tables/aliases/CTEs this statement sees.
+        scope = _SelectScope(owner=select)
+        output_container = None  # what expression outputs attribute to (S2)
+        cte_name = None          # CTE name when walking a CTE body (S2)
         # Create a VIRTUAL_TABLE for this SELECT's output.
         # Exception: inside a CTE, the CTE node itself serves as the output
         # container — no separate VT needed. The CTE IS the named result set.
@@ -504,6 +587,9 @@ class _RoleBasedExtractor:
             self._add(vt_name, VariableType.VIRTUAL_TABLE,
                       sql_expr=_sql(select),
                       defined_in=context, context=context)
+            output_container = vt_name
+        else:
+            cte_name = context[4:-1] if context.startswith("CTE{") else context
 
         # Detect statement type for DML marking
         stmt_type = type(select).__name__.upper()
@@ -514,16 +600,16 @@ class _RoleBasedExtractor:
         # Main table (UPDATE/DELETE use 'this', SELECT uses 'from')
         main_table = select.args.get("this")
         if main_table and isinstance(main_table, exp.Table):
-            self._register_table(main_table, context, dml=dml_mark)
+            self._register_table(main_table, context, dml=dml_mark, scope=scope)
 
         # FROM clause — table names and aliases
         from_exp = select.args.get("from") or select.args.get("from_")
         if from_exp:
-            self._walk_from(from_exp, context)
+            self._walk_from(from_exp, context, scope)
 
         # JOIN clauses
         for join in (select.args.get("joins") or []):
-            self._walk_join(join, context)
+            self._walk_join(join, context, scope)
 
         # USING clause (DELETE ... USING / MERGE USING)
         using_tables = select.args.get("using") or []
@@ -531,7 +617,7 @@ class _RoleBasedExtractor:
             using_tables = [using_tables]
         for ut in using_tables:
             if isinstance(ut, exp.Table):
-                self._register_table(ut, context)
+                self._register_table(ut, context, scope=scope)
             elif isinstance(ut, exp.Subquery):
                 sub_alias = _clean(ut.alias or "")
                 if sub_alias:
@@ -545,20 +631,23 @@ class _RoleBasedExtractor:
         # before HAVING/ORDER BY references are encountered
         raw_exprs = select.expressions or []
         for expr in raw_exprs:
-            self._walk_select_expression(expr, context, is_cte)
+            self._walk_select_expression(expr, context, is_cte,
+                                         scope=scope,
+                                         output_container=output_container,
+                                         cte_name=cte_name)
 
         # WHERE / HAVING conditions — after SELECT so bare refs dedup against aggregates
         for key in ("where", "having"):
             cond = select.args.get(key)
             if cond:
-                self._walk_columns_in_expr(cond, context, defined_in=key.upper())
+                self._walk_columns_in_expr(cond, context, defined_in=key.upper(), scope=scope)
 
         # GROUP BY / ORDER BY — column references
         for key, label in [("group", "GROUP BY"), ("order", "ORDER BY")]:
             clause = select.args.get(key)
             if clause:
                 for e in (clause.expressions if hasattr(clause, 'expressions') else [clause]):
-                    self._walk_columns_in_expr(e, context, defined_in=label)
+                    self._walk_columns_in_expr(e, context, defined_in=label, scope=scope)
 
         # SELECT INTO — creates a new table from the SELECT result
         into = select.args.get("into")
@@ -573,13 +662,13 @@ class _RoleBasedExtractor:
 
     # ── FROM / JOIN walkers ─────────────────────────────────────────
 
-    def _walk_from(self, from_exp, context: str):
+    def _walk_from(self, from_exp, context: str, scope: _SelectScope | None = None):
         """Extract table references from a FROM clause."""
         # Unwrap From wrapper
         if isinstance(from_exp, exp.From):
             from_exp = from_exp.this
         if isinstance(from_exp, exp.Table):
-            self._register_table(from_exp, context)
+            self._register_table(from_exp, context, scope=scope)
         elif isinstance(from_exp, exp.Subquery):
             # FROM (SELECT ...) AS alias — register alias as subquery type
             sub_alias = _clean(from_exp.alias or "")
@@ -593,7 +682,7 @@ class _RoleBasedExtractor:
             elif isinstance(from_exp.this, (exp.Union, exp.Intersect, exp.Except)):
                 self._walk_setop(from_exp.this, type(from_exp.this).__name__.upper(), sub_ctx)
 
-    def _walk_join(self, join, context: str):
+    def _walk_join(self, join, context: str, scope: _SelectScope | None = None):
         """Extract from a JOIN clause (including LATERAL)."""
         join_expr = join.this
         lateral_alias = None
@@ -605,7 +694,7 @@ class _RoleBasedExtractor:
 
         if isinstance(join_expr, exp.Table):
             # Register JOIN tables with "JOIN" prefix in defined_in
-            self._register_table(join_expr, context, join_table=True)
+            self._register_table(join_expr, context, join_table=True, scope=scope)
         elif isinstance(join_expr, exp.Subquery):
             # JOIN (SELECT ...) AS alias
             sub_alias = _clean(join_expr.alias or lateral_alias or "")
@@ -623,12 +712,13 @@ class _RoleBasedExtractor:
                       defined_in=f"LATERAL:{context}", context=context)
             self._walk_select(join_expr, context, is_cte=False)
 
-        # JOIN ON conditions
+        # JOIN ON conditions — belong to the outer SELECT's scope
         on_expr = join.args.get("on")
         if on_expr:
-            self._walk_columns_in_expr(on_expr, context, defined_in="JOIN ON")
+            self._walk_columns_in_expr(on_expr, context, defined_in="JOIN ON", scope=scope)
 
-    def _register_table(self, table: exp.Table, context: str, join_table: bool = False, dml: str = ""):
+    def _register_table(self, table: exp.Table, context: str, join_table: bool = False,
+                        dml: str = "", scope: _SelectScope | None = None):
         """Register a database table and its alias."""
         name = _clean(table.name or "")
         alias = _clean(table.alias_or_name or "")
@@ -651,15 +741,26 @@ class _RoleBasedExtractor:
                       defined_in=defined_in, context=context,
                       source_tables=[name])
 
+        # R20: record into the statement scope for orphan resolution.
+        if scope is not None:
+            if name in self._cte_names:
+                # CTE reference — not a physical table (S2 resolves its columns)
+                scope.ctes.append(name)
+            else:
+                scope.tables.append((_clean(table.db or ""), name))
+            if alias:
+                scope.aliases[alias] = name
+
     # ── Column walker ───────────────────────────────────────────────
 
-    def _walk_columns_in_expr(self, expr, context: str, defined_in: str = ""):
+    def _walk_columns_in_expr(self, expr, context: str, defined_in: str = "",
+                              scope: _SelectScope | None = None):
         """Walk an expression tree: register columns AND nested table aliases."""
         if expr is None:
             return
         for node in expr.walk(prune=lambda n: isinstance(n, (exp.CTE,))):
             if isinstance(node, exp.Column):
-                self._register_column(node, context, defined_in)
+                self._register_column(node, context, defined_in, scope)
             # Walk INTO subqueries — fully process inner SELECT
             elif isinstance(node, exp.Subquery):
                 if isinstance(node.this, exp.Select):
@@ -681,8 +782,15 @@ class _RoleBasedExtractor:
         for join in (select_node.args.get("joins") or []):
             self._walk_join(join, context)
 
-    def _register_column(self, col: exp.Column, context: str, defined_in: str = ""):
-        """Register a single column reference."""
+    def _register_column(self, col: exp.Column, context: str, defined_in: str = "",
+                         scope: _SelectScope | None = None):
+        """Register a single column reference.
+
+        R20: after registration, orphan resolution runs against `scope`:
+        S6 pseudocolumns, S2 CTE output columns, S3/S5 nearest-scope
+        physical tables. Qualified columns keep the historical
+        prefix-based behavior (S5 system-schema qualifiers excepted).
+        """
         table = _clean(col.table or "")
         col_name = _clean(col.name or "")
         if not col_name:
@@ -699,22 +807,106 @@ class _RoleBasedExtractor:
                     VariableType.EXPRESSION, VariableType.CTE_COLUMN)):
                     return  # already defined in this context
         full = f"{table}.{col_name}" if table else col_name
-        self._add(full, VariableType.COLUMN,
-                  sql_expr=_sql(col),
-                  defined_in=defined_in or "condition", context=context)
+        var = self._add(full, VariableType.COLUMN,
+                        sql_expr=_sql(col),
+                        defined_in=defined_in or "condition", context=context)
+        if var is None:
+            # Already created via another path (e.g. the SELECT-expression
+            # alias var for a bare column) — pick it up for attribution.
+            var = next((v for v in self.result.variables
+                        if v.name == full
+                        and v.variable_type == VariableType.COLUMN
+                        and v.context == context), None)
+
+        # ── R20 orphan resolution ─────────────────────────────────────
+        if table:
+            # Qualified column: S5 — qualifier sits in a system schema
+            # (e.g. INFORMATION_SCHEMA.TABLES.TABLE_NAME).
+            if var is not None and _clean(col.db or "").lower() in _SYSTEM_SCHEMAS:
+                var.source_tables = [SYSTEM_TABLE_SENTINEL]
+                self._resolution_stats["resolved_by"]["sys"] += 1
+            return
+        if var is None:
+            return
+        if col_name.lower() in _PSEUDOCOLUMN_NAMES:
+            # S6 — known pseudocolumn / trigger var (LEVEL, ROWNUM, new, old):
+            # marked expected, excluded from unresolved, never attributed.
+            self._resolution_stats["resolved_by"]["other"] += 1
+            return
+        if scope is None or not self._in_scope_owner(col, scope):
+            return  # no scope, or the subquery-copy artifact (outer context)
+        # S2 — unqualified reference to a CTE output column
+        for cte_name in scope.ctes:
+            if col_name in self._cte_output_columns.get(cte_name, ()):
+                var.source_tables = [cte_name]
+                self._resolution_stats["resolved_by"]["expr_alias"] += 1
+                return
+        # S3/S5 — exactly one distinct physical table in the nearest scope
+        distinct = self._distinct_scope_tables(scope)
+        if len(distinct) == 1:
+            db, name = distinct[0]
+            if db.lower() in _SYSTEM_SCHEMAS:
+                var.source_tables = [SYSTEM_TABLE_SENTINEL]
+                self._resolution_stats["resolved_by"]["sys"] += 1
+            else:
+                var.source_tables = [name]
+                self._resolution_stats["resolved_by"]["scope"] += 1
+        # ≥2 physical tables → left unresolved (S4 at index time);
+        # 0 physical tables → left unresolved.
+
+    def _in_scope_owner(self, col: exp.Column, scope: _SelectScope) -> bool:
+        """True when `col` sits directly under the scope's own statement node.
+
+        Subquery-inner columns are ALSO registered in the outer context by the
+        raw walk (historical behavior). Those outer-context copies must never
+        be scope-attributed — their nearest statement ancestor is the inner
+        SELECT, not `scope.owner`.
+        """
+        node = col.parent
+        while node is not None:
+            if isinstance(node, (exp.Select, exp.Update, exp.Delete)):
+                return node is scope.owner
+            node = node.parent
+        return False
+
+    @staticmethod
+    def _distinct_scope_tables(scope: _SelectScope) -> list:
+        """Distinct PHYSICAL tables in scope (alias→canonical already deduped).
+
+        A table and its alias count as ONE physical table because aliases are
+        never added to `tables` — only `aliases`. Returns [(db, name), ...].
+        """
+        distinct = []
+        seen = set()
+        for db, name in scope.tables:
+            if name and name not in seen:
+                seen.add(name)
+                distinct.append((db, name))
+        return distinct
+
+    def _resolve_alias(self, qualifier: str, scope: _SelectScope | None = None) -> str:
+        """Resolve a column qualifier to its physical table name (S1)."""
+        if scope is not None and qualifier in scope.aliases:
+            return scope.aliases[qualifier]
+        return self._table_aliases.get(qualifier, qualifier)
 
     # ── SELECT expression walker ────────────────────────────────────
 
-    def _walk_select_expression(self, expr, context: str, is_cte: bool = False):
+    def _walk_select_expression(self, expr, context: str, is_cte: bool = False,
+                                scope: _SelectScope | None = None,
+                                output_container: str | None = None,
+                                cte_name: str | None = None):
         """Walk one SELECT expression (may or may not have an alias)."""
         if expr is None:
             return
 
         # Unwrap Alias to get the actual expression
         alias = ""
+        explicit_alias = False
         inner = expr
         if isinstance(expr, exp.Alias):
             alias = _clean(expr.alias or "")
+            explicit_alias = True
             inner = expr.this
 
         # Skip None / non-walkable
@@ -743,16 +935,52 @@ class _RoleBasedExtractor:
         if is_cte and var_type == VariableType.EXPRESSION:
             var_type = VariableType.CTE_COLUMN
 
+        # ── R20 S1/S2: alias attribution ──────────────────────────────
+        attr_strategy = None  # resolved_by key incremented on attribution
+        attr_table = None     # source_tables entry to apply
+        if cte_name and alias:
+            # CTE body: every SELECT output is an output column of the CTE.
+            # Auto-named qualified columns record their bare field name so
+            # downstream `SELECT <field> FROM <cte>` resolves.
+            record_name = (_clean(inner.name)
+                           if isinstance(inner, exp.Column) and not explicit_alias
+                           else alias)
+            self._cte_output_columns.setdefault(cte_name, set()).add(record_name)
+        if explicit_alias:
+            if isinstance(inner, exp.Column):
+                qualifier = _clean(inner.table or "")
+                if qualifier:
+                    # S1: alias of a plain qualified column → inherits the
+                    # source column's physical table (dotted db.t.col → t).
+                    if _clean(inner.db or "").lower() in _SYSTEM_SCHEMAS:
+                        attr_strategy, attr_table = "sys", SYSTEM_TABLE_SENTINEL
+                    else:
+                        attr_strategy, attr_table = (
+                            "plain_alias", self._resolve_alias(qualifier, scope))
+            elif output_container is not None:
+                # S2: expression output (Sum/Cast/Case/Window/Func/…)
+                # → the statement's output container (⟐ output / ⟐ subqN …).
+                attr_strategy, attr_table = "expr_alias", output_container
+
+        # Existing table attribution inside the expression wins (e.g. scalar
+        # subquery aliases already carry their inner tables).
+        apply_tables = src_tables
+        if attr_strategy is not None and not src_tables:
+            apply_tables = [attr_table]
+
         defined_in = context
 
-        self._add(alias, var_type,
-                  sql_expr=sql_expr,
-                  defined_in=defined_in, context=context,
-                  source_cols=src_cols, source_tables=src_tables,
-                  is_output=(not is_cte))
+        var = self._add(alias, var_type,
+                        sql_expr=sql_expr,
+                        defined_in=defined_in, context=context,
+                        source_cols=src_cols, source_tables=apply_tables,
+                        is_output=(not is_cte))
+        if var is not None and attr_strategy is not None and not src_tables:
+            self._resolution_stats["resolved_by"][attr_strategy] += 1
 
         # Register columns inside the expression — needed for BELONGS_TO edges
-        self._walk_columns_in_expr(inner, context, defined_in="SELECT expr")
+        self._walk_columns_in_expr(inner, context, defined_in="SELECT expr",
+                                   scope=scope)
 
     # ── Set operations (UNION / INTERSECT / EXCEPT) ─────────────────
 
