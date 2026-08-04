@@ -250,3 +250,22 @@ class TestFilterEdgeCases:
         joined = "\n".join(diag_msgs)
         assert "case mismatch" in joined, joined
         assert "STG_CUSTOMERS" in joined and "stg_customers" in joined, joined
+
+    def test_f3_col_name_only_rows_warned(self, monkeypatch, indexed_ws):
+        """F3: rows with COL_NAME but empty TABLE_NAME produce a warning line."""
+        diag_msgs = []
+
+        def fake_push(ws_id, stage, message):
+            diag_msgs.append(message)
+
+        monkeypatch.setattr("app.routers.workspace._push", fake_push)
+        _upload(indexed_ws,
+                table_col_csv=CSV2
+                + "ETL,,orphan_col,Orphan column\n"
+                + "ETL,,another_col,Another orphan\n"
+                + "ETL,stg_customers,customer_id,Staging customer id\n")
+        joined = "\n".join(diag_msgs)
+        assert "COL_NAME but empty TABLE_NAME" in joined, joined
+        assert "2 row(s)" in joined, joined
+        # Valid rows still filter normally
+        assert "stg_customers" in _filtered_tables(indexed_ws)
