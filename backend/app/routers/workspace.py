@@ -131,6 +131,7 @@ async def upload_filter_config(ws_id: str,
     allowed_tables = None
     allowed_columns = None
     script_table_tables = None  # file 1 table scope (A), for R19 intersection
+    distinct_scripts = set()    # Bug 52: raw SCRIPT_NAME values from file 1 rows
     table_col_tables = set()    # file 2 table scope (B), for R19 intersection
     table_columns = {}          # file 2: table -> set(columns) (Bug 51/R19)
     ignored_count = 0           # B − A: table_col tables outside script scope
@@ -156,7 +157,6 @@ async def upload_filter_config(ws_id: str,
         headers1 = reader.fieldnames or []
         rows = list(reader)
         row_count = len(rows)
-        distinct_scripts = set()  # Bug 52: raw SCRIPT_NAME values (one per row)
         for row in rows:
             sn = row.get("SCRIPT_NAME", "").strip()
             tn = row.get("TABLE_NAME", "").strip()
@@ -288,6 +288,34 @@ async def upload_filter_config(ws_id: str,
             diag_lines.append(("profile", ("│ R19: ignored %d tables from table_col.csv (not in script_table scope)" % ignored_count).ljust(79)+"│"))
         if empty_intersection:
             diag_lines.append(("profile", "│ no common tables — check CSVs".ljust(79)+"│"))
+
+    # ── Bug 52+: per-common-table match diagnostics ──
+    # Shows why intersection tables survive or drop: index script names vs
+    # CSV variants side by side (case/path/extension mismatches become visible).
+    if script_table_tables is not None and allowed_tables is not None and ti:
+        common_tables = sorted(allowed_tables & script_table_tables)
+        diag_lines.append(("profile", ("│ Common tables (A∩B): %d — per-table match:" % len(common_tables)).ljust(79)+"│"))
+        shown_drop_detail = 0
+        for tname in common_tables[:15]:
+            idx_scripts = ti.get(tname, {}).get("scripts", [])
+            matched = [s for s in idx_scripts
+                       if allowed_scripts is None or s in allowed_scripts or os.path.basename(s) in allowed_scripts]
+            kept = tname in filtered_ti
+            nfields = len(filtered_ti.get(tname, {}).get("fields", [])) if kept else 0
+            diag_lines.append(("profile", ("│   %s %-35s scripts %d/%d fields %d"
+                                           % ("KEEP" if kept else "DROP", tname[:35],
+                                              len(matched), len(idx_scripts), nfields)).ljust(79)+"│"))
+            if not kept and not matched and idx_scripts and shown_drop_detail < 6:
+                shown_drop_detail += 1
+                for s in idx_scripts[:2]:
+                    diag_lines.append(("profile", ("│     index script: %r" % s).ljust(79)+"│"))
+                for v in sorted(allowed_scripts)[:4]:
+                    diag_lines.append(("profile", ("│     csv variant:  %r" % v).ljust(79)+"│"))
+        if len(common_tables) > 15:
+            diag_lines.append(("profile", ("│   ... %d more common tables" % (len(common_tables)-15)).ljust(79)+"│"))
+        if distinct_scripts:
+            diag_lines.append(("profile", ("│ CSV script sample: %s" % sorted(distinct_scripts)[:5]).ljust(79)+"│"))
+
     # ── R16: Diagnostic result ──
     diag_lines.append(("profile", f"│ Result: {len(filtered_ti)} tables, {len(filtered_fi)} fields in filtered index".ljust(79)+"│"))
     diag_lines.append(("profile", f"└{'─'*78}┘"))
