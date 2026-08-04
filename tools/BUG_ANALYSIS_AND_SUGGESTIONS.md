@@ -1977,7 +1977,7 @@ f"│   Parsed: {len(distinct_scripts)} scripts ({len(allowed_scripts)} matching
 
 ## Bug 53: Unqualified Column References Get No Table Attribution (P2, extractor)
 
-> **Found:** 2026-08-04 (user investigation) | **Priority:** P2 | **Status:** Open — verified
+> **Found:** 2026-08-04 (user investigation) | **Priority:** P2 | **Status:** ⚠️ Known issue — **no auto-fix** (2026-08-04 decision: report-only, see Bug 54)
 
 **Symptom:** A table whose columns are referenced WITHOUT an alias/qualifier can end up with zero fields in the index — even though the SQL clearly uses its columns.
 
@@ -1996,7 +1996,7 @@ The indexer (`folder_index_service.py`) derives the table from the name prefix (
 1. Table mentioned only in comments / not used by any uploaded script (SQL-evidence diagnostic shows "table name NOT found in SQL text")
 2. Table referenced with all columns unqualified (`SELECT customer_id FROM t`) — currently LOST (this bug)
 
-**Suggested fix (extractor):** resolve unqualified column identifiers to their FROM table during extraction (sqlglot scope analysis: `sqlglot.optimizer.scope` can resolve `customer_id` → `crm_customers.customer_id`). Then `source_tables` is populated and the indexer attributes fields correctly. Alternative lighter fix: in the indexer, when a column variable has no prefix but the script has a single FROM table, attribute to it (heuristic — less robust).
+**Not adopted (2026-08-04 decision):** auto-resolution (extractor scope threading, indexer heuristics, sqlglot qualify) is NOT implemented — see the superseded design in SOLUTION_DESIGN.md steps 1c′/1c″. Orphan fields are surfaced for human review instead (Bug 54).
 
 **Note:** the R19 filter diagnostic now logs SQL evidence for every common table with result-fields 0 (actual SQL lines + extractor columns), so users can manually verify whether a fieldless table is real before trusting the filter result.
 
@@ -2040,15 +2040,31 @@ Extract a `filter_service.py` (parse → scopes → intersect → filter) per th
 
 ## Bug 54: Orphan Field Check — field-without-table validation (feature)
 
-> **Requested:** 2026-08-04 (user) | **Priority:** P2 | **Status:** Design done (SOLUTION_DESIGN.md "Validation — Orphan Field Check")
+> **Requested:** 2026-08-04 (user) | **Priority:** P2 | **Status:** Design done — **report-only** (2026-08-04 decision)
 
 **Purpose:** surface fields with no table attribution so extraction gaps (Bug 53) are visible instead of silent. Verified signal: `field_index[field]["tables"] == []` ⇔ orphan field (exact — the indexer always registers fields, only table association is gated).
 
-**Design (3 levels):**
-1. **Extraction** — R15 profile "Vars:" line gains `orphan=N` (column vars with no prefix and no source_tables)
-2. **Index** — `index_scripts()` computes orphans → `cache/orphan_fields.json` `{field: [scripts]}`; index response gains `orphan_field_count` + samples; R16-style diagnostic block pushed
-3. **Filter** — R19 diagnostic gains one line: filtered fields with no tables + samples
+**Design (report-only — no auto-fix, no fallback, no patch):**
 
-**Files (to implement):** `folder_index_service.py` (level 2), extractor profile line (level 1), `workspace.py` R19 diagnostic (level 3)
+After scripts are extracted (index time), push an R16-style **ORPHAN FIELD REPORT** diagnostic block. Per orphan field it MUST include the corresponding **script segment** (SQL lines where the field appears) so a human can review and fix the SQL:
 
-**Pairs with:** Bug 53 (unqualified column resolution) — orphan count is the regression meter for the Bug 53 fix.
+```
+┌─ ORPHAN FIELD REPORT ────────────────────────────────────────────┐
+│ 3 fields have no table attribution (check SQL, then re-index)     │
+│ field: customer_id    script: load_customers.sql                  │
+│    L2: INSERT INTO stg_customers (customer_id, full_name)         │
+│    L3: SELECT customer_id, full_name FROM crm_customers;          │
+│ field: full_name      script: load_customers.sql                  │
+│    L2: INSERT INTO stg_customers (customer_id, full_name)         │
+│    L3: SELECT customer_id, full_name FROM crm_customers;          │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+**Implementation:**
+- Orphans = `{f for f, d in field_index.items() if not d.get("tables")}`
+- Per orphan: scripts from `field_index[f]["scripts"]`; SQL lines via case-insensitive line search of the field name in the script file (same mechanism as the filter's SQL-evidence diagnostic)
+- Optional: persist `cache/orphan_fields.json` `{field: [scripts]}` + `orphan_field_count` in the index response
+
+**Files (to implement):** `folder_index_service.py` (post-extraction report; optional cache + response fields)
+
+**Pairs with:** Bug 53 (documented known issue) — the report is the visibility layer; the orphan count is the regression meter.
