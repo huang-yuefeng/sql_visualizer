@@ -136,6 +136,7 @@ async def upload_filter_config(ws_id: str,
     table_col_tables = set()    # file 2 table scope (B), for R19 intersection
     table_columns = {}          # file 2: table -> set(columns) (Bug 51/R19)
     ignored_count = 0           # B − A: table_col tables outside script scope
+    ignored_tables = set()      # B − A set itself (F4, for the payload)
     file2_present = False       # table_col.csv was uploaded
     empty_intersection = False  # both files, no common table (Bug 51)
 
@@ -190,6 +191,7 @@ async def upload_filter_config(ws_id: str,
         headers2 = reader.fieldnames or []
         rows = list(reader)
         row_count = len(rows)
+        col_only_count = 0      # F3: rows with COL_NAME but empty TABLE_NAME
         for row in rows:
             tn = row.get("TABLE_NAME", "").strip()
             cn = row.get("COL_NAME", "").strip()
@@ -199,6 +201,8 @@ async def upload_filter_config(ws_id: str,
                 if cn:
                     table_columns.setdefault(tn, set()).add(cn)
                     allowed_columns.add(cn)
+            elif cn:
+                col_only_count += 1
         # Diagnostic: file 2
         diag_lines.append(("profile", f"│ File 2 (table_col): {table_col.filename}  rows={row_count}  headers={','.join(headers2)}".ljust(79)+"│"))
         for i, row in enumerate(rows[:2]):
@@ -206,6 +210,9 @@ async def upload_filter_config(ws_id: str,
         diag_lines.append(("profile", f"│   Parsed: {len(allowed_columns)} columns, {len(allowed_tables)} tables".ljust(79)+"│"))
         if row_count == 0:
             diag_lines.append(("profile", f"│ ⚠ No data parsed. Check headers: TABLE_NAME, COL_NAME".ljust(79)+"│"))
+        if col_only_count > 0:
+            diag_lines.append(("profile", ("│ ⚠ %d row(s) had COL_NAME but empty TABLE_NAME — dropped"
+                                           % col_only_count).ljust(79)+"│"))
 
     # ── Bug 51/R19: two-file intersection — effective table scope = A ∩ B ──
     if script_table_tables is not None:
@@ -214,7 +221,8 @@ async def upload_filter_config(ws_id: str,
         if file2_present:
             # allowed_tables is currently A ∪ B; reduce it to A ∩ B by
             # intersecting with BOTH scopes (&= A alone would just restore A).
-            ignored_count = len(table_col_tables - script_table_tables)  # B − A
+            ignored_tables = table_col_tables - script_table_tables      # B − A
+            ignored_count = len(ignored_tables)
             allowed_tables &= script_table_tables
             allowed_tables &= table_col_tables
             # Restrict columns to effective tables
@@ -246,7 +254,9 @@ async def upload_filter_config(ws_id: str,
     # Filter table_index
     filtered_ti = {}
     for tname, tdata in ti.items():
-        if allowed_tables and tname not in allowed_tables:
+        # F2: `is not None` — an EMPTY allowed_tables set (filter active but
+        # matching nothing) must drop every table; a falsy check would keep all.
+        if allowed_tables is not None and tname not in allowed_tables:
             continue
         filtered_scripts = [s for s in tdata.get("scripts", [])
                            if allowed_scripts is None or s in allowed_scripts or os.path.basename(s) in allowed_scripts]
@@ -261,7 +271,8 @@ async def upload_filter_config(ws_id: str,
     # Filter field_index
     filtered_fi = {}
     for fname, fdata in fi.items():
-        if allowed_columns and fname not in allowed_columns:
+        # F2: same empty-set semantics as the table guard above.
+        if allowed_columns is not None and fname not in allowed_columns:
             continue
         filtered_scripts = [s for s in fdata.get("scripts", [])
                            if allowed_scripts is None or s in allowed_scripts or os.path.basename(s) in allowed_scripts]
@@ -290,6 +301,21 @@ async def upload_filter_config(ws_id: str,
             diag_lines.append(("profile", ("│ R19: ignored %d tables from table_col.csv (not in script_table scope)" % ignored_count).ljust(79)+"│"))
         if empty_intersection:
             diag_lines.append(("profile", "│ no common tables — check CSVs".ljust(79)+"│"))
+            # F5: case-insensitive near-match hint — A (script_table) vs the
+            # ORIGINAL B (table_col) may differ only by case, e.g. STG_CUSTOMERS
+            # vs stg_customers; show it even when A∩B is empty. table_col_tables
+            # still holds B here (allowed_tables was reduced to A∩B = ∅).
+            seen_pairs = set()
+            for a in sorted(script_table_tables):
+                for b in sorted(table_col_tables):
+                    if a != b and a.lower() == b.lower() and (b, a) not in seen_pairs:
+                        seen_pairs.add((a, b))
+                        diag_lines.append(("profile", ("│ ⚠ case mismatch? A has %s, B has %s"
+                                                       % (a, b)).ljust(79)+"│"))
+                        if len(seen_pairs) >= 5:
+                            break
+                if len(seen_pairs) >= 5:
+                    break
 
     # ── Bug 52+: per-common-table match diagnostics ──
     # Shows why intersection tables survive or drop: index script names vs
@@ -445,12 +471,22 @@ async def upload_filter_config(ws_id: str,
     for stage, msg in diag_lines:
         _push(ws_id, stage, msg)
 
+    # ── F4: payload extras — ignored set (B − A) + human warning ──
+    warning = None
+    if empty_intersection:
+        warning = "No common tables between script_table.csv and table_col.csv — filter matches nothing"
+    elif ignored_count > 0:
+        warning = "%d table(s) from table_col.csv ignored (not in script_table.csv scope)" % ignored_count
+
     return {
         "filtered": True,
         "table_count": len(filtered_ti),
         "field_count": len(filtered_fi),
         "filtered_tables": list(filtered_ti.keys()),
         "filtered_fields": list(filtered_fi.keys()),
+        "ignored_count": ignored_count,
+        "ignored_tables": sorted(ignored_tables),
+        "warning": warning,
     }
 
 

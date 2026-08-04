@@ -173,3 +173,80 @@ class TestTwoFileIntersection:
         for tname, tinfo in fdata["table_index"].items():
             for s in tinfo.get("scripts", []):
                 assert s in file1_scripts, f"{tname} script {s} outside file-1 scope"
+
+
+class TestFilterEdgeCases:
+    """F1/F2/F4/F5 — search-after-empty-filter, empty-set guards, payload."""
+
+    def test_f1_search_after_empty_intersection(self, indexed_ws):
+        """F1: filter active but empty (disjoint CSVs) → search returns a
+        successful empty result, not a 400."""
+        _upload(indexed_ws,
+                script_table_csv=CSV1 + f"{STEP2},x\n",
+                table_col_csv=CSV2 + "ETL,y,some_col,Column\n")
+        assert _filtered_tables(indexed_ws) == set()
+        from app.routers.dataflow import search_dataflow
+        result = asyncio.run(search_dataflow(
+            indexed_ws, {"table": "stg_customers", "field": "customer_id"}))
+        assert result["match_mode"] == "no_matches", result
+        assert result["script_ids"] == []
+        assert result["l1_graph"]["nodes"] == []
+        assert result["message"] == "Filter active — no tables in scope"
+
+    def test_f1_search_unindexed_still_400(self):
+        """F1: genuinely unindexed workspace (no filtered_index.json) still 400s."""
+        import fastapi
+        from app.routers.dataflow import search_dataflow
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("a.sql", "SELECT 1;\n")
+        ws_id = create_workspace(buf.getvalue())
+        try:
+            with pytest.raises(fastapi.HTTPException) as ei:
+                asyncio.run(search_dataflow(ws_id, {"table": "a", "field": "b"}))
+            assert ei.value.status_code == 400
+        finally:
+            delete_workspace(ws_id)
+
+    def test_f2_file1_only_zero_table_rows_matches_nothing(self, indexed_ws):
+        """F2: script_table.csv with script rows but ZERO table rows → empty
+        allowed_tables set must match nothing (was: all tables kept)."""
+        r = _upload(indexed_ws, script_table_csv=CSV1 + f"{STEP1},\n")
+        assert r["filtered"] is True
+        assert r["table_count"] == 0
+        assert _filtered_tables(indexed_ws) == set()
+
+    def test_f4_payload_reports_ignored_tables(self, indexed_ws):
+        """F4: return payload carries ignored_count/ignored_tables/warning."""
+        r = _upload(indexed_ws,
+                    script_table_csv=CSV1 + f"{STEP2},stg_customers\n",
+                    table_col_csv=(CSV2
+                                   + "ETL,stg_customers,customer_id,Staging customer id\n"
+                                   + "ETL,daily_summary,customer_id,Daily summary customer id\n"))
+        assert r["ignored_count"] == 1
+        assert r["ignored_tables"] == ["daily_summary"]
+        assert r["warning"] and "ignored" in r["warning"]
+
+    def test_f4_payload_warning_on_empty_intersection(self, indexed_ws):
+        """F4: warning present when A∩B is empty; ignored = B − A."""
+        r = _upload(indexed_ws,
+                    script_table_csv=CSV1 + f"{STEP2},x\n",
+                    table_col_csv=CSV2 + "ETL,y,some_col,Column\n")
+        assert r["ignored_count"] == 1
+        assert r["ignored_tables"] == ["y"]
+        assert r["warning"] and "No common tables" in r["warning"]
+
+    def test_f5_case_mismatch_hint_on_empty_intersection(self, monkeypatch, indexed_ws):
+        """F5: disjoint CSVs differing only by case produce a hint line."""
+        diag_msgs = []
+
+        def fake_push(ws_id, stage, message):
+            diag_msgs.append(message)
+
+        monkeypatch.setattr("app.routers.workspace._push", fake_push)
+        _upload(indexed_ws,
+                script_table_csv=CSV1 + f"{STEP2},STG_CUSTOMERS\n",
+                table_col_csv=CSV2 + "ETL,stg_customers,customer_id,Column\n")
+        joined = "\n".join(diag_msgs)
+        assert "case mismatch" in joined, joined
+        assert "STG_CUSTOMERS" in joined and "stg_customers" in joined, joined

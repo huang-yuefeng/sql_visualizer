@@ -1,7 +1,9 @@
 """Folder index service — scan directory tree, build table/field indexes."""
 import json
+import os
 from pathlib import Path
 from app.services.workspace_service import get_workspace_dir, get_script_path
+from app.services.logger import _push
 
 SQL_EXTENSIONS = {".sql"}
 
@@ -206,6 +208,17 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     (cache_dir / "table_index.json").write_text(json.dumps(table_index, indent=2))
     (cache_dir / "field_index.json").write_text(json.dumps(field_index, indent=2))
 
+    # ── Bug 54: orphan field report — fields with no table attribution ──
+    # A field is an orphan when the extractor saw it (unqualified column,
+    # e.g. `INSERT INTO t (customer_id) ...` without a table qualifier) but
+    # no table claims it. Persist + push a diagnostic so the user knows to
+    # check the SQL and re-index.
+    orphan_fields = {fname: sorted(fdata.get("scripts", []))
+                     for fname, fdata in field_index.items()
+                     if not fdata.get("tables")}
+    (cache_dir / "orphan_fields.json").write_text(json.dumps(orphan_fields, indent=2))
+    _push_orphan_report(ws_id, orphan_fields)
+
     # Update workspace meta
     ws_dir = get_workspace_dir(ws_id)
     meta = json.loads((ws_dir / "meta.json").read_text())
@@ -221,7 +234,71 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
         "script_count": script_count,
         "precomputed_count": precomputed,
         "errors": errors,
+        "orphan_field_count": len(orphan_fields),
+        "orphan_field_samples": list(sorted(orphan_fields))[:20],
     }
+
+
+def _resolve_orphan_script(ws_id: str, name: str):
+    """Locate a script file by index name (path, basename, ±.sql).
+
+    Same tolerance as the filter's _resolve_script in workspace.py: try
+    as-is, with .sql appended, and basename variants, then rglob fallback.
+    """
+    if not name:
+        return None
+    scripts_dir = get_workspace_dir(ws_id) / "scripts"
+    cands = [name]
+    if not name.lower().endswith(".sql"):
+        cands.append(name + ".sql")
+    for c in list(cands):
+        cands.append(os.path.basename(c))
+    for c in cands:
+        p = scripts_dir / c
+        if p.exists():
+            return p
+    for p in scripts_dir.rglob("*.sql"):
+        if p.name in cands or str(p.relative_to(scripts_dir)) in cands:
+            return p
+    return None
+
+
+def _push_orphan_report(ws_id: str, orphan_fields: dict):
+    """Bug 54: R16-style diagnostic block for fields with no table attribution.
+
+    Shows up to 10 fields (name + first script + up to 3 SQL lines from that
+    script mentioning the field, stripped to ~70 chars). Skipped entirely
+    when there are no orphans.
+    """
+    if not orphan_fields:
+        return
+    W = 80
+    names = sorted(orphan_fields)
+    total = len(names)
+    lines = ["┌─ ORPHAN FIELD REPORT " + "─" * max(0, W - len("┌─ ORPHAN FIELD REPORT ") - 1) + "┐"]
+    lines.append(("│ %d fields have no table attribution (check SQL, then re-index)"
+                  % total).ljust(W - 1) + "│")
+    for fname in names[:10]:
+        script = (orphan_fields[fname] or [""])[0]
+        lines.append(("│ field: %s    script: %s"
+                      % (fname[:26], script[:32])).ljust(W - 1) + "│")
+        # Line search ONLY for reported fields (keep indexing fast)
+        sp = _resolve_orphan_script(ws_id, script)
+        if sp:
+            try:
+                sql_txt = sp.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                sql_txt = ""
+            needle = fname.lower()
+            hits = [(i + 1, ln) for i, ln in enumerate(sql_txt.split("\n"))
+                    if needle in ln.lower()]
+            for lineno, ln in hits[:3]:
+                lines.append(("│ %s" % ("   L%d: %s" % (lineno, ln.strip()))[:70]).ljust(W - 1) + "│")
+    if total > 10:
+        lines.append(("│ ... %d more" % (total - 10)).ljust(W - 1) + "│")
+    lines.append("└" + "─" * (W - 2) + "┘")
+    for line in lines:
+        _push(ws_id, "profile", line)
 
 
 def autocomplete(index: dict, type_: str, query: str) -> list[str]:
