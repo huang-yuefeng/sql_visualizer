@@ -46,6 +46,29 @@ Output: graph {nodes, edges, input_tables, output_tables}
 
     → VariableDefinition[] (15 types)
 
+1c′. Resolve unqualified column references (Bug 53)
+    Problem: "SELECT customer_id FROM crm_customers" records the column
+    with NO table — the indexer derives the table from the name prefix,
+    so the table ends up with 0 fields despite real columns in the SQL.
+
+    Mechanism — visible-table scope stack during the walk:
+      - walker keeps self._scope_stack: list[set[str]]
+      - entering a FROM/JOIN-bearing statement (SELECT, INSERT...SELECT,
+        UPDATE, DELETE, MERGE, CREATE...AS): push visible tables
+        (canonical name + alias, e.g. {"crm_customers", "c"})
+      - exit: pop (try/finally — subqueries/CTEs nest naturally)
+      - unqualified column (col.table == ""):
+          exactly 1 visible table → source_tables = [canonical_name]
+          ≥2 visible tables      → unattributed (ambiguous without
+                                   schema — safe, no over-attribution)
+
+    Only exp.Table sources count (subquery/CTE scope entries skipped).
+    Qualified columns unchanged (prefix-based index attribution).
+    INSERT...SELECT: SELECT columns get the SELECT's FROM table; the
+    Bug 41 DML cross-reference then maps them to the INSERT target.
+
+    → columns like customer_id now carry source_tables=["crm_customers"]
+
 1d. Classify input/output tables per script (canonical names only)
     For each table variable:
       resolve alias→canonical via source_tables
@@ -246,3 +269,4 @@ SQL Text
 - **Alias Field Synchronization**: When ALIAS edge exists, fields copied both ways. `crm_customers.fields = c.fields`.
 - **Output Table — SCHEMA-Defined Fields**: An output table's fields = {columns with SCHEMA edge FROM that output table}.
 - **DML Target Fields**: A DML target table's fields = {columns of DML source tables}. Recorded at extraction time (step 1f).
+- **Column Resolution (Bug 53)**: Every column reference carries the table that owns it. Qualified columns resolve via the name prefix; unqualified columns resolve via the visible-table scope stack (step 1c′). A table shows 0 fields in the index only if (a) its columns are referenced ambiguously (≥2 visible tables — documented limitation, schema-based resolution is future work), (b) it is not used by any uploaded script, or (c) it appears only in comments.
