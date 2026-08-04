@@ -942,3 +942,40 @@ step5(SELECT) ──writes_to──> report            ← REMOVED (not in linea
 - `backend/app/services/dataflow_service.py` — `compute_field_lineage()`, `filter_relevant()`
 - `backend/app/routers/dataflow.py` — `lineage_mode` parameter
 - `backend/tests/test_field_lineage.py` — new test file
+---
+
+## R19 — Two-File Filter Intersection Semantics
+
+> **Priority:** P2 | **Date:** 2026-08-03 | **Status:** Design pending review
+
+**Description:** When the user uploads BOTH filter CSV files (script_table.csv + table_col.csv), the effective table scope must be the **intersection** of the tables in both files — not the union.
+
+### Problem
+
+Current behavior (`workspace.py:upload_filter_config`): `allowed_tables` is the **union** of `script_table.csv` tables (file 1) and `table_col.csv` tables (file 2). Tables present only in `table_col.csv` silently **expand** the filter scope beyond what `script_table.csv` defines; the code only emits a diagnostic warning ("table_col.csv added N new tables not in script_table scope"). This contradicts the user's intent: `table_col.csv` is a column-documentation file, not a scope-expansion file.
+
+### Requirement
+
+Given:
+- `A` = tables in `script_table.csv` (file 1)
+- `B` = tables in `table_col.csv` (file 2)
+
+When both files are uploaded:
+1. **Effective table scope = A ∩ B.** Tables present only in `table_col.csv` (B − A) are **ignored**. Tables present only in `script_table.csv` (A − B) are also excluded from the effective scope (symmetric interpretation — flag for reviewer confirmation).
+2. **Fields**: only columns whose table ∈ (A ∩ B) are kept in the filtered field index. Columns documented in `table_col.csv` for tables outside the intersection are dropped.
+3. **Scripts**: script scope continues to come from `script_table.csv` only (unchanged).
+4. **Single-file uploads** (either file alone): behavior unchanged — file 1 alone scopes scripts+tables; file 2 alone scopes tables+columns.
+5. **Neither file**: clears the filter (unchanged).
+6. The R16 diagnostic must report the intersection decision: number of tables ignored from `table_col.csv` (B − A) and the final effective table count.
+
+### Acceptance criteria
+
+- [ ] Table in both CSVs → present in filtered index
+- [ ] Table only in `table_col.csv` → absent from filtered index (regardless of its columns)
+- [ ] Column of an excluded table in `table_col.csv` → absent from filtered field index
+- [ ] Column of an intersection table in `table_col.csv` → present in filtered field index
+- [ ] File-1-only upload → unchanged (tables = A)
+- [ ] File-2-only upload → unchanged (tables = B, columns = B's)
+- [ ] No files → filter cleared
+- [ ] R16 diagnostic shows ignored-table count
+- [ ] Existing tests still pass (334 + new)

@@ -2,7 +2,7 @@
 import pytest
 import sys
 sys.path.insert(0, '/home/huangyf/work/sql_visualizer/backend')
-from app.services.dataflow_service import _get_category, CATEGORY_MAP
+from app.services.graph_service import get_category as _get_category, CATEGORY_MAP
 
 VALID_CATEGORIES = {"copy", "compute", "aggregate", "filter", "combine", "write", "structure"}
 

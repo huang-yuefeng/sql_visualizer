@@ -6,6 +6,7 @@ Builds L2 detail view: tables + fields + all 16 edge types for a single script.
 import json
 import hashlib
 import logging
+import re
 from pathlib import Path
 
 _log = logging.getLogger("sql_visualizer.dataflow")
@@ -25,6 +26,16 @@ from app.services.sql_range_finder import partition_edge_ranges
 from app.services.sql_range_finder import find_sql_range
 
 # ── L2 helper functions ──────────────────────────────────────────────
+
+def _target_field_sc(sc: str, target_field: str) -> bool:
+    """Check if a source_column string matches the target field name.
+
+    Equivalent of the former dataflow_service.target_field_sc (H2): the
+    definition can't be imported from dataflow_service (circular import),
+    so it lives here, next to its only caller.
+    """
+    return bool(re.search(rf"\b{re.escape(target_field)}\b", sc))
+
 
 def _compute_highlight_ranges(graph_data: dict, highlight_ids: set,
                                sql_text: str) -> list:
@@ -156,12 +167,13 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                     matched = True
             if matched:
                 target_node_ids.add(nd.get("id"))
-            # Also check source_columns
+            # Also check source_columns (H2: _target_field_sc was previously
+            # undefined — NameError the moment source_columns went live)
             src_cols = nd.get("source_columns", [])
             for sc in src_cols:
                 if target_full in sc:
                     target_node_ids.add(nd.get("id"))
-                elif target_field_sc(sc, target_field):
+                elif _target_field_sc(sc, field):
                     target_node_ids.add(nd.get("id"))
 
     # Compute upstream/downstream sets for direct/indirect classification

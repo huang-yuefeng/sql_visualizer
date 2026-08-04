@@ -1826,3 +1826,108 @@ def test_full_user_flow_multi_workflow(client, sample_zip):
 | CW10 | No integration test | P1→P2 | Test gap | Medium | ⚠️ PARTIAL — HTTP journey test is a legit gap |
 
 **Corrected top 3 to fix first:** CW8, CW1, CW9 (one-line insurance) — with CW3 and CW7 as cheap follow-ups.
+
+---
+
+## Bug 51: Two-File Filter Uses Union Instead of Intersection (R19)
+
+> **Found:** 2026-08-03 (user requirement) | **Priority:** P2 | **Status:** Design pending review (R19 in REQUIREMENTS.md)
+> **Verified:** current code has NO intersection logic — `allowed_tables` is the union; only a diagnostic warning exists.
+
+### Current code (verified)
+
+`backend/app/routers/workspace.py:upload_filter_config`:
+```python
+# File 1: allowed_scripts, allowed_tables (= A), script_table_tables = snapshot of A
+# File 2: allowed_tables |= table_col tables (= B)   ← UNION
+# Warning only: new_tables = allowed_tables - script_table_tables  (B − A)
+```
+
+### Solution design
+
+**Data structures (file 2 parsing, ~line 156):** keep the table→column mapping, not just a flat column set:
+```python
+table_columns = {}   # table_name -> set(column_names)   NEW
+allowed_columns = set()                                   # kept for API compat
+...
+for row in rows:
+    tn = row.get("TABLE_NAME", "").strip()
+    cn = row.get("COL_NAME", "").strip()
+    if tn:
+        allowed_tables.add(tn)
+        if cn:
+            table_columns.setdefault(tn, set()).add(cn)
+            allowed_columns.add(cn)
+```
+
+**Intersection step (after both files parsed, before filtering):**
+```python
+if script_table_tables is not None:            # file 1 present
+    if allowed_tables is None:
+        allowed_tables = set()
+    # R19: effective table scope = A ∩ B (B is None-safe: file1-only → A)
+    allowed_tables &= script_table_tables
+    # Restrict columns to effective tables (file2-only → table_columns empty → no-op)
+    if table_columns:
+        allowed_columns = {cn for t, cols in table_columns.items()
+                           if t in allowed_tables for cn in cols}
+```
+
+**Diagnostics (R16 update, replace the old scope-expansion warning):**
+```
+│ R19: ignored N tables from table_col.csv (not in script_table scope)
+│ Result: X tables, Y fields in filtered index
+```
+
+**Edge cases:**
+- A ∩ B = ∅ (both files present, no common table): filter stays active with 0 tables / 0 fields + diagnostic warning "no common tables — check CSVs". Flag for reviewer: alternative is to treat as filter-cleared.
+- Table name case sensitivity: exact match (existing behavior, unchanged).
+- A-only tables: excluded per symmetric interpretation — flagged for reviewer confirmation (alternative: keep A-only tables since script_table.csv is the authoritative script scope; but R19 as written by the user is symmetric).
+
+### Test cases (new `backend/tests/test_filter_config.py`)
+
+Fixture: workspace from `samples/multi_workflow.zip` + index (reuse pattern from `test_l1_l2_integration.py`).
+
+| # | Test | Setup | Assert |
+|---|------|-------|--------|
+| TC1 | Table in both files kept | script_table has `stg_customers`, table_col has `stg_customers` | `stg_customers` ∈ filtered table_index |
+| TC2 | Table only in table_col excluded | table_col adds `report` (not in script_table) | `report` ∉ filtered table_index |
+| TC3 | Table only in script_table excluded (symmetric) | script_table has `raw_orders`, table_col omits it | `raw_orders` ∉ filtered table_index |
+| TC4 | Column of excluded table dropped | table_col: `report.report_date` (report not in intersection) | `report_date` ∉ filtered field_index |
+| TC5 | Column of intersection table kept | table_col: `stg_customers.customer_id` | `customer_id` ∈ filtered field_index |
+| TC6 | File-1-only unchanged | only script_table.csv | tables = A exactly |
+| TC7 | File-2-only unchanged | only table_col.csv | tables = B, columns = B's columns |
+| TC8 | No files clears filter | upload with no files | `filtered_index.json` deleted, `filtered: false` |
+| TC9 | Empty intersection | script_table: `x`, table_col: `y` | 0 tables, 0 fields, filter still active |
+| TC10 | Script scope still from file 1 | two-file upload | filtered script lists ⊆ file-1 scripts |
+
+**Files:** `backend/app/routers/workspace.py` (~lines 156-210), `backend/tests/test_filter_config.py` (new), `REQUIREMENTS.md` R19 (done), R16 diagnostic block in workspace.py.
+
+---
+
+# Code Review Findings — Codex (2026-08-04) — Verified & Triaged
+
+> **Reviewer:** Codex (read-only) | **Source doc:** `wiki/CODE_REVIEW_2026-08-04.md`
+> **Human verification (2026-08-04):** 13/15 findings confirmed valid against code; 1 partial (L1 wording); baseline test count partially off (review says 339/0; current run = 334 passed/5 skipped).
+
+| ID | Title | Priority | Verdict | Status |
+|----|-------|----------|---------|--------|
+| H1 | Path traversal in `ws_id` → arbitrary dir deletion | P0 | ✅ VALID — no validation in `workspace_service.py`; `(root/'..').resolve()==/tmp`; `delete_workspace` does rmtree | **Fix in progress** |
+| H2 | `target_field_sc` undefined in l2_builder (latent NameError) | P1 | ✅ VALID — defined only at `dataflow_service.py:442`, no import in l2_builder (circular) | **Fix in progress** |
+| H3 | `source_columns` computed but dropped at graph boundary | P1 | ✅ VALID — extractor produces it; `build_graph_data` doesn't copy; 3 consumers read `[]` silently (Weakness 2 recurrence; same mechanism as CW9) | **Fix in progress** |
+| M1 | Literal backspace (0x08) in adapter.py:66 regex | P2 | ✅ VALID — `cat -A` shows `SELECT^H`; subquery count always 0 | **Fix in progress** |
+| M2 | L2 never uses index-time precomputed graph cache (key mismatch) | P2 | ✅ VALID — `graph_{key}.json` (indexer) vs `graph_3_2_15_{key}.json` (L2) | **Fix in progress** |
+| M3 | Two-file filter union vs intersection (R19) | P2 | ✅ VALID — verified (Bug 51/R19 design pending) | **Fix in progress** |
+| M4 | `_build_l1_graph` degraded fallback returned as success | P2 | ✅ VALID (design opinion) — l1_builder.py:865-877 | Deferred (design decision) |
+| M5 | CATEGORY_MAP/helpers duplicated in dataflow_service.py:396-433 | P3 | ✅ VALID — only EDGE_TYPE_STYLE/ORDER deduped; copies likely dead | **Fix in progress** |
+| L1 | DELETE /workspace no guard | P2 | ⚠️ PARTIAL — no guard true; "wipes ALL" imprecise (single ws; all-wipe = H1 traversal) | Deferred (decision) |
+| L2 | SSE queues never auto-cleaned | P3 | ✅ VALID — remove_queue only on explicit delete | Deferred |
+| L3 | `_INDEX_PROGRESS` no lock; errors reset | P3 | ✅ VALID | Deferred |
+| L4 | adapter.py sys.path insert of non-existent path | P3 | ✅ VALID — `/home/huangyf/sql_field_extractor` doesn't exist | **Fix in progress** |
+| L5 | `window_computed` stale type in graph_service.py:138 | P3 | ✅ VALID — extractor emits `window` | **Fix in progress** |
+| L6 | ~170MB build artifacts in git | P3 | ✅ VALID — static.bak.* confirmed tracked | Deferred (needs decision) |
+| L7 | Error swallowing (29 backend / 23 frontend) | P3 | ✅ VALID — counts confirmed | Deferred (systemic) |
+| — | Baseline: CLAUDE.md stale (3.3.106/1989 vs actual 3.3.129/445) | — | ✅ VALID | Deferred (doc) |
+
+**In-progress batch (this session):** H1, H2, H3, M1, M2, M3 (R19 + test_filter_config.py), M5, L4, L5 — per Codex action order.
+**Deferred:** M4, L1, L2, L3, L6, L7 + CLAUDE.md/ONBOARDING.md refresh.

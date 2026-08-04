@@ -5,12 +5,6 @@ Provides a unified interface for the full SQL analysis pipeline.
 """
 
 import sys
-from pathlib import Path
-
-# Ensure the sql_field_extractor is importable
-_FIELD_EXTRACTOR_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent / "sql_field_extractor"
-if str(_FIELD_EXTRACTOR_PATH) not in sys.path:
-    sys.path.insert(0, str(_FIELD_EXTRACTOR_PATH))
 
 from app.models.variable import VariableDefinition, VariableDependency
 # Use v2 extractor (role-based Identifier walking — covers any SQL that sqlglot parses)
@@ -63,7 +57,7 @@ def _count_nesting(sql_text: str, cte_count: int) -> dict:
             depth -= 1
     # Count subqueries: (SELECT ...)
     import re
-    subq_count = len(re.findall(r'\(\s*SELECT', sql_text, re.IGNORECASE))
+    subq_count = len(re.findall(r'\(\s*SELECT\b', sql_text, re.IGNORECASE))
     return {'max_depth': max_depth, 'subqueries': subq_count, 'ctes': cte_count}
 
 

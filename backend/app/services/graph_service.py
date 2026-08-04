@@ -135,7 +135,7 @@ def build_graph_data(analysis: dict) -> dict:
         table_name = ""
         field_name = ""
         display_name = name  # default
-        if vt in ("column", "aggregate", "transform", "window_computed"):
+        if vt in ("column", "aggregate", "transform", "window", "window_computed"):
             if "." in name:
                 prefix, fname = name.split(".", 1)
                 # Resolve alias prefix to canonical name
@@ -160,6 +160,9 @@ def build_graph_data(analysis: dict) -> dict:
                 "defined_in": v.get("defined_in", ""),
                 "is_output": v.get("is_output", False),
                 "source_tables": src_tbls,
+                # H3: carry source_columns across the graph boundary (lineage seed
+                # matching + L2 target detection depend on it)
+                "source_columns": v.get("source_columns", []),
                 # P2: Pre-resolved canonical names
                 "table_name": table_name,
                 "field_name": field_name,
