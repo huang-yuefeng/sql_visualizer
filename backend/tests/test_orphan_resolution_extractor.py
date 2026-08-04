@@ -171,7 +171,7 @@ def test_s6_pseudocolumn_marked_other():
     r = extract_variables_from_sql(
         "SELECT LEVEL FROM dual CONNECT BY LEVEL <= 10", "s6")
     level = _find(r, "LEVEL")
-    assert level.source_tables == [], level  # never attributed
+    assert level.source_tables == ["⟐pseudo"], level  # sentinel mark, no real table
     assert r.resolution_stats["resolved_by"]["other"] == 1, r.resolution_stats
     assert "LEVEL" not in r.resolution_stats["unresolved"]
 
@@ -180,9 +180,24 @@ def test_s6_rownum_and_trigger_vars():
     r = extract_variables_from_sql(
         "SELECT ROWNUM FROM dual WHERE ROWNUM <= 5; "
         "SELECT new, old FROM trigger_table", "s6b")
-    assert r.resolution_stats["resolved_by"]["other"] >= 3, r.resolution_stats
-    for name in ("ROWNUM", "new", "old"):
-        assert name not in r.resolution_stats["unresolved"], r.resolution_stats
+    assert r.resolution_stats["resolved_by"]["other"] >= 1, r.resolution_stats
+    assert "ROWNUM" not in r.resolution_stats["unresolved"], r.resolution_stats
+
+
+def test_s6_new_old_only_in_row_to_json():
+    """E4: bare new/old are REAL columns (S3-attributed); only the
+    row_to_json(new/old) trigger idiom is a pseudocolumn."""
+    r = extract_variables_from_sql(
+        "SELECT new, old FROM trigger_table; "
+        "SELECT row_to_json(new), row_to_json(old) FROM t;", "s6c")
+    assert r.resolution_stats["resolved_by"]["other"] >= 2, r.resolution_stats
+    # row_to_json idiom vars are sentinel-marked, not attributed to t
+    marked = [v for v in r.variables
+              if v.name == "new" and v.source_tables == ["⟐pseudo"]]
+    assert marked, "row_to_json(new) var should be sentinel-marked"
+    # bare new/old resolve to trigger_table via S3 — not unresolved, not other
+    assert "new" not in r.resolution_stats["unresolved"], r.resolution_stats
+    assert "old" not in r.resolution_stats["unresolved"], r.resolution_stats
 
 
 # ── resolution_stats shape & counters ────────────────────────────────────

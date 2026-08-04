@@ -322,6 +322,14 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                          if not fdata.get("tables")}
     (cache_dir / "orphan_fields.json").write_text(json.dumps(orphan_fields, indent=2))
 
+    # E1 (reviewer): fields resolved to script-scoped containers (⟐ output,
+    # CTE) are counted resolved by the extractor but have NO usable table in
+    # the workspace index — and were invisible (not attributed, not reported).
+    # Surface them as a distinct bucket so nothing is hidden.
+    no_table_fields = {fname for fname, fdata in field_index.items()
+                       if not fdata.get("tables")}
+    container_resolved = sorted(no_table_fields - set(orphan_fields))
+
     total = total_columns
     unresolved = len(orphan_fields)
     resolved = max(0, total - unresolved)
@@ -330,10 +338,12 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
         "total_columns": total,
         "resolved": resolved,
         "unresolved": unresolved,
+        "container_resolved": len(container_resolved),
         "coverage_pct": coverage_pct,
         "by_strategy": dict(by_strategy),
     }
-    _push_resolution_report(ws_id, resolution_stats, orphan_fields)
+    _push_resolution_report(ws_id, resolution_stats, orphan_fields,
+                            container_resolved)
 
     # Update workspace meta
     ws_dir = get_workspace_dir(ws_id)
@@ -380,13 +390,17 @@ def _resolve_orphan_script(ws_id: str, name: str):
     return None
 
 
-def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict):
+def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict,
+                            container_resolved: list | None = None):
     """R20: coverage diagnostic — resolved vs total column variables.
 
     Supersedes the Bug-54 ORPHAN FIELD REPORT (same SQL-evidence mechanism
     for the residual orphans). Always pushed, even when every column is
     resolved. Shows up to 10 fields (name + first script + up to 3 SQL
     lines from that script mentioning the field, stripped to ~70 chars).
+    E1 (reviewer): "resolved to output container" fields (⟐ output / CTE —
+    script-scoped, no usable workspace table) are surfaced as a distinct
+    bucket so nothing is invisible.
     """
     W = 80
     total = stats.get("total_columns", 0)
@@ -395,16 +409,23 @@ def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict):
     by = stats.get("by_strategy", {})
     names = sorted(orphan_fields)
     n = len(names)
+    cont = sorted(container_resolved or [])
+    nc = len(cont)
     lines = ["┌─ ORPHAN RESOLUTION REPORT "
              + "─" * max(0, W - len("┌─ ORPHAN RESOLUTION REPORT ") - 1) + "┐"]
     lines.append(("│ column vars: %d | resolved: %d (%g%%) |"
                   % (total, resolved, coverage_pct)).ljust(W - 1) + "│")
-    lines.append(("│   unresolved: %d" % n).ljust(W - 1) + "│")
-    lines.append(("│   by strategy: plain_alias=%d expr_alias=%d scope=%d schema=%d"
+    lines.append(("│   unresolved: %d | resolved-to-container (no table): %d"
+                  % (n, nc)).ljust(W - 1) + "│")
+    lines.append(("│   by strategy (attribution events, not unique vars): "
+                  "pa=%d ea=%d scope=%d schema=%d"
                   % (by.get("plain_alias", 0), by.get("expr_alias", 0),
                      by.get("scope", 0), by.get("schema", 0))).ljust(W - 1) + "│")
     lines.append(("│   (sys=%d other=%d marked expected)"
                   % (by.get("sys", 0), by.get("other", 0))).ljust(W - 1) + "│")
+    if nc:
+        lines.append(("│   container-resolved sample: %s"
+                      % ", ".join(cont[:5])).ljust(W - 1) + "│")
     lines.append("│" + "─" * (W - 2) + "│")
     if n:
         lines.append(("│ UNRESOLVED orphans — possible bad cases, check SQL:")
