@@ -294,7 +294,8 @@ async def upload_filter_config(ws_id: str,
     # CSV variants side by side (case/path/extension mismatches become visible).
     if script_table_tables is not None and allowed_tables is not None and ti:
         common_tables = sorted(allowed_tables & script_table_tables)
-        diag_lines.append(("profile", ("│ Common tables (A∩B): %d — per-table match:" % len(common_tables)).ljust(79)+"│"))
+        diag_lines.append(("profile", ("│ Common tables (A∩B): %d — per-table match:  [index total: %d tables]"
+                                       % (len(common_tables), len(ti))).ljust(79)+"│"))
         shown_drop_detail = 0
         for tname in common_tables[:15]:
             idx_scripts = ti.get(tname, {}).get("scripts", [])
@@ -305,12 +306,26 @@ async def upload_filter_config(ws_id: str,
             diag_lines.append(("profile", ("│   %s %-35s scripts %d/%d fields %d"
                                            % ("KEEP" if kept else "DROP", tname[:35],
                                               len(matched), len(idx_scripts), nfields)).ljust(79)+"│"))
-            if not kept and not matched and idx_scripts and shown_drop_detail < 6:
+            if not kept and not matched and shown_drop_detail < 6:
                 shown_drop_detail += 1
-                for s in idx_scripts[:2]:
-                    diag_lines.append(("profile", ("│     index script: %r" % s).ljust(79)+"│"))
-                for v in sorted(allowed_scripts)[:4]:
-                    diag_lines.append(("profile", ("│     csv variant:  %r" % v).ljust(79)+"│"))
+                if idx_scripts:
+                    # Table IS in the index but its scripts don't match the CSV
+                    for s in idx_scripts[:2]:
+                        diag_lines.append(("profile", ("│     index script: %r" % s).ljust(79)+"│"))
+                    for v in sorted(allowed_scripts)[:4]:
+                        diag_lines.append(("profile", ("│     csv variant:  %r" % v).ljust(79)+"│"))
+                else:
+                    # Table has NO index entry under this exact name — check
+                    # for close matches (case / suffix) to explain the absence.
+                    similar = [t for t in ti
+                               if len(t) >= 4  # skip alias noise (c, o, sc, ...)
+                               and (t.lower() == tname.lower()
+                                    or tname.lower() in t.lower()
+                                    or t.lower() in tname.lower())]
+                    if similar:
+                        diag_lines.append(("profile", ("│     index has similar: %s" % similar[:4]).ljust(79)+"│"))
+                    else:
+                        diag_lines.append(("profile", "│     NOT in index — no similar table (scripts missing/not uploaded?)".ljust(79)+"│"))
         if len(common_tables) > 15:
             diag_lines.append(("profile", ("│   ... %d more common tables" % (len(common_tables)-15)).ljust(79)+"│"))
         if distinct_scripts:
