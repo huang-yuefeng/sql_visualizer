@@ -1,5 +1,6 @@
 """Dataflow router — search, views, L1/L2 graphs, SQL highlight."""
 import json
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
@@ -16,19 +17,24 @@ from app.services.sql_highlight_service import get_highlight_ranges
 router = APIRouter(tags=["dataflow"])
 
 
-def _load_index(ws_id: str) -> tuple[dict, dict]:
-    """Load table_index and field_index from cache. Prefers filtered index."""
+def _load_index(ws_id: str) -> tuple[dict, dict, bool]:
+    """Load table_index and field_index from cache. Prefers filtered index.
+
+    Returns (ti, fi, filtered_active) — filtered_active tells callers a
+    filter is in force (filtered_index.json exists), which lets them
+    distinguish "filter active but empty" from "never indexed".
+    """
     cache_dir = get_workspace_dir(ws_id) / "cache"
     # Prefer filtered index if available
     filtered_path = cache_dir / "filtered_index.json"
     if filtered_path.exists():
         filtered = json.loads(filtered_path.read_text())
-        return filtered.get("table_index", {}), filtered.get("field_index", {})
+        return filtered.get("table_index", {}), filtered.get("field_index", {}), True
     ti_path = cache_dir / "table_index.json"
     fi_path = cache_dir / "field_index.json"
     ti = json.loads(ti_path.read_text()) if ti_path.exists() else {}
     fi = json.loads(fi_path.read_text()) if fi_path.exists() else {}
-    return ti, fi
+    return ti, fi, False
 
 
 
@@ -69,8 +75,21 @@ async def search_dataflow(ws_id: str, body: dict):
     if not table or not field:
         raise HTTPException(status_code=400, detail="Both 'table' and 'field' are required")
 
-    ti, fi = _load_index(ws_id)
+    ti, fi, filtered_active = _load_index(ws_id)
     if not ti and not fi:
+        if filtered_active and ws.get("indexed"):
+            # F1: filter active but empty (empty intersection) — the workspace
+            # IS indexed; the filter simply matches nothing. Return a
+            # successful empty result instead of a misleading 400.
+            return {
+                "view_id": uuid.uuid4().hex[:12],
+                "table": table,
+                "field": field,
+                "script_ids": [],
+                "l1_graph": {"nodes": [], "edges": [], "target": "table.field"},
+                "match_mode": "no_matches",
+                "message": "Filter active — no tables in scope",
+            }
         raise HTTPException(status_code=400, detail="Indexes not found. Run index first.")
 
     lineage_mode = body.get("lineage_mode", True)  # R18: default True
@@ -243,7 +262,7 @@ async def debug_graph_layout(ws_id: str, body: dict):
     if not table or not field:
         raise HTTPException(status_code=400, detail="Both 'table' and 'field' are required")
 
-    ti, fi = _load_index(ws_id)
+    ti, fi, _ = _load_index(ws_id)
     if not ti and not fi:
         raise HTTPException(status_code=400, detail="Index not found")
 
