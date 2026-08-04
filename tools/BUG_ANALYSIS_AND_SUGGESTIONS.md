@@ -2068,3 +2068,35 @@ After scripts are extracted (index time), push an R16-style **ORPHAN FIELD REPOR
 **Files (to implement):** `folder_index_service.py` (post-extraction report; optional cache + response fields)
 
 **Pairs with:** Bug 53 (documented known issue) — the report is the visibility layer; the orphan count is the regression meter.
+
+---
+
+## Follow-up Review 2 Verdicts — D1–D9 on the (superseded) 1c′/1c″ design
+
+> Source: wiki/CODE_REVIEW_2026-08-04.md §11–13. Context: the 1c′/1c″ auto-resolution design is SUPERSEDED (report-only decision) — D findings are judged as analysis; only those affecting the report design are taken.
+
+| ID | Verdict | Evidence / action |
+|----|---------|-------------------|
+| D1 (alias counted as 2nd table) | ✅ VALID analysis | Correct — scope {crm_customers, c} would block attribution for `SELECT customer_id FROM crm_customers c`. Fix would be counting distinct physical tables. Moot (design superseded) — recorded as a correction to the superseded analysis. |
+| D2 (no tests landed) | ✅ VALID | The "verified" claims were ad-hoc probes, not committed tests. **TAKEN**: the report implementation (Bug 54) must land with tests. |
+| D3 (WHERE-clause columns not covered) | ✅ VALID analysis | Design threaded only SELECT paths. Moot for implementation. |
+| D4 (aliased SELECT exprs) | ✅ VALID analysis | Moot — BUT the tpcds probe (below) shows expression-alias orphans are REAL and numerous; the report will surface them. |
+| D5 (INSERT…VALUES columns ARE registered) | ❌ **WRONG — verified** | `INSERT INTO t (customer_id, full_name) VALUES (1,'x')` registers ONLY the table variable. Original design claim was correct. |
+| D6 (len==1 guard) | ✅ Valid defensive note | Moot. |
+| D7 (CTE name resolution) | ✅ Valid clarification | Moot — report shows SQL lines, human judges. |
+| D8 (cache format_version) | ⚠️ Partially applicable | Bug 54 adds a NEW cache file (`orphan_fields.json`) — no graph-format change, no version bump needed; note only. |
+| D9 (tpcds pre-check) | ✅ VALID — DONE | See classification below. |
+
+### D9 pre-check result (tpcds, verified)
+
+```
+scripts: 99, tables: 107
+FIELDLESS tables (8): call_center, catalog_page, inventory, promotion,
+  reason, ship_mode, warehouse, web_site — ALL referenced in 2–7 scripts
+  (not comment-only)
+ORPHAN fields (283): Call_Center, Call_Center_Name, Manager,
+  SR_RETURN_AMT_INC_TAX, act_sales, amc, amt, average_sales,
+  avg_quarterly_sales, best_performing ...
+```
+
+**Classification:** the tpcds fieldless tables are NOT (mostly) Bug 53 unqualified-column cases — they are accessed via aliased/qualified patterns (category 2 suspicion) and the orphan pool is dominated by **SELECT-expression aliases** (a distinct orphan flavor). Implication: (a) the superseded 1c′ fix would not have covered them — the report-only decision is the right one; (b) the Bug 54 orphan report will surface a rich mix — the SQL-segment per field is essential for the human to classify alias-vs-expression-vs-unqualified.
