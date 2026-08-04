@@ -2158,3 +2158,45 @@ Key facts:
 **Strategy coverage:** (c) CTE/query-output attribution 68.5% — dominant; (b) schema-based 24.7% (13.7% genuinely schema-required); (a) scope resolution 1.4% whole-statement, **~12% with nearest-scope rule** (8 of 18 unq_multi have a local scope with exactly 1 FROM — e.g. `SELECT DISTINCT blocked_merchant_id FROM gps_risk_scores`); (e) unresolvable 5.5%.
 
 **Design refinement from data:** resolve unqualified columns against the NEAREST enclosing SELECT's FROM (not the whole statement) — lifts scope resolution 1.4% → ~12% with no schema needed. The extractor already stores `sql_expression`/`source_columns` on alias vars — plain_alias resolution mostly consumes existing fields + alias map.
+
+---
+
+## Orphan Type Classification — CONSOLIDATED (all samples, 2026-08-04)
+
+> Batches: financial group (5 samples, 73 occurrences) + tpcds (283) + tpcds_qualified (303) = 659 classified; + dwh_analytics 8 sys_table = 667 total.
+
+**Per-class tallies (659 classified occurrences):**
+
+| Class | Count | % |
+|-------|------:|---:|
+| unq_multi (bare, ≥2 table sources) | 379 | 57.5% |
+| expr_alias (expression output) | 147 | 22.3% |
+| plain_alias (`t.col AS x`) | 98 | 14.9% |
+| unq_single (bare, 1 table source) | 31 | 4.7% |
+| other (pseudocolumns/trigger vars) | 4 | 0.6% |
+| sys_table (info_schema; +8 in dwh_analytics) | 0 (8) | 1.2% |
+
+**Per-sample view:**
+
+| Sample | total | expr_alias | plain_alias | unq_single | unq_multi | other |
+|--------|------:|-----------:|------------:|-----------:|----------:|------:|
+| financial | 46 | 18 | 26 | 0 | 2 | 0 |
+| spider_complex | 10 (16 occ) | 0 | 0 | 0 | 10 (16) | 0 |
+| dialect_test | 5 | 0 | 0 | 1 | 0 | 4 |
+| mock_sql_test | 5 | 5 | 0 | 0 | 0 | 0 |
+| multi_test | 1 | 0 | 1 | 0 | 0 | 0 |
+| tpcds | 283 | 53 (18.7%) | 35 (12.4%) | 13 (4.6%) | 182 (64.3%) | 0 |
+| tpcds_qualified | 303 | 71 (23.4%) | 36 (11.9%) | 17 (5.6%) | 179 (59.1%) | 0 |
+
+**Strategy coverage (final):**
+- (c) CTE/query-output attribution (expr+plain alias): financial group **68.5%**; tpcds **31–35%**
+- (b) schema-based (unq_multi): tpcds **59–64%** — the big lever; financial 24.7% (13.7% genuinely schema-required)
+- (a) scope resolution (unq_single, nearest-scope measure): tpcds ~5%; ~12% of financial's unq_multi lift with nearest-scope rule
+- Combined (b)+(c): **~95% of tpcds orphans**
+
+**Key design facts from the data:**
+1. unq_multi dominates TPC-DS (join predicates `wr_web_page_sk = wp_web_page_sk`, filters `d_year=1999`) — schema-based resolution is the main lever there
+2. plain_alias fix is CHEAP: the extractor already stores `source_columns`/`sql_expression` (e.g. `batch_total` → `sb.total_amount`); walk them through the Bug-49 alias map
+3. scope-level (nearest query node) counting is the correct measure — statement-level counting would zero out unq_single in TPC-DS (every statement nests subqueries)
+4. Alias-of-bare-column orphans (48/sample in tpcds) need two hops: alias → source column → table
+5. sys_table/other are rare; pseudocolumn lists (LEVEL/new/old) are dialect-specific, not needed by these samples
