@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from app.services.workspace_service import get_workspace_dir, get_script_path
 from app.services.logger import _push
 
@@ -52,7 +53,9 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
       3. Extract table/column variables
       4. Build indexes
     
-    Returns: {table_index, field_index, script_count, precomputed_count}
+    Returns: {table_index, field_index, script_count, precomputed_count,
+              resolution_stats} — resolution_stats carries the R20 coverage
+              numbers aggregated from per-script extraction + the S4 pass.
     """
     from app.extractor.adapter import run_full_analysis
 
@@ -63,6 +66,13 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     errors = []
     total = len(script_paths)
     _set_progress(ws_id, 0, total, "analyzing")
+
+    # R20 / S4 (Phase 2) accumulation: per-script inferred schemas + the
+    # extractor's per-script resolution counters, aggregated at index time.
+    script_schemas = []   # list of {table -> set(fields)}
+    total_columns = 0     # sum of per-script column-variable counts
+    by_strategy = {"plain_alias": 0, "expr_alias": 0, "scope": 0,
+                   "schema": 0, "sys": 0, "other": 0}
 
     for i, rel_path in enumerate(script_paths):
         sp = get_script_path(ws_id, rel_path)
@@ -82,6 +92,33 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
             cache_key = hashlib.md5((rel_path + sql_text).encode()).hexdigest()[:12]
             cache_path = cache_dir / f"analysis_{cache_key}.json"
             cache_path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
+
+            # ── R20: aggregate per-script resolution stats ──
+            # The extractor emits `resolution_stats` in new analyses; old
+            # caches / mid-flight versions may not — read defensively.
+            rs = result.get("resolution_stats")
+            if isinstance(rs, dict):
+                total_columns += rs.get("total_columns", 0) or 0
+                rb = rs.get("resolved_by")
+                if isinstance(rb, dict):
+                    for _k in by_strategy:
+                        by_strategy[_k] += rb.get(_k, 0) or 0
+
+            # ── S4 input (Phase 2): per-script inferred schemas ──
+            # schema_inference expects attribute-style objects; the analysis
+            # JSON holds plain dicts → adapt locally so extraction stays
+            # untouched. Best-effort: a failing script just skips S4.
+            schemas = {}
+            try:
+                from app.extractor.schema_inference import infer_table_schemas
+                obj_vars = [SimpleNamespace(**v)
+                            for v in result.get("variables", []) if isinstance(v, dict)]
+                obj_deps = [SimpleNamespace(**d)
+                            for d in result.get("dependencies", []) if isinstance(d, dict)]
+                schemas = infer_table_schemas(obj_vars, obj_deps) or {}
+            except Exception:
+                schemas = {}
+            script_schemas.append(schemas)
 
             # Pre-compute graph
             try:
@@ -182,15 +219,46 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
             _set_progress(ws_id, i + 1, total, "analyzing")
 
 
+    # ── S4: schema-based resolution (Phase 2 — index time) ──
+    # Bare columns no earlier strategy could attribute get one last pass:
+    # if EXACTLY ONE physical table across the workspace has the field in
+    # its inferred schema, attribute it. Schema field names are exact, so
+    # set membership already enforces the R4 word-boundary invariant
+    # (`id` never matches `customer_id`).
+    schema_map = {}   # table -> set(fields), aggregated across scripts
+    for per_script in script_schemas:
+        for tbl, fields in per_script.items():
+            schema_map.setdefault(tbl, set()).update(fields)
+
+    schema_resolved = 0
+    for fname, fdata in field_index.items():
+        if fdata.get("tables"):
+            continue  # only truly orphaned pre-S4 fields are candidates
+        if fname in table_index:
+            continue  # R6: field-name == table-name collisions are never auto-attributed
+        # Candidates are PHYSICAL tables (present in the workspace index) —
+        # virtual tables (⟐ output) and CTE names are script-scoped and must
+        # not become workspace-wide autocomplete entries.
+        candidates = [tbl for tbl, fields in schema_map.items()
+                      if tbl in table_index and fname in fields]
+        if len(candidates) == 1:
+            tbl = candidates[0]
+            fdata["tables"].add(tbl)
+            table_index.setdefault(tbl, {"fields": set(), "scripts": set()})
+            table_index[tbl]["fields"].add(fname)
+            schema_resolved += 1
+    by_strategy["schema"] += schema_resolved
+
     # P1: Build pair_index[(table,field)] → {scripts} for fast seed-script lookup.
     # Used by Algorithm 2 step 2a to find seed scripts without scanning all data.
+    # Built AFTER S4 so schema attributions are included.
     cache_dir = get_workspace_dir(ws_id) / "cache"
     pair_index = {}
     for field_name, fdata in field_index.items():
         for table_name in fdata.get("tables", []):
             key = f"{table_name}.{field_name}"
             pair_index.setdefault(key, set()).update(fdata.get("scripts", []))
-    
+
     # Cache pair_index
     (cache_dir / "pair_index.json").write_text(json.dumps(
         {k: sorted(v) for k, v in pair_index.items()}, indent=2))
@@ -208,16 +276,28 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     (cache_dir / "table_index.json").write_text(json.dumps(table_index, indent=2))
     (cache_dir / "field_index.json").write_text(json.dumps(field_index, indent=2))
 
-    # ── Bug 54: orphan field report — fields with no table attribution ──
-    # A field is an orphan when the extractor saw it (unqualified column,
-    # e.g. `INSERT INTO t (customer_id) ...` without a table qualifier) but
-    # no table claims it. Persist + push a diagnostic so the user knows to
-    # check the SQL and re-index.
+    # ── R20: orphan resolution coverage report (supersedes Bug 54) ──
+    # Post-S4 orphans = fields with no table attribution. The report is the
+    # RESIDUAL layer of the resolution pipeline (S1–S4): only fields the
+    # extractor genuinely cannot attribute are listed, with SQL evidence,
+    # alongside the coverage numbers (resolved / total column variables).
     orphan_fields = {fname: sorted(fdata.get("scripts", []))
                      for fname, fdata in field_index.items()
                      if not fdata.get("tables")}
     (cache_dir / "orphan_fields.json").write_text(json.dumps(orphan_fields, indent=2))
-    _push_orphan_report(ws_id, orphan_fields)
+
+    total = total_columns
+    unresolved = len(orphan_fields)
+    resolved = max(0, total - unresolved)
+    coverage_pct = round(resolved / total * 100, 1) if total else 100.0
+    resolution_stats = {
+        "total_columns": total,
+        "resolved": resolved,
+        "unresolved": unresolved,
+        "coverage_pct": coverage_pct,
+        "by_strategy": dict(by_strategy),
+    }
+    _push_resolution_report(ws_id, resolution_stats, orphan_fields)
 
     # Update workspace meta
     ws_dir = get_workspace_dir(ws_id)
@@ -236,6 +316,7 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
         "errors": errors,
         "orphan_field_count": len(orphan_fields),
         "orphan_field_samples": list(sorted(orphan_fields))[:20],
+        "resolution_stats": resolution_stats,
     }
 
 
@@ -263,39 +344,54 @@ def _resolve_orphan_script(ws_id: str, name: str):
     return None
 
 
-def _push_orphan_report(ws_id: str, orphan_fields: dict):
-    """Bug 54: R16-style diagnostic block for fields with no table attribution.
+def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict):
+    """R20: coverage diagnostic — resolved vs total column variables.
 
-    Shows up to 10 fields (name + first script + up to 3 SQL lines from that
-    script mentioning the field, stripped to ~70 chars). Skipped entirely
-    when there are no orphans.
+    Supersedes the Bug-54 ORPHAN FIELD REPORT (same SQL-evidence mechanism
+    for the residual orphans). Always pushed, even when every column is
+    resolved. Shows up to 10 fields (name + first script + up to 3 SQL
+    lines from that script mentioning the field, stripped to ~70 chars).
     """
-    if not orphan_fields:
-        return
     W = 80
+    total = stats.get("total_columns", 0)
+    resolved = stats.get("resolved", 0)
+    coverage_pct = stats.get("coverage_pct", 0)
+    by = stats.get("by_strategy", {})
     names = sorted(orphan_fields)
-    total = len(names)
-    lines = ["┌─ ORPHAN FIELD REPORT " + "─" * max(0, W - len("┌─ ORPHAN FIELD REPORT ") - 1) + "┐"]
-    lines.append(("│ %d fields have no table attribution (check SQL, then re-index)"
-                  % total).ljust(W - 1) + "│")
-    for fname in names[:10]:
-        script = (orphan_fields[fname] or [""])[0]
-        lines.append(("│ field: %s    script: %s"
-                      % (fname[:26], script[:32])).ljust(W - 1) + "│")
-        # Line search ONLY for reported fields (keep indexing fast)
-        sp = _resolve_orphan_script(ws_id, script)
-        if sp:
-            try:
-                sql_txt = sp.read_text(encoding="utf-8", errors="replace")
-            except Exception:
-                sql_txt = ""
-            needle = fname.lower()
-            hits = [(i + 1, ln) for i, ln in enumerate(sql_txt.split("\n"))
-                    if needle in ln.lower()]
-            for lineno, ln in hits[:3]:
-                lines.append(("│ %s" % ("   L%d: %s" % (lineno, ln.strip()))[:70]).ljust(W - 1) + "│")
-    if total > 10:
-        lines.append(("│ ... %d more" % (total - 10)).ljust(W - 1) + "│")
+    n = len(names)
+    lines = ["┌─ ORPHAN RESOLUTION REPORT "
+             + "─" * max(0, W - len("┌─ ORPHAN RESOLUTION REPORT ") - 1) + "┐"]
+    lines.append(("│ column vars: %d | resolved: %d (%g%%) |"
+                  % (total, resolved, coverage_pct)).ljust(W - 1) + "│")
+    lines.append(("│   unresolved: %d" % n).ljust(W - 1) + "│")
+    lines.append(("│   by strategy: plain_alias=%d expr_alias=%d scope=%d schema=%d"
+                  % (by.get("plain_alias", 0), by.get("expr_alias", 0),
+                     by.get("scope", 0), by.get("schema", 0))).ljust(W - 1) + "│")
+    lines.append(("│   (sys=%d other=%d marked expected)"
+                  % (by.get("sys", 0), by.get("other", 0))).ljust(W - 1) + "│")
+    lines.append("│" + "─" * (W - 2) + "│")
+    if n:
+        lines.append(("│ UNRESOLVED orphans — possible bad cases, check SQL:")
+                     .ljust(W - 1) + "│")
+        for fname in names[:10]:
+            script = (orphan_fields[fname] or [""])[0]
+            lines.append(("│ field: %s   script: %s"
+                          % (fname[:26], script[:32])).ljust(W - 1) + "│")
+            # Line search ONLY for reported fields (keep indexing fast)
+            sp = _resolve_orphan_script(ws_id, script)
+            if sp:
+                try:
+                    sql_txt = sp.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    sql_txt = ""
+                needle = fname.lower()
+                hits = [(i + 1, ln) for i, ln in enumerate(sql_txt.split("\n"))
+                        if needle in ln.lower()]
+                for lineno, ln in hits[:3]:
+                    lines.append(("│ %s" % ("   L%d: %s" % (lineno, ln.strip()))[:70])
+                                 .ljust(W - 1) + "│")
+        if n > 10:
+            lines.append(("│ ... %d more" % (n - 10)).ljust(W - 1) + "│")
     lines.append("└" + "─" * (W - 2) + "┘")
     for line in lines:
         _push(ws_id, "profile", line)

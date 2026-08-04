@@ -1,7 +1,14 @@
-"""Orphan field report tests (Bug 54).
+"""Orphan field report tests (Bug 54 → R20 ORPHAN RESOLUTION REPORT).
 
 TC-A–TC-D per spec. Fixture pattern from test_l1_l2_integration.py
 (zip upload + index_scripts on the real workspace path).
+
+Note (R20): unqualified columns whose table is UNIQUELY inferable are now
+auto-attributed by the S4 schema pass (index-time resolution) — the old
+TC-A fixture (`INSERT INTO stg_customers (customer_id, full_name) SELECT
+customer_id, full_name FROM crm_customers`) now resolves to stg_customers.
+The orphan cases that remain are AMBIGUOUS ones, where ≥2 tables claim the
+field — that is what this fixture models.
 """
 
 import io
@@ -22,11 +29,11 @@ from app.services.workspace_service import (
 )
 from app.services.folder_index_service import index_scripts
 
-# TC-A: unqualified columns (no table qualifier) → no table attribution.
+# TC-A: unqualified columns (no table qualifier) whose schema owner is
+# ambiguous (t1 AND t2 both infer id/name) → no table attribution.
 TC_A_SQL = (
-    "-- load customers\n"
-    "INSERT INTO stg_customers (customer_id, full_name) "
-    "SELECT customer_id, full_name FROM crm_customers;\n"
+    "INSERT INTO t1 (id, name) SELECT id, name FROM a;\n"
+    "INSERT INTO t2 (id, name) SELECT id, name FROM b;\n"
 )
 # TC-B: qualified columns → attribution via alias map (c → crm_customers).
 TC_B_SQL = "SELECT c.customer_id FROM crm_customers c;\n"
@@ -54,12 +61,12 @@ def tc_b_ws():
 
 
 def test_tc_a_unqualified_columns_are_orphans(tc_a_ws):
-    """Unqualified INSERT/SELECT columns register no table → orphans."""
+    """Unqualified columns with ≥2 candidate tables stay orphans (S4 skips)."""
     result = index_scripts(tc_a_ws, ["load_customers.sql"])
     assert result["orphan_field_count"] >= 2, result
     samples = result["orphan_field_samples"]
-    assert "customer_id" in samples, samples
-    assert "full_name" in samples, samples
+    assert "id" in samples, samples
+    assert "name" in samples, samples
 
 
 def test_tc_b_qualified_columns_have_attribution(tc_b_ws):
@@ -76,7 +83,7 @@ def test_tc_c_orphan_fields_cache_file(tc_a_ws):
     assert fp.exists(), "orphan_fields.json should be written next to the other index files"
     data = json.loads(fp.read_text())
     assert isinstance(data, dict), data
-    assert set(data) == {"customer_id", "full_name"}, data
+    assert set(data) == {"id", "name"}, data
     for script_list in data.values():
         assert isinstance(script_list, list), script_list
     fi = json.loads((get_workspace_dir(tc_a_ws) / "cache" / "field_index.json").read_text())
@@ -85,7 +92,7 @@ def test_tc_c_orphan_fields_cache_file(tc_a_ws):
 
 
 def test_tc_d_diagnostic_contains_field_and_sql(monkeypatch, tc_a_ws):
-    """Intercept _push: the report block shows the field name AND a SQL line."""
+    """Intercept _push: the R20 report shows the field name AND a SQL line."""
     messages = []
 
     def fake_push(ws_id, stage, message):
@@ -94,7 +101,7 @@ def test_tc_d_diagnostic_contains_field_and_sql(monkeypatch, tc_a_ws):
     monkeypatch.setattr("app.services.folder_index_service._push", fake_push)
     index_scripts(tc_a_ws, ["load_customers.sql"])
     joined = "\n".join(m for s, m in messages if s == "profile")
-    assert "ORPHAN FIELD REPORT" in joined, "orphan report block must be pushed via _push"
-    assert "field: customer_id" in joined, joined
-    assert "INSERT INTO stg_customers" in joined, \
+    assert "ORPHAN RESOLUTION REPORT" in joined, "report block must be pushed via _push"
+    assert "field: id" in joined, joined
+    assert "INSERT INTO t1 (id" in joined, \
         "a SQL line mentioning the field must be shown in the report"
