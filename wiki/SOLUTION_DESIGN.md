@@ -288,6 +288,21 @@ diagnostics — the two sets pinpoint the exact extractor divergence
 regression signal. Levels 1+2 are the primary check; level 3 covers
 the filter path.
 
+**Action on detection (triage, in order):**
+1. **Auto-fix at extraction** — the Bug 53 fix (step 1c′) attributes
+   single-FROM unqualified columns; most orphans disappear automatically.
+2. **Indexer fallback** — step 1c″ uses source_tables where the prefix
+   is empty (second net).
+3. **Report for manual review** — remaining orphans (ambiguous
+   multi-table joins, genuine gaps) are listed WITH their scripts and
+   SQL-evidence lines; the user fixes the SQL (qualify columns) or
+   accepts. Never auto-attribute blindly (would corrupt the index).
+4. **Future auto-repair** — after Bug 53 lands, infer_table_schemas
+   gains the resolution data and can support a second-pass attribution
+   for multi-table unambiguous columns. (Verified: schema inference is
+   currently blind to unqualified columns — same root gap — so this
+   must come AFTER the extractor fix.)
+
 ---
 
 ## What Gets Removed (After Prerequisites)
