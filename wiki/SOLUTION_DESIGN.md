@@ -297,12 +297,13 @@ diagnostics — the two sets pinpoint the exact extractor divergence
 regression signal. Levels 1+2 are the primary check; level 3 covers
 the filter path.
 
-**Action on detection (2026-08-04 decision): REPORT ONLY — no
-auto-fix, no fallback, no patch.** After the scripts are extracted,
-orphans are reported in the diagnostic info for human review. The
-report MUST include, per orphan field, the corresponding script
-segment (the SQL lines where the field appears), so the reviewer can
-judge and fix the SQL (qualify columns) without opening other tools.
+**Action on detection — SUPERSEDED (2026-08-04, revised):** the
+report-only stance was replaced by the automatic resolution design
+below ("Orphan Resolution — Understand Any SQL"). The report remains
+as the RESIDUAL layer: only orphans the code genuinely cannot resolve
+are listed, with their script segments, for human review. The report
+MUST include, per orphan field, the corresponding script segment (the
+SQL lines where the field appears).
 
 Report format (R16-style block, pushed after extraction):
 ```
@@ -321,6 +322,70 @@ Implementation: for each orphan field, its scripts come from
 `field_index[field]["scripts"]`; the SQL lines come from a
 case-insensitive line search of the field name in the script file
 (same mechanism as the filter's SQL-evidence diagnostic).
+
+---
+
+## Orphan Resolution — "Understand Any SQL" (2026-08-04, official design)
+
+**Goal:** the extractor attributes EVERY column to its table — the
+solution must understand any SQL, not require the SQL to be mended.
+Based on the consolidated classification of 659 orphans across all
+samples (unq_multi 57.5%, expr_alias 22.3%, plain_alias 14.9%,
+unq_single 4.7%, other 0.6%, sys_table 1.2%).
+
+### Resolution strategies (implemented in the extractor)
+
+**S1 — plain_alias (14.9%): alias inherits the source column's table.**
+`sb.total_amount AS batch_total` → `batch_total` gets `total_amount`'s
+attribution. The extractor already stores `source_columns`/
+`sql_expression` on alias vars — walk the source qualifier through the
+Bug-49 alias map. CHEAP (mostly consuming existing fields).
+
+**S2 — expr_alias (22.3%): attribute expression output to the
+statement's output context.**
+- CTE body → the CTE's output column set (so downstream unqualified
+  refs to the CTE column resolve to the CTE)
+- top-level SELECT → ⟐ output
+- INSERT…SELECT → the INSERT target (Bug 41 DML mapping already works)
+
+**S3 — unq_single (4.7%): bare column, exactly ONE physical table in
+the NEAREST enclosing SELECT scope → scope resolution** (the old 1c′
+with the D1 fix — count distinct PHYSICAL tables, not alias+canonical).
+Verified: nearest-scope is the correct measure (statement-level
+counting zeroes unq_single in TPC-DS — every statement nests subqueries).
+
+**S4 — unq_multi (57.5%): bare column, ≥2 physical tables → schema-based
+resolution.** `infer_table_schemas` per workspace; exact/word-boundary
+name match (R4 invariant — `id` must never match `customer_id`); unique
+owner → attribute; multiple/unknown → leave unattributed + report.
+The big lever for TPC-DS (join predicates `wr_web_page_sk = wp_web_page_sk`,
+filters `d_year=1999`).
+
+**S5 — sys_table (1.2%): INFORMATION_SCHEMA & system tables — exclude/
+mark as system, never a defect.**
+
+**S6 — other (0.6%): pseudocolumns (LEVEL), trigger vars (new/old) —
+dialect exclusion lists; stay reported as expected.**
+
+**Two-hop aliases** (`(select d_year AS ss_sold_year)`, ~48/sample in
+tpcds): chain S1 → S3/S4 (alias → source column → table).
+
+### Coverage (verified from the classification)
+
+| Strategy | tpcds | financial group |
+|----------|------:|----------------:|
+| S1+S2 (alias attribution) | 31–35% | 68.5% |
+| S4 (schema-based) | 59–64% | 24.7% |
+| S3 (scope) | ~5% | 1.4% (~12% with nearest-scope) |
+| **S1+S2+S3+S4 combined** | **~95%** | **~93%** |
+
+### Invariants
+- **R4**: every name match (schema, alias inheritance) is exact/
+  word-boundary — `id` never matches `customer_id`.
+- **R6**: field-name == table-name collisions are never auto-attributed.
+- **Never guess**: unresolved orphans stay visible in the report.
+- Consumers unchanged (indexer, graph_service read `source_tables`/
+  prefix as today).
 
 ---
 
