@@ -2120,3 +2120,20 @@ Key facts:
 - dwh_analytics is a broken sample (12/13 scripts are 404 placeholders); its orphans are information_schema columns
 - standalone/multi_workflow clean (fully qualified)
 - Design option (pending user): report could mark each orphan's class ([alias] vs [unqualified]) to reduce review noise
+
+---
+
+## Code Review §14–17 Verdicts (R1–R6) — 2026-08-04 (reviewed via /subtask)
+
+> Reviewer verified live: Bug 54 TC-A..D ✅, F1/F2/F3/F4/F5 ✅, suite 360 passed/0 failed (grew from 355).
+
+| ID | Sev | Finding | Triage | Next step |
+|----|-----|---------|--------|-----------|
+| R1 | 🟠 Med | F2 silently changed the empty-COL_NAME case: file-2-only CSV with table row but blank COL_NAME → 1 table, 0 fields (before F2: all fields kept). R19 says single-file uploads unchanged. | ⚠️ Needs a semantics decision | Decide: blank COL_NAME row = table with no columns (current) vs ignore row (before). Add the missing test. |
+| R2 | 🟡 Low/Med | F4 payload (warning/ignored_tables) not rendered — FilterPanel.jsx only reads table_count/field_count. | ✅ Valid | Frontend wiring to show the warning banner. |
+| R3 | 🟡 Low | F1 early-return skips the R17 diagnostic + view persistence (empty search won't survive reload). | ✅ Valid | Emit R17 diagnostic on the no_matches path; persist the empty view. |
+| R4 | 🟡 Low | Orphan SQL-evidence lines use substring match → short names (id, amt) get false-positive lines. | ✅ **Taken (applies twice)** | (a) Report: word-boundary `\b` or skip names < 4 chars. (b) **Resolution design invariant**: schema-based resolution must use exact/word-boundary name matching — orphan `id` must never match `customer_id` in an inferred schema. |
+| R5 | 🟡 Low | `_resolve_orphan_script` duplicates the filter's script resolver. | ✅ Valid | Hoist a shared resolver with F6 (filter_service.py). |
+| R6 | ℹ️ Info | tpcds orphan `Call_Center` is a TABLE NAME listed as an orphan field (from `cc_call_center_id Call_Center`). | ✅ **Taken (taxonomy guard class)** | Orphan-type taxonomy gains a **field-name == table-name collision** class — the resolver must never mis-attribute these; count them separately from plain unqualified. |
+
+**Folded into the orphan solution design:** R4 (word-boundary invariant) + R6 (collision class) — see the orphan type analysis (tpcds/financial agents, in progress) and the upcoming solution design.
