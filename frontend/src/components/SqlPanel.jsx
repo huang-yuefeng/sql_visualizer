@@ -179,8 +179,11 @@ export default function SqlPanel({ sqlText, highlights, scriptName, wsId, table,
       const saved = await api.saveExportConfig(wsId, cfg);
       setConfig({ ...DEFAULT_CONFIG, ...saved });
     } catch (err) {
-      console.error('Config upload failed:', err);
-      alert('Invalid config file. Must be valid JSON.');
+      // Factual, per failure type: JSON parse errors vs API errors
+      const msg = err && err.name === 'SyntaxError'
+        ? 'Invalid config file — must be valid JSON.'
+        : `Config upload failed: ${err && err.message ? err.message : 'HTTP error'}`;
+      alert(msg);
     }
   };
 
@@ -189,7 +192,10 @@ export default function SqlPanel({ sqlText, highlights, scriptName, wsId, table,
     try {
       await api.resetExportConfig(wsId);
       setConfig({ ...DEFAULT_CONFIG });
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      // surface via the existing save-status indicator
+      setSaveStatus('error');
+    }
   };
 
   if (!sqlText) return null;

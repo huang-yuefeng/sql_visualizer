@@ -67,12 +67,19 @@ def default_resolution_stats() -> dict:
       script_schemas — per-script canonical table → {column: evidence_line}
         (dict-of-dicts; the line is where the schema EVIDENCE occurred —
         qualified-ref / DML-list / DDL statement line; first occurrence wins).
+      C4a (R20 contract unification): `resolved`, `unresolved_count` and
+        `coverage_pct` are emitted ADDITIVELY alongside the legacy keys —
+        old caches and defensive readers keep working, and new analyses
+        carry the index-aggregate shapes without a frontend shim.
     """
     return {
         "total_columns": 0,
         "resolved_by": {"plain_alias": 0, "expr_alias": 0, "scope": 0,
                         "schema": 0, "sys": 0, "other": 0},
         "unresolved": [],
+        "resolved": 0,              # C4a: total_columns − len(unresolved)
+        "unresolved_count": 0,      # C4a: len(unresolved)
+        "coverage_pct": None,       # C4a: one-decimal coverage; None @ 0 columns
         "schema_candidates": [],
         "r6_collision": 0,
         "script_schemas": {},
@@ -127,6 +134,8 @@ def _sql(expr) -> str:
     try:
         return expr.sql(dialect="mysql", pretty=True)
     except Exception:
+        # benign: display-only render — a failure yields "" and every
+        # caller already tolerates an empty SQL string.
         return ""
 
 
@@ -137,6 +146,8 @@ def _func_name(expr: exp.Expression) -> str:
     try:
         return (expr.sql_name() or "").lower()
     except Exception:
+        # benign: classification helper — "" just falls through as an
+        # unknown function name (no crash, no misclassification).
         return ""
 
 
@@ -225,6 +236,8 @@ def _extract_source_columns(expr: exp.Expression) -> list[str]:
                 elif col_name:
                     cols.append(col_name)
     except Exception:
+        # benign: best-effort walk — a partial column list only degrades
+        # edge granularity, never crashes extraction.
         pass
     return list(set(cols))
 
@@ -368,6 +381,8 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
     try:
         parsed = sqlglot.parse(clean_sql, dialect=dialect_used, error_level=sqlglot.ErrorLevel.IGNORE)
     except Exception:
+        # benign: parse is best-effort (ErrorLevel.IGNORE) — any failure
+        # falls through to the fallback dialect attempts below.
         pass
 
     # Fallback: try hive (covers MaxCompute/ODPS), then mysql
@@ -381,12 +396,15 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
                     dialect_used = fallback
                     break
             except Exception:
+                # benign: per-fallback failure — try the next dialect.
                 continue
 
     if not parsed:
         try:
             parsed = sqlglot.parse(clean_sql, dialect="mysql", error_level=sqlglot.ErrorLevel.IGNORE)
         except Exception:
+            # benign: final parse failed — graceful degradation: the
+            # caller gets an empty extraction (visible as an empty graph).
             return result
 
     result.template_replacements = [f"dialect: {dialect_used}"]
@@ -435,6 +453,8 @@ class _RoleBasedExtractor:
         try:
             self._tokens = list(sqlglot.Tokenizer().tokenize(sql_text))
         except Exception:
+            # benign: tokenization failure → empty stream; every position
+            # lookup then falls back to the string-based search.
             self._tokens = []
         # Statement-anchor cache: id(statement node) → its first-token line
         # (original file), computed by token-subsequence matching. This
@@ -472,6 +492,8 @@ class _RoleBasedExtractor:
                         and (not skip_strings or tok.token_type != TokenType.STRING)):
                     return (tok.line, tok.line)
         except Exception:
+            # benign: token scan failure → fall through to the
+            # string-search fallback (Strategy 2) below.
             pass
 
         # Strategy 2: string-based fallback
@@ -499,11 +521,15 @@ class _RoleBasedExtractor:
         try:
             stmt_sql = expr.sql(dialect="mysql")
         except Exception:
+            # benign: render failure → no anchor (0); callers fall back
+            # conservatively (documented in the docstring).
             stmt_sql = ""
         if stmt_sql:
             try:
                 rendered = list(sqlglot.Tokenizer().tokenize(stmt_sql))
             except Exception:
+                # benign: tokenize failure → no head match → anchor 0,
+                # the same conservative fallback.
                 rendered = []
             if rendered:
                 # Skip AS tokens on BOTH sides: sqlglot's render inserts
@@ -594,12 +620,20 @@ class _RoleBasedExtractor:
         context — historical behavior, kept for BELONGS_TO edges). The
         phantom is guarded from attribution by `_in_scope_owner` and must
         not make an already-attributed field look orphaned in the report.
+
+        C4a (R20 contract unification): additionally emits `resolved`
+        (total − unresolved), `unresolved_count`, `coverage_pct`
+        (one-decimal, None @ 0 columns) — additive, old readers unaffected.
         """
         # S4a (Phase 2): unique-owner post-pass over the stashed candidates.
         # Unique-owner candidates are AUTO-attributed (source_tables set,
         # resolved_by["schema"] += 1, removed from schema_candidates); R6
         # collisions are counted; ambiguous/evidence-absent candidates stay.
-        r6 = self._finalize_schema_candidates()
+        # A3: the S3-side R6 count (field == visible table name in a
+        # single-table scope, accumulated during the walk) is summed with
+        # the S4 candidates' own collisions — same per-script counter.
+        r6 = (self._finalize_schema_candidates()
+              + self._resolution_stats["r6_collision"])
         stats = {
             "total_columns": self._resolution_stats["total_columns"],
             "resolved_by": dict(self._resolution_stats["resolved_by"]),
@@ -623,6 +657,18 @@ class _RoleBasedExtractor:
                 continue
             seen.add(v.name)
             stats["unresolved"].append(v.name)
+        # C4a (R20 contract unification): emit the index-aggregate shapes
+        # ADDITIVELY — nothing existing is removed, and the frontend shim's
+        # derivation becomes a no-op for new analyses. `resolved` is exactly
+        # total − unresolved (the shim's math); coverage_pct is one-decimal
+        # (Math.round((1 − unresolved/total) * 1000) / 10); None when no
+        # columns were seen (matches the shim's "—" display).
+        stats["resolved"] = stats["total_columns"] - len(stats["unresolved"])
+        stats["unresolved_count"] = len(stats["unresolved"])
+        total = stats["total_columns"]
+        stats["coverage_pct"] = (
+            round(100.0 * (1 - len(stats["unresolved"]) / total), 1)
+            if total > 0 else None)
         return stats
 
     # ── Top-level dispatch ──────────────────────────────────────────
@@ -1099,6 +1145,13 @@ class _RoleBasedExtractor:
         distinct = self._distinct_scope_tables(scope)
         if len(distinct) == 1:
             db, name = distinct[0]
+            # A3: R6 guard extended to S3 — `SELECT call_center FROM
+            # call_center` has the same field == visible-table-name ambiguity
+            # S4 excludes in ≥2-table scopes (SOLUTION_DESIGN follow-up 5).
+            # Never attribute; counted in r6_collision; stays unresolved.
+            if col_name.lower() == name.lower():
+                self._resolution_stats["r6_collision"] += 1
+                return
             if db.lower() in _SYSTEM_SCHEMAS:
                 var.source_tables = [SYSTEM_TABLE_SENTINEL]
                 self._resolution_stats["resolved_by"]["sys"] += 1
@@ -1471,7 +1524,13 @@ class _RoleBasedExtractor:
                         distinct = self._distinct_scope_tables(scope)
                         if len(distinct) == 1:
                             _db, _name = distinct[0]
-                            if _db.lower() in _SYSTEM_SCHEMAS:
+                            if source_name.lower() == _name.lower():
+                                # A3: R6 guard mirrored from _register_column —
+                                # the alias inherits EXACTLY what its source
+                                # column gets (S3 refuses field==table-name
+                                # collisions); the collision is counted there.
+                                pass
+                            elif _db.lower() in _SYSTEM_SCHEMAS:
                                 attr_strategy, attr_table = "sys", SYSTEM_TABLE_SENTINEL
                             else:
                                 attr_strategy, attr_table = "plain_alias", _name

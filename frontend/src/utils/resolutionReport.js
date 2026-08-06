@@ -1,18 +1,26 @@
 /**
  * R20 — Orphan Resolution Report helpers (pure, testable).
  *
- * The backend emits resolution_stats in two shapes:
+ * The backend emits resolution_stats in three shapes:
  *
- * 1. Per-script analysis (extractor, adapter.py / variable_extractor_v2.py):
+ * 1. Per-script analysis — unified (extractor v-next, additive keys):
  *      { total_columns, resolved_by: {plain_alias, expr_alias, scope,
- *        schema, sys, other}, unresolved: ["col_name", ...] }
+ *        schema, sys, other}, unresolved: ["col_name", ...],
+ *        resolved, unresolved_count, coverage_pct }
  *
- * 2. Workspace index (folder_index_service.py):
+ * 2. Per-script analysis — legacy extractor shape (old caches):
+ *      { total_columns, resolved_by: {...}, unresolved: ["col_name", ...] }
+ *
+ * 3. Workspace index (folder_index_service.py):
  *      { total_columns, resolved, unresolved: <count>, container_resolved,
  *        coverage_pct, by_strategy: {plain_alias, expr_alias, scope,
  *        schema, sys, other} }
  *    (the unresolved NAMES ride along as `orphan_field_samples` in the
  *    index response body, not inside resolution_stats)
+ *
+ * summarizeResolutionStats() prefers the unified keys (unresolved_count,
+ * coverage_pct) and keeps the legacy/index branches only as fallback for
+ * old cached data.
  *
  * summarizeResolutionStats() flattens either shape into one view-model for
  * the ORPHAN RESOLUTION REPORT block. Returns null when stats are absent
@@ -39,15 +47,19 @@ export function summarizeResolutionStats(stats, fallbackNames = null) {
 
   const total = typeof stats.total_columns === 'number' ? stats.total_columns : null;
 
-  // unresolved: list of names (extractor shape) or a count (index shape)
+  // unresolved count — unified key `unresolved_count` first (extractor
+  // v-next), else a name list (legacy extractor shape), else a plain
+  // count (index shape). Old branches kept as fallback for caches.
   const unresolvedArr = Array.isArray(stats.unresolved)
     ? stats.unresolved.filter(n => typeof n === 'string')
     : null;
-  const unresolvedCount = unresolvedArr !== null
-    ? unresolvedArr.length
-    : typeof stats.unresolved === 'number'
-      ? stats.unresolved
-      : null;
+  const unresolvedCount = typeof stats.unresolved_count === 'number'
+    ? stats.unresolved_count
+    : unresolvedArr !== null
+      ? unresolvedArr.length
+      : typeof stats.unresolved === 'number'
+        ? stats.unresolved
+        : null;
 
   const byStrategy = stats.resolved_by && typeof stats.resolved_by === 'object'
     ? stats.resolved_by
@@ -63,18 +75,18 @@ export function summarizeResolutionStats(stats, fallbackNames = null) {
     names = fallbackNames.filter(n => typeof n === 'string');
   }
 
-  // Coverage % = 1 - unresolved/total (guard division by zero).
-  // Prefer the computed value; fall back to the backend's coverage_pct
-  // (index shape) only when we lack the inputs to compute it ourselves.
+  // Coverage % — prefer the unified `coverage_pct` key (extractor v-next
+  // and index shape); fall back to computing 1 - unresolved/total for the
+  // legacy extractor shape (guard division by zero).
   // M10: old/mid-flight index caches report total_columns=0 with
   // unresolved>0 while the backend pins coverage_pct=100.0 — never trust
   // that combination (it claims 100% coverage with unresolved columns).
   let coveragePct = null;
   const staleZeroTotal = total === 0 && unresolvedCount !== null && unresolvedCount > 0;
-  if (total !== null && total > 0 && unresolvedCount !== null) {
-    coveragePct = Math.round((1 - unresolvedCount / total) * 1000) / 10;
-  } else if (!staleZeroTotal && typeof stats.coverage_pct === 'number') {
+  if (!staleZeroTotal && typeof stats.coverage_pct === 'number') {
     coveragePct = stats.coverage_pct;
+  } else if (total !== null && total > 0 && unresolvedCount !== null) {
+    coveragePct = Math.round((1 - unresolvedCount / total) * 1000) / 10;
   }
 
   return { total, unresolvedCount, names, byStrategy, coveragePct };

@@ -22,7 +22,7 @@ function saveHistory(h) { localStorage.setItem('df_search_history', JSON.stringi
 function loadPins() { try { return JSON.parse(localStorage.getItem('df_pinned_searches') || '[]'); } catch { return []; } }
 function savePins(p) { localStorage.setItem('df_pinned_searches', JSON.stringify(p)); }
 
-export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, loading, onFilterApplied }) {
+export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, loading, onFilterApplied, onError }) {
   const [table, setTable] = useState('');
   const [field, setField] = useState('');
   const [tableSuggestions, setTableSuggestions] = useState([]);
@@ -33,6 +33,7 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
   const [filterStats, setFilterStats] = useState(null);
   const [filterWarning, setFilterWarning] = useState(null);   // F4/R2: payload.warning
   const [filterIgnored, setFilterIgnored] = useState([]);     // F4/R2: payload.ignored_tables
+  const [filterIgnoredRows, setFilterIgnoredRows] = useState(null); // D2: payload.ignored_rows
   const [uploadingFilter, setUploadingFilter] = useState(false);
   const [filterExpanded, setFilterExpanded] = useState(false);
   const [searchHistory, setSearchHistory] = useState(loadHistory);
@@ -134,7 +135,8 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
         setFilterStats(null);
         setFilterWarning(null);
         setFilterIgnored([]);
-      } catch (e) { console.error(e); }
+        setFilterIgnoredRows(null);
+      } catch (e) { onError?.(e && e.message ? e.message : 'Filter clear failed'); }
       setUploadingFilter(false);
       return;
     }
@@ -143,11 +145,12 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
       const result = await api.uploadFilterConfig(wsId, stFile, tcFile);
       setFilterActive(result.filtered);
       setFilterStats(`${result.table_count} tables, ${result.field_count} fields`);
-      // F4/R2: surface ignored tables + human warning from the payload
+      // F4/R2 + D2: surface warning, ignored tables and ignored rows from the payload
       setFilterWarning(result.warning || null);
       setFilterIgnored(Array.isArray(result.ignored_tables) ? result.ignored_tables : []);
+      setFilterIgnoredRows(typeof result.ignored_rows === 'number' ? result.ignored_rows : null);
       if (onFilterApplied) await onFilterApplied(result);
-    } catch (e) { console.error(e); }
+    } catch (e) { onError?.(e && e.message ? e.message : 'Filter apply failed'); }
     setUploadingFilter(false);
   };
 
@@ -159,8 +162,9 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
       setFilterStats(null);
       setFilterWarning(null);
       setFilterIgnored([]);
+      setFilterIgnoredRows(null);
       if (onFilterApplied) await onFilterApplied(null);
-    } catch (e) { console.error(e); }
+    } catch (e) { onError?.(e && e.message ? e.message : 'Filter clear failed'); }
   };
 
   return (
@@ -178,12 +182,15 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
           </span>
           <span className="ifb-toggle">{filterExpanded ? '▲' : '▼'}</span>
         </div>
-        {/* F4/R2: warn when the filter dropped tables (visible even when collapsed) */}
-        {filterWarning && (
+        {/* F4/R2 + D2: warn when the filter dropped rows/tables (visible even when collapsed) */}
+        {(filterWarning || filterIgnoredRows > 0) && (
           <div className="filter-warning">
             <span className="fw-icon">⚠️</span>
             <div className="fw-text">
               {filterWarning}
+              {filterIgnoredRows > 0 && (
+                <div className="fw-ignored">{filterIgnoredRows} rows ignored</div>
+              )}
               {filterIgnored.length > 0 && (
                 <div className="fw-ignored">
                   {filterIgnored.length} table{filterIgnored.length > 1 ? 's' : ''} ignored:{' '}

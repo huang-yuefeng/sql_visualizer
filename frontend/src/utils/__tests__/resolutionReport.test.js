@@ -78,4 +78,59 @@ describe('summarizeResolutionStats', () => {
     expect(strategyLabel('plain_alias')).toContain('plain alias');
     expect(strategyLabel('unknown_key')).toBe('unknown_key');
   });
+
+  // ── C4c: unified extractor keys (unresolved_count, coverage_pct) ─────
+  it('C4c: prefers unified unresolved_count over the name-list length', () => {
+    const s = summarizeResolutionStats({
+      total_columns: 40,
+      resolved_by: { plain_alias: 10, expr_alias: 5, scope: 20, schema: 0, sys: 2, other: 1 },
+      unresolved: ['orphan_a', 'orphan_b'], // list shorter than the count
+      unresolved_count: 3,
+      resolved: 37,
+      coverage_pct: 92.5,
+    });
+    expect(s.unresolvedCount).toBe(3);
+    expect(s.coveragePct).toBe(92.5);
+    expect(s.names).toEqual(['orphan_a', 'orphan_b']);
+  });
+
+  it('C4c: prefers unified coverage_pct over the computed value', () => {
+    // computed would be 95 (1 - 2/40); the backend-sent 96.0 must win
+    const s = summarizeResolutionStats({
+      total_columns: 40,
+      unresolved: ['a', 'b'],
+      unresolved_count: 2,
+      coverage_pct: 96.0,
+    });
+    expect(s.unresolvedCount).toBe(2);
+    expect(s.coveragePct).toBe(96);
+  });
+
+  it('C4c: unified shape without a name list counts from unresolved_count', () => {
+    const s = summarizeResolutionStats({
+      total_columns: 100,
+      resolved_by: {},
+      unresolved_count: 7,
+      resolved: 93,
+      coverage_pct: 93.0,
+    });
+    expect(s.unresolvedCount).toBe(7);
+    expect(s.names).toBeNull();
+    expect(s.coveragePct).toBe(93);
+  });
+
+  it('C4c: unified shape still keeps orphan_field_samples as name fallback', () => {
+    const s = summarizeResolutionStats(
+      { total_columns: 100, unresolved_count: 7, resolved: 93, coverage_pct: 93.0 },
+      ['orphan_1', 'orphan_2'],
+    );
+    expect(s.unresolvedCount).toBe(7);
+    expect(s.names).toEqual(['orphan_1', 'orphan_2']);
+  });
+
+  it('C4c: old extractor shape (no unified keys) still computes coverage', () => {
+    const s = summarizeResolutionStats({ total_columns: 40, unresolved: ['a', 'b'] });
+    expect(s.unresolvedCount).toBe(2);
+    expect(s.coveragePct).toBe(95);
+  });
 });

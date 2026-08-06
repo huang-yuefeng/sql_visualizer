@@ -37,7 +37,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 SAMPLES_DIR = BACKEND_DIR.parent / "samples"
 
 from app.extractor import adapter as adapter_mod
-from app.services.folder_index_service import index_scripts
+from app.services.folder_index_service import index_scripts, scan_folder
 from app.services.workspace_service import (
     create_workspace,
     delete_workspace,
@@ -74,7 +74,8 @@ def _sim(per_script: dict):
     """Inject the NEW dict-of-dicts script_schemas shape (provenance) —
     scenarios the real (old-shape) extractor in the repo can't produce yet.
     per_script: {script_name: {"script_schemas": {table: {col: line}},
-                               "candidates": [...], "r6": int}}"""
+                               "candidates": [...], "r6": int,
+                               "stats": {extra per-script keys...}}}"""
     def wrapped(sql_text, script_name, ws_id=None):
         result = _REAL_RUN(sql_text, script_name, ws_id=ws_id)
         rs = result.get("resolution_stats")
@@ -84,6 +85,9 @@ def _sim(per_script: dict):
         rs["schema_candidates"] = inj.get("candidates",
                                           rs.get("schema_candidates", []))
         rs["r6_collision"] = inj.get("r6", rs.get("r6_collision", 0))
+        # C4b: arbitrary extra per-script keys (resolved, unresolved_count,
+        # coverage_pct) — the index aggregate must ignore them.
+        rs.update(inj.get("stats", {}))
         result["resolution_stats"] = rs
         return result
     return wrapped
@@ -434,3 +438,195 @@ def test_l2_case_variant_tables_not_merged():
         assert result2["resolution_stats"]["by_strategy"]["schema"] == 1
     finally:
         delete_workspace(ws2)
+
+
+# ── A1 (Item 1): DDL-file classification + schema-evidence report ────────
+
+def _tree_node(tree: dict, name: str) -> dict | None:
+    """Walk a scan_folder tree to the node whose `name` matches."""
+    if tree.get("name") == name:
+        return tree
+    for child in tree.get("children", []):
+        hit = _tree_node(child, name)
+        if hit:
+            return hit
+    return None
+
+
+def test_a1_ddl_only_sql_is_schema_evidence_not_script(monkeypatch):
+    """A1: a DDL-only .sql file is file_class "schema" — never a pipeline
+    script (script_count, meta.indexed_scripts, no analysis/graph caches) —
+    but its DDL evidence still flows into S4b: the bare column resolves and
+    the report names the DDL file as evidence."""
+    ws = _make_ws({
+        "ddl_only.sql": "CREATE TABLE web_sales (ws_web_page_sk INT);\n",
+        "q.sql": ("SELECT ws_web_page_sk FROM web_sales JOIN web_page "
+                  "ON web_sales.a = web_page.b;\n"),
+    })
+    try:
+        tree = scan_folder(ws)
+        assert _tree_node(tree, "ddl_only.sql")["file_class"] == "schema"
+        assert _tree_node(tree, "q.sql")["file_class"] == "script"
+        result, joined = _run_capture(monkeypatch, ws,
+                                      ["ddl_only.sql", "q.sql"])
+        assert result["script_count"] == 1, result  # DDL file is not a script
+        assert result["resolution_stats"]["by_strategy"]["schema"] == 1
+        assert result["field_index"]["ws_web_page_sk"]["tables"] == ["web_sales"]
+        assert ("field: ws_web_page_sk → web_sales (evidence: ddl_only.sql L1"
+                in joined), joined
+        meta = json.loads((get_workspace_dir(ws) / "meta.json").read_text())
+        assert meta["indexed_scripts"] == ["q.sql"]
+        cache_dir = get_workspace_dir(ws) / "cache"
+        caches = [p.name for p in cache_dir.glob("analysis_*.json")]
+        assert len(caches) == 1, caches  # only q.sql — DDL file gets no cache
+        graphs = [p.name for p in cache_dir.glob("graph_*.json")]
+        assert len(graphs) == 1, graphs
+        ev = result["schema_evidence"]
+        assert ev["present"] is True and ev["tables"] >= 1 and ev["columns"] >= 1, ev
+    finally:
+        delete_workspace(ws)
+
+
+def test_a1_ddl_only_table_absent_from_index():
+    """A1: indexing a schema file alone → script_count 0 and an EMPTY
+    table/field index (no filter scope or L1/L2 involvement), while
+    schema_evidence still reports the DDL facts."""
+    ws = _make_ws({
+        "dim.ddl": "CREATE TABLE dim_date (d_date_sk INT, d_date DATE);\n",
+    })
+    try:
+        result = index_scripts(ws, ["dim.ddl"])
+        assert result["script_count"] == 0, result
+        assert result["table_index"] == {}, result["table_index"]
+        assert result["field_index"] == {}, result["field_index"]
+        assert result["schema_evidence"] == {
+            "present": True, "tables": 1, "columns": 2}, \
+            result["schema_evidence"]
+    finally:
+        delete_workspace(ws)
+
+
+def test_a1_create_plus_select_is_script():
+    """A1: a .sql file mixing DDL and data statements is a pipeline script
+    (classify requires EVERY top-level statement to be DDL-only). Its own
+    CREATE still emits script_schemas — but through the SCRIPT path, as a
+    regular pipeline script (script_count includes it)."""
+    ws = _make_ws({
+        "mix.sql": "CREATE TABLE t (f INT);\nSELECT f FROM t;\n",
+    })
+    try:
+        assert _tree_node(scan_folder(ws), "mix.sql")["file_class"] == "script"
+        result = index_scripts(ws, ["mix.sql"])
+        assert result["script_count"] == 1, result
+        # the CREATE ran inside the script — evidence merged, no separation
+        assert result["schema_evidence"]["present"] is True, \
+            result["schema_evidence"]
+    finally:
+        delete_workspace(ws)
+
+
+def test_a1_ddl_extension_is_schema_even_with_query_content():
+    """A1: the .ddl extension is explicit intent — content is not sniffed."""
+    ws = _make_ws({"odd.ddl": "SELECT 1;\n"})
+    try:
+        node = _tree_node(scan_folder(ws), "odd.ddl")
+        assert node["file_class"] == "schema"
+        assert node["is_sql"] is True  # still surfaces in the tree
+    finally:
+        delete_workspace(ws)
+
+
+def test_a1_old_tree_without_file_class_defaults_to_script():
+    """A1 defensive read: tree nodes without file_class (pre-A1 data) are
+    pipeline scripts, not schema — auto-select keeps them."""
+    from app.routers.workspace import _collect_sql_files
+    tree = {
+        "name": "root", "type": "directory", "children": [
+            {"name": "a.sql", "path": "a.sql", "type": "file", "is_sql": True},
+            {"name": "b.sql", "path": "b.sql", "type": "file", "is_sql": True,
+             "file_class": "schema"},
+            {"name": "c.txt", "path": "c.txt", "type": "file", "is_sql": False},
+        ],
+    }
+    assert _collect_sql_files(tree) == ["a.sql"]
+
+
+def test_a1_no_ddl_workspace_evidence_shape_false():
+    """A1 response contract: a workspace without DDL reports
+    schema_evidence {present: False, tables: 0, columns: 0}."""
+    ws = _make_ws({"a.sql": "SELECT 1;\n"})
+    try:
+        result = index_scripts(ws, ["a.sql"])
+        assert result["schema_evidence"] == {
+            "present": False, "tables": 0, "columns": 0}, \
+            result["schema_evidence"]
+    finally:
+        delete_workspace(ws)
+
+
+def test_a1_auto_select_discovery_keeps_evidence(monkeypatch):
+    """A1: when the caller's script list EXCLUDES the DDL file (the
+    auto-select path does), the index-time discovery pass still merges its
+    evidence — S4b resolution must not depend on caller selection."""
+    ws = _make_ws({
+        "ddl_only.sql": "CREATE TABLE web_sales (ws_web_page_sk INT);\n",
+        "q.sql": ("SELECT ws_web_page_sk FROM web_sales JOIN web_page "
+                  "ON web_sales.a = web_page.b;\n"),
+    })
+    try:
+        result, joined = _run_capture(monkeypatch, ws, ["q.sql"])
+        assert result["script_count"] == 1, result
+        assert result["resolution_stats"]["by_strategy"]["schema"] == 1
+        assert result["field_index"]["ws_web_page_sk"]["tables"] == ["web_sales"]
+        assert result["schema_evidence"]["present"] is True
+        assert "ddl_only.sql L1" in joined, joined
+    finally:
+        delete_workspace(ws)
+
+
+# ── C3 (Item 2): shared graph-cache prefix constant ──────────────────────
+
+def test_c3_shared_graph_cache_prefix():
+    """C3: every reader/writer of the graph cache uses the SAME constant —
+    a format-version bump is a one-line change, and the index-time writer
+    (folder_index_service) can never drift from the L2 reader's name."""
+    from app.services import cache_keys
+    from app.services import dataflow_service as dfs
+    from app.services import folder_index_service as fis
+    prefix = cache_keys.GRAPH_CACHE_PREFIX
+    assert prefix.startswith("graph_"), prefix
+    assert fis.GRAPH_CACHE_PREFIX == prefix
+    assert dfs.GRAPH_CACHE_PREFIX == prefix
+
+
+# ── C4b (Item 3): aggregate coverage must NOT sum per-script keys ────────
+
+def test_c4b_aggregate_ignores_per_script_resolution_keys(monkeypatch):
+    """C4b: the extractor's additive per-script keys (resolved,
+    unresolved_count, coverage_pct) must NOT feed the index aggregate —
+    aggregate coverage stays 1 − unresolved/total_columns over the UNION of
+    per-script unresolved lists. Injected bogus per-script values
+    (resolved=999, coverage_pct=100) must not move it."""
+    ws = _make_ws({
+        "q.sql": ("SELECT ws_web_page_sk FROM web_sales JOIN web_page "
+                  "ON web_sales.a = web_page.b;\n"),
+    })
+    try:
+        sim = _sim({
+            "q.sql": {"stats": {"resolved": 999, "unresolved_count": 0,
+                                "coverage_pct": 100.0}},
+        })
+        result, _ = _run_capture(monkeypatch, ws, ["q.sql"], sim)
+        stats = result["resolution_stats"]
+        tc = stats["total_columns"]
+        assert tc >= 1, stats
+        assert stats["unresolved"] == 1, stats  # ws_web_page_sk stays orphaned
+        assert stats["resolved"] == tc - 1, stats  # NOT the injected 999
+        expected = round((tc - 1) / tc * 100, 1)
+        assert stats["coverage_pct"] == expected, stats  # NOT injected 100.0
+        # the injected keys live in the per-script cache, untouched
+        qc = _cache_for(ws, "q.sql")
+        assert qc["resolution_stats"]["coverage_pct"] == 100.0, qc
+        assert qc["resolution_stats"]["resolved"] == 999, qc
+    finally:
+        delete_workspace(ws)

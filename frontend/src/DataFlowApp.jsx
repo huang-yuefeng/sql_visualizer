@@ -57,6 +57,8 @@ export default function DataFlowApp() {
   const [orphanFieldSamples, setOrphanFieldSamples] = useState(null);
   // R20/M11: schema_candidates_summary {total, unique_owner, r6_collision}
   const [schemaCandidates, setSchemaCandidates] = useState(null);
+  // A1: schema_evidence {present, tables, columns} (index response)
+  const [schemaEvidence, setSchemaEvidence] = useState(null);
   // R3: guards the mount-time view restore against a user upload racing it
   const uploadTokenRef = useRef(Date.now());
 
@@ -97,7 +99,7 @@ export default function DataFlowApp() {
         setL2Graph(null); setL2Result(null); setSqlText(''); setError(null);
         setScriptInfo(null); setActiveL1Table(null); setCurrentScriptName(''); setL2Filtered(true);
         setL2FullGraph(null); setResolutionStats(null); setOrphanFieldSamples(null);
-        setSchemaCandidates(null);
+        setSchemaCandidates(null); setSchemaEvidence(null);
         setShowLog(true);
       }
       const result = await api.uploadWorkspace(file);
@@ -118,6 +120,7 @@ export default function DataFlowApp() {
       setResolutionStats(idxResult.resolution_stats || null);
       setOrphanFieldSamples(idxResult.orphan_field_samples || null);
       setSchemaCandidates(idxResult.schema_candidates_summary || null);
+      setSchemaEvidence(idxResult.schema_evidence || null);
       setIndexed(true);
       setStale(false);
       setProgress(null);
@@ -178,6 +181,7 @@ export default function DataFlowApp() {
         setResolutionStats(idxResult.resolution_stats || null);
         setOrphanFieldSamples(idxResult.orphan_field_samples || null);
         setSchemaCandidates(idxResult.schema_candidates_summary || null);
+        setSchemaEvidence(idxResult.schema_evidence || null);
         setIndexed(true);
         setStale(false);
         setProgress(null);
@@ -352,7 +356,7 @@ export default function DataFlowApp() {
     setViews([]); setActiveViewId(null); setL1Graph(null);
     setL2Graph(null); setSqlText(''); setError(null);
     setResolutionStats(null); setOrphanFieldSamples(null);
-    setSchemaCandidates(null);
+    setSchemaCandidates(null); setSchemaEvidence(null);
   }, [wsId]);
 
   // ── L1 Table lens click ─────────────────────────────────────────
@@ -513,6 +517,7 @@ export default function DataFlowApp() {
         <WorkspacePanel
           wsId={wsId} loading={loading} progress={progress}
           onUpload={handleUpload} onDelete={handleDeleteWorkspace}
+          onError={setError}
         />
         {fileTree && (
           <FolderTree
@@ -526,6 +531,7 @@ export default function DataFlowApp() {
                 setResolutionStats(idxResult.resolution_stats || null);
                 setOrphanFieldSamples(idxResult.orphan_field_samples || null);
                 setSchemaCandidates(idxResult.schema_candidates_summary || null);
+                setSchemaEvidence(idxResult.schema_evidence || null);
                 setStale(false); setIndexed(true);
               } catch (e) { setError(e.message); }
               setLoading(false);
@@ -537,6 +543,7 @@ export default function DataFlowApp() {
             wsId={wsId}
             tableIndex={tableIndex} fieldIndex={fieldIndex}
             onSearch={handleSearch} loading={loading}
+            onError={setError}
             onFilterApplied={async (filterResult) => {
               if (filterResult && filterResult.filtered) {
                 const ft = new Set(filterResult.filtered_tables || []);
@@ -563,6 +570,7 @@ export default function DataFlowApp() {
             stats={resolutionStats}
             orphanFieldSamples={orphanFieldSamples}
             schemaCandidates={schemaCandidates}
+            schemaEvidence={schemaEvidence}
           />
         )}
         <ViewBar

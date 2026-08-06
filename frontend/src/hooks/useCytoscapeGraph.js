@@ -20,7 +20,7 @@ cytoscape.use(fcose);
 import { NODE_STYLES, COMPOUND_STYLES, L1_PIPELINE_EDGE_STYLES, TURN_EDGE_STYLES,
   BUNDLED_EDGE_STYLES, CATEGORY_EDGE_STYLES, SCRIPT_CARD_STYLES,
   OPERATION_NODE_STYLES, L2_DETAIL_STYLES } from '../utils/graphStyles';
-import { stripFieldParents, computeFieldRelPos } from '../utils/layoutCore';
+import { stripFieldParents, computeFieldRelPos, positionTableFields } from '../utils/layoutCore';
 import { TABLE_SELECTOR } from '../config/layout';
 import { runSnakeLayout } from '../utils/snakeLayout';
 
@@ -72,26 +72,22 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
       maxZoom: 5,
     });
 
-    // ── Drag: move fields with their table ──────────────────────
-    const dragStart = {};
-    cy.on('grab', TABLE_SEL, evt => {
-      dragStart[evt.target.id()] = { ...evt.target.position() };
-    });
+    // ── Drag: keep fields glued to their table (frozen offsets) ──
+    // Fields hold ABSOLUTE positions. Re-derive them from the table's
+    // current position + frozen relative offsets on every drag event
+    // (shared helper in layoutCore — same math applyLayout uses). The
+    // old per-event delta accumulation preserved any pre-existing
+    // discrepancy (a directly-dragged field, a coalesced drag frame, a
+    // stale position left by a programmatic move) instead of correcting
+    // it — that was the drift root cause.
     cy.on('drag', TABLE_SEL, evt => {
-      const n = evt.target, id = n.id(), cp = n.position();
-      if (!dragStart[id]) dragStart[id] = { x: cp.x, y: cp.y };
-      const dx = cp.x - dragStart[id].x, dy = cp.y - dragStart[id].y;
-      if (fieldRelRef.current) {
-        for (const [fid, { parentId }] of Object.entries(fieldRelRef.current)) {
-          if (parentId === id) {
-            const field = cy.getElementById(fid);
-            if (field.length) field.position({ x: field.position().x + dx, y: field.position().y + dy });
-          }
-        }
-      }
-      dragStart[id] = { x: cp.x, y: cp.y };
+      if (fieldRelRef.current) positionTableFields(cy, evt.target.id(), fieldRelRef.current);
     });
-    cy.on('dragfree', TABLE_SEL, evt => { delete dragStart[evt.target.id()]; });
+    // Final snap after release — guarantees exact offsets even if the
+    // last drag frame's event was dropped.
+    cy.on('dragfree', TABLE_SEL, evt => {
+      if (fieldRelRef.current) positionTableFields(cy, evt.target.id(), fieldRelRef.current);
+    });
 
     // ── Role badges on script nodes ─────────────────────────────
     cy.nodes('[type="script_node"]').forEach(n => {

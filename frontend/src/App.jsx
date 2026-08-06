@@ -422,7 +422,7 @@ export default function App() {
     };
     requestAnimationFrame(runLayout);
     return ()=>{cy.destroy();};
-    } catch(e) { D('💥 useEffect CRASH: '+e.message); console.error(e); }
+    } catch(e) { D('💥 useEffect CRASH: '+e.message); alert('Graph render failed: ' + e.message); }
   },[gd,ioGraph,ioPaths,viewMode,multiView,multiDetail,multiLayout]);
 
   const upload = async e => {

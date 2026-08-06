@@ -163,3 +163,173 @@ def test_alias_map_in_graph_cache(multi_workflow_ws):
     assert cached["alias_map"], "alias_map must not be empty"
     assert cached["alias_map"].get("sc") == "stg_customers", \
         f"alias_map must resolve sc → stg_customers, got {cached['alias_map']}"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# CW4 (C1): phase split — phase functions compose to the same graph
+# ══════════════════════════════════════════════════════════════════════
+
+def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
+    """CW4: calling the named phase functions in orchestrator order must
+    produce a byte-identical graph JSON to the slim _build_l2_graph
+    orchestrator (structural split — no behavior reordering)."""
+    from app.services import l2_builder as l2b
+
+    ws_id = multi_workflow_ws
+    sql = _step3_sql()
+    expected = _step3_l2_graph(ws_id)
+
+    full_graph, table_schemas = l2b._load_or_build_graph(ws_id, STEP3, sql)
+    graph_data = l2b._apply_relevance_filter(full_graph, TARGET_TABLE,
+                                             TARGET_FIELD, table_schemas,
+                                             relevance_filter=True)
+    nodes = graph_data.get("nodes", [])
+    edges = graph_data.get("edges", [])
+    target_node_ids, direct_ids = l2b._compute_target_and_direct_ids(
+        nodes, edges, TARGET_TABLE, TARGET_FIELD)
+    table_nodes, field_nodes, other_nodes, alias_map = l2b._classify_compound_nodes(
+        nodes, full_graph, STEP3, target_node_ids, direct_ids)
+    id_map = l2b._build_id_map(table_nodes, field_nodes, other_nodes)
+    new_edges, node_labels = l2b._build_edge_list(edges, nodes, id_map, sql)
+    new_edges = l2b._combine_edges(new_edges)
+    new_edges = l2b._promote_field_edges(new_edges, field_nodes)
+    new_edges = l2b._survive_join_edges(new_edges, full_graph, id_map,
+                                        table_nodes, field_nodes,
+                                        node_labels, sql)
+    new_edges, dml_pairs = l2b._simplify_dml_edges(new_edges, full_graph,
+                                                   id_map, table_nodes)
+    new_edges = l2b._dedup_edges(new_edges)
+    l2b._sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map,
+                                   dml_pairs, full_graph, nodes)
+    phased = l2b._assemble_output(table_nodes, field_nodes, new_edges, nodes,
+                                  sql, STEP3, f"{TARGET_TABLE}.{TARGET_FIELD}")
+
+    assert json.dumps(phased, sort_keys=True) == \
+        json.dumps(expected, sort_keys=True)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# C2: L1 field pairs are covered by the prebuilt P4 table_fields
+# ══════════════════════════════════════════════════════════════════════
+
+def test_l1_pairs_covered_by_table_fields(multi_workflow_ws):
+    """C2: every L1 lineage_field_pair must be covered by the prebuilt P4
+    table_fields — both from fresh on-the-fly analysis (no disk cache) and
+    from the graph caches written by index_scripts (cached path). L1 must
+    produce the same pairs with and without the disk caches."""
+    from app.services.multi_script_service import analyze_multiple_scripts
+    from app.services.folder_index_service import index_scripts
+
+    ws_id = multi_workflow_ws
+    script_names = sorted(f.name for f in WORKFLOW_DIR.glob("step*.sql"))
+    sql_by_name = {n: (WORKFLOW_DIR / n).read_text() for n in script_names}
+
+    # Fresh run: no disk caches exist yet — the on-the-fly P4 absorption
+    # (build_graph_data table_fields) must cover the pairs.
+    l1 = _build_l1_graph(ws_id, script_names, TARGET_TABLE, TARGET_FIELD)
+    pairs = {tuple(p) for p in l1.get("lineage_field_pairs", [])}
+    assert pairs == {
+        ("stg_customers", "customer_id"),
+        ("crm_customers", "customer_id"),
+    }
+
+    fresh = analyze_multiple_scripts([(n, sql_by_name[n]) for n in script_names])
+    fresh_tf = set()
+    for s in fresh.get("scripts", []):
+        for tbl, flds in (s.get("graph", {}).get("table_fields", {}) or {}).items():
+            for fn in flds:
+                fresh_tf.add((tbl, fn))
+    assert pairs <= fresh_tf, \
+        f"pairs {pairs - fresh_tf} missing from fresh-analysis table_fields"
+
+    # Cached run: index writes graph_*.json caches for every script, then
+    # the disk-cache P4 absorption must cover the same pairs, and L1 must
+    # still produce the identical pair set.
+    index_scripts(ws_id, script_names)
+    cached_tf = set()
+    for gc_path in sorted(get_workspace_dir(ws_id).glob("cache/graph_*.json")):
+        gdata = json.loads(gc_path.read_text())
+        for tbl, flds in (gdata.get("table_fields", {}) or {}).items():
+            for fn in flds:
+                cached_tf.add((tbl, fn))
+    assert pairs <= cached_tf, \
+        f"pairs {pairs - cached_tf} missing from cached table_fields"
+
+    l1_cached = _build_l1_graph(ws_id, script_names, TARGET_TABLE, TARGET_FIELD)
+    assert {tuple(p) for p in l1_cached.get("lineage_field_pairs", [])} == pairs
+
+
+# ══════════════════════════════════════════════════════════════════════
+# B2/CW9: source_columns match the field part only — not the alias/table part
+# ══════════════════════════════════════════════════════════════════════
+
+def test_detect_role_no_table_part_false_match():
+    """B2/CW9: detect_role must not match the alias/table part of a qualified
+    source_column — target_field="item" vs "item.i_brand" must not match.
+    The old word-boundary regex matched "item" inside "item.i_brand" and
+    attributed roles to the wrong field. The field part still matches."""
+    from app.services.l1_builder import detect_role
+
+    graph_data = {
+        "nodes": [{"data": {
+            "id": "v1",
+            "label": "x.i_brand",
+            "name": "x.i_brand",
+            "variable_type": "column",
+            "defined_in": "SELECT",
+            "is_output": True,
+            "source_columns": ["item.i_brand"],
+        }}],
+        "edges": [],
+    }
+    # target_field="item" is the table part of "item.i_brand" — no role
+    assert detect_role(graph_data, "store", "item") == []
+    # field part still matches — positive path intact
+    assert detect_role(graph_data, "item", "i_brand") == ["REF"]
+
+
+def test_target_field_sc_matches_field_part_only():
+    """B2/CW9: _target_field_sc compares only the field part (after the last
+    dot) of a source_column — the old word-boundary regex matched the
+    alias/table part ("item" inside "item.i_brand")."""
+    from app.services.l2_builder import _target_field_sc
+
+    assert _target_field_sc("item.i_brand", "item") is False
+    assert _target_field_sc("item.i_brand", "i_brand") is True
+    assert _target_field_sc("customer_id", "customer_id") is True
+    assert _target_field_sc("sc.customer_id", "customer_id") is True
+    assert _target_field_sc("sc.customer_id_x", "customer_id") is False
+
+
+# ══════════════════════════════════════════════════════════════════════
+# G2/Bug 37: SCHEMA directionality invariant (shared L1/L2 BFS semantics)
+# ══════════════════════════════════════════════════════════════════════
+
+def test_lineage_bfs_schema_directionality_invariant():
+    """G2/Bug 37 (pinned): the SCHEMA directionality semantics are shared by
+    L1 (edge_filter=PRODUCTION_EDGES | {"SCHEMA"}) and the unfiltered BFS —
+    reverse (column→table) always follows; forward (table→column) only for
+    columns with a production path back to the lineage set."""
+    from app.extractor.lineage import compute_field_lineage, PRODUCTION_EDGES
+
+    graph = {
+        "nodes": [
+            {"data": {"id": "T", "label": "customers", "variable_type": "table"}},
+            {"data": {"id": "c1", "label": "customers.id", "variable_type": "column"}},
+            {"data": {"id": "c2", "label": "customers.name", "variable_type": "column"}},
+            {"data": {"id": "c3", "label": "customers.email", "variable_type": "column"}},
+        ],
+        "edges": [
+            {"data": {"source": "T", "target": "c1", "edge_type": "SCHEMA"}},
+            {"data": {"source": "T", "target": "c2", "edge_type": "SCHEMA"}},
+            {"data": {"source": "T", "target": "c3", "edge_type": "SCHEMA"}},
+            {"data": {"source": "c1", "target": "c2", "edge_type": "REF"}},
+        ],
+    }
+    constrained = compute_field_lineage(graph, "customers", "id",
+                                        edge_filter=PRODUCTION_EDGES | {"SCHEMA"})
+    unconstrained = compute_field_lineage(graph, "customers", "id")
+    assert constrained == unconstrained
+    assert {"c1", "T"} <= constrained
+    assert "c2" in constrained    # SCHEMA forward: has a production path back to R
+    assert "c3" not in constrained  # SCHEMA forward: no production path — filtered

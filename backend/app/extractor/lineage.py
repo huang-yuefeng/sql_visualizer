@@ -222,6 +222,13 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                     if edge_filter is None or etype in edge_filter:
                         should_add = True
                 elif etype == "SCHEMA":
+                    # Bug 37 decision (pinned): SCHEMA directionality here is
+                    # the intended shared semantics for BOTH consumers — L1
+                    # (edge_filter=PRODUCTION_EDGES | {"SCHEMA"}, l1_builder)
+                    # and L2 (filter_relevant default): reverse (column→table)
+                    # always follows; forward (table→column) is
+                    # production-filtered. The unified engine is the single
+                    # BFS — no per-consumer copy.
                     if edge_filter is not None and etype not in edge_filter:
                         pass  # skip
                     elif direction == "reverse":

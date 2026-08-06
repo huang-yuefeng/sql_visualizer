@@ -208,6 +208,7 @@ def test_resolution_stats_shape_and_totals():
         "SELECT sb.total_amount AS batch_total FROM settlement_batch sb", "shape")
     stats = r.resolution_stats
     assert set(stats) == {"total_columns", "resolved_by", "unresolved",
+                          "resolved", "unresolved_count", "coverage_pct",
                           "schema_candidates", "r6_collision",
                           "script_schemas"}, stats
     assert set(stats["resolved_by"]) == {"plain_alias", "expr_alias", "scope",
@@ -218,6 +219,10 @@ def test_resolution_stats_shape_and_totals():
     # emitted but nothing is resolved (schema stays 0).
     assert stats["schema_candidates"] == [], stats
     assert stats["r6_collision"] == 0, stats
+    # C4a unified keys: total − unresolved derivation (frontend shim parity)
+    assert stats["resolved"] == stats["total_columns"] - len(stats["unresolved"]) == 2, stats
+    assert stats["unresolved_count"] == len(stats["unresolved"]) == 0, stats
+    assert stats["coverage_pct"] == 100.0, stats
 
 
 def test_resolution_stats_in_full_analysis_result():
@@ -228,6 +233,45 @@ def test_resolution_stats_in_full_analysis_result():
     assert stats["total_columns"] == 1, stats
     assert stats["resolved_by"]["scope"] == 1, stats
     assert stats["unresolved"] == [], stats
+
+
+# ── C4a: unified key shapes (additive, frontend-shim parity) ─────────────
+
+def test_resolution_stats_unified_keys_match_derivation():
+    """C4a: the extractor emits the index-aggregate shapes additively —
+    `resolved` = total_columns − len(unresolved), `unresolved_count` =
+    len(unresolved), and `coverage_pct` is the one-decimal coverage the
+    frontend shim derives (Math.round((1 − unresolved/total) * 1000) / 10).
+    """
+    r = extract_variables_from_sql(
+        "SELECT id FROM a JOIN b ON a.id = b.id", "c4a_deriv")
+    stats = r.resolution_stats
+    # bare id (unresolved) + a.id + b.id (qualified, prefix-attributed)
+    assert stats["total_columns"] == 3, stats
+    assert stats["unresolved"] == ["id"], stats
+    assert stats["resolved"] == 3 - 1 == 2, stats
+    assert stats["unresolved_count"] == 1, stats
+    assert stats["coverage_pct"] == round(100 * (1 - 1 / 3), 1) == 66.7, stats
+    # existing keys untouched by the additive extension
+    assert set(stats["resolved_by"]) == {"plain_alias", "expr_alias", "scope",
+                                         "schema", "sys", "other"}, stats
+    assert set(stats) == {"total_columns", "resolved_by", "unresolved",
+                          "resolved", "unresolved_count", "coverage_pct",
+                          "schema_candidates", "r6_collision",
+                          "script_schemas"}, stats
+
+
+def test_resolution_stats_coverage_none_when_no_columns():
+    """C4a: zero column vars → coverage_pct is None (matches the shim's
+    '—' display), resolved and unresolved_count are 0."""
+    r = extract_variables_from_sql(
+        "INSERT INTO t (a,b) VALUES (1,2)", "c4a_zero")
+    stats = r.resolution_stats
+    assert stats["total_columns"] == 0, stats  # INSERT list creates nothing
+    assert stats["unresolved"] == [], stats
+    assert stats["resolved"] == 0, stats
+    assert stats["unresolved_count"] == 0, stats
+    assert stats["coverage_pct"] is None, stats
 
 
 def _make_ws(sql: str, script_name: str = "t.sql") -> str:
@@ -257,11 +301,16 @@ def test_resolution_stats_in_cached_analysis_json(small_ws):
         assert "resolution_stats" in data, fp
         stats = data["resolution_stats"]
         assert set(stats) == {"total_columns", "resolved_by", "unresolved",
+                              "resolved", "unresolved_count", "coverage_pct",
                               "schema_candidates", "r6_collision",
                               "script_schemas"}, stats
         assert stats["resolved_by"]["plain_alias"] >= 1, stats
         assert stats["resolved_by"]["scope"] >= 1, stats
         assert stats["unresolved"] == [], stats
+        # C4a: unified keys ride through the cached analysis JSON too
+        assert stats["resolved"] == stats["total_columns"], stats
+        assert stats["unresolved_count"] == 0, stats
+        assert stats["coverage_pct"] == 100.0, stats
 
 
 # ── Sanity: qualified-only multi-workflow scripts ────────────────────────

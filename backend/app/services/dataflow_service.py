@@ -8,6 +8,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from app.services.sql_range_finder import find_sql_range
 
+from app.services.cache_keys import GRAPH_CACHE_PREFIX
 from app.services.workspace_service import get_workspace_dir
 from app.extractor.lineage import (
     compute_field_lineage,
@@ -273,8 +274,9 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     table_schemas = None
     schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
 
-    # Try pre-computed graph cache (v3.2.15)
-    graph_cache_path = cache_dir / f"graph_3_2_15_{cache_key}.json"
+    # Try pre-computed graph cache (C3: shared GRAPH_CACHE_PREFIX — writers
+    # and readers must agree on the versioned name)
+    graph_cache_path = cache_dir / f"{GRAPH_CACHE_PREFIX}_{cache_key}.json"
     if graph_cache_path.exists():
         graph_data = json.loads(graph_cache_path.read_text())
         stage_graph(len(graph_data.get('nodes',[])), len(graph_data.get('edges',[])), ws_id=ws_id)

@@ -19,6 +19,11 @@ Implements SOLUTION_DESIGN "SELECT-Side Schema Enrichment", Phase 2:
   * `r6_collision`     — candidates whose field equals a visible table name
     are NEVER attributed.
 
+A3 (v3.3.134): the R6 guard is extended to S3 — `SELECT call_center FROM
+call_center` (single visible table) is the same field==table-name ambiguity
+and is likewise never attributed, counted in `r6_collision`, left
+unresolved. The S1 bare-column alias mirror inherits the refusal.
+
 Invariants under test: never guess (ambiguous/evidence-absent/R6 stay
 unresolved), auto-attribution only under the confirmed rule, resolved vars
 leave unresolved + schema_candidates, loc is statement-anchored.
@@ -268,6 +273,67 @@ def test_r6_collision_field_equals_visible_table():
     assert "owner" not in cand, cand
     assert stats["resolved_by"]["schema"] == 0, stats
     assert "call_center" in stats["unresolved"], stats
+
+
+# ── A3: R6 guard extended to S3 (single-table scope) ─────────────────────
+
+def test_r6_collision_s3_single_table_scope():
+    """A3: `SELECT call_center FROM call_center` — the S3 single-table rule
+    must NOT attribute either: the same field == visible-table-name
+    ambiguity S4 excludes in ≥2-table scopes. Counted in r6_collision,
+    left unresolved (SOLUTION_DESIGN follow-up 5)."""
+    r = extract_variables_from_sql(
+        "SELECT call_center FROM call_center", "a3_r6s3")
+    stats = r.resolution_stats
+    var = _find(r, "call_center")
+    assert var.source_tables == [], var
+    assert stats["r6_collision"] == 1, stats
+    assert stats["resolved_by"]["scope"] == 0, stats
+    assert stats["unresolved"] == ["call_center"], stats
+
+
+def test_r6_collision_s3_case_insensitive():
+    """A3: the S3 guard is case-insensitive (MySQL identifiers are), just
+    like the S4 guard."""
+    r = extract_variables_from_sql(
+        "SELECT CALL_CENTER FROM Call_Center", "a3_r6ci")
+    stats = r.resolution_stats
+    assert _find(r, "CALL_CENTER").source_tables == []
+    assert stats["r6_collision"] == 1, stats
+    assert "CALL_CENTER" in stats["unresolved"], stats
+
+
+def test_r6_collision_s3_alias_inherits_refusal():
+    """A3: the S1 bare-column alias mirror (`SELECT call_center AS cc FROM
+    call_center`) refuses too — the alias inherits EXACTLY what its source
+    column gets (nothing); the collision is counted once, at the source."""
+    r = extract_variables_from_sql(
+        "SELECT call_center AS cc FROM call_center", "a3_r6alias")
+    stats = r.resolution_stats
+    assert _find(r, "cc").source_tables == [], _find(r, "cc")
+    assert _find(r, "call_center").source_tables == [], _find(r, "call_center")
+    assert stats["r6_collision"] == 1, stats
+    assert stats["resolved_by"]["plain_alias"] == 0, stats
+    assert "cc" in stats["unresolved"] and "call_center" in stats["unresolved"], stats
+
+
+def test_r6_collision_s3_guard_does_not_block_normal_columns():
+    """A3 regression: a normal bare column in a single-table scope is still
+    S3-attributed, and a self-join (one physical table) still resolves —
+    the guard fires only when field == the visible table name."""
+    r = extract_variables_from_sql(
+        "SELECT customer_id FROM customers", "a3_reg")
+    stats = r.resolution_stats
+    assert _find(r, "customer_id").source_tables == ["customers"]
+    assert stats["resolved_by"]["scope"] == 1, stats
+    assert stats["r6_collision"] == 0, stats
+    assert stats["unresolved"] == [], stats
+    # self-join single physical table — still S3-resolvable, guard not fired
+    r2 = extract_variables_from_sql(
+        "SELECT amount FROM orders o1 JOIN orders o2 ON o1.id = o2.id",
+        "a3_self")
+    assert _find(r2, "amount").source_tables == ["orders"]
+    assert r2.resolution_stats["r6_collision"] == 0, r2.resolution_stats
 
 
 def test_case_insensitive_owner_whole_name_only():

@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from app.services.logger import _push
 from app.services.workspace_service import (
     create_workspace, get_workspace, delete_workspace,
-    get_workspace_dir, cleanup_all_workspaces,
+    get_workspace_dir, cleanup_all_workspaces, is_valid_ws_id,
 )
 from app.services.export_config_service import (
     get_export_config, save_export_config, reset_export_config,
@@ -58,7 +58,14 @@ async def get_workspace_info(ws_id: str):
 
 @router.delete("/workspace/{ws_id}")
 async def delete_workspace_endpoint(ws_id: str):
-    """Delete workspace and all its data."""
+    """Delete workspace and all its data.
+
+    F2: ws_id is user-controlled path input — validate it first. A
+    malformed id (not 12 hex chars) is a 400; a well-formed id that names
+    no workspace is a 404 (consistent with delete_workspace's False).
+    """
+    if not is_valid_ws_id(ws_id):
+        raise HTTPException(status_code=400, detail="Invalid workspace id")
     ok = delete_workspace(ws_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Workspace not found")
@@ -190,9 +197,17 @@ async def autocomplete(ws_id: str, type: str = "table", q: str = ""):
 
 
 def _collect_sql_files(tree: dict) -> list:
-    """Recursively collect all .sql file paths from a tree."""
+    """Recursively collect all pipeline-script paths from a tree.
+
+    A1: schema files (file_class == "schema" — DDL-only) are excluded:
+    they are evidence-only, never pipeline scripts. Old trees without the
+    file_class key default to "script" (defensive read), preserving the
+    pre-A1 behavior. index_scripts discovers schema files itself, so the
+    S4b evidence pass still sees them on this auto-select path.
+    """
     paths = []
-    if tree.get("type") == "file" and tree.get("is_sql"):
+    if (tree.get("type") == "file" and tree.get("is_sql")
+            and tree.get("file_class", "script") != "schema"):
         paths.append(tree["path"])
     for child in tree.get("children", []):
         paths.extend(_collect_sql_files(child))

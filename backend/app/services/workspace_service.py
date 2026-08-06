@@ -41,8 +41,15 @@ def cleanup_old_workspaces(max_age_hours: int = 24) -> int:
                     shutil.rmtree(ws_dir)
                     removed += 1
         except Exception:
-            pass
+            pass  # unreadable meta → skip (never delete what we can't age)
     return removed
+
+
+def is_valid_ws_id(ws_id: str) -> bool:
+    """Validate a workspace id against the workspace charset (12 hex chars,
+    as created by create_workspace). Shared by routes that need a 400 for
+    malformed ids vs a 404 for valid-format but missing workspaces."""
+    return bool(_WS_ID_RE.fullmatch(ws_id))
 
 
 def cleanup_all_workspaces() -> int:

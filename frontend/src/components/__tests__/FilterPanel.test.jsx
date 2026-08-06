@@ -56,6 +56,30 @@ describe('FilterPanel — F4/R2 warning banner', () => {
     expect(tcFile).toBeUndefined();
   });
 
+  it('D2: renders the ignored-rows line when the payload carries ignored_rows', async () => {
+    uploadFilterConfig.mockResolvedValue({
+      filtered: true,
+      table_count: 12,
+      field_count: 80,
+      warning: '5 tables dropped by the filter',
+      ignored_tables: ['sys_meta'],
+      ignored_rows: 120,
+    });
+    mountPanel();
+
+    fireEvent.click(screen.getByText('Narrow Index (optional)'));
+
+    const fileInputs = screen.getAllByLabelText(/SCRIPT_NAME, TABLE_NAME/i);
+    fireEvent.change(fileInputs[0], {
+      target: { files: [new File(['s,orders\n'], 'st.csv')] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Filter' }));
+
+    expect(await screen.findByText('5 tables dropped by the filter')).toBeInTheDocument();
+    expect(await screen.findByText('120 rows ignored')).toBeInTheDocument();
+    expect(await screen.findByText(/1 table ignored:/)).toBeInTheDocument();
+  });
+
   it('renders no warning banner without a payload warning', async () => {
     uploadFilterConfig.mockResolvedValue({
       filtered: true,

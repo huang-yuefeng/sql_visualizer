@@ -69,6 +69,47 @@ export function computeFieldRelPos(cy) {
 }
 
 /**
+ * Pure: absolute positions for one table's fields, from the table's
+ * center position + the frozen relative offsets.
+ *
+ * @param tablePos  {x, y} — table model position
+ * @param fieldRel  from computeFieldRelPos()
+ * @param tableId   parent table node id
+ * @returns {{ [fieldId]: {x, y} }}
+ */
+export function fieldPositionsForTable(tablePos, fieldRel, tableId) {
+  const out = {};
+  for (const [fid, rel] of Object.entries(fieldRel || {})) {
+    if (rel.parentId === tableId) {
+      out[fid] = { x: tablePos.x + rel.rx, y: tablePos.y + rel.ry };
+    }
+  }
+  return out;
+}
+
+/**
+ * Reposition a table's field nodes at table.position() + frozen offsets.
+ *
+ * SINGLE source for field placement: applyLayout() and the table drag
+ * handler (useCytoscapeGraph) both call this, so field positions are
+ * always re-derived from the table position + frozen offsets — they can
+ * never drift, no matter how the table moved (drag, layout, collision
+ * push). Recomputing (instead of accumulating drag deltas) also snaps
+ * back any pre-existing discrepancy (a directly-dragged field, a
+ * coalesced drag frame).
+ */
+export function positionTableFields(cy, tableId, fieldRel) {
+  if (!cy || cy.destroyed()) return;
+  const table = cy.getElementById(tableId);
+  if (!table || !table.length) return;
+  const positions = fieldPositionsForTable(table.position(), fieldRel, tableId);
+  for (const [fid, pos] of Object.entries(positions)) {
+    const field = cy.getElementById(fid);
+    if (field && field.length) field.position(pos);
+  }
+}
+
+/**
  * Compute table → {w, h} map from fieldRel.
  * Tables without fields get a default height for 1 field.
  */
@@ -127,16 +168,13 @@ export function applyLayout(cy, tablePositions, fieldRel, tableInfo, fitPadding 
       if (node && node.length) node.position(pos);
     }
 
-    // 4. Position fields at table + frozen offset
+    // 4. Position fields at table + frozen offset — via the shared helper
+    // (same math as the drag handler in useCytoscapeGraph, so there is a
+    // single field-positioning site instead of one per layout algorithm)
     if (fieldRel) {
-      for (const [fid, { parentId, rx, ry }] of Object.entries(fieldRel)) {
-        const table = cy.getElementById(parentId);
-        const field = cy.getElementById(fid);
-        if (table.length && field.length) {
-          const tp = table.position();
-          field.position({ x: tp.x + rx, y: tp.y + ry });
-        }
-      }
+      const parentIds = new Set();
+      for (const rel of Object.values(fieldRel)) parentIds.add(rel.parentId);
+      for (const pid of parentIds) positionTableFields(cy, pid, fieldRel);
     }
 
     // 5. Set table node size via rendered element CSS (cytoscape ignores style() for non-compound nodes)

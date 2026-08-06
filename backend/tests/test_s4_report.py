@@ -332,10 +332,13 @@ def test_partial_s4_keys_fall_back_to_old_report(monkeypatch):
 
 def test_all_three_keys_zeroed_line(monkeypatch):
     """All three S4 keys present (empty values — the S4a extractor's default
-    emission on every script) → the Phase-2 line is shown, zeroed."""
-    ws = _make_ws({"ddl.sql": "CREATE TABLE t (a INT);\n"})
+    emission on every script) → the Phase-2 line is shown, zeroed.
+    (v3.3.134: the fixture must stay a PIPELINE script — a pure-DDL .sql
+    file is now classified as a schema file per the A1 design and no longer
+    drives the pipeline report gate.)"""
+    ws = _make_ws({"s1.sql": "CREATE TABLE t (a INT);\nSELECT 1;\n"})
     try:
-        result, joined = _run_capture(monkeypatch, ws, ["ddl.sql"])
+        result, joined = _run_capture(monkeypatch, ws, ["s1.sql"])
         assert ("schema candidates: 0 (unique visible owner found: 0)"
                 " | r6 collision: 0") in joined, joined
         assert result["schema_candidates_summary"] == {

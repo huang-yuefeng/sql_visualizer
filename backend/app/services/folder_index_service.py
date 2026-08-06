@@ -2,11 +2,91 @@
 import json
 import threading
 from pathlib import Path
+
+import sqlglot
+from sqlglot import exp
+
+from app.services.cache_keys import GRAPH_CACHE_PREFIX
 from app.services.workspace_service import get_workspace_dir, get_script_path
 from app.services.logger import _push
 from app.services.filter_service import resolve_script
 
 SQL_EXTENSIONS = {".sql"}
+# A1: extensions that are DDL by explicit intent — always classified schema
+# (content is not sniffed for these).
+SCHEMA_EXTENSIONS = {".ddl", ".schema"}
+# A1: CREATE kinds that are schema-only statements (kind string from
+# sqlglot exp.Create). CREATE MATERIALIZED VIEW also reports kind="VIEW" —
+# it is detected via its MaterializedProperty (see classify_sql_text).
+_SCHEMA_CREATE_KINDS = {"TABLE", "VIEW"}
+
+
+def classify_sql_file(filepath: Path) -> str:
+    """Classify a SQL file as "schema" (DDL-only) or "script" (pipeline).
+
+    A1 rules: .ddl / .schema extensions → schema (explicit intent, content
+    ignored). .sql → content sniff via sqlglot (MySQL dialect — the same
+    dialect the extractor uses): schema iff EVERY top-level statement is
+    CREATE TABLE / CREATE VIEW / CREATE MATERIALIZED VIEW / GRANT /
+    COMMENT / ALTER TABLE (i.e. no data statements outside view bodies);
+    otherwise script. Parse failures and empty files default to script
+    (conservative — never guess a file away from the pipeline).
+    """
+    if filepath.suffix.lower() in SCHEMA_EXTENSIONS:
+        return "schema"
+    try:
+        sql_text = filepath.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return "script"  # unreadable file → script (conservative, never guess DDL)
+    return classify_sql_text(sql_text)
+
+
+def classify_sql_text(sql_text: str) -> str:
+    """A1 content sniff — schema iff every top-level statement is DDL-only."""
+    try:
+        statements = sqlglot.parse(sql_text, read="mysql")
+    except Exception:
+        return "script"  # unparsable → script (conservative)
+    stmts = [s for s in statements if s is not None]
+    if not stmts:
+        return "script"  # empty / comment-only file → not schema
+    for stmt in stmts:
+        if isinstance(stmt, exp.Create):
+            if stmt.args.get("kind") not in _SCHEMA_CREATE_KINDS:
+                return "script"  # CREATE INDEX / others → not schema
+            # CREATE MATERIALIZED VIEW parses as kind="VIEW" with a
+            # MaterializedProperty — allowed (it is a DDL-only statement).
+            props = stmt.args.get("properties")
+            if props and any(isinstance(e, exp.MaterializedProperty)
+                             for e in props.expressions):
+                continue
+        elif isinstance(stmt, (exp.Grant, exp.Comment)):
+            continue
+        elif isinstance(stmt, exp.Alter) and isinstance(stmt.this, exp.Table):
+            continue  # ALTER TABLE only — ALTER DATABASE/etc. → script
+        else:
+            return "script"  # SELECT/INSERT/UPDATE/DELETE/MERGE/DROP/...
+    return "schema"
+
+
+def _collect_schema_files(ws_id: str) -> list[str]:
+    """A1: rel_paths of schema-classified files in the workspace tree.
+
+    Feeds the index-time schema evidence pass (S4b needs DDL evidence even
+    when the caller's script list excludes schema files — the auto-select
+    path does).
+    """
+    tree = scan_folder(ws_id)
+    out = []
+
+    def _walk(node):
+        if node.get("type") == "file" and node.get("file_class") == "schema":
+            out.append(node["path"])
+        for child in node.get("children", []):
+            _walk(child)
+
+    _walk(tree)
+    return out
 
 
 # Progress tracking for polling
@@ -38,12 +118,17 @@ def get_index_progress(ws_id: str) -> dict:
             "errors": list(entry.get("errors", []))}
 
 def scan_folder(ws_id: str) -> dict:
-    """Walk workspace scripts/ dir, return hierarchical tree with is_sql flag."""
+    """Walk workspace scripts/ dir, return hierarchical tree with is_sql flag.
+
+    A1: every SQL file node (is_sql: .sql/.ddl/.schema) also carries
+    `file_class`: "schema" (DDL-only) or "script" (pipeline). Consumers
+    must default to "script" for old trees without the key (defensive read).
+    """
     ws_dir = get_workspace_dir(ws_id)
     scripts_dir = ws_dir / "scripts"
     if not scripts_dir.exists():
         return {"name": "root", "type": "directory", "children": []}
-    
+
     def _walk(path: Path, rel: str = ""):
         entry = {
             "name": path.name,
@@ -52,14 +137,17 @@ def scan_folder(ws_id: str) -> dict:
         }
         if path.is_file():
             ext = path.suffix.lower()
-            entry["is_sql"] = ext in SQL_EXTENSIONS
+            entry["is_sql"] = (ext in SQL_EXTENSIONS
+                               or ext in SCHEMA_EXTENSIONS)
+            if entry["is_sql"]:
+                entry["file_class"] = classify_sql_file(path)
         if path.is_dir():
             children = []
             for child in sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name)):
                 children.append(_walk(child))
             entry["children"] = children
         return entry
-    
+
     return _walk(scripts_dir)
 
 
@@ -107,6 +195,25 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     r6_collision_total = 0       # summed per-script r6_collision (S4a counter)
     s4c_seen = False             # any script carried the new S4 keys
     cache_by_script = {}         # rel_path -> analysis cache path (S4b updates)
+    pipeline_paths = []          # A1: paths processed as pipeline scripts
+
+    # ── A1: schema evidence pass (DDL-only files are NOT pipeline scripts) ──
+    # DDL files (all statements CREATE TABLE/VIEW/MATERIALIZED VIEW, GRANT,
+    # COMMENT, ALTER TABLE) still feed S4b: run them through the analysis
+    # pipeline and merge their script_schemas into m_ws + provenance. The
+    # discovery below covers the auto-select path (callers may exclude
+    # schema files from the script list); explicit schema paths in the
+    # caller's list are skipped in the loop and handled here too (same pass,
+    # dedup by path). Evidence loss would change S4b resolution, so
+    # discovery/analysis failures are surfaced in `errors`, never silent.
+    schema_evidence_paths = set()
+    try:
+        schema_evidence_paths = set(_collect_schema_files(ws_id))
+    except Exception as e:
+        errors.append({"script": "(schema discovery)", "error": str(e)})
+    for _rel in sorted(schema_evidence_paths):
+        _process_schema_evidence(ws_id, _rel, m_ws,
+                                 schema_evidence_by_script, errors)
 
     for i, rel_path in enumerate(script_paths):
         sp = get_script_path(ws_id, rel_path)
@@ -115,11 +222,26 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
             # L3: surface the error in progress without resetting it.
             _set_progress(ws_id, i, total, "analyzing", errors=errors)
             continue
+        if rel_path in schema_evidence_paths:
+            # A1: DDL-only file — already processed by the schema evidence
+            # pass above; never a pipeline script (no script_count, no
+            # index entries, no caches).
+            _set_progress(ws_id, i + 1, total, "analyzing")
+            continue
 
         try:
             sql_text = sp.read_text(encoding="utf-8", errors="replace")
+            if classify_sql_text(sql_text) == "schema":
+                # A1: DDL-only content in a .sql file (not in the discovered
+                # set, e.g. the tree was stale) → evidence pass, never a
+                # pipeline script.
+                _process_schema_evidence(ws_id, rel_path, m_ws,
+                                         schema_evidence_by_script, errors)
+                _set_progress(ws_id, i + 1, total, "analyzing")
+                continue
             result = run_full_analysis(sql_text, rel_path, ws_id=ws_id)
             script_count += 1
+            pipeline_paths.append(rel_path)
             _set_progress(ws_id, i + 1, total, "analyzing")
 
             # Cache analysis result
@@ -137,6 +259,13 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
             # the extractor's OWN `unresolved` lists (single source of truth)
             # — they exclude S5/S6-marked and CTE/alias-resolved fields, which
             # the tables==[] test alone cannot distinguish.
+            # C4b: the extractor's ADDITIVE per-script keys (`resolved`,
+            # `unresolved_count`, `coverage_pct`) are deliberately NOT summed
+            # here. The aggregate derives from total_columns + the UNION of
+            # per-script `unresolved` LISTS (post-S4b orphans, deduped by
+            # name), so aggregate coverage = 1 − unresolved/total_columns —
+            # never an average of per-script percentages (double-counting
+            # names across scripts would skew both numerator and denominator).
             rs = result.get("resolution_stats")
             stats_seen = isinstance(rs, dict)
             if stats_seen:
@@ -159,30 +288,10 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                 # `field in script_schemas[t]` works on dict keys, and the
                 # line is the schema-EVIDENCE provenance for the report.
                 # OLD shape: {table: [cols]} — same membership, no lines.
-                ss4c = rs.get("script_schemas")
-                if isinstance(ss4c, dict):
-                    ev_map = {}
-                    for _t, _cols in ss4c.items():
-                        if not isinstance(_t, str):
-                            continue
-                        if isinstance(_cols, dict):
-                            # new shape: {col: evidence_line_int}
-                            m_ws.setdefault(_t, set()).update(
-                                str(c) for c in _cols if isinstance(c, str))
-                            ev_rows = {}
-                            for _c, _ln in _cols.items():
-                                if (isinstance(_c, str)
-                                        and isinstance(_ln, (int, float))
-                                        and not isinstance(_ln, bool)):
-                                    ev_rows[_c.lower()] = int(_ln)
-                            if ev_rows:
-                                ev_map.setdefault(_t.lower(), {}).update(ev_rows)
-                        elif isinstance(_cols, (list, tuple, set)):
-                            # old shape: column list, no provenance
-                            m_ws.setdefault(_t, set()).update(
-                                c for c in _cols if isinstance(c, str))
-                    if ev_map:
-                        schema_evidence_by_script[rel_path] = ev_map
+                # Shared merge: identical for regular scripts and the A1
+                # schema-file evidence pass.
+                _merge_script_schemas(result, rel_path, m_ws,
+                                      schema_evidence_by_script)
                 sc4c = rs.get("schema_candidates")
                 if isinstance(sc4c, list):
                     for _c in sc4c:
@@ -210,9 +319,10 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                     for v in result.get("variables", [])
                     if v.get("source_tables") and v.get("variable_type") in ("table", "view", "cte")
                 }
-                # M2: write under the canonical name L2 reads (graph_3_2_15_) so
-                # index-time precomputation is actually used by L2 cache hits.
-                graph_cache_path = cache_dir / f"graph_3_2_15_{cache_key}.json"
+                # M2: write under the canonical name L2 reads (C3: shared
+                # GRAPH_CACHE_PREFIX) so index-time precomputation is
+                # actually used by L2 cache hits.
+                graph_cache_path = cache_dir / f"{GRAPH_CACHE_PREFIX}_{cache_key}.json"
                 # Item 4: cache format version — consumers warn on stale caches
                 graph_data["format_version"] = 3
                 graph_cache_path.write_text(json.dumps(graph_data, indent=2, ensure_ascii=False))
@@ -495,7 +605,9 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     ws_dir = get_workspace_dir(ws_id)
     meta = json.loads((ws_dir / "meta.json").read_text())
     meta["indexed"] = True
-    meta["indexed_scripts"] = script_paths
+    # A1: only pipeline scripts — schema files are evidence-only, never
+    # part of the workspace's script list.
+    meta["indexed_scripts"] = pipeline_paths
     meta["indexed_at"] = __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
     (ws_dir / "meta.json").write_text(json.dumps(meta, indent=2))
 
@@ -519,7 +631,76 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
             "unique_owner": s4b_unique_owners,
             "r6_collision": r6_collision_total,
         },
+        # A1: schema-evidence report — pure facts from the merged M_ws
+        # (present = at least one table has column evidence). No advice.
+        "schema_evidence": {
+            "present": len(m_ws) > 0,
+            "tables": len(m_ws),
+            "columns": sum(len(c) for c in m_ws.values()),
+        },
     }
+
+
+def _merge_script_schemas(result: dict, rel_path: str, m_ws: dict,
+                          schema_evidence_by_script: dict) -> None:
+    """Merge a script's script_schemas into the S4b evidence maps: m_ws
+    (canonical table -> set(columns)) + schema_evidence_by_script (script ->
+    {table_lower: {col_lower: evidence_line}}) for report provenance.
+    Old-shape list-valued schemas are accepted (membership only, no lines).
+    Shared by the regular script loop and the A1 schema-file evidence pass —
+    identical merge, so DDL evidence is indistinguishable from query-side
+    evidence in S4b.
+    """
+    rs = result.get("resolution_stats")
+    ss4c = rs.get("script_schemas") if isinstance(rs, dict) else None
+    if not isinstance(ss4c, dict):
+        return
+    ev_map = {}
+    for _t, _cols in ss4c.items():
+        if not isinstance(_t, str):
+            continue
+        if isinstance(_cols, dict):
+            # new shape: {col: evidence_line_int}
+            m_ws.setdefault(_t, set()).update(
+                str(c) for c in _cols if isinstance(c, str))
+            ev_rows = {}
+            for _c, _ln in _cols.items():
+                if (isinstance(_c, str) and isinstance(_ln, (int, float))
+                        and not isinstance(_ln, bool)):
+                    ev_rows[_c.lower()] = int(_ln)
+            if ev_rows:
+                ev_map.setdefault(_t.lower(), {}).update(ev_rows)
+        elif isinstance(_cols, (list, tuple, set)):
+            # old shape: column list, no provenance
+            m_ws.setdefault(_t, set()).update(
+                c for c in _cols if isinstance(c, str))
+    if ev_map:
+        schema_evidence_by_script[rel_path] = ev_map
+
+
+def _process_schema_evidence(ws_id: str, rel_path: str, m_ws: dict,
+                             schema_evidence_by_script: dict,
+                             errors: list) -> None:
+    """A1: schema-file evidence pass — run a DDL-only file through the
+    analysis pipeline and merge its script_schemas into the S4b maps.
+
+    Schema files are never pipeline scripts: no script_count, no table/
+    field index entries (so no filter-scope or L1/L2 involvement) and no
+    analysis/graph caches. Analysis failures are surfaced in `errors` —
+    lost DDL evidence silently changes S4b resolution, so it must be
+    visible.
+    """
+    sp = get_script_path(ws_id, rel_path)
+    if not sp or not sp.exists():
+        return  # stale tree entry — the main loop reports missing files
+    from app.extractor.adapter import run_full_analysis
+    try:
+        sql_text = sp.read_text(encoding="utf-8", errors="replace")
+        result = run_full_analysis(sql_text, rel_path, ws_id=ws_id)
+    except Exception as e:
+        errors.append({"script": rel_path, "error": str(e)})
+        return
+    _merge_script_schemas(result, rel_path, m_ws, schema_evidence_by_script)
 
 
 def _resolve_orphan_script(ws_id: str, name: str):
@@ -544,7 +725,7 @@ def _loc_label(ws_id: str, script: str, field: str, loc) -> str:
         try:
             sql_txt = sp.read_text(encoding="utf-8", errors="replace")
         except Exception:
-            sql_txt = ""
+            sql_txt = ""  # unreadable script → no evidence lines (benign)
         needle = field.lower()
         for i, ln in enumerate(sql_txt.split("\n")):
             if needle in ln.lower():
@@ -587,7 +768,7 @@ def _apply_s4b_cache_update(cache_path, field: str, owner: str,
     try:
         cdata = json.loads(Path(cache_path).read_text(encoding="utf-8"))
     except Exception:
-        return
+        return  # stale/missing cache — update skipped by design (best-effort)
     if not isinstance(cdata, dict):
         return
     changed = False
@@ -708,7 +889,7 @@ def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict,
                 try:
                     sql_txt = sp.read_text(encoding="utf-8", errors="replace")
                 except Exception:
-                    sql_txt = ""
+                    sql_txt = ""  # unreadable script → no evidence lines (benign)
                 needle = fname.lower()
                 hits = [(i + 1, ln) for i, ln in enumerate(sql_txt.split("\n"))
                         if needle in ln.lower()]
