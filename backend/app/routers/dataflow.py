@@ -17,24 +17,28 @@ from app.services.sql_highlight_service import get_highlight_ranges
 router = APIRouter(tags=["dataflow"])
 
 
-def _load_index(ws_id: str) -> tuple[dict, dict, bool]:
+def _load_index(ws_id: str) -> tuple[dict, dict, bool, int, int]:
     """Load table_index and field_index from cache. Prefers filtered index.
 
-    Returns (ti, fi, filtered_active) — filtered_active tells callers a
-    filter is in force (filtered_index.json exists), which lets them
-    distinguish "filter active but empty" from "never indexed".
+    Returns (ti, fi, filtered_active, scope_tables, scope_fields) —
+    filtered_active tells callers a filter is in force (filtered_index.json
+    exists), which lets them distinguish "filter active but empty" from
+    "never indexed". The scope counts are computed HERE once (L8) so
+    _search_diagnostic_values doesn't re-read the file (TOCTOU + double IO).
     """
     cache_dir = get_workspace_dir(ws_id) / "cache"
     # Prefer filtered index if available
     filtered_path = cache_dir / "filtered_index.json"
     if filtered_path.exists():
         filtered = json.loads(filtered_path.read_text())
-        return filtered.get("table_index", {}), filtered.get("field_index", {}), True
+        ti = filtered.get("table_index", {})
+        fi = filtered.get("field_index", {})
+        return ti, fi, True, len(ti), len(fi)
     ti_path = cache_dir / "table_index.json"
     fi_path = cache_dir / "field_index.json"
     ti = json.loads(ti_path.read_text()) if ti_path.exists() else {}
     fi = json.loads(fi_path.read_text()) if fi_path.exists() else {}
-    return ti, fi, False
+    return ti, fi, False, len(ti), len(fi)
 
 
 
@@ -60,21 +64,14 @@ def _emit_search_diagnostic(ws_id, table, field, filter_active, scope_tables, sc
         _push(ws_id, "profile", line)
 
 
-def _search_diagnostic_values(ws_id, table, field, ti, fi, result):
+def _search_diagnostic_values(table, field, ti, fi, result, filter_active,
+                              scope_tables, scope_fields):
     """Compute the R17 diagnostic inputs (shared by the normal + no_matches paths).
 
     The no_matches path (F1/R3) reuses the same inputs so the emitted block
-    is identical in shape to a regular search's.
+    is identical in shape to a regular search's. Index and scope values come
+    from _load_index (L8) — no re-read of filtered_index.json here.
     """
-    cache_dir = get_workspace_dir(ws_id) / "cache"
-    filter_active = (cache_dir / "filtered_index.json").exists()
-    if filter_active:
-        filtered = json.loads((cache_dir / "filtered_index.json").read_text())
-        scope_tables = len(filtered.get("table_index", {}))
-        scope_fields = len(filtered.get("field_index", {}))
-    else:
-        scope_tables = len(ti)
-        scope_fields = len(fi)
     tdata = ti.get(table, {})
     fdata = fi.get(field, {})
     table_in_index = table in ti
@@ -111,7 +108,7 @@ async def search_dataflow(ws_id: str, body: dict):
     if not table or not field:
         raise HTTPException(status_code=400, detail="Both 'table' and 'field' are required")
 
-    ti, fi, filtered_active = _load_index(ws_id)
+    ti, fi, filtered_active, scope_tables, scope_fields = _load_index(ws_id)
     if not ti and not fi:
         if filtered_active:
             # F1: filter active but empty (empty intersection) — indexing
@@ -129,28 +126,35 @@ async def search_dataflow(ws_id: str, body: dict):
             # R3: the no_matches path also emits the R17 search diagnostic
             # (same block shape as a regular search, via the same _push hook).
             _emit_search_diagnostic(ws_id, table, field,
-                                    *_search_diagnostic_values(ws_id, table, field, ti, fi, result))
+                                    *_search_diagnostic_values(table, field, ti, fi, result,
+                                                               filtered_active, scope_tables, scope_fields))
             # R3: persist the empty view like any other search, so it
             # survives reload (create_search is bypassed on this path).
-            _persist_search_view(ws_id, {
+            # N4: l1_graph_cache carries `target` for shape parity with
+            # regular views. M8: match_mode + message saved so the frontend
+            # can show the no-match banner after a reload.
+            await _persist_search_view(ws_id, {
                 "view_id": result["view_id"],
                 "type": "search",
                 "table": table,
                 "field": field,
                 "script_ids": [],
                 "script_count": 0,
-                "l1_graph_cache": {"nodes": [], "edges": []},
+                "l1_graph_cache": {"nodes": [], "edges": [], "target": "table.field"},
+                "match_mode": "no_matches",
+                "message": "Filter active — no tables in scope",
                 "children": [],
             })
             return result
         raise HTTPException(status_code=400, detail="Indexes not found. Run index first.")
 
     lineage_mode = body.get("lineage_mode", True)  # R18: default True
-    result = create_search(ws_id, table, field, ti, fi, lineage_mode=lineage_mode)
+    result = await create_search(ws_id, table, field, ti, fi, lineage_mode=lineage_mode)
 
     # ── R17: Search diagnostic logging ──
     _emit_search_diagnostic(ws_id, table, field,
-                            *_search_diagnostic_values(ws_id, table, field, ti, fi, result))
+                            *_search_diagnostic_values(table, field, ti, fi, result,
+                                                       filtered_active, scope_tables, scope_fields))
     return result
 
 
@@ -288,13 +292,13 @@ async def debug_graph_layout(ws_id: str, body: dict):
     if not table or not field:
         raise HTTPException(status_code=400, detail="Both 'table' and 'field' are required")
 
-    ti, fi, _ = _load_index(ws_id)
+    ti, fi, _, _, _ = _load_index(ws_id)
     if not ti and not fi:
         raise HTTPException(status_code=400, detail="Index not found")
 
     # Run search to get L1 graph
     from app.services.dataflow_service import create_search
-    search_result = create_search(ws_id, table, field, ti, fi)
+    search_result = await create_search(ws_id, table, field, ti, fi)
 
     # Extract graph data
     l1_data = search_result.get("l1_graph", {})

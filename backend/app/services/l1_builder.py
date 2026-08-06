@@ -12,6 +12,7 @@ import traceback
 
 from app.services.workspace_service import get_workspace_dir
 from app.extractor.lineage import compute_field_lineage, PRODUCTION_EDGES
+from app.services.logger import _push
 
 _log = logging.getLogger("sql_visualizer.dataflow")
 
@@ -226,6 +227,25 @@ def _extract_table_field_pairs(lineage_set: set, nodes: list,
     return pairs
 
 
+def _push_l1_degraded(ws_id: str, table: str, field: str,
+                      script_names: list[str], exc: Exception) -> None:
+    """M4-B: emit an L1-degraded diagnostic block via the `_push` "profile"
+    channel (same mechanism as the R16/R17 blocks) — the LogPanel shows why
+    the script-only fallback was returned instead of a full pipeline graph.
+    """
+    W = 80
+    lines = ["┌─ L1 GRAPH DEGRADED " + "─" * (W - len("┌─ L1 GRAPH DEGRADED ") - 1) + "┐"]
+    lines.append(("│ target: %s.%s  scripts: %d" % (table, field, len(script_names)))
+                 .ljust(W - 1) + "│")
+    lines.append(("│ script-only fallback returned — L1 build failed:"
+                  ).ljust(W - 1) + "│")
+    msg = ("│ %s" % exc).strip()[:72]
+    lines.append(msg.ljust(W - 1) + "│")
+    lines.append("└" + "─" * (W - 2) + "┘")
+    for line in lines:
+        _push(ws_id, "profile", line)
+
+
 def _build_l1_graph(ws_id: str, script_names: list[str],
                     table: str, field: str) -> dict:
     """Build Level 1 cross-script pipeline graph.
@@ -235,7 +255,8 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
     Edges: undirected table↔script per formal §5.1: (s,t) ∈ E iff s uses t, with role badges for target var.
     """
     if len(script_names) < 1:
-        return {"nodes": [], "edges": [], "target": f"{table}.{field}"}
+        return {"nodes": [], "edges": [], "target": f"{table}.{field}",
+                "degraded": False}
 
     scripts_dir = get_workspace_dir(ws_id) / "scripts"
     script_data = []
@@ -253,7 +274,8 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                 "id": sid, "label": name, "type": "script_node",
                 "script_name": name,
             }})
-        return {"nodes": nodes, "edges": [], "target": f"{table}.{field}"}
+        return {"nodes": nodes, "edges": [], "target": f"{table}.{field}",
+                "degraded": False}
 
     try:
         from app.services.multi_script_service import analyze_multiple_scripts
@@ -861,15 +883,28 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             "output_tables": output_tables,
             "script_count": len(all_scripts),
             "lineage_field_pairs": [list(p) for p in lineage_field_pairs],
+            # M4-B: stable frontend contract — `degraded` is always present.
+            "degraded": False,
         }
-    except Exception:
+    except Exception as exc:
+        # M4-B: the degraded fallback must be VISIBLE, not a silent success —
+        # flag the response and emit an L1 diagnostic (same `_push` "profile"
+        # mechanism as the R16/R17 blocks) so the LogPanel shows the failure
+        # while the script-only graph still keeps the UI usable.
         import traceback
         traceback.print_exc()
         nodes = []
         for name in script_names:
             sid = hashlib.md5(name.encode()).hexdigest()[:12]
             nodes.append({"data": {"id": sid, "label": name, "type": "script_node", "script_name": name}})
-        return {"nodes": nodes, "edges": [], "target": f"{table}.{field}"}
+        try:
+            _log.error("L1: degraded fallback for %s.%s (%d scripts): %s",
+                       table, field, len(script_names), exc)
+            _push_l1_degraded(ws_id, table, field, script_names, exc)
+        except Exception:
+            pass  # diagnostics must never break the response path
+        return {"nodes": nodes, "edges": [], "target": f"{table}.{field}",
+                "degraded": True}
 
 
 

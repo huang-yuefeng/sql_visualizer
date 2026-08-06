@@ -46,8 +46,19 @@ describe('summarizeResolutionStats', () => {
   });
 
   it('falls back to backend coverage_pct when inputs are missing', () => {
-    const s = summarizeResolutionStats({ total_columns: 0, unresolved: 3, coverage_pct: 87.5 });
+    const s = summarizeResolutionStats({ unresolved: 3, coverage_pct: 87.5 });
     expect(s.coveragePct).toBe(87.5);
+  });
+
+  it('M10: rejects backend coverage_pct when total=0 but unresolved>0 (stale caches claim 100%)', () => {
+    const s = summarizeResolutionStats({ total_columns: 0, unresolved: 3, coverage_pct: 100.0 });
+    expect(s.unresolvedCount).toBe(3);
+    expect(s.coveragePct).toBeNull();
+  });
+
+  it('M10: keeps coverage_pct fallback when total=0 and nothing unresolved', () => {
+    const s = summarizeResolutionStats({ total_columns: 0, unresolved: 0, coverage_pct: 100.0 });
+    expect(s.coveragePct).toBe(100);
   });
 
   it('returns null when stats are missing (old cached data)', () => {

@@ -29,3 +29,8 @@ backend/.pytest_cache/
 .env
 .env.local
 docker_image/*.tar.gz
+
+# Build/image artifacts (N7 hygiene — keep out of git)
+docker_image/
+*.bak
+backend/app/static.bak.*/

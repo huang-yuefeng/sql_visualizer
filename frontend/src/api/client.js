@@ -6,13 +6,26 @@ function bust(url) {
   return url + sep + CACHE_BUST;
 }
 
+// L12: read the error detail from a non-OK response without throwing on
+// non-JSON bodies (e.g. proxy 500 HTML) — fall back to the HTTP status.
+async function errorDetail(res) {
+  try {
+    const body = await res.json();
+    if (body && typeof body === 'object') {
+      if (typeof body.detail === 'string') return body.detail;
+      if (typeof body.message === 'string') return body.message;
+    }
+  } catch { /* non-JSON body */ }
+  return `HTTP ${res.status}`;
+}
+
 
 export async function analyzeSql(sqlText, scriptName = 'unnamed.sql') {
   const form = new FormData();
   form.append('sql_text', sqlText);
   form.append('script_name', scriptName);
   const res = await fetch(`${API_BASE}/analyze`, { method: 'POST', body: form });
-  if (!res.ok) throw new Error((await res.json()).detail || 'Analysis failed');
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
@@ -53,7 +66,7 @@ export async function uploadWorkspace(zipFile) {
   const form = new FormData();
   form.append('file', zipFile);
   const res = await fetch('/api/workspace', { method: 'POST', body: form });
-  if (!res.ok) throw new Error((await res.json()).detail || 'Upload failed');
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
@@ -64,7 +77,7 @@ export async function deleteWorkspace(wsId) {
 
 export async function getWorkspaceInfo(wsId) {
   const res = await fetch(`/api/workspace/${wsId}`);
-  if (!res.ok) throw new Error((await res.json()).detail || 'Workspace not found');
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
@@ -79,7 +92,7 @@ export async function indexWorkspace(wsId, scripts) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scripts }),
   });
-  if (!res.ok) throw new Error((await res.json()).detail || 'Index failed');
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
@@ -98,7 +111,7 @@ export async function uploadFilterConfig(wsId, scriptTableFile, tableColFile) {
     method: 'POST',
     body: form,
   });
-  if (!res.ok) throw new Error((await res.json()).detail || 'Filter config failed');
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
@@ -113,7 +126,7 @@ export async function searchDataFlow(wsId, table, field) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ table, field }),
   });
-  if (!res.ok) throw new Error((await res.json()).detail || 'Search failed');
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
@@ -135,7 +148,7 @@ export async function getLevel1Graph(wsId, viewId) {
 export async function getLevel2Graph(wsId, viewId, script, filter = true) {
   const params = new URLSearchParams({ script, filter: String(filter) });
   const res = await fetch(bust(`/api/workspace/${wsId}/views/${viewId}/level2?${params}`));
-  if (!res.ok) throw new Error((await res.json()).detail || 'Failed to load graph');
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
@@ -156,7 +169,7 @@ export async function saveExportConfig(wsId, config) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
   });
-  if (!res.ok) throw new Error((await res.json()).detail || 'Save config failed');
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
@@ -176,7 +189,7 @@ export async function addViewChild(wsId, parentViewId, childEntry) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(childEntry),
   });
-  if (!res.ok) throw new Error((await res.json()).detail || 'Add child failed');
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
@@ -184,7 +197,7 @@ export async function deleteViewChild(wsId, parentViewId, childId) {
   const res = await fetch(`/api/workspace/${wsId}/views/${parentViewId}/children/${childId}`, {
     method: "DELETE",
   });
-  if (!res.ok) throw new Error((await res.json()).detail || "Delete child failed");
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 

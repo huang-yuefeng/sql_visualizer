@@ -97,10 +97,11 @@ def workspace_client():
 
         def search(self, ws_id, table, field):
             from app.services.dataflow_service import create_search
+            import asyncio
             cache_dir = get_workspace_dir(ws_id) / "cache"
             ti = json.loads((cache_dir / "table_index.json").read_text()) if (cache_dir / "table_index.json").exists() else {}
             fi = json.loads((cache_dir / "field_index.json").read_text()) if (cache_dir / "field_index.json").exists() else {}
-            return create_search(ws_id, table, field, ti, fi)
+            return asyncio.run(create_search(ws_id, table, field, ti, fi))
 
         def _collect_sql(self, tree):
             paths = []

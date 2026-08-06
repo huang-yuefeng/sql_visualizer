@@ -66,10 +66,14 @@ export function summarizeResolutionStats(stats, fallbackNames = null) {
   // Coverage % = 1 - unresolved/total (guard division by zero).
   // Prefer the computed value; fall back to the backend's coverage_pct
   // (index shape) only when we lack the inputs to compute it ourselves.
+  // M10: old/mid-flight index caches report total_columns=0 with
+  // unresolved>0 while the backend pins coverage_pct=100.0 — never trust
+  // that combination (it claims 100% coverage with unresolved columns).
   let coveragePct = null;
+  const staleZeroTotal = total === 0 && unresolvedCount !== null && unresolvedCount > 0;
   if (total !== null && total > 0 && unresolvedCount !== null) {
     coveragePct = Math.round((1 - unresolvedCount / total) * 1000) / 10;
-  } else if (typeof stats.coverage_pct === 'number') {
+  } else if (!staleZeroTotal && typeof stats.coverage_pct === 'number') {
     coveragePct = stats.coverage_pct;
   }
 

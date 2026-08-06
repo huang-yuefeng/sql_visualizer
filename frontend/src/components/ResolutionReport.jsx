@@ -16,13 +16,23 @@ function coverageColor(pct) {
  * the unresolved column names (up to 20). Renders nothing when
  * resolution_stats is absent (old cached data).
  */
-export default function ResolutionReport({ stats, orphanFieldSamples }) {
+export default function ResolutionReport({ stats, orphanFieldSamples, schemaCandidates }) {
   const [expanded, setExpanded] = useState(false);
   const s = summarizeResolutionStats(stats, orphanFieldSamples);
   if (!s) return null;
 
   const pct = s.coveragePct !== null ? `${s.coveragePct.toFixed(1)}%` : '—';
   const names = s.names && s.names.length > 0 ? s.names : null;
+  // M9/L14: branch on the COUNT, not on name-list presence — the index
+  // shape omits orphan_field_samples, so names may be absent with
+  // unresolvedCount > 0. Header count is the real unresolvedCount; the
+  // list display stays capped at MAX_NAMES.
+  const unresolvedTotal = s.unresolvedCount !== null ? s.unresolvedCount : (names ? names.length : null);
+  const showList = !!names && unresolvedTotal !== null && unresolvedTotal > 0;
+  const showDetailsUnavailable = unresolvedTotal !== null && unresolvedTotal > 0 && !names;
+  const shownNames = names ? Math.min(names.length, MAX_NAMES) : 0;
+  const truncated =
+    !!names && (names.length < unresolvedTotal || names.length > MAX_NAMES);
 
   return (
     <div className="resolution-report">
@@ -40,6 +50,11 @@ export default function ResolutionReport({ stats, orphanFieldSamples }) {
               ? `${s.unresolvedCount} unresolved${s.total !== null && s.total > 0 ? ` (${pct} coverage)` : ''}`
               : 'coverage —'}
           </div>
+          {schemaCandidates && typeof schemaCandidates === 'object' && (
+            <div className="rr-line rr-schema-candidates">
+              Schema candidates: {schemaCandidates.total ?? '—'} (unique owner: {schemaCandidates.unique_owner ?? '—'}) | r6: {schemaCandidates.r6_collision ?? '—'}
+            </div>
+          )}
           {s.byStrategy && (
             <div className="rr-strategies">
               {STRATEGY_ORDER.map(k => (
@@ -49,10 +64,11 @@ export default function ResolutionReport({ stats, orphanFieldSamples }) {
               ))}
             </div>
           )}
-          {names ? (
+          {showList ? (
             <div className="rr-unresolved">
               <div className="rr-unresolved-head">
-                Unresolved columns ({names.length}){names.length > MAX_NAMES ? ` — showing first ${MAX_NAMES}` : ''}
+                Unresolved columns ({unresolvedTotal})
+                {truncated ? ` — showing first ${shownNames}` : ''}
               </div>
               <div className="rr-unresolved-list">
                 {names.slice(0, MAX_NAMES).map(n => (
@@ -60,6 +76,8 @@ export default function ResolutionReport({ stats, orphanFieldSamples }) {
                 ))}
               </div>
             </div>
+          ) : showDetailsUnavailable ? (
+            <div className="rr-unavailable">{unresolvedTotal} unresolved (details unavailable)</div>
           ) : (
             <div className="rr-clean">No unresolved columns</div>
           )}

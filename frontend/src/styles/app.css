@@ -448,7 +448,8 @@
   border: 1px solid #F39C12; color: #F39C12;
   padding: 6px 14px; border-radius: 4px;
   font-size: 0.75rem; z-index: 50;
-  white-space: nowrap;
+  /* L15: long messages wrap instead of overflowing the graph panel */
+  white-space: normal; max-width: min(70%, 480px); text-align: center;
 }
 
 /* ── Orphan Resolution Report (R20) ── */
@@ -456,6 +457,12 @@
   border: 1px solid #3a3a5a; border-radius: 4px;
   margin-bottom: 10px; overflow: hidden;
   background: #16162a;
+}
+/* L13: the app ships a light theme (AppShell toggles data-theme) — the
+   card must not stay dark-on-light. */
+[data-theme="light"] .resolution-report {
+  background: var(--panel, #fff);
+  border-color: var(--border, #ddd);
 }
 .rr-header {
   display: flex; align-items: center; gap: 8px;
@@ -478,6 +485,8 @@
   color: #E74C3C; border-radius: 3px; padding: 1px 6px; font-size: 0.65rem;
 }
 .rr-clean { color: #2ECC71; }
+/* M9: unresolved columns exist but the backend omitted their names */
+.rr-unavailable { color: #F39C12; }
 
 /* ── Export Config Clickable Rows ── */
 .config-row {

@@ -1,4 +1,5 @@
 """Dataflow service — cross-script field tracing, L1/L2 graph building, relevance filter."""
+import asyncio
 import json
 import uuid
 import hashlib
@@ -28,16 +29,16 @@ class SearchView:
     created_at: str = ""
 
 
-def create_search(ws_id: str, table: str, field: str,
-                  table_index: dict, field_index: dict,
-                  lineage_mode: bool = True) -> dict:
+async def create_search(ws_id: str, table: str, field: str,
+                        table_index: dict, field_index: dict,
+                        lineage_mode: bool = True) -> dict:
     """Find scripts touching table AND field, build L1 graph.
-    
+
     1. Find scripts from field_index that contain this field
     2. Find scripts from table_index that contain this table
     3. Intersection = scripts touching BOTH
     4. Build L1 graph via analyze_multiple_scripts()
-    5. Store view in views.json
+    5. Store view in views.json (async — the write runs off the event loop, L9)
     """
     ws_dir = get_workspace_dir(ws_id)
     from app.services.logger import api_request
@@ -108,8 +109,9 @@ def create_search(ws_id: str, table: str, field: str,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
 
-    # Persist to views.json
-    _persist_search_view(ws_id, {
+    # Persist to views.json (M8: match_mode saved so the search-mode banner
+    # survives a reload — the no_matches path persists it too, in dataflow.py)
+    await _persist_search_view(ws_id, {
         "view_id": view.view_id,
         "type": "search",
         "table": view.table,
@@ -117,6 +119,7 @@ def create_search(ws_id: str, table: str, field: str,
         "script_ids": view.script_ids,
         "script_count": len(view.script_ids),
         "l1_graph_cache": view.l1_graph_cache,
+        "match_mode": match_mode,
         "children": [],
         "created_at": view.created_at,
     })
@@ -355,16 +358,18 @@ def _save_views(ws_id: str, views: list):
     views_path.write_text(json.dumps(views, indent=2, ensure_ascii=False))
 
 
-def _persist_search_view(ws_id: str, view: dict):
+async def _persist_search_view(ws_id: str, view: dict):
     """Append a search view to views.json.
 
     Shared by create_search and the F1 no_matches path (dataflow.py), so
     every search — even an empty one — survives reload (R3).
+    L9: the write embeds the full L1 graph cache — run it in a worker thread
+    so large workspaces don't stall the event loop.
     """
     view.setdefault("created_at", datetime.now(timezone.utc).isoformat())
     views = _load_views(ws_id)
     views.append(view)
-    _save_views(ws_id, views)
+    await asyncio.to_thread(_save_views, ws_id, views)
 
 
 def list_views(ws_id: str) -> list:

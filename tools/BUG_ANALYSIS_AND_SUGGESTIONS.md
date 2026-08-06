@@ -2252,3 +2252,40 @@ Implemented + landed (tests `test_orphan_residual_fixes.py`, 19 tests, all pass)
   4. Remaining 1a classes are S2-extension territory, not S4: q71 derived-table output chains (`sold_item_sk`/`time_sk`), financial's 7 CTE-chain aggregate aliases
   5. Design open-question 6 validated: an explicit "import schema from DDL file" workflow makes S4 effective for evidence-less workspaces
 - Design open-question 2 validated: case-insensitive whole-name matching is correct (spider `IsOfficial` vs bare `isofficial`; DDL `sr_return_amt_inc_tax` vs `SR_RETURN_AMT_INC_TAX`).
+
+---
+
+## S4 Phase 2 (AUTO-RESOLUTION) + Code Review 2026-08-06 — Batch Implementation (v3.3.133, 2026-08-06)
+
+Four parallel workstreams (2 teams + 2 agents), all findings in `wiki/CODE_REVIEW_2026-08-06.md` verified against code first. Nothing committed by teams; single integration commit.
+
+### A. S4 Phase 2 — auto-resolution (design gate PASS, Phase 0/1 audit 52/52)
+- **Extractor S4a** (`variable_extractor_v2.py`, now 1765 L): `_finalize_schema_candidates()` called from `build_resolution_stats()` — R6 guard (field==visible table, counted, never attributed) → owners = visible tables with whole-name case-insensitive evidence (R4) → exactly 1 → auto-attribute COLUMN vars in the recorded contexts (`source_tables=[owner]`, `resolved_by["schema"]+=1`, candidate REMOVED — residual-only contract); 0/≥2 stay unresolved (never guess). Candidate `loc` statement-anchored (first-4-token head of `expr.sql(mysql)` with AS skipped both sides, tokenizer match — q76 string-literal capture fixed; merge evidence lines fixed). `script_schemas` is now dict-of-dicts `{table: {col: evidence_line_int}}` (first occurrence wins; old list shape still read).
+- **S2 extensions** (mechanisms, never guesses): q71 set-op derived tables in JOINs now walked via `_walk_setop(derived_alias=...)` (sqlglot parses `FROM item, (SELECT… UNION ALL …) tmp` as CROSS JOINs — body was never walked); `setop_body=True` suppresses two-hop (per-branch sources differ); CTE set-op bodies via `_walk_setop(cte_name=...)`; qualified stars `pe.*`/`pnp.*` expand the referenced CTE/derived recorded outputs (sqlglot 30.12 parses as `Column(this=Star)`); `_walk_select` shadowing `cte_name=None` initializer removed (dropped cte_name for setop CTE bodies). Probes: q71 `sold_item_sk`/`time_sk` → `["tmp"]`; fin_query8 0 unresolved (was 7).
+- **Index S4b** (`folder_index_service.py`): scope-blind S4 loop REPLACED by the S4b loop — per-candidate re-test only within its OWN `visible_tables` (never workspace-global), owner must already be in `table_index` (no fabricated entries, L1), exact table-name match first with case-variant fallback only when the exact name has no evidence (L2); attribution persists into the analysis cache (`_apply_s4b_cache_update`) + field/table index + `by_strategy["schema"]` + report owner lines with schema-EVIDENCE provenance (`evidence: script Ln` + `used:` when the bare-use loc differs; DDL-named scripts sort first).
+- **M4-B degraded L1** (`l1_builder.py`): catch-all fallback now returns `"degraded": True` + emits an `L1 GRAPH DEGRADED` diagnostic box (R16/R17 channel); all normal paths `"degraded": False`.
+- **Fixture**: `samples/ambiguous_id/` (1b — customers/orders own `id`+`name`, products owns only `name`; joins use `*_key` so `id`/`name` stay bare).
+
+### B. Code review 2026-08-06 — verified findings, all fixed
+- **H1 (P0) path traversal** — `resolve_script`: every candidate `resolve()`d + `is_relative_to(scripts_root)` containment; absolute/`../`/backslash rejected, basename/±.sql tolerance kept.
+- **M2** Fix B × CTE: bare-column alias chain now checks scope.ctes outputs → scope.deriveds outputs → S3 (same order as `_register_column`); `WITH w AS (SELECT id FROM t2) SELECT id AS c FROM t1, w` → `c → ["w"]`, alias and source column land together.
+- **M3** evidence canonicalization: case-insensitive CTE/derived membership guards (no phantom `C` from `SELECT C.x` with CTE `c`); MERGE target alias registered into `_table_aliases` + `merge_scope.aliases` (ON `tgt.id` now evidences `customers`, not `tgt`).
+- **M4** Fix A double-count: raw walk prunes set-op subquery bodies (columns register once, via branch scopes); spider `total_columns` 4 (was 6). Coverage numbers are now denominator-clean.
+- **M5** malformed CSV → 400 (`(row.get(..) or "").strip()` at all sites + try/except). **M6** R1 `filtered_fi↔filtered_ti` symmetry (same per-table predicate in `filtered_tables`). **M7** SSE queue: `_push` lock-guarded peek, never recreates a removed queue (L2 cleanup actually works).
+- **M8** no-match banner survives reload: both persist sites now carry `match_mode` (+`message`); frontend merge overlays saved metadata onto the server entry (`??`, server wins).
+- **M9/M10/L14** ResolutionReport: branches on `unresolvedCount` (names-absent → "details unavailable"); total=0+unresolved>0 → badge "—" (backend 100.0 not inherited); header shows the true count with "— showing first N".
+- **M11** `schema_candidates_summary` rendered in ResolutionReport when present. **L8** diagnostic scope counts come from `_load_index` (no double read/TOCTOU). **L9** heavy writes via `asyncio.to_thread` (filtered index, views.json).
+- **L10** filter CSV cap 20 MB → 400. **L11** `_decode_csv` utf-8-sig → gb18030 → latin-1 with R16 hint. **L12** `client.js` `errorDetail()` (non-JSON error bodies → `HTTP <status>`). **L13** resolution card follows `data-theme` light theme. **L15** no-match banner wraps.
+- **L1/L2/L7/N2/N3** index-side (owner-in-table_index guard; exact-name-first owner matching; progress errors copied; report line clipping; all-three-keys `s4c_seen` gate). **L3** Fix C shadowing kept by design (corpus-audited, q71 relies on it) — documented + pinned. **L4** junk output names (`*`, literals) skipped. **L5** unaliased qualified projections keep two-hop. **N4** no_matches persisted cache shape parity (`target` key). **N5** dead `_diag_box` removed. **N6** R1 blank-row-wins diagnostic line. **N7** `.gitignore` entries (docker_image/, *.bak, static.bak.*).
+
+### C. Tests
+Backend **495 passed / 5 skipped** (was 445/5): +30 extractor (`test_s4_instrumentation.py` rewritten), +10 `test_s4b_resolution.py` (incl. 1b never-guess E2E + M4-B), +12 `test_logger.py`, +30+ `test_filter_config.py` additions (H1/M5/M6/L10/L11/N6/M8), +6 review tests in `test_orphan_residual_fixes.py`. Frontend **52 passed** (was 8): `restoreViews` (6), `ResolutionReport.test.jsx` (11), `FilterPanel` (2), `resolutionReport.test.js` (10) — first component tests (`@testing-library/react` now used).
+
+### D. Coverage sweep (v3.3.133, definitive)
+| corpus | scripts | orphans | coverage | schema events (S4a/S4b) |
+|--------|---------|---------|----------|--------------------------|
+| tpcds.zip | 99 | 123 | 96.2% | 37 / 0 |
+| tpcds_qualified.zip | 108 | **9** | **99.7%** | 162 / 113 |
+| combined | 207 | **8** | **99.9%** | 200 / 114 |
+
+Combined orphans **291 → 8** (baseline 95.8% → 99.9%). The 8 residuals: evidence-absent fields in ≥2-table scopes and R6-adjacent cases — honest leftovers, reported in the ORPHAN RESOLUTION REPORT. Note: the M4 denominator fix makes numbers not directly comparable with the 96.6% Phase-0/1 figure (that denominator included phantom copies).
