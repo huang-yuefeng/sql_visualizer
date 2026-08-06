@@ -349,6 +349,51 @@ class TestC3RevocationMirror:
 
 
 # ══════════════════════════════════════════════════════════════════════
+# C-4: apply-side gate — a context-mismatch no-op never moves counters
+# ══════════════════════════════════════════════════════════════════════
+
+class TestC4ApplyGate:
+    def test_apply_context_mismatch_noop_does_not_touch_counters(self):
+        """C-4 (apply side): an attribution whose var contexts do not
+        include the candidate's recorded contexts (M13 — the var was seen
+        in a scope where the owner was NOT visible) modifies no var:
+        n_attributed == 0. The persisted `unresolved` list and
+        `resolved_by["schema"]` must NOT move and the cache must not be
+        rewritten — the mirror of the revoke-side `n_revoked > 0` gate."""
+        ws = _make_ws({"a.sql": "SELECT 1;\n"})
+        try:
+            cache_dir = get_workspace_dir(ws) / "cache"
+            cache_path = cache_dir / "analysis_prior.json"
+            crec = {"field": "f", "visible_tables": ["a", "b"], "loc": 1,
+                    "contexts": ["TOP1"]}
+            payload = {
+                "script_name": "prior.sql",
+                "variables": [
+                    {"id": "v1", "name": "f", "variable_type": "column",
+                     "source_tables": [], "context": "TOP0"},
+                ],
+                "resolution_stats": {
+                    "total_columns": 3,
+                    "unresolved": ["f"],
+                    "resolved_by": {"schema": 0, "plain_alias": 2},
+                    "schema_candidates": [dict(crec)],
+                },
+            }
+            cache_path.write_text(json.dumps(payload))
+            before = cache_path.read_text()
+            n = fis._apply_s4b_cache_update(str(cache_path), "f", "a",
+                                            ["a", "b"], crec)
+            assert n == 0, n
+            assert cache_path.read_text() == before, \
+                "no-op apply must not rewrite the cache"
+            rs = json.loads(before)["resolution_stats"]
+            assert "f" in rs["unresolved"], rs
+            assert rs["resolved_by"]["schema"] == 0, rs
+        finally:
+            delete_workspace(ws)
+
+
+# ══════════════════════════════════════════════════════════════════════
 # C-5: post-loop star expansion (search visibility for SELECT *)
 # ══════════════════════════════════════════════════════════════════════
 
@@ -448,6 +493,42 @@ class TestC5StarExpansion:
             assert "a" in fi["id"]["tables"], fi["id"]
             assert "b" in fi["bid"]["tables"], fi["bid"]
             assert result["star_expanded_fields"] == 4, result
+        finally:
+            delete_workspace(ws)
+
+    def test_star_does_not_resurrect_revoked_field(self):
+        """C-5↔C-3: a field S4b revoked as ambiguous (claimed by two
+        different owners — a.sql's S1 attribution vs q2's c-owner claim)
+        must NOT re-enter field_index via star expansion: q3's
+        `SELECT * FROM c` runs AFTER the S4b pass, and the post-loop star
+        expansion must skip the revoked field instead of resurrecting it
+        into field_index/table_index/pair_index."""
+        ws = _make_ws({
+            "a.sql": "SELECT f FROM a;\n",
+            "ddl_c.sql": "CREATE TABLE c (f INT);\n",
+            "q2.sql": "SELECT f FROM c JOIN d ON c.k = d.k;\n",
+            "q3.sql": "SELECT * FROM c;\n",
+        })
+        try:
+            result = fis.index_scripts(ws,
+                                       ["a.sql", "ddl_c.sql", "q2.sql",
+                                        "q3.sql"])
+            stats = result["resolution_stats"]
+            assert stats["ambiguous"] == 1, stats
+            fi = result["field_index"]
+            assert fi["f"]["tables"] == [], fi["f"]
+            assert "q3.sql" not in fi["f"]["scripts"], fi["f"]
+            assert "f" not in result["table_index"].get("c", {}) \
+                .get("fields", []), result["table_index"]
+            # the star pass still expands NON-revoked evidence columns — k
+            # (c's evidence via q2's qualified ref c.k) lands under c with
+            # q3.sql attached; only the revoked f is excluded.
+            assert "q3.sql" in fi["k"]["scripts"], fi["k"]
+            assert result["star_expanded_fields"] == 1, result
+            # persisted indexes agree (search consumes the disk index)
+            cache_dir = get_workspace_dir(ws) / "cache"
+            fi2 = json.loads((cache_dir / "field_index.json").read_text())
+            assert fi2["f"]["tables"] == [], fi2["f"]
         finally:
             delete_workspace(ws)
 

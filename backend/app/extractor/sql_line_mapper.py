@@ -6,15 +6,22 @@ from app.models.variable import VariableDefinition
 
 
 def map_variables_to_lines(
-    variables: list[VariableDefinition], sql_text: str
+    variables: list, sql_text: str
 ) -> dict[str, tuple[int, int]]:
     """Map each variable to its (line_start, line_end) in the source SQL.
 
     Uses the variable's sql_expression to find matching lines in the source.
     For multi-line expressions, captures the contiguous line range.
 
+    Accepts either VariableDefinition objects (analysis time) or plain dicts
+    (cached analysis JSON replayed through _load_or_build_graph).
+
+    D1: comment lines are never matched — header banners list every source
+    table, so a table variable's first match used to land on the comment
+    line instead of its real FROM line.
+
     Args:
-        variables: List of extracted variables.
+        variables: List of extracted variables (objects or dicts).
         sql_text: Original SQL source text.
 
     Returns:
@@ -27,9 +34,14 @@ def map_variables_to_lines(
     line_map: dict[str, tuple[int, int]] = {}
 
     for var in variables:
-        expr = var.sql_expression.strip()
+        if isinstance(var, dict):
+            expr = (var.get("sql_expression") or "").strip()
+            vid = var.get("id", "")
+        else:
+            expr = var.sql_expression.strip()
+            vid = var.id
         if not expr:
-            line_map[var.id] = (0, 0)
+            line_map[vid] = (0, 0)
             continue
 
         # Try to find the first line containing this expression
@@ -40,6 +52,10 @@ def map_variables_to_lines(
         search_key = expr[:40].strip()
         if search_key:
             for i, line in enumerate(lines, start=1):
+                # D1: never map onto a comment line (the header banner lists
+                # source tables and would capture table variables).
+                if line.lstrip().startswith(("--", "/*")):
+                    continue
                 if search_key in line:
                     start_line = i
                     end_line = i
@@ -50,6 +66,6 @@ def map_variables_to_lines(
                         end_line = min(start_line + len(expr_lines) - 1, len(lines))
                     break
 
-        line_map[var.id] = (start_line, end_line)
+        line_map[vid] = (start_line, end_line)
 
     return line_map

@@ -164,6 +164,53 @@ JOIN bdm_evt_loan_trans p2
     assert [e.name for e in exprs] == ["CONCAT(p2.a, p2.b)"]
 
 
+def test_expr_expr_join_key_both_sides_paired():
+    """expression=expression JOIN ON (two CONCAT sides): BOTH sides
+    materialize and record each other — the pairing is order-independent
+    (regression: only the second-materialized side used to record the
+    pair, so the first side's source_variables stayed empty)."""
+    sql = """INSERT OVERWRITE TABLE stg_loan
+SELECT p1.k
+FROM bdm_acc_loan_info p1
+JOIN bdm_evt_loan_trans p2
+  ON CONCAT(p1.iidcptl, p1.iidcptc) = CONCAT(p2.ihctcd, p2.ihctorg);"""
+    vars_, deps = _extract(sql)
+    exprs = [v for v in vars_
+             if v.variable_type == VariableType.EXPRESSION
+             and v.defined_in == "JOIN ON"]
+    assert len(exprs) == 2, f"expected 2 expression vars: {exprs}"
+    by_name = {e.name: e for e in exprs}
+    assert set(by_name) == {"CONCAT(p1.iidcptl, p1.iidcptc)",
+                            "CONCAT(p2.ihctcd, p2.ihctorg)"}
+    left, right = (by_name["CONCAT(p1.iidcptl, p1.iidcptc)"],
+                   by_name["CONCAT(p2.ihctcd, p2.ihctorg)"])
+    # both sides record the counterpart (symmetric pairing)
+    assert left.source_variables == [right.id], left.source_variables
+    assert right.source_variables == [left.id], right.source_variables
+    # both sides carry an incident JOIN_KEY edge
+    jk = {(d.source_id, d.target_id) for d in deps
+          if d.relationship == "JOIN" and d.operation == "JOIN_KEY"}
+    assert (right.id, left.id) in jk and (left.id, right.id) in jk, jk
+
+
+def test_bdm_sample_join_key_expressions_all_paired():
+    """Regression: in the real BDM sample, every JOIN ON expression side
+    (8/8) records its counterpart — the two expression=expression CONCAT
+    comparisons used to leave the first-materialized side with EMPTY
+    source_variables."""
+    sample = (BACKEND_DIR.parent / "samples" / "sql_sample_v1"
+              / "BDM_ACC_LOAN_INFO_SUP_M.sql")
+    if not sample.exists():
+        pytest.skip(f"sample not found: {sample}")
+    res = extract_variables_from_sql(sample.read_text(), sample.name)
+    exprs = [v for v in res.variables
+             if v.variable_type == VariableType.EXPRESSION
+             and (v.defined_in or "").upper() == "JOIN ON"]
+    assert len(exprs) == 8, f"expected 8 JOIN ON expressions: {exprs}"
+    empty = [e.name for e in exprs if not e.source_variables]
+    assert empty == [], f"JOIN ON expressions with empty source_variables: {empty}"
+
+
 def test_b5_labels_never_carry_context_markers():
     """Regression: VT/column labels were sometimes rendered from the whole
     context path ("⟐ loan_final}:join:accu") — B5 takes only the terminal
