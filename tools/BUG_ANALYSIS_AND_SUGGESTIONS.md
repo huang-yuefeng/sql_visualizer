@@ -2949,3 +2949,61 @@ teams against HEAD; verdicts merged here.
 | RELEASE.txt stale (3.3.134) | **CONFIRMED (real)** | Regenerate at deploy time |
 | 2/8 join expressions unpaired | **CONFIRMED (minor)** | Zero lineage impact; pairing order-dependence noted |
 | `_seen` annotation + dangling test ref | **CONFIRMED (trivial)** | 1-line each, documented |
+
+---
+
+## L2 data_dt investigation — BDM_ACC_LOAN_INFO_SUP_M.sql (2026-08-06, 2-team probe)
+
+User report: search `bdm_acc_loan_info.data_dt` (workspace 8f843283a9d8) → (1) many SQL
+highlights on lines without `data_dt`; (2) only 1 field (`data_dt`), no contributing
+fields. **Decision (user): document only — no code changes this round.**
+
+### Complaint 1 — highlights: REAL bug (D1+D2), not the sql_range format
+
+`sql_range` is well-formed `[start_line, start_col, end_line, end_col]` everywhere
+(contract since v3.3.45; all 55 data_dt edges + 67 lending_ref edges verified; the
+`[16,5]`-style readings were the first 2 elements of 4-element tuples). The defect is the
+**initial `highlights` pipeline** (`map_variables_to_lines` → `graph_service.line_map` →
+`l2_builder._compute_highlight_ranges`):
+
+- **D1 (root cause)** — `extractor/sql_line_mapper.py:42-45` picks the FIRST line
+  containing `expr[:40]`, comments included. Line 3 of this script is a header comment
+  listing every source table → 21 vars map to `[3,3]`; initial highlight lands on a
+  comment line.
+- **D2** — multi-line expressions never match any line → `(0,0)` for 76/354 vars →
+  `[0,0]` leaks into the response (no filter in `_compute_highlight_ranges`).
+- Observed data_dt response: `highlights=[[0,0],[3,3],[43,43],[160,160],[204,204]]` —
+  line 18 (`data_dt = '$(load_date)'`, the actual predicate) NOT highlighted; "Show All"
+  grows to 68 lines. General across searches (lending_ref identical pattern).
+- **Proposed fix (backend only, ~10 lines + tests)**: skip comment lines in the match
+  loop (`sql_line_mapper.py:42-45`); drop `start < 1` in `_compute_highlight_ranges`
+  (`l2_builder.py:45-59`). Regression tests: table var maps to FROM line not header
+  comment; highlights contain the predicate line and no `[0,0]`. No frontend change.
+- D3 (by design): edge-click ranges span whole clauses (Bug 4 AND/OR continuation) —
+  token-only highlighting is a product decision, not a bug.
+
+### Complaint 2 — 1 field: SEMANTICALLY CORRECT (input column), 2 display gaps
+
+`bdm_acc_loan_info` is READ-ONLY in this script (all 10 data_dt occurrences are
+predicate reads: L18/L43/L55/L93/L158 WHERE; L202 JOIN ON p2.data_dt; L160/L211 output
+PARTITION/insert columns on OTHER tables). DML targets = `bdm_acc_loan_info_sup` +
+`rrcdm_job_log_exec_par` only. Node-by-node audit: zero production edges
+(REF/COMPUTED/TRANSFORM/AGGREGATE/ALIAS/DML) into any of the 18 raw data_dt nodes →
+contributors live in the upstream script that writes bdm_acc_loan_info (outside this
+workspace). Pre-B-series simulation: 113 nodes / 30 phantom fields (pure SUBSET
+padding); B-series: 42 nodes / 4 fields → the 1-field result is truthful.
+
+Display gaps (documented for later):
+- **P1 — seed on wrong instance**: field parents under the first `p1` alias
+  (`l2_tbl_ace84be2f9`, rollover CTE scope L29) while the searched `bdm_acc_loan_info`
+  node shows no field. B3 first-match (`l2_builder.py:369-381`) + Bug 28 Sync 1 dead for
+  `p1` (`alias_map` collapsed `p1→loan_final`; `l2_builder.py:999-1003` no break → last
+  p1, holds no fields). Larger fix = B3 scope-distance scoring (round-4 ledger item 2).
+- **P2 — seed edge-less at field level**: its 4 FILTER edges promoted to the p1 table
+  node (`_promote_field_edges` `l2_builder.py:683`); the `data_dt → FILTER → CTE` usage
+  (L18) visible only at table level. Proposed fix: skip promotion for target/direct seed
+  fields. Quirk: all 4 promoted FILTER ranges anchor L17-18 (first-match) even for the
+  L158 seed.
+- Seed-matching quirk: the canonical L18 unprefixed `data_dt` node (`ab16ed071f73afbc`)
+  has only a SUBSET edge to its table (no SCHEMA) → not seedable; seeds are the qualified
+  `p1.data_dt` nodes (dependency_graph Phase 7/8 artifact).
