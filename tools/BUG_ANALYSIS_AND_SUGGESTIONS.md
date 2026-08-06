@@ -2904,3 +2904,48 @@ probes. **Decision (user): document only — no code changes this round.**
 6. **Trivial nits**: `variable_extractor_v2.py:448` `_seen` annotation still
    `set[tuple[str,str]]` (keys now 3-tuples); `test_l2_table_dedup.py:133` dangling
    `test_b_series_c9.py` reference. 1-line each.
+
+---
+
+## Consolidated review-advice ledger — rounds 3 + 4 merged (2026-08-06)
+
+Every advice item from CODE_REVIEW_2026-08-06.md (round 3 = C-series design review,
+round 4 = implementation review) mapped to its final status. Rounds analyzed by parallel
+teams against HEAD; verdicts merged here.
+
+### Round-3 items (C-series design review) → final status
+
+| Item | Verdict | Final status |
+|---|---|---|
+| P1-1 CTAS→script | keep | ✅ **C-1 implemented** (v3.3.138, `classify_sql_text` kind+expression check) + tests |
+| P2-2 graph cache vs S4b | keep (refined) | ✅ **C-2 implemented** — index precompute removed, post-S4b cache invalidation, miss paths prefer analysis caches, prefix 3_2_17. Round-4: two C-2(a) test re-scopes done during integration (review's own recommendation #2) |
+| P2-3 S4b revocation vs caches | keep (refined) | ✅ **C-3 implemented** (`_revoke_s4b_cache_update`). Round-4: "shared global ul" premise FALSE — guards are per-cache at HEAD; only deleted-script sweep gap survives (latent) |
+| P2-4 counter drift | drop (trivial) | ⏸ Re-opened by round-4 as **C-4**: apply-side `resolved_by["schema"]` gate CONFIRMED missing (`folder_index_service.py:1087-1094`) but **latent** — cached stats have zero consumers. Documented, no code |
+| P2-5 SELECT * indexing | keep (refined) | ✅ **C-5 implemented** (post-loop star expansion) + round-4: **C-5↔C-3 ordering gap CONFIRMED** (star pass post-revocation, no ambiguity filter — resurrection mechanism real, trigger needs specific script shape). Documented for later fix |
+| P2-6 frontend coverage | drop | ⏸ Residual gap noted (get_level2_graph test + banner tests "when convenient") |
+| P2-7 deploy guard | keep (refined) | ✅ **C-7 implemented** (RELEASE.txt fail-fast + reset-advice guard) + round-4: `docker_image/RELEASE.txt` still 3.3.134 vs repo 3.3.138 → deploy blocks until regenerated (documented) |
+| P3-8 logger race | drop | ⏸ Note only (per-ws bounded deque if ever wanted) |
+| P3-9 l2 dedup over-merge | keep (re-scoped) | ✅ **C-9 implemented** (per-statement dedup `(parent, undecorated_label, stmt_idx)`). Round-4: 2 `lending_ref` under p1 = legitimate split; "4 `total`" claim NOT reproducible (probe → 2, correct) |
+| P3-10 double analysis | keep (refined) | ✅ **C-10 implemented** (miss path writes graph cache, format_version 3) |
+| P3-11 banner flash | drop (cosmetic) | ⏸ Note only |
+| P3-12 case-variant suggestion | drop (diagnostic nicety) | ⏸ Note only |
+| P3-13 re-parse + anchor | keep (refined) | ✅ **C-13(a) single parse + C-13(b) token-position anchor** implemented |
+| ENV-1 test env | drop (closed) | ⏸ Sandbox-only; full suite green in-container |
+| ENV-2 deliberate behavior | keep | ✅ Tracked through C-9/B-series; consequences documented |
+
+### Round-4 items (implementation review) → final status
+
+| Claim | Verdict | Status |
+|---|---|---|
+| "Working tree RED — ≥5 regressions" | **STALE-FALSE** | All pass at HEAD: 626/5; the 3 named files 40/40; test_c_index_pipeline "hang" = reviewer sandbox Python 3.14 |
+| "C-9/C-2(b)/C-10 zero coverage" | **FALSE** | Covered in `test_b_series_l2.py` (:170/:191/:212/:241/:292); dangling `test_b_series_c9.py` ref is cosmetic |
+| "4 `total` fields (C-9-vs-B conflict)" | **NOT REPRODUCIBLE** | Probe → 2 (correct C-9 contract); 12-vs-78 reduction preserved |
+| "B5 breaks `⟐ output` renderer contract" | **FALSE** | Frontend has zero `⟐` refs; tests assert via `table_name`; residual = 7 duplicate `p2` display labels (documented) |
+| "C-3 shared global `ul` guard" | **FALSE at HEAD** | Per-cache guards; only deleted-script sweep gap (latent) |
+| "`accu.vlookup_key_value` false negative from SUBSET" | **WRONG causation** | Still excluded with SUBSET walkable — conditional-JOIN/SCHEMA-forward rules exclude it; no false negative |
+| C-5↔C-3 star resurrection | **CONFIRMED (real)** | Documented for later fix (ambiguity filter in `_star_from_tables`, ~5 lines) |
+| B3 wrong-instance parenting | **CONFIRMED (real)** | 6-7 same-named `p2`/`p1` nodes; fields land on first-match instance. Documented for later fix (scope-distance scoring) |
+| C-4 apply-side gate | **CONFIRMED (latent)** | Zero consumers today; 3-line gate if caches become stats source |
+| RELEASE.txt stale (3.3.134) | **CONFIRMED (real)** | Regenerate at deploy time |
+| 2/8 join expressions unpaired | **CONFIRMED (minor)** | Zero lineage impact; pairing order-dependence noted |
+| `_seen` annotation + dangling test ref | **CONFIRMED (trivial)** | 1-line each, documented |
