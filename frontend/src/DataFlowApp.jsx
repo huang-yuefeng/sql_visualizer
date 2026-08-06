@@ -10,16 +10,7 @@ import ResolutionReport from './components/ResolutionReport';
 import * as api from './api/client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useResizable } from './utils/useResizable';
-import { mergeRestoredViews } from './utils/restoreViews';
 import './styles/resizable.css';
-
-// ── R3: last search view persistence (survives reload, incl. empty
-// no-match results). localStorage is the app's existing client-side
-// persistence channel (theme, df_search_history, df_pinned_searches).
-const LAST_SEARCH_KEY = 'df_last_search_view';
-function loadLastSearch() { try { return JSON.parse(localStorage.getItem(LAST_SEARCH_KEY) || 'null'); } catch { return null; } }
-function saveLastSearch(payload) { try { localStorage.setItem(LAST_SEARCH_KEY, JSON.stringify(payload)); } catch { /* ignore */ } }
-function clearLastSearch() { try { localStorage.removeItem(LAST_SEARCH_KEY); } catch { /* ignore */ } }
 
 export default function DataFlowApp() {
   const [wsId, setWsId] = useState(null);
@@ -63,8 +54,6 @@ export default function DataFlowApp() {
   const [schemaCandidates, setSchemaCandidates] = useState(null);
   // A1: schema_evidence {present, tables, columns} (index response)
   const [schemaEvidence, setSchemaEvidence] = useState(null);
-  // R3: guards the mount-time view restore against a user upload racing it
-  const uploadTokenRef = useRef(Date.now());
 
   // ── Resizable panel state ─────────────────────────────────────────
   const [leftPanelWidth, setLeftPanelWidth] = useState(260);
@@ -103,8 +92,6 @@ export default function DataFlowApp() {
 
   // ── Upload & Analyze ──────────────────────────────────────────────
   const handleUpload = useCallback(async (file) => {
-    uploadTokenRef.current = Date.now(); // cancels any in-flight R3 restore
-    clearLastSearch();
     setL1Graph(null); setL2Graph(null); setL2Result(null);
     setL2NotInFlow(false); setL2NotInFlowMessage(null);
     setLoading(true); setError(null);
@@ -169,64 +156,11 @@ export default function DataFlowApp() {
     return () => clearInterval(progressTimerRef.current);
   }, [wsId, progress?.phase]);
 
-  // ── R3: restore last search view after reload (incl. empty no-match
-  // results). The workspace + views live server-side; the frontend resumes
-  // them with existing read-only endpoints and the saved view entry
-  // (l1_graph_cache) from localStorage. Any failure → drop the saved state.
+  // ── R23: clean start on load — never auto-restore a workspace/view.
+  // The R3 mount-time restore was removed; this one-time purge drops its
+  // localStorage key so saved state from older sessions can't resurface.
   useEffect(() => {
-    const saved = loadLastSearch();
-    if (!saved || !saved.wsId || !saved.view) return;
-    const token = uploadTokenRef.current;
-    let cancelled = false;
-    (async () => {
-      try {
-        await api.getWorkspaceInfo(saved.wsId); // throws 404 if workspace gone
-        if (cancelled || uploadTokenRef.current !== token) return;
-        setWsId(saved.wsId);
-        const tree = await api.scanWorkspace(saved.wsId);
-        if (cancelled || uploadTokenRef.current !== token) return;
-        setFileTree(tree);
-        const scripts = collectSqlFiles(tree);
-        setSelectedScripts(scripts);
-
-        // Re-index (cached server-side) to restore autocomplete + R20 report
-        setProgress({ current: 0, total: scripts.length, phase: 'analyzing' });
-        const idxResult = await api.indexWorkspace(saved.wsId, scripts);
-        if (cancelled || uploadTokenRef.current !== token) return;
-        setTableIndex(idxResult.table_index || {});
-        setFieldIndex(idxResult.field_index || {});
-        setFullTableIndex(idxResult.table_index || {});
-        setFullFieldIndex(idxResult.field_index || {});
-        setResolutionStats(idxResult.resolution_stats || null);
-        setOrphanFieldSamples(idxResult.orphan_field_samples || null);
-        setSchemaCandidates(idxResult.schema_candidates_summary || null);
-        setSchemaEvidence(idxResult.schema_evidence || null);
-        setIndexed(true);
-        setStale(false);
-        setProgress(null);
-
-        // Restore the view list; the saved view's match_mode/message ride
-        // only in localStorage (the backend persists the view but without
-        // those fields), so overlay them onto the server entry — or append
-        // the saved view wholesale if the server hasn't persisted it yet.
-        let restoredViews = [];
-        try {
-          const vres = await api.listViews(saved.wsId);
-          restoredViews = vres && Array.isArray(vres.views) ? vres.views : [];
-        } catch (e) { /* ignore */ }
-        if (cancelled || uploadTokenRef.current !== token) return;
-        const savedViewId = saved.activeViewId || saved.view.view_id;
-        setViews(mergeRestoredViews(restoredViews, saved.view, savedViewId));
-        setActiveViewId(savedViewId);
-        parentViewIdRef.current = savedViewId;
-        const cachedGraph = saved.view.l1_graph_cache;
-        setL1Graph(cachedGraph && cachedGraph.nodes ? cachedGraph : { nodes: [], edges: [] });
-        setGraphLevel('L1');
-      } catch (e) {
-        clearLastSearch();
-      }
-    })();
-    return () => { cancelled = true; };
+    try { localStorage.removeItem('df_last_search_view'); } catch { /* ignore */ }
   }, []);
 
   // ── Search ────────────────────────────────────────────────────────
@@ -256,15 +190,6 @@ export default function DataFlowApp() {
       setL2Graph(null);
       setSqlText('');
       setActiveL1Table(null);
-      // R3: persist the current view (incl. empty no-match results from F1)
-      // so a reload restores it instead of resetting.
-      saveLastSearch({
-        wsId,
-        view: newView,
-        activeViewId: result.view_id,
-        match_mode: result.match_mode || null,
-        message: result.message || null,
-      });
     } catch (e) {
       setError(e.message);
     } finally {

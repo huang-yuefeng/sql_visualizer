@@ -269,22 +269,41 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             sql = sp.read_text(encoding="utf-8", errors="replace")
             script_data.append((name, sql))
 
-    if len(script_data) < 2:
-        nodes = []
-        for name, _ in script_data:
-            sid = hashlib.md5(name.encode()).hexdigest()[:12]
-            nodes.append({"data": {
-                "id": sid, "label": name, "type": "script_node",
-                "script_name": name,
-            }})
-        return {"nodes": nodes, "edges": [], "target": f"{table}.{field}",
-                "degraded": False}
-
     try:
-        from app.services.multi_script_service import analyze_multiple_scripts
-        result = analyze_multiple_scripts(script_data)
+        if len(script_data) < 2:
+            # R24: single-script workspace — analyze the one script inline
+            # (analyze_multiple_scripts refuses <2 scripts) and feed the SAME
+            # all_scripts shape downstream, so L1 gets the full pipeline graph
+            # (script node + tables + reads/writes edges + lineage field
+            # children), exactly like the multi-script path. The script node
+            # must always be present so the user can double-click into L2.
+            name, sql = script_data[0]
+            from app.extractor.adapter import run_full_analysis
+            from app.services.graph_service import build_graph_data
+            from app.services.multi_script_service import _classify_tables
+            result = run_full_analysis(sql, name)
+            result.setdefault("script_id",
+                              hashlib.md5((name + sql).encode()).hexdigest()[:12])
+            graph_data = build_graph_data(result)
+            input_tables, output_tables = _classify_tables(
+                result.get("variables", []))
+            all_scripts = [{
+                "script_id": result["script_id"],
+                "script_name": name,
+                "total_variables": result.get("total_variables", 0),
+                "total_dependencies": result.get("total_dependencies", 0),
+                "input_tables": sorted(input_tables),
+                "output_tables": sorted(output_tables),
+                "graph": graph_data,
+                "_all_vars": [{"name": v.get("name", ""),
+                               "source_tables": v.get("source_tables", [])}
+                              for v in result.get("variables", [])],
+            }]
+        else:
+            from app.services.multi_script_service import analyze_multiple_scripts
+            result = analyze_multiple_scripts(script_data)
+            all_scripts = result.get("scripts", [])
 
-        all_scripts = result.get("scripts", [])
         nodes = []
         edges = []
         seen_node_ids = set()

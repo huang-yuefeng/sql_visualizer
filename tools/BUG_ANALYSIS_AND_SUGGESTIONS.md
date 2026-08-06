@@ -2449,3 +2449,36 @@ single integration commit. Design unchanged; no tips added; issues resolved esse
   +8 sample_v1 repro; all scoped suites green, full suite 556 passed at integration.
 - Follow-up (out of scope): extractor S4a `_finalize_schema_candidates` still increments
   `resolved_by["schema"]` unconditionally — same pattern as M15, worth mirroring later.
+
+## R23 — Remove browser auto-restore (v3.3.137, 2026-08-06)
+
+- **Requirement**: opening the service must start clean — no previous workspace/search
+  auto-restored (was added in `bc07592` v3.3.131 + `cb58c28` v3.3.133 via `restoreViews.js`).
+- **Fix**: `DataFlowApp.jsx` mount effect removed entirely (zero network calls on load);
+  `LAST_SEARCH_KEY`/`loadLastSearch`/`saveLastSearch`/`clearLastSearch` and
+  `uploadTokenRef` deleted; `restoreViews.js` + `restoreViews.test.js` removed; one-time
+  `localStorage.removeItem('df_last_search_view')` purge for users of the old restore;
+  `client.js` loses the now-unused `getWorkspaceInfo`/`scanWorkspace` wrappers.
+- **Tests**: restoreViews.test.js (6) deleted; frontend **64 passed** (was 70) + build OK.
+
+## R24 — Single-script folder shows L1 script node (v3.3.137, 2026-08-06)
+
+- **Requirement**: a workspace with exactly one script must still show it in L1, clickable
+  into L2 (test corpus `samples/sql_sample_v1/`).
+- **Root cause**: two-step drop — `_build_l1_graph`'s `len(script_data) < 2` shortcut
+  (`analyze_multiple_scripts` refuses <2 scripts) returned a bare script node, then the
+  R18.1 disconnected-script pruning (`_filter_l1_by_lineage`) removed it → 0-node L1.
+- **Fix**: `l1_builder.py:272-300` — single-script branch now runs `run_full_analysis` +
+  `build_graph_data` + `_classify_tables` inline, builds the same `all_scripts` dict shape as
+  `analyze_multiple_scripts`, and falls through to the shared pipeline (bare-node early return
+  gone; `<2` guard lives inside the try → bad script degrades to fallback + diagnostic);
+  `dataflow_service.py:293` — `_filter_l1_by_lineage` guards `len(script_ids) > 1 and
+  disconnected_scripts:` so the only script is never pruned.
+- **Tests**: +8 in `test_dataflow/test_single_script_l1.py` (single-script search L1 contains
+  script node + flow tables; level1 endpoint parity; no_matches preserved (R22); views.json
+  cache non-empty; R18.1 guard: 1-script keeps, 2-script prunes). Backend **564 passed /
+  5 skipped** (was 556/5), frontend **64 passed** + build OK.
+- **Verification**: live — fresh upload of `samples/sql_sample_v1/` (workspace
+  `8f843283a9d8`): L1 = 7 nodes / 5 edges (script node + 4 tables + 2 fields), script node
+  click → L2 loads; search on single-script workspace: script node present; no_matches
+  message still shown for non-matching searches.

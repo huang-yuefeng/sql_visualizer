@@ -290,7 +290,12 @@ def _filter_l1_by_lineage(l1_graph: dict, target_table: str, target_field: str) 
         scripts_with_edges.add(ed.get("source"))
         scripts_with_edges.add(ed.get("target"))
     disconnected_scripts = script_ids - scripts_with_edges
-    if disconnected_scripts:
+    # R24: never prune the only script of a single-script workspace — the
+    # search already established it IS in the searched field's flow
+    # (match_mode exact/expanded), and an empty L1 leaves nothing to
+    # double-click into L2. The disconnected-script rule targets
+    # flow-irrelevant scripts inside multi-script pipelines only.
+    if len(script_ids) > 1 and disconnected_scripts:
         filtered_nodes = [n for n in filtered_nodes
                           if n.get("data", n).get("id") not in disconnected_scripts]
         keep_ids = {n.get("data", n).get("id") for n in filtered_nodes}

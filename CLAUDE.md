@@ -10,8 +10,8 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 
 - **Backend**: FastAPI + sqlglot (MySQL dialect), Docker `gps-sql-backend` on port 8000
 - **Frontend**: React 18 + Vite + Cytoscape.js, served from `frontend/dist/`
-- **Tests**: vitest (frontend, 70 passed), pytest (backend, 556 passed / 5 skipped in `backend/tests/`)
-- **Version**: See `/VERSION` (currently 3.3.136)
+- **Tests**: vitest (frontend, 64 passed), pytest (backend, 564 passed / 5 skipped in `backend/tests/`)
+- **Version**: See `/VERSION` (currently 3.3.137)
 - **Service IP**: `192.168.0.66:8000` (never use `localhost`)
 
 ## File Map (Key Source Files)
@@ -24,9 +24,9 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 | `routers/workspace.py` | 214 | `/api/workspace` CRUD (DELETE: 400 malformed / 404 missing / 200 deleted), scan, index, filter-config, export-config, autocomplete |
 | `routers/analysis.py` | 73 | Legacy `/api/analyze`, `/api/scripts`, `/api/analyze_multi` |
 | `services/filter_service.py` | 509 | **Filter logic** (R19): CSV parse → scopes → A∩B intersection → filter application + diagnostics (F6); shared `resolve_script` (R5, path-containment-checked); F3/F4/F5 (COL_NAME-only rows dropped + `ignored_rows` counters, case folding) |
-| `services/l1_builder.py` | 920 | Cross-script L1 builder (production BFS → lineage_field_pairs → filter); M4-B degraded fallback (`degraded: true` + diagnostic); C2 single-cache-pass |
+| `services/l1_builder.py` | 939 | Cross-script L1 builder (production BFS → lineage_field_pairs → filter); M4-B degraded fallback (`degraded: true` + diagnostic); C2 single-cache-pass (R24: single-script workspaces run the full pipeline inline — script node + tables + edges, clickable to L2) |
 | `services/l2_builder.py` | 1056 | Per-script L2 builder; C1 split into named phases (`_build_edge_list`, `_simplify_dml_edges`, `_map_search_target_ids`, ...) — byte-identity-verified. **R22: one compound node per physical table** (label-keyed merge, `merged_original_ids`, field dedup by (parent,name), `search_matched` in return dict) |
-| `services/dataflow_service.py` | 466 | SearchView, view persistence (views.json, persists match_mode), edge style helpers (R22: no-matches search semantics, L2 `search_matched`/not-in-flow full-graph response) |
+| `services/dataflow_service.py` | 471 | SearchView, view persistence (views.json, persists match_mode), edge style helpers (R22: no-matches search semantics, L2 `search_matched`/not-in-flow full-graph response; R24: single-script L1 never pruned by the disconnected-script rule) |
 | `services/folder_index_service.py` | 1034 | Folder scanning, script indexing, **A1 schema-file classification** (`file_class: schema\|script`), **S4b cross-script schema auto-resolution** (R22: two-phase plan→conflict-detect→apply, ambiguous fields revoked + `resolution_stats["ambiguous"]`, context-scoped cache attribution), resolution_stats aggregation, orphan report, index progress, `schema_evidence` in response |
 | `services/cache_keys.py` | 24 | `GRAPH_CACHE_PREFIX = "graph_3_2_16"` (single source of truth; bumped R22-M14 to invalidate pre-S4b caches) |
 | `services/graph_service.py` | 318 | Cytoscape JSON builder, NODE_STYLES, EDGE_TYPE_STYLE/CATEGORY_MAP, table_fields/alias_map |
@@ -43,7 +43,7 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 
 | File | Lines | Role |
 |------|-------|------|
-| `DataFlowApp.jsx` | 744 | Data Flow Debugger main component (search, view persistence, resolution report, `schema_evidence` state; R22: `applyL2Result` + L2 not-in-flow banner, L1 no-matches message banner) |
+| `DataFlowApp.jsx` | 669 | Data Flow Debugger main component (search, view persistence, resolution report, `schema_evidence` state; R22: `applyL2Result` + L2 not-in-flow banner, L1 no-matches message banner; R23: no browser auto-restore — clean start on load, one-time `df_last_search_view` purge) |
 | `App.jsx` | 857 | SQL Analysis (legacy single-script) |
 | `components/DataFlowGraph.jsx` | 167 | Cytoscape renderer |
 | `components/SqlPanel.jsx` | 332 | SQL display + syntax highlighting |
@@ -56,7 +56,7 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 | `utils/resolutionReport.js` | 93 | Stats normalization (prefers unified `unresolved_count`/`coverage_pct`) |
 | `hooks/useCytoscapeGraph.js` | 154 | Cytoscape lifecycle: init, drag (recomputes from frozen offsets), layout dispatch |
 | `config/layout.js` | 49 | Layout constants (single source of truth) |
-| `api/client.js` | 164 | API client + `errorDetail()` (L12) |
+| `api/client.js` | 153 | API client + `errorDetail()` (L12; R23: `getWorkspaceInfo`/`scanWorkspace` wrappers removed) |
 
 ## Architecture
 
@@ -81,6 +81,8 @@ L2 (per-script): `l2_builder.py` — tables + fields + all 16 edge types within 
 9. **Diagnostics, never fixes**: when source files are wrong/incomplete, the tool reports in the diagnostic panel — it never edits user files, annotates, or works around them (A1 report-only design).
 10. **L2 one-node-per-table (R22)**: compound table nodes are keyed by physical-table label (first occurrence = keeper); data flow may pass through a table multiple times via multiple edges. Aliases/subqueries/CTEs stay per-context. `_build_l2_graph` returns `search_matched` (False only when filtering was requested and no seed matched); the level2 response adds `search_matched: false` + `message` + full graph for not-in-flow scripts. Search matches a script only if it queries the searched field — `no_matches` + message otherwise, never fallback padding.
 11. **S4b two-phase attribution (R22/M12–M15)**: plan → conflict-detect → apply; different-owner claims mark the field `ambiguous` (revoked, reported in `resolution_stats["ambiguous"]`); cache attribution is context-scoped; `GRAPH_CACHE_PREFIX` bumps invalidate pre-S4b graphs.
+12. **Clean start (R23)**: the browser never auto-restores the previous workspace/search on load — the app mounts with an empty state (one-time `localStorage.removeItem('df_last_search_view')` purge for users of the old restore). `restoreViews.js` deleted.
+13. **Single-script workspaces (R24)**: a folder with exactly one script still shows a full L1 — the script node + its tables + edges — clickable into L2. `_build_l1_graph` runs the full pipeline inline for single scripts (no bare-node shortcut), and `_filter_l1_by_lineage` never prunes the only script (`len(script_ids) > 1` guard).
 
 ## Running Tests
 
