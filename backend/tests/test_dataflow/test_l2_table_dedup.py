@@ -122,6 +122,16 @@ def test_merged_table_fields_dedup(multi_ctx_ws):
     # Fields of both bare-FROM contexts (rollover: loan_id/amount/data_dt,
     # active: loan_id/loan_bal) plus the JOIN/subquery aliased reads land
     # under the ONE keeper, each field name exactly once.
+    #
+    # C-9 (per-statement dedup): the field dedup key is now
+    # (parent, undecorated_label, stmt_idx) — same-named fields from
+    # DIFFERENT statements stay distinct. On this fixture the CTE-body
+    # columns (stmt_idx=None) parent under the keeper table while the
+    # main-statement projections (stmt_idx=0) parent under their own
+    # alias/output nodes, so the keeper still shows each name exactly
+    # once — no C-9 split here. The cross-statement split is covered in
+    # test_b_series_c9.py (two bare-FROM statements → same name under the
+    # same keeper at stmt_idx 0 and 1 → two distinct fields).
     assert by_name["loan_id"], fields
     for fname, nodes in by_name.items():
         assert len(nodes) == 1, \

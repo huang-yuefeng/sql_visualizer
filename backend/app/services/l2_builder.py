@@ -105,7 +105,16 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
         if schemas_cache_path.exists():
             _table_schemas = json.loads(schemas_cache_path.read_text())
     else:
-        result = run_full_analysis(sql_text, script_name, ws_id=ws_id)
+        # C-2(b): prefer the analysis cache when present — build the graph
+        # from the cached analysis dict (same key contract as
+        # folder_index_service: md5(script_name + sql_text)[:12]) instead of
+        # re-running the full extraction pipeline.
+        analysis_cache_path = cache_dir / f"analysis_{cache_key}.json"
+        result = None
+        if analysis_cache_path.exists():
+            result = json.loads(analysis_cache_path.read_text())
+        if result is None:
+            result = run_full_analysis(sql_text, script_name, ws_id=ws_id)
         full_graph = build_graph_data(result)
         # Cache for future use
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -196,6 +205,44 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
     return target_node_ids, direct_ids
 
 
+def _resolve_scope_parent(nd: dict, table_nodes: dict):
+    """B3: scope/derived-alias parent resolution for unattributed fields.
+
+    A field that carries no source_tables and no qualifying label prefix
+    still belongs to the alias/derived-table scope that DEFINES it — the
+    extractor records that scope in the field's `context`
+    ("CTE{loan_final}", "TOP0:join:p2", "CTE{rollover_loan_info}/subq1", …).
+    Match order (first hit wins):
+      1. the SUBQUERY/derived-table compound node whose context EQUALS the
+         field's context (the derived table owning the field),
+      2. the CTE compound node named by a "CTE{name}" scope prefix,
+      3. the enclosing scope: walk context segments up ("…/subq1:join:p2" →
+         "…/subq1" → "CTE{…}") and repeat 1–2.
+    Returns the compound table id, or None when no scope matches.
+    """
+    ctx = (nd.get("context") or "").strip()
+    if not ctx:
+        return None
+    segments = ctx.split("/")
+    for cut in range(len(segments), 0, -1):
+        scope_ctx = "/".join(segments[:cut])
+        # 1. exact-context derived-table / subquery match
+        for tid, tn in table_nodes.items():
+            if tn.get("variable_type") == "subquery" and \
+               tn.get("context") == scope_ctx:
+                return tn["id"]
+        # 2. CTE owner — "CTE{name}" scope: the CTE compound node carries
+        #    the STATEMENT context, so match by the CTE's table name.
+        if scope_ctx.startswith("CTE{"):
+            end = scope_ctx.find("}")
+            cte_name = scope_ctx[4:end] if end > 4 else ""
+            for tid, tn in table_nodes.items():
+                if tn.get("variable_type") == "cte" and \
+                   tn.get("table_name") == cte_name:
+                    return tn["id"]
+    return None
+
+
 def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                              target_node_ids: set, direct_ids: set) -> tuple:
     """Phase 3b (CW4): build the compound node structure — table parents and
@@ -277,13 +324,24 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             else:
                 tbl_type = "intermediate_table"
 
+            # B5: the DISPLAY label drops the internal "⟐ " marker (never
+            # rendered in the UI), while `table_name` keeps the raw name —
+            # field-parent matching and the query-output routing pins rely
+            # on the exact "⟐ output" sentinel, so only the label is
+            # sanitized.
+            display_label = label[2:] if label.startswith("⟐ ") else label
+
             table_nodes[nid] = {
                 "id": tbl_id,
-                "label": label,
+                "label": display_label,
                 "type": tbl_type,
                 "table_name": label,
                 "variable_type": vt,
                 "original_id": nid,
+                # B3: the extraction context is carried onto the compound
+                # node so scope-based parent fallback can match subquery
+                # nodes by context.
+                "context": nd.get("context", ""),
             }
             if vt in ("table", "view") and not is_alias:
                 table_nodes[nid]["merged_original_ids"] = []
@@ -321,15 +379,25 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                         if tn["table_name"] == resolved_prefix:
                             parent_table_id = tn["id"]
                             break
+            if not parent_table_id:
+                # B3: scope-based fallback — a field with no table
+                # attribution and no qualifying prefix still belongs to the
+                # alias/derived-table scope that DEFINES it (the CTE or
+                # subquery owning its context), falling back to the
+                # enclosing scope.
+                parent_table_id = _resolve_scope_parent(nd, table_nodes)
 
             is_target = (nid in target_node_ids)
             is_direct = (nid in direct_ids)
             # Show orig type as a hint but use "field" for shape
             orig_vt = vt[:12] if len(vt) > 12 else vt
             field_id = f"fld_{hashlib.md5(nid.encode()).hexdigest()[:10]}"
+            # B4: the field label is undecorated (no " ↻" stamp) — the dedup
+            # key below uses this exact label, so same-named computed fields
+            # under one parent merge instead of twinning.
             field_node = {
                 "id": field_id,
-                "label": (label.split(".")[-1] if "." in label else label) + (" ↻" if vt in ("aggregate","expression") else ""),
+                "label": (label.split(".")[-1] if "." in label else label),
                 "type": "field",
                 "variable_type": "field",
                 "orig_type": orig_vt,
@@ -344,12 +412,19 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 # the same physical field from two contexts would otherwise
                 # duplicate; later duplicates' edges re-point to the first
                 # via merged_original_ids in _build_id_map.
-                dup = fields_by_key.get((parent_table_id, field_node["label"]))
+                # C-9: the key is scoped by the field's STATEMENT index too —
+                # same-named vars from DIFFERENT top-level statements are
+                # distinct fields (per-statement dedup). stmt_idx is absent
+                # for CTE-body scopes → None (graceful fallback: still
+                # distinct from statement-scoped fields).
+                dedup_key = (parent_table_id, field_node["label"],
+                             nd.get("stmt_idx"))
+                dup = fields_by_key.get(dedup_key)
                 if dup is not None:
                     dup["merged_original_ids"].append(nid)
                     continue
                 field_node["merged_original_ids"] = []
-                fields_by_key[(parent_table_id, field_node["label"])] = field_node
+                fields_by_key[dedup_key] = field_node
             field_nodes.append(field_node)
             continue
 
@@ -362,6 +437,10 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                     if tn["table_name"] in src_tables or tid in src_tables:
                         parent_table_id = tn["id"]
                         break
+            if not parent_table_id:
+                # B3: scope-based fallback (same contract as the column
+                # branch) before the old attach-to-first-table fallback.
+                parent_table_id = _resolve_scope_parent(nd, table_nodes)
             if not parent_table_id and table_nodes:
                 # Fallback: attach to first table node
                 _log.warning("L2 fallback: %s (%s) has no source table — attached to first table node '%s'",
@@ -372,9 +451,12 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             is_direct = (nid in direct_ids)
             orig_vt = vt[:12] if len(vt) > 12 else vt
             field_id = f"fld_{hashlib.md5(nid.encode()).hexdigest()[:10]}"
+            # B4: undecorated computed-field label (the " ↻" twin marker was
+            # removed — dedup keys are label-based and must not collide with
+            # decoration).
             field_node = {
                 "id": field_id,
-                "label": (label[:36] if len(label) > 36 else label) + " ↻",
+                "label": (label[:36] if len(label) > 36 else label),
                 "type": "field",
                 "variable_type": "field",
                 "orig_type": orig_vt,
@@ -385,13 +467,16 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             if parent_table_id:
                 field_node["parent"] = parent_table_id
                 # Issue a: same dedup semantics as the column branch — one
-                # computed field per (keeper table, label).
-                dup = fields_by_key.get((parent_table_id, field_node["label"]))
+                # computed field per (keeper table, label). C-9: scoped by
+                # the statement index (per-statement dedup).
+                dedup_key = (parent_table_id, field_node["label"],
+                             nd.get("stmt_idx"))
+                dup = fields_by_key.get(dedup_key)
                 if dup is not None:
                     dup["merged_original_ids"].append(nid)
                     continue
                 field_node["merged_original_ids"] = []
-                fields_by_key[(parent_table_id, field_node["label"])] = field_node
+                fields_by_key[dedup_key] = field_node
             field_nodes.append(field_node)
             continue
 

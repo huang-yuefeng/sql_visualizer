@@ -382,6 +382,22 @@ def build_dependency_graph(
         anchor = vt_map[ctx][0]
         _add_edge(v, anchor, "JOIN", "JOIN_CONDITION")
 
+    # Phase 6b (B-series, Phase 2): materialized join-key expression nodes
+    # (extractor `_walk_join_key_expressions`) carry the OTHER side of their
+    # comparison on `source_variables`. Emit the JOIN edge from that outer
+    # column/expression TO the expression node — the lineage engine admits
+    # expression partners unconditionally, so CONCAT/RPAD/||-built keys show
+    # their operand columns in the data flow.
+    for v in variables:
+        if v.variable_type != VariableType.EXPRESSION:
+            continue
+        if (v.defined_in or "").upper().strip() != "JOIN ON":
+            continue
+        for sid in (v.source_variables or []):
+            other = next((x for x in variables if x.id == sid), None)
+            if other is not None and other.id != v.id:
+                _add_edge(other, v, "JOIN", "JOIN_KEY")
+
     # ══════════════════════════════════════════════════════════════════
     # Phase 7: SUBSET — safety net for disconnected components
     # ══════════════════════════════════════════════════════════════════
@@ -475,5 +491,11 @@ def _classify_relationship(
        src.variable_type == VariableType.COLUMN:
         return "TRANSFORM"
     if target.variable_type == VariableType.EXPRESSION:
+        # B-series Phase 2: materialized join-key expression nodes
+        # (CONCAT/RPAD/|| on columns in JOIN ON) are fed by their operand
+        # columns — a plain column reference relationship (REF), not a
+        # TRANSFORM, so lineage treats the operands as key inputs.
+        if (target.defined_in or "").upper().startswith("JOIN ON"):
+            return "REF"
         return "TRANSFORM"
     return "REF"

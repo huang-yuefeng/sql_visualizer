@@ -21,7 +21,7 @@ SCHEMA_EXTENSIONS = {".ddl", ".schema"}
 _SCHEMA_CREATE_KINDS = {"TABLE", "VIEW"}
 
 
-def classify_sql_file(filepath: Path) -> str:
+def classify_sql_file(filepath: Path, parsed=None) -> str:
     """Classify a SQL file as "schema" (DDL-only) or "script" (pipeline).
 
     A1 rules: .ddl / .schema extensions → schema (explicit intent, content
@@ -31,6 +31,10 @@ def classify_sql_file(filepath: Path) -> str:
     COMMENT / ALTER TABLE (i.e. no data statements outside view bodies);
     otherwise script. Parse failures and empty files default to script
     (conservative — never guess a file away from the pipeline).
+
+    C-13(a): callers that already hold the sqlglot parse for this file
+    (scan_folder — one parse per file, reused) pass it as `parsed` so the
+    classifier never re-parses.
     """
     if filepath.suffix.lower() in SCHEMA_EXTENSIONS:
         return "schema"
@@ -38,20 +42,38 @@ def classify_sql_file(filepath: Path) -> str:
         sql_text = filepath.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return "script"  # unreadable file → script (conservative, never guess DDL)
-    return classify_sql_text(sql_text)
+    return classify_sql_text(sql_text, parsed=parsed)
 
 
-def classify_sql_text(sql_text: str) -> str:
-    """A1 content sniff — schema iff every top-level statement is DDL-only."""
-    try:
-        statements = sqlglot.parse(sql_text, read="mysql")
-    except Exception:
-        return "script"  # unparsable → script (conservative)
-    stmts = [s for s in statements if s is not None]
+def classify_sql_text(sql_text: str, parsed=None) -> str:
+    """A1 content sniff — schema iff every top-level statement is DDL-only.
+
+    C-13(a): `parsed` is the raw `sqlglot.parse(sql_text, read="mysql")`
+    result when the caller already holds it (scan_folder / index_scripts —
+    one parse per script, reused for classification AND the C-5 star pass);
+    `parsed=None` keeps the historical parse-inside behavior for external
+    callers. The dialect is ALWAYS mysql here — never reuse a different
+    dialect's parse (the extractor's clean_sql parse is hive-first and its
+    SET-preamble stripping flips A1 semantics).
+    """
+    if parsed is None:
+        try:
+            parsed = sqlglot.parse(sql_text, read="mysql")
+        except Exception:
+            return "script"  # unparsable → script (conservative)
+    stmts = [s for s in parsed if s is not None]
     if not stmts:
         return "script"  # empty / comment-only file → not schema
     for stmt in stmts:
         if isinstance(stmt, exp.Create):
+            # C-1: CREATE TABLE … AS SELECT (CTAS) runs data statements —
+            # a pipeline script, never schema DDL. sqlglot parses CTAS as
+            # kind="TABLE" with expression=Select; plain CREATE TABLE /
+            # CREATE TABLE LIKE keep expression=None → still schema;
+            # VIEW/MATVIEW (kind="VIEW") untouched by this rule.
+            if (stmt.args.get("kind") == "TABLE"
+                    and stmt.args.get("expression") is not None):
+                return "script"
             if stmt.args.get("kind") not in _SCHEMA_CREATE_KINDS:
                 return "script"  # CREATE INDEX / others → not schema
             # CREATE MATERIALIZED VIEW parses as kind="VIEW" with a
@@ -69,14 +91,17 @@ def classify_sql_text(sql_text: str) -> str:
     return "schema"
 
 
-def _collect_schema_files(ws_id: str) -> list[str]:
+def _collect_schema_files(ws_id: str,
+                          parsed_cache: dict | None = None) -> list[str]:
     """A1: rel_paths of schema-classified files in the workspace tree.
 
     Feeds the index-time schema evidence pass (S4b needs DDL evidence even
     when the caller's script list excludes schema files — the auto-select
-    path does).
+    path does). C-13(a): `parsed_cache` (when given) receives the per-file
+    parse from scan_folder so index_scripts reuses it instead of
+    re-parsing every script for its A1 classification.
     """
-    tree = scan_folder(ws_id)
+    tree = scan_folder(ws_id, parsed_cache=parsed_cache)
     out = []
 
     def _walk(node):
@@ -87,6 +112,94 @@ def _collect_schema_files(ws_id: str) -> list[str]:
 
     _walk(tree)
     return out
+
+
+def _invalidate_graph_caches(cache_dir) -> int:
+    """C-2(a): delete every graph cache in the workspace cache dir.
+
+    index_scripts precomputes each graph DURING the per-script loop —
+    BEFORE the S4b cross-script attribution/revocation pass mutates the
+    analysis caches — so a cached graph can serve pre-attribution data on
+    L2 cache hits. Delete BOTH the current GRAPH_CACHE_PREFIX files and
+    older-prefix leftovers (the whole `graph_3_*_*.json` shape: any
+    graph_3_<ver>_<hash>.json). schemas_*, analysis_* and
+    filtered_index.json are never touched — the analysis caches are the
+    S4b-mutated source of truth and must survive. Returns the number of
+    files deleted.
+    """
+    n = 0
+    for p in cache_dir.glob("graph_3_*.json"):
+        try:
+            p.unlink()
+            n += 1
+        except OSError:
+            pass  # best-effort — a leftover stale graph rebuilds on demand
+    return n
+
+
+# ── C-5 helpers: unqualified-star detection + expansion (post-loop pass) ──
+
+def _iter_select_nodes(statements):
+    """Yield every exp.Select in a parse result — top-level statements and
+    nested selects (subqueries, CTE bodies, UNION branches, INSERT …
+    SELECT bodies) — the C-5 star-detection walk."""
+    stack = list(statements or [])
+    while stack:
+        node = stack.pop()
+        if isinstance(node, exp.Select):
+            yield node
+        stack.extend(node.iter_expressions())
+
+
+def _star_from_tables(select) -> list[str]:
+    """C-5: the FROM tables of a Select whose projections contain an
+    UNQUALIFIED star (`SELECT * …`) — [] otherwise. Qualified stars
+    (`t.*`) parse as exp.Column(this=exp.Star) and are the extractor's
+    domain (its _expand_star_columns records them — the index pass must
+    not double-expand). sqlglot 30.x: the single FROM table lives in
+    `from_`; comma tables and JOINs land in the `joins` list. Derived
+    tables (Subquery/Select/Union/Lateral/UDTF) yield nothing — they
+    carry no schema evidence (m_ws is physical-table evidence only)."""
+    projs = select.args.get("expressions") or []
+    if not any(isinstance(p, exp.Star) for p in projs):
+        return []
+    out = []
+    _collect_from_tables(select.args.get("from_"), out)
+    for _j in select.args.get("joins") or []:
+        _collect_from_tables(_j.args.get("this"), out)
+    return out
+
+
+def _collect_from_tables(node, out):
+    """Collect exp.Table names from a FROM/JOIN source — never descending
+    into derived tables (no schema evidence there)."""
+    if node is None:
+        return
+    if isinstance(node, exp.Table):
+        out.append(node.name)
+    elif isinstance(node, (exp.Select, exp.Subquery, exp.Union,
+                           exp.Lateral, exp.UDTF)):
+        return  # derived tables — no schema evidence to expand
+    else:
+        for _c in node.iter_expressions():
+            _collect_from_tables(_c, out)
+
+
+def _evidence_columns(m_ws: dict, table: str):
+    """C-5: schema-evidence column set for `table` — exact key first, then
+    the single case-variant fallback (mirrors the S4b `_table_owns`
+    rules: distinct case variants must never share an evidence pool).
+    None when there is no evidence — the caller skips silently (BE2: no
+    padding)."""
+    cols = m_ws.get(table)
+    if cols is None:
+        variants = [c2 for t2, c2 in m_ws.items()
+                    if t2.lower() == table.lower() and t2 != table]
+        if len(variants) == 1:
+            cols = variants[0]
+        else:
+            return None
+    return cols
 
 
 # Progress tracking for polling
@@ -117,12 +230,20 @@ def get_index_progress(ws_id: str) -> dict:
             "phase": entry.get("phase", ""),
             "errors": list(entry.get("errors", []))}
 
-def scan_folder(ws_id: str) -> dict:
+def scan_folder(ws_id: str, parsed_cache: dict | None = None) -> dict:
     """Walk workspace scripts/ dir, return hierarchical tree with is_sql flag.
 
     A1: every SQL file node (is_sql: .sql/.ddl/.schema) also carries
     `file_class`: "schema" (DDL-only) or "script" (pipeline). Consumers
     must default to "script" for old trees without the key (defensive read).
+
+    C-13(a): each .sql file is parsed exactly ONCE here (the parse is
+    passed into classify_sql_text instead of being re-parsed inside) and,
+    when `parsed_cache` is given (index_scripts), exported under the
+    rel_path so the index loop reuses it for classification and the C-5
+    star pass. .ddl/.schema files short-circuit on extension — never
+    parsed. Unreadable/unparsable files classify "script" (conservative)
+    and export no parse.
     """
     ws_dir = get_workspace_dir(ws_id)
     scripts_dir = ws_dir / "scripts"
@@ -140,7 +261,23 @@ def scan_folder(ws_id: str) -> dict:
             entry["is_sql"] = (ext in SQL_EXTENSIONS
                                or ext in SCHEMA_EXTENSIONS)
             if entry["is_sql"]:
-                entry["file_class"] = classify_sql_file(path)
+                if ext in SCHEMA_EXTENSIONS:
+                    # A1: extension is explicit intent — no content sniff.
+                    entry["file_class"] = "schema"
+                else:
+                    parsed = None
+                    try:
+                        _txt = path.read_text(encoding="utf-8",
+                                              errors="replace")
+                        parsed = sqlglot.parse(_txt, read="mysql")
+                    except Exception:
+                        # unreadable/unparsable → script (conservative)
+                        entry["file_class"] = "script"
+                    else:
+                        entry["file_class"] = classify_sql_text(_txt,
+                                                                parsed=parsed)
+                    if parsed_cache is not None and parsed is not None:
+                        parsed_cache[entry["path"]] = parsed
         if path.is_dir():
             children = []
             for child in sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name)):
@@ -199,6 +336,12 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     cache_by_script = {}         # rel_path -> analysis cache path (S4b updates)
     pipeline_paths = []          # A1: paths processed as pipeline scripts
 
+    # C-13(a): one parse per script — scan_folder parses during the A1
+    # discovery pass below and exports the per-file parse here; the loop
+    # reuses it for A1 classification and the C-5 star pass (no new parse).
+    parsed_cache: dict = {}
+    parse_by_script: dict = {}  # rel_path -> sqlglot statements (C-5 pass)
+
     # ── A1: schema evidence pass (DDL-only files are NOT pipeline scripts) ──
     # DDL files (all statements CREATE TABLE/VIEW/MATERIALIZED VIEW, GRANT,
     # COMMENT, ALTER TABLE) still feed S4b: run them through the analysis
@@ -210,7 +353,7 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     # discovery/analysis failures are surfaced in `errors`, never silent.
     schema_evidence_paths = set()
     try:
-        schema_evidence_paths = set(_collect_schema_files(ws_id))
+        schema_evidence_paths = set(_collect_schema_files(ws_id, parsed_cache))
     except Exception as e:
         errors.append({"script": "(schema discovery)", "error": str(e)})
     for _rel in sorted(schema_evidence_paths):
@@ -233,7 +376,17 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
 
         try:
             sql_text = sp.read_text(encoding="utf-8", errors="replace")
-            if classify_sql_text(sql_text) == "schema":
+            # C-13(a): reuse the scan_folder parse (one parse per script);
+            # fall back to parsing here only when the scan parse is missing
+            # (unparsable files export none — classify re-tries and yields
+            # the same conservative "script").
+            parsed = parsed_cache.get(rel_path)
+            if parsed is None:
+                try:
+                    parsed = sqlglot.parse(sql_text, read="mysql")
+                except Exception:
+                    parsed = None
+            if classify_sql_text(sql_text, parsed=parsed) == "schema":
                 # A1: DDL-only content in a .sql file (not in the discovered
                 # set, e.g. the tree was stale) → evidence pass, never a
                 # pipeline script.
@@ -244,6 +397,9 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
             result = run_full_analysis(sql_text, rel_path, ws_id=ws_id)
             script_count += 1
             pipeline_paths.append(rel_path)
+            # C-5: the C-13(a) single parse is reused for star detection —
+            # never a new parse. None (unparsable) → script skipped there.
+            parse_by_script[rel_path] = parsed
             _set_progress(ws_id, i + 1, total, "analyzing")
 
             # Cache analysis result
@@ -311,25 +467,14 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                                 and "script_schemas" in rs
                                 and "r6_collision" in rs))
 
-            # Pre-compute graph
+            # C-2: index-time GRAPH caches are no longer precomputed here —
+            # any graph written before the S4b pass is pre-S4b and stale, so
+            # the post-S4b invalidation (_invalidate_graph_caches) would
+            # delete it moments later (pure double-analysis per script). L2
+            # rebuilds on demand from the post-S4b analysis cache and its
+            # miss path writes the graph cache itself. Only the schema
+            # precompute survives — L2 cache hits use it without re-analysis.
             try:
-                from app.services.graph_service import build_graph_data
-                graph_data = build_graph_data(result)
-                # Bug 48: Add alias_map to graph cache so consumers don't rebuild it
-                graph_data["alias_map"] = {
-                    v["name"]: v["source_tables"][0]
-                    for v in result.get("variables", [])
-                    if v.get("source_tables") and v.get("variable_type") in ("table", "view", "cte")
-                }
-                # M2: write under the canonical name L2 reads (C3: shared
-                # GRAPH_CACHE_PREFIX) so index-time precomputation is
-                # actually used by L2 cache hits.
-                graph_cache_path = cache_dir / f"{GRAPH_CACHE_PREFIX}_{cache_key}.json"
-                # Item 4: cache format version — consumers warn on stale caches
-                graph_data["format_version"] = 3
-                graph_cache_path.write_text(json.dumps(graph_data, indent=2, ensure_ascii=False))
-                # M2: also precompute table_schemas (Bug 25 path) so L2 cache hits
-                # have schemas without re-running analysis.
                 from app.extractor.schema_inference import infer_table_schemas
                 schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
                 if not schemas_cache_path.exists():
@@ -337,9 +482,8 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                         infer_table_schemas(result.get("variables", []),
                                             result.get("dependencies", [])),
                         default=str))
-                precomputed += 1
             except Exception:
-                pass  # graph pre-computation is optional
+                pass  # schema pre-computation is optional
 
             # Build indexes from variables
             variables = result.get("variables", [])
@@ -520,16 +664,38 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     # attribution leaves table_index/field_index and the field returns to
     # the unresolved pool so the report lists it), then only non-conflicted
     # plans attribute.
+    # C-3: the revocation is MIRRORED into the persisted analysis caches —
+    # l1_builder consumes analysis caches today, so a revoked attribution
+    # must not survive there. The current-run attribution is snapshotted
+    # BEFORE the in-memory clear (owners + the field's scripts) and the
+    # cache-by-script mapping locates the analysis file per script.
+    # Cross-run: a field ABSENT from the current field_index (its
+    # attribution lives only in prior-run caches) iterates EVERY analysis
+    # cache in the workspace dir and revokes any owner.
     for _f in ambiguous_fields:
         _fdata = field_index.get(_f)
-        if not _fdata:
-            continue
-        for _t in list(_fdata.get("tables") or []):
-            _ti = table_index.get(_t)
-            if _ti:
-                _ti["fields"].discard(_f)
-        _fdata["tables"].clear()
-        extractor_unresolved.add(_f)  # back into the unresolved pool → report
+        _revoked_scripts = (list(_fdata.get("scripts") or [])
+                            if _fdata else [])
+        _revoked_owners = (list(_fdata.get("tables") or [])
+                           if _fdata else [])
+        if _fdata:
+            for _t in _revoked_owners:
+                _ti = table_index.get(_t)
+                if _ti:
+                    _ti["fields"].discard(_f)
+            _fdata["tables"].clear()
+            extractor_unresolved.add(_f)  # back into the unresolved pool → report
+        if _revoked_scripts:
+            for _rel in _revoked_scripts:
+                for _own in (_revoked_owners or [None]):
+                    _revoke_s4b_cache_update(cache_by_script.get(_rel),
+                                             _f, _own)
+        else:
+            # Cross-run: not in the current field_index — prior-run cache
+            # attribution only. No owner known → revoke any owner.
+            for _apath in sorted((get_workspace_dir(ws_id) / "cache")
+                                 .glob("analysis_*.json")):
+                _revoke_s4b_cache_update(str(_apath), _f, None)
 
     s4b_resolved = []  # (field, owner, cand_script, cand_record) — S4b additions
     for _f, owner, _srec, _crec, visible in s4b_plans:
@@ -557,6 +723,50 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
         s4b_resolved.append((_f, owner, _srec, _crec))
     s4b_unique_owners = len(s4b_resolved)
     n_ambiguous = len(ambiguous_fields)
+
+    # ── C-2(a): stale graph caches vs the S4b pass ──
+    # The index-time graph precompute ran DURING the per-script loop —
+    # BEFORE the S4b attribution/revocation above mutated the analysis
+    # caches — so every graph cache can serve pre-attribution data on L2
+    # cache hits. Delete them all (current prefix + older-prefix
+    # leftovers); L2 rebuilds on demand from the S4b-mutated analysis.
+    _invalidate_graph_caches(get_workspace_dir(ws_id) / "cache")
+
+    # ── C-5: star expansion (POST-LOOP pass) ──
+    # `SELECT * FROM t` / `INSERT INTO x SELECT * FROM t` produce NO
+    # field-index entries from the extractor (its _expand_star_columns
+    # records only QUALIFIED stars) — such scripts silently vanish from
+    # search. Schema evidence (script_schemas → m_ws) accumulates DURING
+    # the script loop, so this pass runs AFTER the loop (and after S4b —
+    # it must not perturb the review-verified S4b phases) and BEFORE the
+    # pair_index construction below: every unqualified star's FROM tables
+    # expand into field_index/table_index using their schema-evidence
+    # columns. No schema evidence → skip silently (BE2: no padding — a
+    # star without visible columns is honest "no data", never a guess).
+    # Star DETECTION reuses the C-13(a) single per-script parse — no new
+    # parse.
+    star_expanded_fields = 0
+    _star_seen = set()
+    for _rel, _stmts in parse_by_script.items():
+        if not _stmts:
+            continue  # unparsable script — nothing to detect
+        for _sel in _iter_select_nodes(_stmts):
+            for _t in _star_from_tables(_sel):
+                _cols = _evidence_columns(m_ws, _t)
+                if not _cols:
+                    continue  # no schema evidence → skip silently
+                for _c in _cols:
+                    if (_rel, _t, _c) in _star_seen:
+                        continue
+                    _star_seen.add((_rel, _t, _c))
+                    field_index.setdefault(_c,
+                                           {"tables": set(), "scripts": set()})
+                    field_index[_c]["tables"].add(_t)
+                    field_index[_c]["scripts"].add(_rel)
+                    table_index.setdefault(_t,
+                                           {"fields": set(), "scripts": set()})
+                    table_index[_t]["fields"].add(_c)
+                    star_expanded_fields += 1
 
     # P1: Build pair_index[(table,field)] → {scripts} for fast seed-script lookup.
     # Used by Algorithm 2 step 2a to find seed scripts without scanning all data.
@@ -685,6 +895,11 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
         "field_index": field_index,
         "script_count": script_count,
         "precomputed_count": precomputed,
+        # C-5: number of (script, table, column) entries added by the
+        # post-loop star expansion (SELECT */INSERT…SELECT * over
+        # schema-evidence tables). 0 when no unqualified star has schema
+        # evidence — no padding.
+        "star_expanded_fields": star_expanded_fields,
         "errors": errors,
         "orphan_field_count": len(orphan_fields),
         "orphan_field_samples": list(sorted(orphan_fields))[:20],
@@ -893,6 +1108,75 @@ def _apply_s4b_cache_update(cache_path, field: str, owner: str,
         except Exception:
             pass  # cache persistence is best-effort
     return n_attributed  # M15: vars actually modified (0 = no event)
+
+
+def _revoke_s4b_cache_update(cache_path, field: str,
+                             owner: str | None = None) -> int:
+    """C-3: undo an attribution in the persisted analysis cache — the
+    mirror of `_apply_s4b_cache_update` for AMBIGUOUS fields (M12: never
+    attribute; every existing attribution is revoked).
+
+    - column vars named `field` whose source_tables contain `owner` are
+      cleared (owner=None → ANY owner — the cross-run case, where the
+      field's current-run index entry is empty/absent and only prior-run
+      attributions exist);
+    - the field returns to `resolution_stats["unresolved"]` (membership
+      guard — it may already be unresolved there, or resolved by ANOTHER
+      strategy: adding a duplicate would corrupt the counters) and
+      `resolved_by["schema"]` drops by 1 (floor 0) — but ONLY when a var
+      was actually revoked (C-4: mirror the in-memory gate exactly — a
+      no-op revoke must not move the persisted counters, just like the
+      apply counts a schema event only when n_attributed > 0);
+    - the field's schema_candidates records are removed (unconditional,
+      mirroring the apply's candidate-record removal).
+
+    Returns the number of analysis variables actually revoked (0 = no-op,
+    nothing written). Best-effort: stale/missing caches are skipped.
+    """
+    if not cache_path:
+        return 0
+    try:
+        cdata = json.loads(Path(cache_path).read_text(encoding="utf-8"))
+    except Exception:
+        return 0  # stale/missing cache — skipped by design (best-effort)
+    if not isinstance(cdata, dict):
+        return 0
+    n_revoked = 0
+    for v in cdata.get("variables", []) or []:
+        if not (isinstance(v, dict)
+                and v.get("variable_type") == "column"
+                and v.get("name") == field):
+            continue
+        st = v.get("source_tables")
+        if not isinstance(st, list) or not st:
+            continue
+        if (owner is None
+                or any(isinstance(t, str) and t.lower() == owner.lower()
+                       for t in st)):
+            v["source_tables"] = []
+            n_revoked += 1
+    rs = cdata.get("resolution_stats")
+    if isinstance(rs, dict):
+        ul = rs.get("unresolved")
+        # C-4: the persisted counters move only on a REAL revocation event
+        # (a var was actually cleared), mirroring the in-memory gate
+        # (`by_strategy["schema"]` counts only n_attributed > 0 events).
+        if (n_revoked > 0 and isinstance(ul, list) and field not in ul):
+            ul.append(field)
+            rb = rs.setdefault("resolved_by", {})
+            rb["schema"] = max(0, (rb.get("schema", 0) or 0) - 1)
+        cands = rs.get("schema_candidates")
+        if isinstance(cands, list):
+            rs["schema_candidates"] = [
+                c for c in cands
+                if not (isinstance(c, dict) and c.get("field") == field)]
+    if n_revoked:
+        try:
+            Path(cache_path).write_text(
+                json.dumps(cdata, indent=2, ensure_ascii=False))
+        except Exception:
+            pass  # cache persistence is best-effort
+    return n_revoked  # vars actually revoked (0 = no-op)
 
 
 def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict,

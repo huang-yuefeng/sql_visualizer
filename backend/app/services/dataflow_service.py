@@ -338,7 +338,16 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         # Build on-demand
         from app.extractor.adapter import run_full_analysis
         from app.services.graph_service import build_graph_data
-        result = run_full_analysis(sql_text, script_name, ws_id=ws_id)
+        # C-2(b): prefer the analysis cache when present — build the graph
+        # from the cached analysis dict (same key contract as
+        # folder_index_service: md5(script_name + sql_text)[:12]) instead of
+        # re-running the full extraction pipeline.
+        analysis_cache_path = cache_dir / f"analysis_{cache_key}.json"
+        result = None
+        if analysis_cache_path.exists():
+            result = json.loads(analysis_cache_path.read_text())
+        if result is None:
+            result = run_full_analysis(sql_text, script_name, ws_id=ws_id)
         graph_data = build_graph_data(result)
         # R18: build table_schemas for lineage seed validation
         from app.extractor.schema_inference import infer_table_schemas
@@ -347,6 +356,11 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         # Bug 25: Cache table_schemas alongside graph
         cache_dir.mkdir(parents=True, exist_ok=True)
         schemas_cache_path.write_text(json.dumps(table_schemas, default=str))
+        # C-10: also write the versioned GRAPH cache so the next request
+        # hits the fast path (previously the miss path only wrote schemas,
+        # so every on-demand build re-ran the full analysis).
+        graph_data["format_version"] = 3
+        graph_cache_path.write_text(json.dumps(graph_data, default=str))
 
     # Apply relevance filter (if requested)
     if filter_relevant_nodes:

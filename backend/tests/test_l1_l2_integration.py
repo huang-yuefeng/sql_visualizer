@@ -248,18 +248,21 @@ def test_l1_pairs_covered_by_table_fields(multi_workflow_ws):
     assert pairs <= fresh_tf, \
         f"pairs {pairs - fresh_tf} missing from fresh-analysis table_fields"
 
-    # Cached run: index writes graph_*.json caches for every script, then
-    # the disk-cache P4 absorption must cover the same pairs, and L1 must
+    # Cached run: index leaves post-S4b analysis caches (C-2 invalidates
+    # index-time graph caches — they'd be pre-S4b and stale). Rebuild
+    # graph_data from the analysis caches exactly as the L2 miss path does;
+    # the P4 table_fields absorption must cover the same pairs, and L1 must
     # still produce the identical pair set.
     index_scripts(ws_id, script_names)
+    from app.services.graph_service import build_graph_data
     cached_tf = set()
-    for gc_path in sorted(get_workspace_dir(ws_id).glob("cache/graph_*.json")):
-        gdata = json.loads(gc_path.read_text())
+    for ac_path in sorted(get_workspace_dir(ws_id).glob("cache/analysis_*.json")):
+        gdata = build_graph_data(json.loads(ac_path.read_text()))
         for tbl, flds in (gdata.get("table_fields", {}) or {}).items():
             for fn in flds:
                 cached_tf.add((tbl, fn))
     assert pairs <= cached_tf, \
-        f"pairs {pairs - cached_tf} missing from cached table_fields"
+        f"pairs {pairs - cached_tf} missing from analysis-cache table_fields"
 
     l1_cached = _build_l1_graph(ws_id, script_names, TARGET_TABLE, TARGET_FIELD)
     assert {tuple(p) for p in l1_cached.get("lineage_field_pairs", [])} == pairs

@@ -20,5 +20,13 @@ invalidates every previously cached graph; they rebuild lazily on the
 next L2 build and then reflect post-S4b attribution. (Graph JSON format
 is unchanged; this is a cache-freshness invalidation, the same
 one-constant mechanism.)
+
+C-2 (2026-08-06, C-series round-2): bumped to 3_2_17 — INVALIDATION
+bump paired with the index-time deletion (folder_index_service
+_invalidate_graph_caches now deletes every graph_3_*_*.json in the
+workspace cache dir after the S4b pass, so this constant only names the
+files index_scripts itself wrote under the new prefix before the
+deletion). The bump still mass-invalidates any graph cache written by
+older builds (3_2_15/3_2_16) that the deletion alone cannot know about.
 """
-GRAPH_CACHE_PREFIX = "graph_3_2_16"
+GRAPH_CACHE_PREFIX = "graph_3_2_17"
