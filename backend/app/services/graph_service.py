@@ -144,7 +144,15 @@ def build_graph_data(analysis: dict) -> dict:
                 display_name = name  # keep original label
             else:
                 field_name = name
-                table_name = ""
+                # R20/E1: unqualified columns resolved by the extractor
+                # (S1-S3/S2) carry source_tables — attach in the graph too,
+                # so data-flow fields connect to their table/container node.
+                # Skip S5/S6 sentinels (⟐system/⟐pseudo — not graph nodes).
+                _st = v.get("source_tables", [])
+                if _st and _st[0] and _st[0] not in ("⟐system", "⟐pseudo"):
+                    table_name = _st[0]
+                else:
+                    table_name = ""
         elif vt in ("table", "view", "cte", "virtual_table", "subquery", "merge_target"):
             table_name = name
 
