@@ -2200,3 +2200,9 @@ Key facts:
 3. scope-level (nearest query node) counting is the correct measure — statement-level counting would zero out unq_single in TPC-DS (every statement nests subqueries)
 4. Alias-of-bare-column orphans (48/sample in tpcds) need two hops: alias → source column → table
 5. sys_table/other are rare; pseudocolumn lists (LEVEL/new/old) are dialect-specific, not needed by these samples
+
+---
+
+## Residual-Orphan Fixes — Implementation Result (2026-08-06)
+
+Implemented + landed (tests `test_orphan_residual_fixes.py`, 19 tests, all pass): Fix A (set-op scope edge — `_walk_columns_in_expr` now walks Subquery/Exists bodies that are UNION/INTERSECT/EXCEPT via `_walk_setop`, giving each branch its own scope; spider 052/053 DestAirport+SourceAirport → Flights), Fix B (S1 bare-column chain — alias of a plain column inherits the source column's single-table S3 attribution; `cc_call_center_id Call_Center` → call_center), Fix C (derived-table output columns — S2 extended from CTEs to aliased derived tables with one-hop → derived alias and two-hop → source table; q93 `act_sales`/`ss_customer_sk` → t). Also made the unresolved report name-level-consistent (a field attributed in ANY scope is not listed as an orphan — subquery phantom copies no longer pollute). Coverage sweep (index-level, post-S4): overall 95.8% → 96.6% (tpcds 94→95.7, tpcds_qualified 95.8, financial 99.4 unchanged, dwh 100 unchanged, dialect 97.5→100, spider_complex 99.6); residual orphans 291 (baseline 661); remaining classes are schema-required 1a/1b (tpcds multi-table bare columns/aliases, financial alias-only fields) — reported, never guessed.

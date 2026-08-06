@@ -242,6 +242,7 @@ class _SelectScope:
     tables: list = field(default_factory=list)    # [(db, name)] physical tables in FROM/JOIN
     aliases: dict = field(default_factory=dict)   # alias → physical table name (S1)
     ctes: list = field(default_factory=list)      # CTE names referenced in FROM/JOIN (S2)
+    deriveds: list = field(default_factory=list)  # derived-table aliases in FROM/JOIN (S2, Fix C)
 
 
 def _detect_dialect(sql_text: str) -> str:
@@ -392,6 +393,10 @@ class _RoleBasedExtractor:
         # R20 orphan resolution state
         self._resolution_stats: dict = default_resolution_stats()
         self._cte_output_columns: dict[str, set[str]] = {}  # cte name → output column names (S2)
+        # Fix C (2b): derived-table alias → {output column name: two-hop
+        # physical table or None}. None = one-hop attribution to the derived
+        # alias; a table name = the output is an S1 alias of a plain column.
+        self._derived_output_columns: dict[str, dict] = {}
         self._subq_counter: int = 0  # unique subquery IDs
         # Pre-tokenize SQL for accurate position lookups (Bug 4 fix)
         try:
@@ -481,17 +486,27 @@ class _RoleBasedExtractor:
         still have no table attribution after S1–S3 — no source_tables, no
         qualifier prefix — excluding S5 (⟐system) and S6 (pseudocolumn)
         marked-expected entries. Names are deduped, creation order kept.
+
+        A name counts as unresolved only if NO COLUMN var with that name
+        carries attribution: subquery-interior columns are registered TWICE
+        (their own scope context + a raw-walk phantom copy in the outer
+        context — historical behavior, kept for BELONGS_TO edges). The
+        phantom is guarded from attribution by `_in_scope_owner` and must
+        not make an already-attributed field look orphaned in the report.
         """
         stats = {
             "total_columns": self._resolution_stats["total_columns"],
             "resolved_by": dict(self._resolution_stats["resolved_by"]),
             "unresolved": [],
         }
+        attributed = {v.name for v in self.result.variables
+                      if v.variable_type == VariableType.COLUMN
+                      and ("." in v.name or v.source_tables)}
         seen = set()
         for v in self.result.variables:
             if v.variable_type != VariableType.COLUMN:
                 continue
-            if "." in v.name or v.source_tables:
+            if v.name in attributed:
                 continue  # prefix-attributed or resolved by S1/S2/S3/S5/S6
             if v.name in seen:
                 continue
@@ -565,8 +580,14 @@ class _RoleBasedExtractor:
 
     # ── SELECT walker (the core) ────────────────────────────────────
 
-    def _walk_select(self, select: exp.Select, context: str, is_cte: bool = False):
-        """Walk a SELECT/UPDATE/DELETE and classify every Identifier found."""
+    def _walk_select(self, select: exp.Select, context: str, is_cte: bool = False,
+                     derived_alias: str | None = None):
+        """Walk a SELECT/UPDATE/DELETE and classify every Identifier found.
+
+        `derived_alias` (Fix C) is set when this SELECT is the body of an
+        aliased derived table (FROM (SELECT ...) AS d) — its projections'
+        output names are recorded for downstream bare-column resolution.
+        """
         # R20: per-statement scope — tables/aliases/CTEs this statement sees.
         scope = _SelectScope(owner=select)
         output_container = None  # what expression outputs attribute to (S2)
@@ -633,7 +654,8 @@ class _RoleBasedExtractor:
             self._walk_select_expression(expr, context, is_cte,
                                          scope=scope,
                                          output_container=output_container,
-                                         cte_name=cte_name)
+                                         cte_name=cte_name,
+                                         derived_alias=derived_alias)
 
         # WHERE / HAVING conditions — after SELECT so bare refs dedup against aggregates
         for key in ("where", "having"):
@@ -677,9 +699,14 @@ class _RoleBasedExtractor:
                           sql_expr=_sql(from_exp.this),
                           defined_in=f"FROM:{context}", context=sub_ctx)
             if isinstance(from_exp.this, exp.Select):
-                self._walk_select(from_exp.this, sub_ctx, is_cte=False)
+                self._walk_select(from_exp.this, sub_ctx, is_cte=False,
+                                  derived_alias=sub_alias or None)
             elif isinstance(from_exp.this, (exp.Union, exp.Intersect, exp.Except)):
                 self._walk_setop(from_exp.this, type(from_exp.this).__name__.upper(), sub_ctx)
+            # Fix C: the derived alias is visible to the enclosing scope —
+            # bare columns matching its output columns resolve via S2.
+            if sub_alias and scope is not None:
+                scope.deriveds.append(sub_alias)
 
     def _walk_join(self, join, context: str, scope: _SelectScope | None = None):
         """Extract from a JOIN clause (including LATERAL)."""
@@ -703,7 +730,11 @@ class _RoleBasedExtractor:
                           sql_expr=_sql(join_expr.this),
                           defined_in=f"JOIN:{context}", context=sub_ctx)
             if isinstance(join_expr.this, exp.Select):
-                self._walk_select(join_expr.this, sub_ctx, is_cte=False)
+                self._walk_select(join_expr.this, sub_ctx, is_cte=False,
+                                  derived_alias=sub_alias or None)
+            # Fix C: the derived alias is visible to the enclosing scope.
+            if sub_alias and scope is not None:
+                scope.deriveds.append(sub_alias)
         elif lateral_alias and isinstance(join_expr, exp.Select):
             # LATERAL SELECT without Subquery wrapper
             self._add(lateral_alias, VariableType.SUBQUERY,
@@ -760,16 +791,30 @@ class _RoleBasedExtractor:
         for node in expr.walk(prune=lambda n: isinstance(n, (exp.CTE,))):
             if isinstance(node, exp.Column):
                 self._register_column(node, context, defined_in, scope)
-            # Walk INTO subqueries — fully process inner SELECT
+            # Walk INTO subqueries — fully process inner SELECT.
+            # Fix A (1c): when the subquery body is a SET OP (UNION/EXCEPT/
+            # INTERSECT — e.g. `x IN (SELECT ... UNION SELECT ...)`), the
+            # branches must each be walked with their OWN scope so their
+            # columns resolve via S3 (single-table branch scopes). Previously
+            # only the raw-walk phantom copies were registered in the outer
+            # context, where `_in_scope_owner` correctly refused attribution.
             elif isinstance(node, exp.Subquery):
                 if isinstance(node.this, exp.Select):
                     self._subq_counter += 1
                     self._walk_select(node.this, f"{context}/subq{self._subq_counter}", is_cte=False)
+                elif isinstance(node.this, (exp.Union, exp.Intersect, exp.Except)):
+                    self._subq_counter += 1
+                    self._walk_setop(node.this, type(node.this).__name__.upper(),
+                                     f"{context}/subq{self._subq_counter}")
             elif isinstance(node, exp.Exists):
                 # EXISTS wraps a Select directly (not a Subquery)
                 if isinstance(node.this, exp.Select):
                     self._subq_counter += 1
                     self._walk_select(node.this, f"{context}/exists{self._subq_counter}", is_cte=False)
+                elif isinstance(node.this, (exp.Union, exp.Intersect, exp.Except)):
+                    self._subq_counter += 1
+                    self._walk_setop(node.this, type(node.this).__name__.upper(),
+                                     f"{context}/exists{self._subq_counter}")
 
     def _walk_select_tables(self, select_node, context: str):
         """Extract table references from a Select node inside subquery/EXISTS."""
@@ -853,6 +898,18 @@ class _RoleBasedExtractor:
                 var.source_tables = [cte_name]
                 self._resolution_stats["resolved_by"]["expr_alias"] += 1
                 return
+        # S2 (Fix C) — unqualified reference to a derived-table output column.
+        # Exactly ONE visible derived table may claim the name (two or more =
+        # ambiguous → left unresolved, never guessed). One-hop → the derived
+        # alias; two-hop → the output column's own source table (S1 chain).
+        derived_matches = [d for d in scope.deriveds
+                           if col_name in self._derived_output_columns.get(d, ())]
+        if len(derived_matches) == 1:
+            d_name = derived_matches[0]
+            two_hop = self._derived_output_columns[d_name][col_name]
+            var.source_tables = [two_hop] if two_hop else [d_name]
+            self._resolution_stats["resolved_by"]["expr_alias"] += 1
+            return
         # S3/S5 — exactly one distinct physical table in the nearest scope
         distinct = self._distinct_scope_tables(scope)
         if len(distinct) == 1:
@@ -907,7 +964,8 @@ class _RoleBasedExtractor:
     def _walk_select_expression(self, expr, context: str, is_cte: bool = False,
                                 scope: _SelectScope | None = None,
                                 output_container: str | None = None,
-                                cte_name: str | None = None):
+                                cte_name: str | None = None,
+                                derived_alias: str | None = None):
         """Walk one SELECT expression (may or may not have an alias)."""
         if expr is None:
             return
@@ -969,10 +1027,38 @@ class _RoleBasedExtractor:
                     else:
                         attr_strategy, attr_table = (
                             "plain_alias", self._resolve_alias(qualifier, scope))
+                elif alias != _clean(inner.name or "") and scope is not None:
+                    # S1 (Fix B): alias of a plain BARE column — follow the
+                    # alias→source-column→table chain. The alias var inherits
+                    # exactly what S3 would attribute the source column: only
+                    # a scope with exactly ONE physical table (never guess —
+                    # a bare column under ≥2 tables stays unresolved).
+                    # `alias != bare-name` skips the degenerate `col col`
+                    # re-alias, which already merges via node dedup.
+                    distinct = self._distinct_scope_tables(scope)
+                    if len(distinct) == 1:
+                        _db, _name = distinct[0]
+                        if _db.lower() in _SYSTEM_SCHEMAS:
+                            attr_strategy, attr_table = "sys", SYSTEM_TABLE_SENTINEL
+                        else:
+                            attr_strategy, attr_table = "plain_alias", _name
             elif output_container is not None:
                 # S2: expression output (Sum/Cast/Case/Window/Func/…)
                 # → the statement's output container (⟐ output / ⟐ subqN …).
                 attr_strategy, attr_table = "expr_alias", output_container
+
+        # Fix C (2b): record this projection as an output column of the
+        # derived table being walked. Bare columns (no alias) record their
+        # own name (same semantics as CTE output columns). two_hop carries
+        # the physical table when the output is itself an S1 alias of a
+        # plain column — downstream refs then skip to the source table;
+        # otherwise None → one-hop to the derived alias.
+        if derived_alias and alias:
+            record_name = (_clean(inner.name)
+                           if isinstance(inner, exp.Column) and not explicit_alias
+                           else alias)
+            two_hop = attr_table if attr_strategy == "plain_alias" else None
+            self._derived_output_columns.setdefault(derived_alias, {})[record_name] = two_hop
 
         # Existing table attribution inside the expression wins (e.g. scalar
         # subquery aliases already carry their inner tables).
