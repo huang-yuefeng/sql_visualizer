@@ -99,4 +99,5 @@ curl -s http://192.168.0.66:8000/api/health
 docker restart gps-sql-backend                    # restart backend
 docker compose -f docker-compose.yml up -d        # rebuild + start
 curl -s http://192.168.0.66:8000/api/health       # health check
+./target_deploy.sh   # target-machine deploy: version-guarded (RELEASE.txt manifest + origin check), logs to target_deploy.log
 ```
