@@ -2845,3 +2845,62 @@ re-index, 12 after).
 passed. All C-series items have dedicated tests (`test_c_index_pipeline.py` 32 tests:
 TestC1CtasClassification, TestC2GraphCacheInvalidation, TestC3RevocationMirror,
 TestC5StarExpansion, TestC13SingleParse).
+
+---
+
+## Round-4 review verdicts — wiki/CODE_REVIEW_2026-08-06.md (2026-08-06, analyzed vs HEAD 7982efe)
+
+External review (Codex, 3 sub-agents) of the C/B-series implementation. It reviewed a
+**mid-flight working tree** (before the integration test edits), so several headline
+claims are stale at HEAD. 2-team verification (index pipeline + L2/lineage) with live
+probes. **Decision (user): document only — no code changes this round.**
+
+### Stale / wrong at HEAD (do NOT act on)
+
+| Claim | Reality |
+|---|---|
+| "Working tree is RED — ≥5 regressions" (test_l1_l2_integration 3❌, test_s4b_resolution 2❌, test_c_index_pipeline "hangs") | All pass at HEAD: full suite 626 passed / 5 skipped; the 3 files pass 40/40. The "hang" is the reviewer's sandbox Python 3.14 (`asyncio.to_thread`), acknowledged as environmental in the review itself |
+| "C-9/C-2(b)/C-10 have zero real automated coverage" (test_l2_table_dedup.py:133 references nonexistent test_b_series_c9.py) | Substance exists: `test_b_series_l2.py` — C-9 `test_c9_per_statement_dedup:170` / `test_c9_same_statement_still_merges:191`, C-10 `test_c10_miss_path_writes_graph_cache:212`, C-2(b) `test_c2b_analysis_cache_preferred:241,:292`. The :133 reference is a dangling comment |
+| "4 `total` fields in a 2-statement mini-script" (C-9-vs-B-series conflict) | Not reproducible: `SELECT SUM(x) AS total FROM t1; SELECT SUM(y) AS total FROM t2;` → exactly 2 vars (TOP0/TOP1) — the correct C-9 contract. The 2 `lending_ref` fields under p1 are the documented legitimate split (different statements), 12 fields vs 78 preserved |
+| "B5 breaks the pinned `⟐ output` renderer contract" | False: frontend has zero `⟐` references; the pinned tests assert via `table_name` (preserved by the label/table_name split); test_l1_l2_integration passes 10/10 |
+| "C-3 shared/global `ul` guard → revoking 2 scripts decrements only the first cache" | False at HEAD: `_revoke_s4b_cache_update`/`_apply_s4b_cache_update` load each cache's own `unresolved` per script (`folder_index_service.py:1158-1160`, :1087-1090). Only the deleted-script cross-run sweep gap survives — latent, no consumer |
+| "`accu.vlookup_key_value` absent from R — false negative of the global SUBSET exclusion" | Wrong causation: with SUBSET patched walkable at runtime, the node is STILL not admitted — it is excluded by the conditional-JOIN/SCHEMA-forward production rules (`lineage.py:256-261, 276-281`), not by SUBSET. No false negative on this sample |
+
+### Real findings (documented for later; suggested fixes not applied)
+
+1. **C-5↔C-3 ordering — star expansion can resurrect revoked/ambiguous fields**
+   Star expansion (`folder_index_service.py:748-769`) runs after S4b revocation (:675-698)
+   with NO ambiguity filter (only `_star_seen` dedup + `_evidence_columns` non-None). A
+   `SELECT *` over a table whose m_ws evidence includes a revoked/ambiguous field re-adds
+   the table attribution to `field_index`/`pair_index` — breaches the never-guess
+   invariant and drops the field from `orphan_fields` (:810-813). Trigger needs a real
+   script with that shape; unverified in the sample workspace.
+   *Future fix*: exclude `extractor_unresolved`/`resolution_stats["ambiguous"]` fields
+   from `_star_from_tables` expansion (small, ~5 lines).
+2. **B3 — wrong-instance parenting for same-named derived tables**
+   `_resolve_scope_parent` (l2_builder.py:208-243) plus first-match-wins loops (:355-388)
+   land join-key fields under the FIRST same-named table node: `poctcd…podtao` (raw ctx
+   `CTE{loan_final}`) parent under the rollover-CTE p2 alias (ctx
+   `CTE{rollover_loan_info}/subq1/subq:join:p2`); the TOP0 `lending_ref` lands under the
+   rollover p1. Rule 1 (exact context match) can't fire for derived tables because JOIN ON
+   columns register in the ENCLOSING scope. Unfiltered graph: 7 nodes display `p2`
+   (4 alias + 3 label-stripped) — B5 display collision.
+   *Future fix*: score candidates by scope-distance (e.g. prefer a table whose own
+   `context` is a suffix of the field's `defined_in` scope) instead of first-match.
+3. **C-4 — apply-side persisted counter ungated**
+   `_apply_s4b_cache_update` (`folder_index_service.py:1087-1094`) moves
+   `resolved_by["schema"] += 1` + unresolved-drop on `field in ul` only — no
+   `n_attributed > 0` gate (revoke side :1164 IS gated). Latent: cached
+   `resolution_stats` has zero consumers (index response stats are in-memory, caches
+   rewritten every run) — the review's "load-bearing" escalation is wrong, but the gate
+   is 3 lines if the caches ever become the stats source.
+4. **RELEASE.txt stale — deploy blocked**
+   `docker_image/RELEASE.txt` = 3.3.134/2babb12 vs repo VERSION 3.3.138/7982efe →
+   `target_deploy.sh` exits 1 (by design, C-7). Regenerate the manifest at deploy time.
+5. **2/8 JOIN ON expressions unpaired** (pairing order-dependent,
+   `variable_extractor_v2.py:1095-1100` exact name+context match) — zero lineage impact
+   (JOIN edge via partner side; expression admission direction-independent,
+   `lineage.py:273-274`). Cosmetic for now.
+6. **Trivial nits**: `variable_extractor_v2.py:448` `_seen` annotation still
+   `set[tuple[str,str]]` (keys now 3-tuples); `test_l2_table_dedup.py:133` dangling
+   `test_b_series_c9.py` reference. 1-line each.
