@@ -6,7 +6,6 @@ Builds L2 detail view: tables + fields + all 16 edge types for a single script.
 import json
 import hashlib
 import logging
-import re
 from pathlib import Path
 
 _log = logging.getLogger("sql_visualizer.dataflow")
@@ -24,6 +23,7 @@ from app.extractor.schema_inference import infer_table_schemas
 from app.extractor.lineage import filter_relevant
 from app.services.sql_range_finder import partition_edge_ranges
 from app.services.sql_range_finder import find_sql_range
+from app.services.cache_keys import GRAPH_CACHE_PREFIX
 
 # ── L2 helper functions ──────────────────────────────────────────────
 
@@ -33,8 +33,13 @@ def _target_field_sc(sc: str, target_field: str) -> bool:
     Equivalent of the former dataflow_service.target_field_sc (H2): the
     definition can't be imported from dataflow_service (circular import),
     so it lives here, next to its only caller.
+
+    B2/CW9: exact field-part semantics — only the part after the last dot
+    counts, so a target field can never match the alias/table part of a
+    qualified column (the old word-boundary regex matched "item" inside
+    "item.i_brand", mis-attributing the table name as the field).
     """
-    return bool(re.search(rf"\b{re.escape(target_field)}\b", sc))
+    return sc.rsplit(".", 1)[-1] == target_field
 
 
 def _compute_highlight_ranges(graph_data: dict, highlight_ids: set,
@@ -61,46 +66,28 @@ def _compute_highlight_ranges(graph_data: dict, highlight_ids: set,
     return merged
 
 
+# ── L2 phase functions (CW4: split from the _build_l2_graph monolith) ──
+# Each phase receives its inputs explicitly and returns its outputs; the
+# orchestrator (_build_l2_graph) passes shared state between phases. No
+# processing order or edge/node construction semantics changed — the phase
+# split is structural only (byte-identical output).
 
-def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
-                    table: str, field: str,
-                    relevance_filter: bool = True) -> dict:
-    """Build Level 2 per-script graph with compound nodes and edge metadata.
+def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
+    """Phase 1 (CW4): read the graph cache, or run full analysis and write caches.
 
-    Returns:
-      {
-        "nodes": [{"data": {id, label, type, parent?, field_group?, is_target?, ...}}],
-        "edges": [{"data": {id, source, target, edge_type, category, sql_range?, ...}}],
-        "script_name": str,
-        "total_nodes": int,           # nodes before filtering
-        "filtered_nodes": int,        # nodes after filtering
-        "target": "table.field",
-      }
-
-    Node types in L2:
-      - source_table, intermediate_table, output_table (compound parents)
-      - field (child of table, with parent=data.parent)
-      - cte_table (CTE definition, L2 only)
-      - expression, aggregate, window, transform, case, literal (existing V2 types)
-
-    Edge metadata per formal definition §10:
-      - edge_type: formal type (REF, JOIN, FILTER, etc.)
-      - category: visual group (copy, filter, aggregate, compute, combine, write, structure)
-      - sql_range: [start_line, start_col, end_line, end_col] for SQL highlighting
+    Returns (full_graph, table_schemas). On a cache hit, table_schemas is
+    loaded from the schemas cache (Bug 25); on a build it is inferred.
     """
-    from app.extractor.adapter import run_full_analysis
-    from app.services.graph_service import build_graph_data
-
-
-
-    ws_dir = get_workspace_dir(ws_id)
     from app.services.logger import stage_graph
 
+    ws_dir = get_workspace_dir(ws_id)
     cache_dir = ws_dir / "cache"
     cache_key = hashlib.md5((script_name + sql_text).encode()).hexdigest()[:12]
 
     # Try cached graph (v3.2.15 — includes edge filter fix)
-    graph_cache_path = cache_dir / f"graph_3_2_15_{cache_key}.json"
+    # C3: cache prefix is the shared contract constant (cache_keys.py) — the
+    # middle token is the cache CONTRACT version, bump it only on format change.
+    graph_cache_path = cache_dir / f"{GRAPH_CACHE_PREFIX}_{cache_key}.json"
     schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
     if graph_cache_path.exists():
         full_graph = json.loads(graph_cache_path.read_text())
@@ -130,23 +117,25 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
             result.get("variables", []), result.get("dependencies", []))
         # Bug 25: cache table_schemas alongside graph
         schemas_cache_path.write_text(json.dumps(_table_schemas, default=str))
+    return full_graph, _table_schemas
 
-    # Apply relevance filter if requested
+
+def _apply_relevance_filter(full_graph: dict, table: str, field: str,
+                            table_schemas: dict | None,
+                            relevance_filter: bool = True) -> dict:
+    """Phase 2 (CW4): apply the R18 relevance filter, or return the full graph."""
     if relevance_filter:
-        graph_data = filter_relevant(full_graph, table, field, table_schemas=_table_schemas)
-    else:
-        graph_data = full_graph
+        return filter_relevant(full_graph, table, field, table_schemas=table_schemas)
+    return full_graph
 
-    nodes = graph_data.get("nodes", [])
-    edges = graph_data.get("edges", [])
 
-    # ── Build compound node structure ──
-    # Group field-level nodes by their parent table/CTE
-    table_nodes = {}       # id -> table compound node
-    field_nodes = []       # field children
-    other_nodes = []       # expression, aggregate, etc. (non-compound)
-    seen_ids = set()
+def _compute_target_and_direct_ids(nodes: list, edges: list,
+                                   table: str, field: str) -> tuple:
+    """Phase 3a (CW4): identify target node ids and compute the upstream/
+    downstream BFS sets used for direct/indirect field classification.
 
+    Returns (target_node_ids, direct_ids).
+    """
     target_full = f"{table}.{field}"
 
     # Identify target node IDs (for is_target and direct/indirect)
@@ -204,6 +193,22 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                 if tgt not in direct_ids:
                     direct_ids.add(tgt)
                     queue.append(tgt)
+    return target_node_ids, direct_ids
+
+
+def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
+                             target_node_ids: set, direct_ids: set) -> tuple:
+    """Phase 3b (CW4): build the compound node structure — table parents and
+    field children (plus alias_map read from the graph cache).
+
+    Returns (table_nodes, field_nodes, other_nodes, alias_map).
+    """
+    # ── Build compound node structure ──
+    # Group field-level nodes by their parent table/CTE
+    table_nodes = {}       # id -> table compound node
+    field_nodes = []       # field children
+    other_nodes = []       # expression, aggregate, etc. (non-compound)
+    seen_ids = set()
 
     # ── Phase 0: Build alias map before classifying nodes ──
     # Bug 48: Read alias_map from graph cache (pre-built by extractor + folder_index_service).
@@ -331,7 +336,7 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                 _log.warning("L2 fallback: %s (%s) has no source table — attached to first table node '%s'",
                              label, vt, list(table_nodes.values())[0]["table_name"])
                 parent_table_id = list(table_nodes.values())[0]["id"]
-            
+
             is_target = (nid in target_node_ids)
             is_direct = (nid in direct_ids)
             orig_vt = vt[:12] if len(vt) > 12 else vt
@@ -369,10 +374,11 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                 "parent": parent_table_id,
             })
 
+    return table_nodes, field_nodes, other_nodes, alias_map
 
 
-    # ── Build edge list with categories and sql_range ──
-    # Map original IDs to new compound IDs
+def _build_id_map(table_nodes: dict, field_nodes: list, other_nodes: list) -> dict:
+    """Map original IDs to new compound IDs (shared by the edge phases)."""
     id_map = {}
     for tn in table_nodes.values():
         id_map[tn["original_id"]] = tn["id"]
@@ -380,7 +386,20 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         id_map[fn["original_id"]] = fn["id"]
     for on in other_nodes:
         id_map[on["original_id"]] = on["id"]
+    return id_map
 
+
+def _build_edge_list(edges: list, nodes: list, id_map: dict,
+                     sql_text: str) -> tuple:
+    """Phase 4 (CW4): build the raw edge list with categories and sql_range.
+
+    Range enrichment happens inline here because it is interleaved with
+    construction: compound edge types are split per-type (Bug 3) with their
+    own range, and the combine pass below selects the shortest range. A
+    separate post-pass would reorder that processing.
+
+    Returns (new_edges, node_labels).
+    """
     new_edges = []
     lines = sql_text.split("\n") if sql_text else []
 
@@ -472,8 +491,11 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                 "desc": style["desc"],
                 "sql_range": sql_range,
             })
+    return new_edges, node_labels
 
-    # ── Edge combining: same (source,target,edge_type) → combine labels/sql_ranges ──
+
+def _combine_edges(new_edges: list) -> list:
+    """Phase 5 (CW4): same (source,target,edge_type) → combine labels/sql_ranges."""
     combined_edges = {}
     for e in new_edges:
         key = (e["source"], e["target"], e["edge_type"])
@@ -496,14 +518,16 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                         existing["sql_range"] = nr
         else:
             combined_edges[key] = e
-    new_edges = list(combined_edges.values())
+    return list(combined_edges.values())
 
-    # ── Promote field-level edges to table level ──
-    # L2 graph should show data flow between tables, not individual fields.
-    # Fields are shown as children of compound table nodes.
-    # Edges with field sources/targets are promoted to their parent tables.
-    # SCHEMA edges (table→field ownership) are removed since ownership is
-    # implicit in the compound node structure.
+
+def _promote_field_edges(new_edges: list, field_nodes: list) -> list:
+    """Phase 6 (CW4): promote field-level edges to their parent tables.
+
+    SCHEMA edges (table→field ownership) are removed since ownership is
+    implicit in the compound node structure. Each edge type keeps its own
+    edge with its own sql_range (V3.3.65).
+    """
     field_parents = {}
     for fn in field_nodes:
         pid = fn.get("parent")
@@ -534,9 +558,19 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
             e["sql_ranges"] = {etype: e["sql_range"]}
         promoted.append(e)
 
-    new_edges = promoted
+    return promoted
 
-    # Bug 45 (Pattern 2): JOIN edge survival pass.
+
+def _survive_join_edges(new_edges: list, full_graph: dict, id_map: dict,
+                        table_nodes: dict, field_nodes: list,
+                        node_labels: dict, sql_text: str) -> list:
+    """Phase 7 (CW4): Bug 45 (Pattern 2) JOIN edge survival pass.
+
+    filter_relevant() removes JOIN edges because JOIN is conditional (both ends
+    need a production path). But JOIN edges are semantically valuable — they show
+    table relationships even without value flow. After promotion, re-add JOIN
+    edges from the full graph that connect tables in the current L2 graph.
+    """
     # Build node_by_id for JOIN survival pass
     node_by_id = {}
     for tn_id, tn in table_nodes.items():
@@ -544,11 +578,6 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     for fn in field_nodes:
         node_by_id[fn["id"]] = fn
 
-    # filter_relevant() removes JOIN edges because JOIN is conditional (both ends
-    # need a production path). But JOIN edges are semantically valuable — they show
-    # table relationships even without value flow. After promotion, re-add JOIN
-    # edges from the full graph that connect tables in the current L2 graph.
-    #
     # Bug 45: Build full_node_by_id for fallback resolution when id_map misses
     # (field-level endpoints filtered out). Resolve to parent table via label prefix
     # or source_tables.
@@ -617,7 +646,7 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
             "target_label",
             node_labels.get(tgt_orig, "") or
             full_node_by_id.get(tgt_orig, {}).get("label", ""))
-        promoted.append({
+        new_edges.append({
             "id": f"l2e_join_survive_{src_new}_{tgt_new}",
             "source": src_new,
             "target": tgt_new,
@@ -631,7 +660,15 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
             # CW8: never propagate a None sql_range — compute it, else whole-script default
             "sql_range": find_sql_range(fed_enriched, sql_text) or [1, 1, 1, 1],
         })
+    return new_edges
 
+
+def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
+                        table_nodes: dict) -> tuple:
+    """Phase 8 (CW4): DML edges route through the ⟐ output (intermediate_table).
+
+    Returns (new_edges, dml_pairs).
+    """
     # ── Simplification 1: DML edges route through ⟐ output (intermediate_table) ──
     # Instead of creating synthetic qo_ nodes, use the existing intermediate_table
     # ("⟐ output") node that already represents the SELECT result set.
@@ -715,7 +752,11 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
             if tgt in dml_targets and src != intermediate_id and etype == "TABLE_FLOW":
                 e["source"] = intermediate_id
 
-    # ── Dedup: merge edges with same (source,target,type) ──
+    return new_edges, dml_pairs
+
+
+def _dedup_edges(new_edges: list) -> list:
+    """Phase 9 (CW4): merge edges with the same (source,target,type)."""
     deduped = {}
     for e in new_edges:
         key = (e.get("source"), e.get("target"), e.get("edge_type"))
@@ -729,12 +770,18 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
             ex["sql_ranges"] = sr
         else:
             deduped[key] = e
-    new_edges = list(deduped.values())
+    return list(deduped.values())
 
-    # ── Bug 28: Alias field synchronization + DML phantom fields ──
-    # Per formal definition: when alias exists, its field set MUST mirror
-    # the original table. And DML edges show fields flowing into targets.
 
+def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
+                               alias_map: dict, dml_pairs: set,
+                               full_graph: dict, nodes: list) -> None:
+    """Phase 10 (CW4): Bug 28 alias field sync + DML phantom fields + Bug 31.
+
+    Per formal definition: when alias exists, its field set MUST mirror
+    the original table. And DML edges show fields flowing into targets.
+    Mutates field_nodes in place.
+    """
     # Build field index: parent_table_id -> list of field dicts
     field_by_parent = {}
     for fn in field_nodes:
@@ -747,7 +794,6 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     # FROM this output table}. Read from full_graph (before lineage filtering)
     # because filter_relevant() may remove SCHEMA edges if the output table
     # is not in the lineage set (TABLE_FLOW not followed by BFS).
-    import hashlib as _hl
     existing_vt_ids = {tn["original_id"] for tn in table_nodes.values()
                        if tn.get("variable_type") == "virtual_table"}
     full_edges = full_graph.get("edges", [])
@@ -772,7 +818,7 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                         )
                         if not already:
                             field_nodes.append({
-                                "id": f"fld_{_hl.md5((vt_id + fn).encode()).hexdigest()[:10]}",
+                                "id": f"fld_{hashlib.md5((vt_id + fn).encode()).hexdigest()[:10]}",
                                 "label": fn,
                                 "type": "field",
                                 "variable_type": "field",
@@ -831,6 +877,11 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                 proxy["field_group"] = "direct"
                 field_nodes.append(proxy)
 
+
+def _assemble_output(table_nodes: dict, field_nodes: list, new_edges: list,
+                     nodes: list, sql_text: str, script_name: str,
+                     target_full: str) -> dict:
+    """Phase 11 (CW4): assemble the output graph and run the range partition pass."""
     # ── Assemble output (only table+field compound nodes) ──
     all_new_nodes = (
         [{"data": tn} for tn in table_nodes.values()] +
@@ -838,7 +889,6 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     )
 
     # Partition pass: reduce edge range overlap so edges form a near-partition
-    from app.services.sql_range_finder import partition_edge_ranges
     if new_edges:
         edge_dicts = [e for e in new_edges]  # new_edges are plain dicts
         partition_edge_ranges(edge_dicts, len(sql_text.split('\n')))
@@ -854,3 +904,57 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         "total_edges": total_edges,
         "target": target_full,
     }
+
+
+def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
+                    table: str, field: str,
+                    relevance_filter: bool = True) -> dict:
+    """Build Level 2 per-script graph with compound nodes and edge metadata.
+
+    Returns:
+      {
+        "nodes": [{"data": {id, label, type, parent?, field_group?, is_target?, ...}}],
+        "edges": [{"data": {id, source, target, edge_type, category, sql_range?, ...}}],
+        "script_name": str,
+        "total_nodes": int,           # nodes before filtering
+        "filtered_nodes": int,        # nodes after filtering
+        "target": "table.field",
+      }
+
+    Node types in L2:
+      - source_table, intermediate_table, output_table (compound parents)
+      - field (child of table, with parent=data.parent)
+      - cte_table (CTE definition, L2 only)
+      - expression, aggregate, window, transform, case, literal (existing V2 types)
+
+    Edge metadata per formal definition §10:
+      - edge_type: formal type (REF, JOIN, FILTER, etc.)
+      - category: visual group (copy, filter, aggregate, compute, combine, write, structure)
+      - sql_range: [start_line, start_col, end_line, end_col] for SQL highlighting
+    """
+    # CW4: orchestration only — every stage is a named phase function above,
+    # with shared state passed explicitly between phases.
+    full_graph, table_schemas = _load_or_build_graph(ws_id, script_name, sql_text)
+    graph_data = _apply_relevance_filter(full_graph, table, field, table_schemas,
+                                         relevance_filter)
+    nodes = graph_data.get("nodes", [])
+    edges = graph_data.get("edges", [])
+
+    target_node_ids, direct_ids = _compute_target_and_direct_ids(nodes, edges, table, field)
+    table_nodes, field_nodes, other_nodes, alias_map = _classify_compound_nodes(
+        nodes, full_graph, script_name, target_node_ids, direct_ids)
+    id_map = _build_id_map(table_nodes, field_nodes, other_nodes)
+
+    new_edges, node_labels = _build_edge_list(edges, nodes, id_map, sql_text)
+    new_edges = _combine_edges(new_edges)
+    new_edges = _promote_field_edges(new_edges, field_nodes)
+    new_edges = _survive_join_edges(new_edges, full_graph, id_map, table_nodes,
+                                    field_nodes, node_labels, sql_text)
+    new_edges, dml_pairs = _simplify_dml_edges(new_edges, full_graph, id_map,
+                                               table_nodes)
+    new_edges = _dedup_edges(new_edges)
+
+    _sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map, dml_pairs,
+                               full_graph, nodes)
+    return _assemble_output(table_nodes, field_nodes, new_edges, nodes, sql_text,
+                            script_name, f"{table}.{field}")

@@ -4,7 +4,6 @@ Extracted from dataflow_service.py per ARCHITECTURE_REVIEW S3.
 Builds L1 pipeline view: scripts + tables + reads_from/writes_to edges.
 """
 import json
-import re
 import uuid
 import hashlib
 import logging
@@ -121,7 +120,11 @@ def detect_role(script_analysis: dict, target_table: str, target_field: str) -> 
         if not matches:
             src_cols = v.get("source_columns", [])
             for sc in src_cols:
-                if target_full in sc or re.search(rf'\b{re.escape(target_field)}\b', sc):
+                # B2/CW9: exact field-part semantics — a bare word-boundary
+                # regex matched the alias/table part too (target_field="item"
+                # vs "item.i_brand"), attributing roles for the wrong field.
+                sc_field = sc.rsplit(".", 1)[-1] if "." in sc else sc
+                if target_full in sc or sc_field == target_field:
                     matches = True
                     break
                 if "." in sc:
@@ -763,10 +766,23 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
         # scripts, then use it as single source of truth.
         # (PRODUCTION_EDGES imported from app.extractor.lineage at module level)
 
-        # Build global alias map from all graph caches (Bug 48)
-        # Graph caches already have pre-built alias_map — no need to scan
-        # analysis caches and re-derive aliases from variables.
+        # C2: single disk-cache pass — absorb the pre-built P4 table_fields
+        # and P5 alias_map from each graph cache (Bug 48). The former two
+        # passes (alias scan, table_fields scan) re-read the same files;
+        # one read now feeds both structures.
         global_alias_map = {}
+        all_table_fields = set()
+
+        def _absorb_p4(gdata: dict) -> None:
+            """Merge the pre-built P4 table_fields + P5 alias_map from one
+            graph data dict (disk cache or on-the-fly graph data)."""
+            g_alias = gdata.get("alias_map", {})
+            if g_alias:
+                global_alias_map.update(g_alias)
+            for tbl, flds in gdata.get("table_fields", {}).items():
+                for fn in flds:
+                    all_table_fields.add((tbl, fn))
+
         if cache_dir.exists():
             for gc_path in sorted(cache_dir.glob("graph_*.json")):
                 try:
@@ -780,9 +796,7 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                         logging.getLogger("sql_visualizer.dataflow").warning(
                             "L1 cache %s has format_version=%r (expected 3) — stale graph cache",
                             gc_path.name, gdata.get("format_version"))
-                    g_alias = gdata.get("alias_map", {})
-                    if g_alias:
-                        global_alias_map.update(g_alias)
+                    _absorb_p4(gdata)
                 except Exception as exc:
                     _log.warning("L1: failed to read graph cache %s: %s",
                                  gc_path.name, exc)
@@ -801,23 +815,12 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                     _log.warning("L1: failed to read analysis cache %s: %s",
                                  af_path.name, exc)
 
-        # P1: Read table_fields from graph caches (P4 pre-built) — single source of truth
-        all_table_fields = set()
-        if cache_dir.exists():
-            for gc_path in sorted(cache_dir.glob("graph_*.json")):
-                try:
-                    gdata = json.loads(gc_path.read_text())
-                    # CW7: normalize edge_type on cache read (cache stores "relationship")
-                    for _e in gdata.get("edges", []):
-                        _ed = _e.get("data", _e)
-                        _ed.setdefault("edge_type", _ed.get("relationship", "REF"))
-                    tf = gdata.get("table_fields", {})
-                    for tbl, flds in tf.items():
-                        for fn in flds:
-                            all_table_fields.add((tbl, fn))
-                except Exception as exc:
-                    _log.warning("L1: failed to read graph cache %s: %s",
-                                 gc_path.name, exc)
+        # C2: absorb P4/P5 from each script's own graph data (on-the-fly
+        # analyze_multiple_scripts output — build_graph_data carries both),
+        # so the P1 validation also works before any graph cache is written
+        # (fresh workspaces with no disk cache yet).
+        for s in all_scripts:
+            _absorb_p4(s.get("graph", {}) or {})
 
         # Single extraction: run compute_field_lineage per script,
         # intersect reached nodes with all_table_fields
@@ -827,6 +830,11 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             if not gdata or not gdata.get("nodes"):
                 continue
             try:
+                # G2/Bug 37 (pinned): this constrained union — production
+                # edges plus SCHEMA — is the shared L1/L2 BFS semantics from
+                # the single unified engine (app/extractor/lineage.py,
+                # EDGE_SEMANTICS). SCHEMA: reverse (column→table) always
+                # follows, forward (table→column) is production-filtered.
                 lineage_set = compute_field_lineage(gdata, table, field,
                                                     edge_filter=PRODUCTION_EDGES | {"SCHEMA"})
             except Exception as exc:

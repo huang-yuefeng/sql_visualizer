@@ -766,15 +766,28 @@ in the report.
    real-world matches** — spider `IsOfficial`→bare `isofficial`,
    DDL `sr_return_amt_inc_tax`→`SR_RETURN_AMT_INC_TAX` (q1).
 3. db-qualified refs keyed by bare table name; multi-db same-name tables →
-   conservative ambiguity. Accept, or key M by (db, table)? — **Open** (no
-   multi-db sample exercises it; conservative ambiguity is the default).
+   conservative ambiguity. Accept, or key M by (db, table)? — ✅ **Closed
+   (2026-08-06): bare-table keying retained.** No multi-db sample exercises
+   it; conservative ambiguity (conflicting evidence → unresolved, never
+   cross-attribute) is the correct never-guess default. Revisit only if a
+   multi-db same-name fixture demonstrates false positives.
 4. Should DML/DDL evidence surface in `table_index` fields (autocomplete) in
-   Phase 3, or remain schema-map-only? — **Open** (Phase 3).
+   Phase 3, or remain schema-map-only? — **Open** (Phase 3). Phase 3 scope is
+   report-only per user decision (2026-08-06): classify DDL files at zip
+   time so they contribute evidence without pipeline pollution; report
+   schema-evidence presence factually. No autocomplete seeding, no
+   annotation, no upload endpoint.
 5. The R6 guard is scoped to S4 here; S3 (single-table scope) has the same
    theoretical collision (`SELECT call_center FROM call_center`) — extend the
-   guard to S3 as a follow-up? — **Open** (small follow-up; 0 r6 collisions
-   observed across all samples).
+   guard to S3 as a follow-up? — ✅ **Closed (2026-08-06): YES — guard
+   implemented in the extractor (S3 attribution), r6_collision incremented,
+   left unresolved.** (v3.3.134)
 6. Workspaces with no evidence at all (bare tpcds corpus alone): S4 gains
    ~nothing until a qualified/DDL twin is indexed. Add an explicit
-   "import schema from DDL file" workflow, or rely on users indexing DDL?
-   (Phase 1 data decides.)
+   "import schema from DDL file" workflow, or rely on users indexing DDL? —
+   ✅ **Closed (2026-08-06): report-only.** Per user decision: all files are
+   uploaded in the initial phase; no additional files exist. DDL already
+   inside the zip is classified at index time (schema file class, no
+   pipeline pollution, evidence merged into M_ws); a workspace with no
+   schema evidence anywhere is reported factually in the diagnostics.
+   Never fix, never annotate — report only. (v3.3.134)

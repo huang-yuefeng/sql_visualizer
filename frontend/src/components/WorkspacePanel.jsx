@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 
-export default function WorkspacePanel({ wsId, loading, progress, onUpload, onDelete }) {
+export default function WorkspacePanel({ wsId, loading, progress, onUpload, onDelete, onError }) {
   const zipRef = useRef(null);
   const folderRef = useRef(null);
   const [zipping, setZipping] = useState(false);
@@ -28,7 +28,8 @@ export default function WorkspacePanel({ wsId, loading, progress, onUpload, onDe
       const name = files[0].webkitRelativePath?.split('/')[0] || 'workspace';
       onUpload(new File([blob], `${name}.zip`));
     } catch (err) {
-      console.error('Folder zipping failed:', err);
+      // surface via the app error banner (factual state, no advice)
+      onError?.(err && err.message ? err.message : 'Folder packing failed');
     } finally {
       setZipping(false);
     }

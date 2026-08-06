@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tableHeight, nodeSize, stripFieldParents } from '../layoutCore';
+import { tableHeight, nodeSize, stripFieldParents, fieldPositionsForTable, positionTableFields } from '../layoutCore';
 import {
   TABLE_HDR_H, TBL_PAD_TOP, FIELD_RENDER_H, FIELD_GAP,
   TBL_PAD_BOT, TABLE_MIN_H, TABLE_DEFAULT_W, SCRIPT_W, SCRIPT_H,
@@ -70,5 +70,80 @@ describe('stripFieldParents', () => {
     const input = [{ data: { id: 'f1', type: 'field', parent: 'tbl_x' } }];
     stripFieldParents(input);
     expect(input[0].data.parent).toBe('tbl_x');
+  });
+});
+
+// ── E1: shared field positioning (drag-recompute + applyLayout) ──────
+describe('fieldPositionsForTable', () => {
+  it('computes absolute field positions from table center + frozen offsets', () => {
+    const fieldRel = {
+      f1: { parentId: 't1', rx: 8, ry: -20 },
+      f2: { parentId: 't1', rx: 8, ry: 32 },
+      f_other: { parentId: 't2', rx: 8, ry: 0 },
+    };
+    expect(fieldPositionsForTable({ x: 100, y: 200 }, fieldRel, 't1')).toEqual({
+      f1: { x: 108, y: 180 },
+      f2: { x: 108, y: 232 },
+    });
+    // other tables' fields are untouched
+    expect(fieldPositionsForTable({ x: 100, y: 200 }, fieldRel, 't1').f_other).toBeUndefined();
+  });
+
+  it('returns an empty map when the table has no fields', () => {
+    expect(fieldPositionsForTable({ x: 0, y: 0 }, {}, 't1')).toEqual({});
+  });
+
+  it('handles a null/undefined fieldRel', () => {
+    expect(fieldPositionsForTable({ x: 0, y: 0 }, null, 't1')).toEqual({});
+  });
+});
+
+// Minimal fake cy: getElementById returns {length, position()} nodes.
+function fakeNode(pos) {
+  const state = { x: pos?.x ?? 0, y: pos?.y ?? 0 };
+  return {
+    length: 1,
+    position: (p) => (p ? Object.assign(state, p) : { ...state }),
+  };
+}
+function fakeCy(tableId, tablePos, fieldNodes) {
+  const nodes = { [tableId]: fakeNode(tablePos), ...fieldNodes };
+  return {
+    destroyed: () => false,
+    getElementById: (id) => nodes[id] || { length: 0 },
+  };
+}
+
+describe('positionTableFields (drag-recompute helper)', () => {
+  it('repositions a table\'s fields at table.position() + frozen offsets', () => {
+    const fieldRel = {
+      f1: { parentId: 't1', rx: 8, ry: -20 },
+      f2: { parentId: 't1', rx: 8, ry: 32 },
+    };
+    const cy = fakeCy('t1', { x: 100, y: 200 }, { f1: fakeNode(), f2: fakeNode() });
+    positionTableFields(cy, 't1', fieldRel);
+    expect(cy.getElementById('f1').position()).toEqual({ x: 108, y: 180 });
+    expect(cy.getElementById('f2').position()).toEqual({ x: 108, y: 232 });
+  });
+
+  it('snaps pre-drifted fields back to the frozen offset (self-healing)', () => {
+    // Field drifted to a stale absolute position (e.g. missed drag frame
+    // or a directly-dragged field) — recompute must restore the offset.
+    const fieldRel = { f1: { parentId: 't1', rx: 8, ry: -20 } };
+    const cy = fakeCy('t1', { x: 100, y: 200 }, { f1: fakeNode({ x: 400, y: 500 }) });
+    positionTableFields(cy, 't1', fieldRel);
+    expect(cy.getElementById('f1').position()).toEqual({ x: 108, y: 180 });
+  });
+
+  it('tracks a moved table (the drag case: table 100,100 → 300,250)', () => {
+    const fieldRel = { f1: { parentId: 't1', rx: 8, ry: -20 } };
+    const cy = fakeCy('t1', { x: 300, y: 250 }, { f1: fakeNode() });
+    positionTableFields(cy, 't1', fieldRel);
+    expect(cy.getElementById('f1').position()).toEqual({ x: 308, y: 230 });
+  });
+
+  it('is a no-op for an unknown table id', () => {
+    const cy = fakeCy('t1', { x: 1, y: 1 }, { f1: fakeNode() });
+    expect(() => positionTableFields(cy, 'ghost', { f1: { parentId: 'ghost', rx: 8, ry: 0 } })).not.toThrow();
   });
 });

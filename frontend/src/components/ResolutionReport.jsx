@@ -16,7 +16,7 @@ function coverageColor(pct) {
  * the unresolved column names (up to 20). Renders nothing when
  * resolution_stats is absent (old cached data).
  */
-export default function ResolutionReport({ stats, orphanFieldSamples, schemaCandidates }) {
+export default function ResolutionReport({ stats, orphanFieldSamples, schemaCandidates, schemaEvidence }) {
   const [expanded, setExpanded] = useState(false);
   const s = summarizeResolutionStats(stats, orphanFieldSamples);
   if (!s) return null;
@@ -53,6 +53,15 @@ export default function ResolutionReport({ stats, orphanFieldSamples, schemaCand
           {schemaCandidates && typeof schemaCandidates === 'object' && (
             <div className="rr-line rr-schema-candidates">
               Schema candidates: {schemaCandidates.total ?? '—'} (unique owner: {schemaCandidates.unique_owner ?? '—'}) | r6: {schemaCandidates.r6_collision ?? '—'}
+            </div>
+          )}
+          {/* A1: schema evidence — factual state, no advice. Missing field
+              (old responses) renders nothing. */}
+          {schemaEvidence && typeof schemaEvidence === 'object' && (
+            <div className="rr-line rr-schema-evidence">
+              {schemaEvidence.present === false
+                ? `Schema evidence: none — ${s.unresolvedCount !== null ? `${s.unresolvedCount} unresolved may be unresolvable` : 'unresolved may be unresolvable'}`
+                : `Schema evidence: ${schemaEvidence.tables ?? '—'} tables, ${schemaEvidence.columns ?? '—'} columns`}
             </div>
           )}
           {s.byStrategy && (

@@ -106,6 +106,7 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
     unconstrained_tables = set()  # R1: tables with a blank-COL_NAME row (no column constraint)
     ignored_count = 0           # B − A: table_col tables outside script scope
     ignored_tables = set()      # B − A set itself (F4, for the payload)
+    ignored_rows = 0            # F3: COL_NAME-only rows dropped by design (no TABLE_NAME)
     file2_present = False       # table_col.csv was uploaded
     empty_intersection = False  # both files, no common table (Bug 51)
 
@@ -138,7 +139,12 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
                     if not sn.lower().endswith('.sql'):
                         allowed_scripts.add(sn + '.sql')
                         allowed_scripts.add(os.path.basename(sn) + '.sql')
-                if tn: allowed_tables.add(tn)
+                # F5: table names are matched case-insensitively against the
+                # index (STG_CUSTOMERS must match stg_customers) — fold at
+                # parse time; index-side names are folded at predicate time.
+                # Script names stay case-sensitive: they are real file paths
+                # on a case-sensitive filesystem.
+                if tn: allowed_tables.add(tn.lower())
         except HTTPException:
             raise
         except Exception as e:
@@ -174,11 +180,13 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
             headers2 = reader.fieldnames or []
             rows = list(reader)
             row_count = len(rows)
-            col_only_count = 0      # F3: rows with COL_NAME but empty TABLE_NAME
+            ignored_rows = 0        # F3: rows with COL_NAME but empty TABLE_NAME
             for row in rows:
                 # M5: short rows map missing trailing fields to None, not ""
-                tn = (row.get("TABLE_NAME") or "").strip()
-                cn = (row.get("COL_NAME") or "").strip()
+                # F5: fold table/column names to lowercase — matching against
+                # the index is case-insensitive (STG_CUSTOMERS ↔ stg_customers).
+                tn = (row.get("TABLE_NAME") or "").strip().lower()
+                cn = (row.get("COL_NAME") or "").strip().lower()
                 if tn:
                     allowed_tables.add(tn)
                     table_col_tables.add(tn)
@@ -192,7 +200,12 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
                         unconstrained_tables.add(tn)
                         blank_row_tables.add(tn)
                 elif cn:
-                    col_only_count += 1
+                    # F3: COL_NAME with no TABLE_NAME cannot be attached to
+                    # any scope table — DROPPED BY DESIGN (it constrains
+                    # nothing, and guessing a table would break the never-
+                    # guess invariant). Counted (ignored_rows) so the drop
+                    # is visible in the payload + diagnostic.
+                    ignored_rows += 1
         except HTTPException:
             raise
         except Exception as e:
@@ -208,9 +221,9 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
         diag_lines.append(("profile", f"│   Parsed: {len(allowed_columns)} columns, {len(allowed_tables)} tables".ljust(79)+"│"))
         if row_count == 0:
             diag_lines.append(("profile", f"│ ⚠ No data parsed. Check headers: TABLE_NAME, COL_NAME".ljust(79)+"│"))
-        if col_only_count > 0:
+        if ignored_rows > 0:
             diag_lines.append(("profile", ("│ ⚠ %d row(s) had COL_NAME but empty TABLE_NAME — dropped"
-                                           % col_only_count).ljust(79)+"│"))
+                                           % ignored_rows).ljust(79)+"│"))
         if unconstrained_tables:
             diag_lines.append(("profile", ("│ R1: %d table(s) have a blank COL_NAME row — unconstrained, all fields kept"
                                            % len(unconstrained_tables)).ljust(79)+"│"))
@@ -267,14 +280,18 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
     for tname, tdata in ti.items():
         # F2: `is not None` — an EMPTY allowed_tables set (filter active but
         # matching nothing) must drop every table; a falsy check would keep all.
-        if allowed_tables is not None and tname not in allowed_tables:
+        # F5: membership is case-insensitive (CSV names folded at parse).
+        if (allowed_tables is not None
+                and tname.lower() not in allowed_tables):
             continue
         filtered_scripts = [s for s in tdata.get("scripts", [])
                            if allowed_scripts is None or s in allowed_scripts or os.path.basename(s) in allowed_scripts]
         # R1: an unconstrained table keeps ALL its fields regardless of
         # allowed_columns (blank-COL_NAME row in table_col.csv).
         filtered_fields = [f for f in tdata.get("fields", [])
-                          if allowed_columns is None or f in allowed_columns or tname in unconstrained_tables]
+                          if allowed_columns is None
+                          or f.lower() in allowed_columns
+                          or tname.lower() in unconstrained_tables]
         if filtered_scripts or filtered_fields:
             filtered_ti[tname] = {
                 "scripts": filtered_scripts,
@@ -286,8 +303,9 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
     for fname, fdata in fi.items():
         # F2: same empty-set semantics as the table guard above.
         # R1: a field also passes if it belongs to any unconstrained table.
-        if allowed_columns is not None and fname not in allowed_columns \
-                and not (set(fdata.get("tables", [])) & unconstrained_tables):
+        # F5: membership is case-insensitive (CSV names folded at parse).
+        if allowed_columns is not None and fname.lower() not in allowed_columns \
+                and not ({t.lower() for t in fdata.get("tables", [])} & unconstrained_tables):
             continue
         filtered_scripts = [s for s in fdata.get("scripts", [])
                            if allowed_scripts is None or s in allowed_scripts or os.path.basename(s) in allowed_scripts]
@@ -297,9 +315,9 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
         # (both allowed) lists U but NOT C — C's own filtered_ti omits the field.
         filtered_tables = [t for t in fdata.get("tables", [])
                           if allowed_tables is None
-                          or (t in allowed_tables
-                              and (allowed_columns is None or fname in allowed_columns
-                                   or t in unconstrained_tables))]
+                          or (t.lower() in allowed_tables
+                              and (allowed_columns is None or fname.lower() in allowed_columns
+                                   or t.lower() in unconstrained_tables))]
         if filtered_scripts or filtered_tables:
             filtered_fi[fname] = {
                 "scripts": filtered_scripts,
@@ -323,21 +341,6 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
             diag_lines.append(("profile", ("│ R19: ignored %d tables from table_col.csv (not in script_table scope)" % ignored_count).ljust(79)+"│"))
         if empty_intersection:
             diag_lines.append(("profile", "│ no common tables — check CSVs".ljust(79)+"│"))
-            # F5: case-insensitive near-match hint — A (script_table) vs the
-            # ORIGINAL B (table_col) may differ only by case, e.g. STG_CUSTOMERS
-            # vs stg_customers; show it even when A∩B is empty. table_col_tables
-            # still holds B here (allowed_tables was reduced to A∩B = ∅).
-            seen_pairs = set()
-            for a in sorted(script_table_tables):
-                for b in sorted(table_col_tables):
-                    if a != b and a.lower() == b.lower() and (b, a) not in seen_pairs:
-                        seen_pairs.add((a, b))
-                        diag_lines.append(("profile", ("│ ⚠ case mismatch? A has %s, B has %s"
-                                                       % (a, b)).ljust(79)+"│"))
-                        if len(seen_pairs) >= 5:
-                            break
-                if len(seen_pairs) >= 5:
-                    break
 
     # ── Bug 52+: per-common-table match diagnostics ──
     # Shows why intersection tables survive or drop: index script names vs
@@ -364,19 +367,25 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
                             analysis_by_script.setdefault(sn, ad)
                             analysis_by_script.setdefault(os.path.basename(sn), ad)
                     except Exception:
-                        pass
+                        pass  # corrupt/partial analysis cache — skip, diagnostic-only
         except Exception:
-            pass
+            pass  # cache scan is diagnostic-only — missing cache must not break the filter
 
+        # F5: common table names are lowercased CSV values — resolve each to
+        # its original-case index key for the diagnostics below (exact first,
+        # single case-variant fallback; ambiguous → None, never guess).
+        ti_lower = {t.lower(): t for t in ti}
+        filtered_ti_lower = {t.lower(): t for t in filtered_ti}
         shown_drop_detail = 0
         shown_sql = 0
         for tname in common_tables[:15]:
-            idx_scripts = ti.get(tname, {}).get("scripts", [])
-            idx_fields = ti.get(tname, {}).get("fields", [])
+            idx_key = ti_lower.get(tname)
+            idx_scripts = ti.get(idx_key, {}).get("scripts", []) if idx_key else []
+            idx_fields = ti.get(idx_key, {}).get("fields", []) if idx_key else []
             matched = [s for s in idx_scripts
                        if allowed_scripts is None or s in allowed_scripts or os.path.basename(s) in allowed_scripts]
-            kept = tname in filtered_ti
-            nfields = len(filtered_ti.get(tname, {}).get("fields", [])) if kept else 0
+            kept = tname in filtered_ti_lower
+            nfields = len(filtered_ti.get(filtered_ti_lower.get(tname), {}).get("fields", [])) if kept else 0
             # fields N/M: N = kept in filter, M = total in index (divergence
             # means the table's index fields aren't among the CSV columns in
             # scope — see the field-detail lines below)
@@ -420,7 +429,9 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
                 shown_sql += 1
                 cand_scripts = set(idx_scripts)
                 for row in script_table_rows:
-                    if (row.get("TABLE_NAME") or "").strip() == tname:
+                    # F5: file-1 TABLE_NAME is folded at parse — compare folded
+                    # here too (row names keep original case for display).
+                    if (row.get("TABLE_NAME") or "").strip().lower() == tname:
                         sn = (row.get("SCRIPT_NAME") or "").strip()
                         if sn:
                             cand_scripts.add(sn)
@@ -437,7 +448,7 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
                     try:
                         sql_txt = sp.read_text(encoding="utf-8", errors="replace")
                     except Exception:
-                        sql_txt = ""
+                        sql_txt = ""  # unreadable script → no evidence lines (benign, diagnostic-only)
                     hit_lines = [ln for ln in sql_txt.split("\n") if tname.lower() in ln.lower()]
                     if not hit_lines:
                         diag_lines.append(("profile", ("│     script %s — table name NOT found in SQL text" % cname).ljust(79)+"│"))
@@ -488,6 +499,10 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
         "field_count": len(filtered_fi),
         "filtered_tables": list(filtered_ti.keys()),
         "filtered_fields": list(filtered_fi.keys()),
+        # F4/F3: ignored_rows is the ONE name for CSV-level drops (COL_NAME-only
+        # rows); ignored_count/ignored_tables keep their intersection-exclusion
+        # meaning (B − A). The two counters are disjoint.
+        "ignored_rows": ignored_rows,
         "ignored_count": ignored_count,
         "ignored_tables": sorted(ignored_tables),
         "warning": warning,

@@ -1063,7 +1063,7 @@ Round 3: no new pairs → stop
 
 ## Bug 43: `sql_range` Column Always 1 (Pattern 4, P3)
 
-> **Found:** v3.3.120 | **Priority:** P3 | **Status:** Open — suggestion below (do not fix directly; hand to implementer)
+> **Found:** v3.3.120 | **Priority:** P3 | **Status:** ✅ Fixed (v3.3.129) — see Quick Status table
 
 **Historical confirmed test data from step3 L2:**
 ```
@@ -1724,7 +1724,7 @@ def _normalize_edge(edge_data: dict) -> dict:
 
 ## CW8 — `sql_range` None Propagation
 
-> **Priority:** P2 | **Status:** Open | **Type:** Defect
+> **Priority:** P2 | **Status:** ✅ Fixed — safe defaults in place (`l2_builder.py` 441-442 and 461: `... or [1, 1, 1, 1]`); status line corrected 2026-08-06 | **Type:** Defect
 
 **Location:** `sql_range_finder.py:find()`, `l2_builder.py:411-430`
 
@@ -1936,7 +1936,7 @@ Fixture: workspace from `samples/multi_workflow.zip` + index (reuse pattern from
 
 ## Bug 52: Filter Diagnostic Reports 96 Scripts From 48 Rows (P3, diagnostic)
 
-> **Found:** 2026-08-04 (user report + screenshot parse_filer_error.png) | **Priority:** P3 | **Status:** Open
+> **Found:** 2026-08-04 (user report + screenshot parse_filer_error.png) | **Priority:** P3 | **Status:** ✅ Resolved — diagnostic now reports distinct-script counts + per-common-table KEEP/DROP (SQL-evidence) lines; verified in the 08-04 follow-up review §7; status line corrected 2026-08-06
 
 **Symptom:** `script_table.csv` has 48 rows, but the R16 diagnostic says `Parsed: 96 scripts, 8 tables`. One row = one script → count is 2× inflated.
 
@@ -2035,6 +2035,8 @@ Extract a `filter_service.py` (parse → scopes → intersect → filter) per th
 - §8.3 "sqlglot.optimizer.scope resolves customer_id → table" — **verified WRONG**: `scope.columns` leaves `table=''`; the working API is `qualify.qualify(..., validate_qualify_columns=False)`, and it covers only single-source SELECT contexts (NOT UPDATE/DELETE/multi-table joins). Design doc 1c′ records the full evaluation.
 - §9 category 2 (alias coverage, tpcds dim tables) — worth a targeted check: do the tpcds dimension tables get 0 fields because of unqualified column-name-prefix access (category 1) or a real alias_map coverage gap? Check before implementing Bug 53.
 - §9 advice "classify fieldless tables into 4 categories; only category 1 is a hard defect" — adopted (SQL-evidence diagnostic already surfaces 3+4).
+
+**Category-2 check — RESULT (2026-08-06, v3.3.133, live index of tpcds_qualified):** the check is **moot — S4 Phase 2 resolved the fieldless tables**. On v3.3.133 the 8 former fieldless tpcds dim tables all have fields via schema attribution: `call_center` (4: cc_call_center_id, cc_call_center_sk, cc_county, cc_manager), `catalog_page` (2), `inventory` (4), `promotion` (5), `reason` (2), `ship_mode` (3), `warehouse` (1), `web_site` (4). No alias_map coverage gap exists. The only remaining fieldless table is `dbgen_version` — **category 4 (legitimately empty)**: referenced solely via `SELECT COUNT(*)`, `DELETE FROM`, `DROP TABLE` (tools/count.sql + teardown scripts); no query ever uses one of its columns. Expected, correctly surfaced, not a defect. **Closed — no Bug 53 category-1/2 residue in tpcds.**
 
 ---
 
@@ -2289,3 +2291,67 @@ Backend **495 passed / 5 skipped** (was 445/5): +30 extractor (`test_s4_instrume
 | combined | 207 | **8** | **99.9%** | 200 / 114 |
 
 Combined orphans **291 → 8** (baseline 95.8% → 99.9%). The 8 residuals: evidence-absent fields in ≥2-table scopes and R6-adjacent cases — honest leftovers, reported in the ORPHAN RESOLUTION REPORT. Note: the M4 denominator fix makes numbers not directly comparable with the 96.6% Phase-0/1 figure (that denominator included phantom copies).
+
+## A1 Schema Classification + Remaining Batch — Implementation (v3.3.134, 2026-08-06)
+
+Five parallel teams (E/S/B/F/T), disjoint file ownership, nothing committed by teams;
+single integration commit. Design unchanged; no tips added; issues resolved essentially.
+
+### A1 — zip-time DDL classification (report-only, per settled design)
+- `folder_index_service.py` `scan_folder` classifies every file `file_class: "schema" | "script"`:
+  `.ddl`/`.schema` extensions → schema; `.sql` → schema only when ALL top-level statements are
+  CREATE TABLE/VIEW/MATERIALIZED VIEW/GRANT/COMMENT/ALTER TABLE; parse failure/empty → script
+  (conservative).
+- Schema files contribute `script_schemas` to `m_ws` / `schema_evidence_by_script` (so S4b can
+  resolve cross-script owners) but NEVER pipeline counts (script_count), table_index/field_index,
+  caches, L1/L2, or filter scopes. No upload endpoint, no annotation, no tips.
+- Index response gains factual `schema_evidence: {present, tables, columns}`; frontend renders
+  "Schema evidence: none — N unresolved may be unresolvable" / "Schema evidence: T tables, C
+  columns" (3 index sites, `schema_evidence` state). No advice UI.
+- Gate reality check: only 2/108 tpcds_qualified files classify as schema (tpcds.sql CREATE
+  TABLE ×25, tpcds_ri.sql ALTER ×102); drop.sql/empty.sql/count.sql stay scripts. Honest gate =
+  orphans/coverage unchanged (see sweep) + script_count 106.
+
+### A3 — R6 field==table collision guard (extractor)
+- `_register_column` S3 single-table branch + S1/Fix-B alias path: `lower(col) ==
+  lower(visible_table)` → not attributed, `r6_collision += 1`, stays unresolved.
+- `build_resolution_stats` emits `r6_collision` (S4a finalize + recorded). Tests:
+  `test_s4_instrumentation.py` (case-insensitive, alias mirror, regressions).
+
+### A2/A4/F1/G3 — closed by decision (no source edits)
+- A2: fieldless-table UI treatment — schema evidence now available; no new UI. A4: tpcds 8 dim
+  tables resolved by S4 Phase 2 (dbgen_version category-4 empty: only COUNT(*)/DELETE/DROP refs
+  — legitimately no data flow). F1: static.bak.* / docker_image / tar.gz blobs removed from git
+  index (0 tracked). G3: bare-table keying kept (conservative ambiguity) — Q3 closed.
+
+### Remaining small items (each fix leaves a test)
+- **C1** `l2_builder.py` (960 L): `_build_l2_graph` split into 13 named phases; byte-identity
+  verified on 10/10 corpus combinations.
+- **C2** `l1_builder.py` (920 L): two disk-cache passes merged into one (`_absorb_p4`);
+  **B2 real bug**: `detect_role` clause 5 `\b{target_field}\b` regex → `sc.rsplit(".",1)[-1]
+  == target_field` (6 false matches on tpcds q3/q42/q52 where target_field="item" matched table
+  part "item.i_brand"); same fix in l2 `_target_field_sc`.
+- **CW4**: l2_builder monolith documented in the phase names. **CW1/CW2**: all 41 bare `except
+  Exception` sites triaged per-owner (benign sites commented).
+- **C4a** extractor stats add `resolved`/`unresolved_count`/`coverage_pct` (additive, old keys
+  kept) → **C4c** frontend `resolutionReport.js` prefers unified keys, legacy fallback kept.
+- **F2** workspace DELETE: 400 malformed id / 404 valid-but-missing / 200 deleted
+  (`is_valid_ws_id`). **F3/F4/F5** filter_service: COL_NAME-only rows dropped by design +
+  `ignored_rows`/`ignored_tables`/`warning` in response; case folding at parse + every predicate
+  site. **F6** case-mismatch hint block removed (tips forbidden).
+- **E1/E2** frontend: drag recomputes from frozen offsets (delta machinery deleted);
+  `fieldPositionsForTable`/`positionTableFields`; 7 dead client.js exports deleted;
+  7 silent console.error sites surfaced.
+- **CW10** `test_full_http_journey.py`: one TestClient journey (upload multi_workflow.zip →
+  index → search expanded → L1 → L2 → DELETE). **G2** lineage SCHEMA directionality pinned
+  comment + test. Known oddity flagged (not fixed): L2 `filtered_nodes` 8 > `total_nodes` 7 for
+  step3 in that workspace.
+
+### Tests & gates
+- Backend **523 passed / 5 skipped** (was 495/5): +170 l1/l2 integration, +66 S4
+  instrumentation, +200 S4b/A1 classification, +128 filter config, +49 orphan extractor, +new
+  full-HTTP journey. Frontend **70 passed** (was 52) + build OK.
+- Coverage sweep parity EXACT vs v3.3.133 baseline: tpcds 96.2% / 123 orphans; qualified 99.7% /
+  9 orphans / script_count 106 (evidence preserved: schema_evidence bare 16 tables/94 cols,
+  qualified 25 tables/429 cols); combined 99.9% / 8 orphans.
+- Deployed v3.3.134, health OK. Version bumped in /VERSION + repo VERSION.

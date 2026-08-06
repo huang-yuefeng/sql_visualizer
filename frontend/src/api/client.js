@@ -34,29 +34,10 @@ export async function listScripts() {
   return res.json();
 }
 
-export async function getScript(scriptId) {
-  const res = await fetch(`${API_BASE}/scripts/${scriptId}`);
-  if (!res.ok) throw new Error('Script not found');
-  return res.json();
-}
-
 export async function getGraph(scriptId, withSnippets = true) {
   const url = withSnippets ? `${API_BASE}/scripts/${scriptId}/graph?snippets=true` : `${API_BASE}/scripts/${scriptId}/graph`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('Graph not found');
-  return res.json();
-}
-
-export async function getVariables(scriptId, search = '', type = '') {
-  const params = new URLSearchParams();
-  if (search) params.set('search', search);
-  if (type) params.set('type', type);
-  const res = await fetch(`${API_BASE}/scripts/${scriptId}/variables?${params}`);
-  return res.json();
-}
-
-export async function getVariable(scriptId, varId) {
-  const res = await fetch(`${API_BASE}/scripts/${scriptId}/variables/${varId}`);
   return res.json();
 }
 
@@ -115,11 +96,6 @@ export async function uploadFilterConfig(wsId, scriptTableFile, tableColFile) {
   return res.json();
 }
 
-export async function autocomplete(wsId, type, query) {
-  const res = await fetch(`/api/workspace/${wsId}/autocomplete?type=${type}&q=${encodeURIComponent(query)}`);
-  return res.json();
-}
-
 export async function searchDataFlow(wsId, table, field) {
   const res = await fetch(`/api/workspace/${wsId}/search`, {
     method: 'POST',
@@ -140,20 +116,10 @@ export async function deleteView(wsId, viewId) {
   return res.json();
 }
 
-export async function getLevel1Graph(wsId, viewId) {
-  const res = await fetch(`/api/workspace/${wsId}/views/${viewId}/level1`);
-  return res.json();
-}
-
 export async function getLevel2Graph(wsId, viewId, script, filter = true) {
   const params = new URLSearchParams({ script, filter: String(filter) });
   const res = await fetch(bust(`/api/workspace/${wsId}/views/${viewId}/level2?${params}`));
   if (!res.ok) throw new Error(await errorDetail(res));
-  return res.json();
-}
-
-export async function getHighlight(wsId, script, table, field) {
-  const res = await fetch(`/api/workspace/${wsId}/scripts/${encodeURIComponent(script)}/highlight?table=${encodeURIComponent(table)}&field=${encodeURIComponent(field)}`);
   return res.json();
 }
 
@@ -175,11 +141,6 @@ export async function saveExportConfig(wsId, config) {
 
 export async function resetExportConfig(wsId) {
   const res = await fetch(`/api/workspace/${wsId}/export-config`, { method: 'DELETE' });
-  return res.json();
-}
-
-export async function getDefaultExportConfig() {
-  const res = await fetch(`/api/workspace/_/export-config/default`);
   return res.json();
 }
 

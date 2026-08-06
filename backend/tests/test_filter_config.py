@@ -236,39 +236,93 @@ class TestFilterEdgeCases:
         assert r["ignored_tables"] == ["y"]
         assert r["warning"] and "No common tables" in r["warning"]
 
-    def test_f5_case_mismatch_hint_on_empty_intersection(self, monkeypatch, indexed_ws):
-        """F5: disjoint CSVs differing only by case produce a hint line."""
-        diag_msgs = []
+    def test_f4_payload_carries_ignored_rows(self, indexed_ws):
+        """F4: the response carries ignored_rows (CSV-level drops) alongside
+        ignored_count/ignored_tables (intersection exclusions) and warning —
+        the two counters are disjoint (rows vs tables)."""
+        r = _upload(indexed_ws,
+                    script_table_csv=CSV1 + f"{STEP2},stg_customers\n",
+                    table_col_csv=(CSV2
+                                   + "ETL,stg_customers,customer_id,Staging customer id\n"
+                                   + "ETL,daily_summary,customer_id,Daily summary customer id\n"
+                                   + "ETL,,no_table_col,Orphan column\n"))
+        assert r["ignored_rows"] == 1, r
+        assert r["ignored_count"] == 1, r
+        assert r["ignored_tables"] == ["daily_summary"], r
+        assert r["warning"] and "ignored" in r["warning"], r
+        assert "no_table_col" not in _filtered_fields(indexed_ws)
 
-        def fake_push(ws_id, stage, message):
-            diag_msgs.append(message)
+    def test_f5_case_mismatch_table_now_matches(self, indexed_ws):
+        """F5: file-1 STG_CUSTOMERS + file-2 stg_customers — case must not
+        yield a silent 0/0: the A∩B intersection matches case-insensitively
+        and the stored index keeps its original (lowercase) names."""
+        r = _upload(indexed_ws,
+                    script_table_csv=CSV1 + f"{STEP2},STG_CUSTOMERS\n",
+                    table_col_csv=CSV2 + "ETL,stg_customers,customer_id,Column\n")
+        assert r["filtered"] is True
+        assert r["table_count"] == 1, r
+        assert "stg_customers" in _filtered_tables(indexed_ws)
+        assert "customer_id" in _filtered_fields(indexed_ws)
+        assert r["warning"] is None, r
 
-        monkeypatch.setattr("app.routers.workspace._push", fake_push)
-        _upload(indexed_ws,
-                script_table_csv=CSV1 + f"{STEP2},STG_CUSTOMERS\n",
-                table_col_csv=CSV2 + "ETL,stg_customers,customer_id,Column\n")
-        joined = "\n".join(diag_msgs)
-        assert "case mismatch" in joined, joined
-        assert "STG_CUSTOMERS" in joined and "stg_customers" in joined, joined
+    def test_f5_case_mismatch_reverse_direction(self, indexed_ws):
+        """F5: file-1 stg_customers + file-2 STG_CUSTOMERS also matches
+        (folding is applied on BOTH sides, at parse and at predicate)."""
+        r = _upload(indexed_ws,
+                    script_table_csv=CSV1 + f"{STEP2},stg_customers\n",
+                    table_col_csv=CSV2 + "ETL,STG_CUSTOMERS,CUSTOMER_ID,Column\n")
+        assert r["filtered"] is True
+        assert "stg_customers" in _filtered_tables(indexed_ws)
+        assert "customer_id" in _filtered_fields(indexed_ws)
+        assert "STG_CUSTOMERS" not in _filtered_tables(indexed_ws)
+        assert "CUSTOMER_ID" not in _filtered_fields(indexed_ws)
+
+    def test_f5_column_case_matches_field(self, indexed_ws):
+        """F5: field-level — CUSTOMER_ID in the CSV matches the index's
+        customer_id; the stored artifact keeps its original case."""
+        r = _upload(indexed_ws,
+                    table_col_csv=CSV2 + "ETL,stg_customers,CUSTOMER_ID,Column\n")
+        assert r["filtered"] is True
+        ti = _filtered(indexed_ws)["table_index"]
+        assert "stg_customers" in ti
+        assert "customer_id" in ti["stg_customers"]["fields"], ti
+        assert "CUSTOMER_ID" not in ti["stg_customers"]["fields"], ti
+
+    def test_f5_unconstrained_case_variant_table(self, indexed_ws):
+        """F5 + R1: a blank-COL_NAME row with a case-variant table name
+        unconstrains the real table — its fields all pass."""
+        r = _upload(indexed_ws,
+                    table_col_csv=CSV2 + "ETL,STG_CUSTOMERS,\n")
+        assert r["filtered"] is True
+        ti = _filtered(indexed_ws)["table_index"]
+        assert "stg_customers" in ti
+        assert "customer_id" in ti["stg_customers"]["fields"], ti
 
     def test_f3_col_name_only_rows_warned(self, monkeypatch, indexed_ws):
-        """F3: rows with COL_NAME but empty TABLE_NAME produce a warning line."""
+        """F3: rows with COL_NAME but empty TABLE_NAME are DROPPED BY DESIGN
+        (cannot attach to a scope table) — counted as ignored_rows, warned
+        in the R16 diag, and never leak into the filtered index."""
         diag_msgs = []
 
         def fake_push(ws_id, stage, message):
             diag_msgs.append(message)
 
         monkeypatch.setattr("app.routers.workspace._push", fake_push)
-        _upload(indexed_ws,
-                table_col_csv=CSV2
-                + "ETL,,orphan_col,Orphan column\n"
-                + "ETL,,another_col,Another orphan\n"
-                + "ETL,stg_customers,customer_id,Staging customer id\n")
+        r = _upload(indexed_ws,
+                    table_col_csv=CSV2
+                    + "ETL,,orphan_col,Orphan column\n"
+                    + "ETL,,another_col,Another orphan\n"
+                    + "ETL,stg_customers,customer_id,Staging customer id\n")
         joined = "\n".join(diag_msgs)
         assert "COL_NAME but empty TABLE_NAME" in joined, joined
         assert "2 row(s)" in joined, joined
-        # Valid rows still filter normally
+        # F3/F4: counted in the response — one name for CSV-level drops
+        assert r["ignored_rows"] == 2, r
+        # Valid rows still filter normally; dropped rows never surface
         assert "stg_customers" in _filtered_tables(indexed_ws)
+        assert "customer_id" in _filtered_fields(indexed_ws)
+        assert "orphan_col" not in _filtered_fields(indexed_ws)
+        assert "another_col" not in _filtered_fields(indexed_ws)
 
 
 class TestR1BlankColName:
@@ -643,3 +697,39 @@ class TestR3NoMatchesDiagnostic:
         assert result["match_mode"] != "no_matches", result
         joined = "\n".join(diag_msgs)
         assert "Filter active: YES  (1 tables, 1 fields in scope)" in joined, joined
+
+
+class TestF2DeleteWorkspaceValidation:
+    """F2: DELETE /workspace/{ws_id} validates ws_id before touching disk —
+    400 for a malformed id (path-traversal guard), 404 for a valid-format
+    but nonexistent workspace, and a real delete for an existing one."""
+
+    def _delete(self, ws_id: str):
+        from app.routers.workspace import delete_workspace_endpoint
+        return asyncio.run(delete_workspace_endpoint(ws_id))
+
+    def test_f2_invalid_ws_id_400(self):
+        import fastapi
+        for bad in ("../etc/passwd", "0d4ae2cefe6a/../x", "ZZZ",
+                    "0d4ae2cefe6", "0d4ae2cefe6aX", "0d4AE2CEFE6A",
+                    "0d4ae2cefe6a!", ""):
+            with pytest.raises(fastapi.HTTPException) as ei:
+                self._delete(bad)
+            assert ei.value.status_code == 400, bad
+
+    def test_f2_valid_format_missing_404(self):
+        import fastapi
+        with pytest.raises(fastapi.HTTPException) as ei:
+            self._delete("0d4ae2cefe6a")
+        assert ei.value.status_code == 404
+
+    def test_f2_existing_workspace_deleted(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("a.sql", "SELECT 1;\n")
+        ws_id = create_workspace(buf.getvalue())
+        ws_dir = get_workspace_dir(ws_id)
+        assert ws_dir.exists()
+        r = self._delete(ws_id)
+        assert r == {"deleted": True}, r
+        assert not ws_dir.exists(), "workspace directory must be gone"

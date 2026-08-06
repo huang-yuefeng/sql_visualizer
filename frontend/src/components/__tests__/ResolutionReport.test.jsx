@@ -115,4 +115,68 @@ describe('ResolutionReport', () => {
     expand();
     expect(screen.queryByText(/Schema candidates:/)).not.toBeInTheDocument();
   });
+
+  // ── A1: schema_evidence line (factual state, no advice) ─────────────
+  it('A1: renders the "none" line when schema_evidence.present is false', () => {
+    render(
+      <ResolutionReport
+        stats={{ total_columns: 40, unresolved: ['a', 'b'] }}
+        orphanFieldSamples={null}
+        schemaEvidence={{ present: false, tables: 0, columns: 0 }}
+      />
+    );
+    expect(screen.queryByText(/Schema evidence:/)).not.toBeInTheDocument(); // collapsed
+    expand();
+    expect(
+      screen.getByText('Schema evidence: none — 2 unresolved may be unresolvable')
+    ).toBeInTheDocument();
+  });
+
+  it('A1: "none" line tolerates a missing unresolved count', () => {
+    render(
+      <ResolutionReport
+        stats={{ total_columns: 10 }}
+        orphanFieldSamples={null}
+        schemaEvidence={{ present: false, tables: 0, columns: 0 }}
+      />
+    );
+    expand();
+    expect(
+      screen.getByText('Schema evidence: none — unresolved may be unresolvable')
+    ).toBeInTheDocument();
+  });
+
+  it('A1: renders "T tables, C columns" when schema_evidence.present is true', () => {
+    render(
+      <ResolutionReport
+        stats={{ total_columns: 10, unresolved: [] }}
+        orphanFieldSamples={null}
+        schemaEvidence={{ present: true, tables: 12, columns: 98 }}
+      />
+    );
+    expand();
+    expect(
+      screen.getByText('Schema evidence: 12 tables, 98 columns')
+    ).toBeInTheDocument();
+  });
+
+  it('A1: renders nothing when schema_evidence is missing (old responses)', () => {
+    render(<ResolutionReport stats={{ total_columns: 10, unresolved: ['a'] }} orphanFieldSamples={null} />);
+    expand();
+    expect(screen.queryByText(/Schema evidence:/)).not.toBeInTheDocument();
+  });
+
+  it('A1: counts line still renders when present is omitted (defensive)', () => {
+    render(
+      <ResolutionReport
+        stats={{ total_columns: 10, unresolved: ['a'] }}
+        orphanFieldSamples={null}
+        schemaEvidence={{ tables: 3, columns: 9 }}
+      />
+    );
+    expand();
+    expect(
+      screen.getByText('Schema evidence: 3 tables, 9 columns')
+    ).toBeInTheDocument();
+  });
 });
