@@ -60,10 +60,11 @@ if [ -f "$IMAGE_DIR/RELEASE.txt" ]; then
         exit 1
     fi
 else
-    log "  ${YELLOW}RELEASE.txt manifest missing — cannot verify piece version. Is this a fresh release clone?${NC}"
+    echo -e "\n${RED}ERROR: ${IMAGE_DIR}/RELEASE.txt manifest missing — cannot verify image piece version. Run release.sh first to generate the release pieces and manifest, then retry.${NC}" | tee -a "$LOG_FILE" >&2
+    exit 1
 fi
 
-# Optional online check: is the local checkout stale vs origin/main?
+# Optional online check: is the local checkout strictly behind origin/main?
 if command -v timeout &>/dev/null; then
     REMOTE_HEAD=$(timeout 10 git ls-remote origin refs/heads/main 2>/dev/null | head -1)
 else
@@ -71,20 +72,44 @@ else
 fi
 
 if [ -n "$REMOTE_HEAD" ]; then
+    # Track fetch success explicitly — a failed fetch must NOT fall back to
+    # the stale origin/main ref (previously swallowed by `|| true`).
+    FETCH_OK=false
     if command -v timeout &>/dev/null; then
-        timeout 15 git fetch origin --quiet 2>/dev/null || true
+        if timeout 15 git fetch origin --quiet 2>/dev/null; then
+            FETCH_OK=true
+        fi
     else
-        git fetch origin --quiet 2>/dev/null || true
+        if git fetch origin --quiet 2>/dev/null; then
+            FETCH_OK=true
+        fi
     fi
-    REMOTE_VERSION=$(git show origin/main:VERSION 2>/dev/null || echo "?")
-    if [ -n "$REMOTE_VERSION" ] && [ "$REMOTE_VERSION" != "?" ] && [ "$REMOTE_VERSION" != "$REPO_VERSION" ]; then
-        echo -e "\n${RED}STALE CHECKOUT: local v${REPO_VERSION}, origin/main is v${REMOTE_VERSION}${NC}" | tee -a "$LOG_FILE" >&2
-        echo -e "${RED}  Fix: git clean -fd docker_image/ && git reset --hard origin/main${NC}" | tee -a "$LOG_FILE" >&2
-        exit 1
-    elif [ "$REMOTE_VERSION" = "?" ]; then
-        log "  ${YELLOW}Could not read origin/main:VERSION — skipping remote version check${NC}"
+
+    if [ "$FETCH_OK" = true ]; then
+        BEHIND=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo "?")
+        AHEAD=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo "?")
+        if [ "$BEHIND" != "?" ] && [ "$AHEAD" != "?" ] && [ "$BEHIND" -gt 0 ] && [ "$AHEAD" -eq 0 ]; then
+            # Strictly behind origin/main (fetch ok + behind + NOT diverged) → reset advice.
+            REMOTE_VERSION=$(git show origin/main:VERSION 2>/dev/null || echo "?")
+            if [ "$REMOTE_VERSION" = "?" ]; then
+                REMOTE_VERSION="unknown version"
+            else
+                REMOTE_VERSION="v${REMOTE_VERSION}"
+            fi
+            echo -e "\n${RED}STALE CHECKOUT: local v${REPO_VERSION} is ${BEHIND} commit(s) behind origin/main (origin/main: ${REMOTE_VERSION})${NC}" | tee -a "$LOG_FILE" >&2
+            echo -e "${RED}  Fix: git clean -fd docker_image/ && git reset --hard origin/main${NC}" | tee -a "$LOG_FILE" >&2
+            exit 1
+        elif [ "$BEHIND" = "?" ] || [ "$AHEAD" = "?" ]; then
+            log "  ${YELLOW}Could not compare local HEAD with origin/main — skipping remote version check${NC}"
+        elif [ "$BEHIND" -eq 0 ] && [ "$AHEAD" -gt 0 ]; then
+            log "  ${YELLOW}Local checkout is ${AHEAD} commit(s) AHEAD of origin/main — unpushed commits present; skipping remote version check (do NOT reset)${NC}"
+        elif [ "$BEHIND" -gt 0 ] && [ "$AHEAD" -gt 0 ]; then
+            log "  ${YELLOW}Local checkout DIVERGED from origin/main (${AHEAD} ahead, ${BEHIND} behind) — resolve manually; skipping remote version check${NC}"
+        else
+            log "  Checkout up to date with origin/main"
+        fi
     else
-        log "  Checkout up to date with origin/main"
+        log "  ${YELLOW}git fetch from origin failed — skipping remote version check (origin may be unreachable)${NC}"
     fi
 else
     log "  ${YELLOW}origin unreachable (offline?) — skipping remote version check${NC}"

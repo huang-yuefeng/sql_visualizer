@@ -10,8 +10,8 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 
 - **Backend**: FastAPI + sqlglot (MySQL dialect), Docker `gps-sql-backend` on port 8000
 - **Frontend**: React 18 + Vite + Cytoscape.js, served from `frontend/dist/`
-- **Tests**: vitest (frontend, 64 passed), pytest (backend, 564 passed / 5 skipped in `backend/tests/`)
-- **Version**: See `/VERSION` (currently 3.3.137)
+- **Tests**: vitest (frontend, 64 passed), pytest (backend, 626 passed / 5 skipped in `backend/tests/`)
+- **Version**: See `/VERSION` (currently 3.3.138)
 - **Service IP**: `192.168.0.66:8000` (never use `localhost`)
 
 ## File Map (Key Source Files)
@@ -25,16 +25,16 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 | `routers/analysis.py` | 73 | Legacy `/api/analyze`, `/api/scripts`, `/api/analyze_multi` |
 | `services/filter_service.py` | 509 | **Filter logic** (R19): CSV parse → scopes → A∩B intersection → filter application + diagnostics (F6); shared `resolve_script` (R5, path-containment-checked); F3/F4/F5 (COL_NAME-only rows dropped + `ignored_rows` counters, case folding) |
 | `services/l1_builder.py` | 939 | Cross-script L1 builder (production BFS → lineage_field_pairs → filter); M4-B degraded fallback (`degraded: true` + diagnostic); C2 single-cache-pass (R24: single-script workspaces run the full pipeline inline — script node + tables + edges, clickable to L2) |
-| `services/l2_builder.py` | 1056 | Per-script L2 builder; C1 split into named phases (`_build_edge_list`, `_simplify_dml_edges`, `_map_search_target_ids`, ...) — byte-identity-verified. **R22: one compound node per physical table** (label-keyed merge, `merged_original_ids`, field dedup by (parent,name), `search_matched` in return dict) |
-| `services/dataflow_service.py` | 471 | SearchView, view persistence (views.json, persists match_mode), edge style helpers (R22: no-matches search semantics, L2 `search_matched`/not-in-flow full-graph response; R24: single-script L1 never pruned by the disconnected-script rule) |
-| `services/folder_index_service.py` | 1034 | Folder scanning, script indexing, **A1 schema-file classification** (`file_class: schema\|script`), **S4b cross-script schema auto-resolution** (R22: two-phase plan→conflict-detect→apply, ambiguous fields revoked + `resolution_stats["ambiguous"]`, context-scoped cache attribution), resolution_stats aggregation, orphan report, index progress, `schema_evidence` in response |
-| `services/cache_keys.py` | 24 | `GRAPH_CACHE_PREFIX = "graph_3_2_16"` (single source of truth; bumped R22-M14 to invalidate pre-S4b caches) |
-| `services/graph_service.py` | 318 | Cytoscape JSON builder, NODE_STYLES, EDGE_TYPE_STYLE/CATEGORY_MAP, table_fields/alias_map |
+| `services/l2_builder.py` | 1141 | Per-script L2 builder; C1 split into named phases (`_build_edge_list`, `_simplify_dml_edges`, `_map_search_target_ids`, ...) — byte-identity-verified. **R22: one compound node per physical table** (label-keyed merge, `merged_original_ids`, `search_matched` in return dict). **v3.3.138 (B-series)**: dedup key `(parent_table_id, undecorated_label, stmt_idx)` — B4 no `↻` twins, C-9 per-statement fields; `_resolve_scope_parent` context-segment walk (B3); label/table_name split for `⟐` (B5); `_load_or_build_graph` prefers S4b-mutated analysis caches (C-2b/C-10) |
+| `services/dataflow_service.py` | 485 | SearchView, view persistence (views.json, persists match_mode), edge style helpers (R22: no-matches search semantics, L2 `search_matched`/not-in-flow full-graph response; R24: single-script L1 never pruned by the disconnected-script rule; C-2b: miss path builds from analysis cache + writes graph cache format_version 3) |
+| `services/folder_index_service.py` | 1318 | Folder scanning, script indexing, **A1 schema-file classification** (`file_class: schema\|script`), **S4b cross-script schema auto-resolution** (R22: two-phase plan→conflict-detect→apply, ambiguous fields revoked + `resolution_stats["ambiguous"]`, context-scoped cache attribution), resolution_stats aggregation, orphan report, index progress, `schema_evidence` in response. **v3.3.138 (C-series)**: CTAS→script (C-1), `_invalidate_graph_caches` post-S4b + index-time graph precompute REMOVED (C-2a), `_revoke_s4b_cache_update` (C-3), post-loop star expansion (C-5), `parse_by_script`/`parsed_cache` single parse (C-13a) |
+| `services/cache_keys.py` | 32 | `GRAPH_CACHE_PREFIX = "graph_3_2_17"` (single source of truth; bumped v3.3.138 C-2 to invalidate pre-S4b graphs) |
+| `services/graph_service.py` | 342 | Cytoscape JSON builder, NODE_STYLES, EDGE_TYPE_STYLE/CATEGORY_MAP, table_fields/alias_map; `_stmt_idx_of` + context/stmt_idx in node data (C-9) |
 | `services/sql_range_finder.py` | 708 | SQL line-range mapping for edge→code highlighting |
 | `services/logger.py` | 167 | SSE pipeline logger (ref-counted queue cleanup) |
-| `extractor/variable_extractor_v2.py` | 1846 | Role-based Identifier walking + S1–S6 orphan resolution; **S4a auto-attribution** (`_finalize_schema_candidates`, R6 field==table collision guard), statement-anchored loc (R22-L16: type-aware `_is_as_keyword` — string literals never the anchor), dict-of-dicts script_schemas; C4a unified stats (`resolved`/`unresolved_count`/`coverage_pct`) |
-| `extractor/dependency_graph.py` | 479 | VariableDefinition → VariableDependency (16 edge types) |
-| `extractor/lineage.py` | 348 | `compute_field_lineage()`, `filter_relevant()` (R18) |
+| `extractor/variable_extractor_v2.py` | 1981 | Role-based Identifier walking + S1–S6 orphan resolution; **S4a auto-attribution** (`_finalize_schema_candidates`, R6 field==table collision guard), statement-anchored loc (R22-L16: type-aware `_is_as_keyword` — string literals never the anchor; C-13b: token-position anchor), dict-of-dicts script_schemas; C4a unified stats (`resolved`/`unresolved_count`/`coverage_pct`). **v3.3.138**: contexts `TOP{stmt_idx}` (C-9), `_walk_join_key_expressions` (B-series Phase 2), label sanitation (B5) |
+| `extractor/dependency_graph.py` | 501 | VariableDefinition → VariableDependency (16 edge types); Phase 6b JOIN-key expression edges + REF classification (B-series Phase 2) |
+| `extractor/lineage.py` | 383 | `compute_field_lineage()`, `filter_relevant()` (R18). **v3.3.138 (B-series Phase 1)**: SUBSET `{propagates_value: False, always_bidir: False}` — never walkable; JOIN rule admits expression nodes unconditionally, others on production evidence; None-guards |
 | `extractor/schema_inference.py` | 180 | `infer_table_schemas()` — 7-pass iterative stabilization |
 | `models/variable.py` | 125 | VariableType enum (15 types), VariableDefinition |
 | `models/sql_model.py` | 160 | Canonical taxonomy: node↔edge types mapped to SQL |
@@ -83,6 +83,10 @@ L2 (per-script): `l2_builder.py` — tables + fields + all 16 edge types within 
 11. **S4b two-phase attribution (R22/M12–M15)**: plan → conflict-detect → apply; different-owner claims mark the field `ambiguous` (revoked, reported in `resolution_stats["ambiguous"]`); cache attribution is context-scoped; `GRAPH_CACHE_PREFIX` bumps invalidate pre-S4b graphs.
 12. **Clean start (R23)**: the browser never auto-restores the previous workspace/search on load — the app mounts with an empty state (one-time `localStorage.removeItem('df_last_search_view')` purge for users of the old restore). `restoreViews.js` deleted.
 13. **Single-script workspaces (R24)**: a folder with exactly one script still shows a full L1 — the script node + its tables + edges — clickable into L2. `_build_l1_graph` runs the full pipeline inline for single scripts (no bare-node shortcut), and `_filter_l1_by_lineage` never prunes the only script (`len(script_ids) > 1` guard).
+14. **SUBSET edges never walkable (v3.3.138, B-series Phase 1)**: SUBSET is pure layout-padding — `EDGE_SEMANTICS[SUBSET] = {propagates_value: False, always_bidir: False}` removes it from `_BIDIR`. L2 field explosion (78 → 12 on the lending_ref audit) came almost entirely from SUBSET bridges pulling constants/partition columns/second-statement columns into the closure.
+15. **Join-key expressions are nodes (v3.3.138, B-series Phase 2)**: JOIN ON CONCAT/RPAD/`||` expressions materialize as EXPRESSION vars (`defined_in="JOIN ON"`); the lineage JOIN rule admits expression neighbors unconditionally, all other JOIN partners on production evidence. Join keys are visible expression nodes in the full graph.
+16. **Per-statement dedup (v3.3.138, C-9)**: extractor contexts are `TOP{stmt_idx}`; the L2 dedup key is `(parent_table_id, undecorated_label, stmt_idx)` — same-named fields in different statements no longer collapse (e.g. a JOIN key at TOP0 vs inside a CTE render as two fields). Known consequence: comparison-side join keys (own source only SCHEMA-reachable) render edge-less; DML edges into output tables drop with their SUBSET-severed producers (documented in the bug list, by design).
+17. **S4b-consistent caches (v3.3.138, C-2/C-3/C-10)**: index no longer precomputes graph caches (they were pre-S4b and immediately stale); post-S4b it deletes all `graph_3_*.json`; every L2 miss path prefers the S4b-mutated `analysis_{cache_key}.json` and writes graph caches with `format_version = 3`. `GRAPH_CACHE_PREFIX` bumps invalidate older graphs. Existing workspaces need re-index after deploy for B-series/C-9 fixes.
 
 ## Running Tests
 

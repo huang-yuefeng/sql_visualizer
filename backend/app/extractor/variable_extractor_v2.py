@@ -412,9 +412,13 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
         result.template_replacements.append("template vars present — may affect parsing")
 
     extractor = _RoleBasedExtractor(result, script_name, sql_text)
-    for statement in parsed:
+    # C-9: top-level statements are context-scoped by their statement index
+    # ("TOP0", "TOP1", …) so same-named variables across DIFFERENT
+    # top-level statements no longer collapse under the old shared "TOP"
+    # context (they are different nodes — one per statement).
+    for stmt_idx, statement in enumerate(parsed):
         if statement is not None:
-            extractor.process_statement(statement, "TOP")
+            extractor.process_statement(statement, f"TOP{stmt_idx}")
 
     # R20: orphan resolution coverage report
     result.resolution_stats = extractor.build_resolution_stats()
@@ -473,6 +477,17 @@ class _RoleBasedExtractor:
         # string-literal caveat — `_find_position` returns the FIRST token
         # equal to the name, which a string literal on an earlier line beats).
         self._anchor_cache: dict[int, int] = {}
+        # C-13(b): AS-filtered token stream + first-token position index,
+        # built ONCE per analysis. `_statement_anchor` scans the index
+        # candidates instead of rebuilding the filtered list and linearly
+        # re-scanning the whole stream for every statement (O(S·n) per
+        # anchor call → O(candidates) lookups; identical results — the
+        # linear scan stays as the fallback).
+        self._tokens_wo_as = [t for t in self._tokens
+                              if not _is_as_keyword(t)]
+        self._first_token_index: dict[str, list[int]] = {}
+        for _ti, _tok in enumerate(self._tokens_wo_as):
+            self._first_token_index.setdefault(_tok.text.lower(), []).append(_ti)
 
     def _next_id(self, key: str) -> str:
         self._counter[key] = self._counter.get(key, 0) + 1
@@ -553,17 +568,15 @@ class _RoleBasedExtractor:
                 # statement masquerade as a later one's head (L16).
                 head = [t.text.lower() for t in rendered
                         if not _is_as_keyword(t)][:4]
-                tokens = [t for t in self._tokens
-                          if not _is_as_keyword(t)]
-                # First match of the statement's own first-4-token sequence.
-                # The statement's own text is a unique token subsequence, so
-                # the first match IS its own occurrence in the file (identical
-                # duplicate statements collapse to the first one — candidates
-                # are deduped per (field, visible) at first stash anyway).
-                for i, tok in enumerate(tokens):
-                    if tok.text.lower() != head[0]:
-                        continue
-                    if i + len(head) > len(tokens):
+                # C-13(b): candidate scan via the first-token position index
+                # (built once in __init__). Identical matching semantics to
+                # the linear scan below — the index only skips tokens that
+                # cannot start the subsequence (head[0] mismatch).
+                tokens = self._tokens_wo_as
+                limit = len(tokens) - len(head) + 1
+                candidates = self._first_token_index.get(head[0], [])
+                for i in candidates:
+                    if i >= limit:
                         break
                     match = True
                     for j in range(1, len(head)):
@@ -571,8 +584,25 @@ class _RoleBasedExtractor:
                             match = False
                             break
                     if match:
-                        line = tok.line
+                        line = tokens[i].line
                         break
+                if not line and candidates:
+                    # Index miss (defensive — head[0] came from the same
+                    # tokenizer family) → full linear scan fallback, the
+                    # pre-C-13(b) behavior.
+                    for i, tok in enumerate(tokens):
+                        if i + len(head) > len(tokens):
+                            break
+                        if tok.text.lower() != head[0]:
+                            continue
+                        match = True
+                        for j in range(1, len(head)):
+                            if tokens[i + j].text.lower() != head[j]:
+                                match = False
+                                break
+                        if match:
+                            line = tok.line
+                            break
         self._anchor_cache[key] = line
         return line
 
@@ -581,7 +611,10 @@ class _RoleBasedExtractor:
              source_cols: list[str] | None = None,
              source_tables: list[str] | None = None,
              is_output: bool = False) -> VariableDefinition | None:
-        """Add a variable, deduplicating globally by (name, type) — one node per unique variable."""
+        """Add a variable, deduplicating by (name, type, context) — one node
+        per unique variable per scope (C-9: top-level statements are scoped
+        by statement index, so same-named vars in DIFFERENT statements stay
+        distinct nodes)."""
         name = _clean(name)
         if not name:
             return None
@@ -693,11 +726,11 @@ class _RoleBasedExtractor:
         # Process any WITH clause first (can appear on any statement type)
         with_clause = stmt.args.get("with") or stmt.args.get("with_")
         if with_clause:
-            self._walk_cte_definitions(with_clause)
+            self._walk_cte_definitions(with_clause, context=context)
 
         # sqlglot wraps queries with complex table names in a With node
         if isinstance(stmt, exp.With):
-            self._walk_cte_definitions(stmt)
+            self._walk_cte_definitions(stmt, context=context)
             inner = stmt.this
             if inner:
                 self.process_statement(inner, context)
@@ -722,8 +755,17 @@ class _RoleBasedExtractor:
 
     # ── CTE definitions ─────────────────────────────────────────────
 
-    def _walk_cte_definitions(self, with_clause):
-        """Extract CTE table names from a WITH clause."""
+    def _walk_cte_definitions(self, with_clause, context: str = "TOP"):
+        """Extract CTE table names from a WITH clause.
+
+        `context` is the ENCLOSING statement's context (C-9: "TOP0", "TOP1",
+        or a set-op branch context like "TOP0/union1"). The CTE table
+        variable lives in that statement scope — dependency_graph's Phase 1a
+        CTE→VT-anchor lookup keys on the CTE var's context, and the
+        statement's VIRTUAL_TABLE carries the same context, so the two must
+        agree (a hardcoded "TOP" would orphan every CTE once statements are
+        statement-indexed).
+        """
         cte_list = []
         if hasattr(with_clause, 'expressions'):
             cte_list = with_clause.expressions
@@ -738,10 +780,10 @@ class _RoleBasedExtractor:
                 continue
             self._cte_names.add(alias)
 
-            # CTE table variable
+            # CTE table variable (scoped to the enclosing statement — C-9)
             self._add(alias, VariableType.CTE,
                       sql_expr=_sql(cte_def),
-                      defined_in=f"CTE{{{alias}}}", context="TOP")
+                      defined_in=f"CTE{{{alias}}}", context=context)
 
             # Walk the inner query to extract columns
             inner = cte_def.this
@@ -782,8 +824,15 @@ class _RoleBasedExtractor:
         # container — no separate VT needed. The CTE IS the named result set.
         if not is_cte:
             # CTE{t} → label=t, TOP/subq1 → label=subq1, TOP → label=output
-            if context.startswith("CTE{"):
-                label = context[4:-1]  # extract name between { }
+            # B5: the context is a PATH ("CTE{loan_final}:join:accu",
+            # "CTE{loan_final}/subq1") — take only the terminal segment
+            # (CTE name / subquery number / derived-table alias), never the
+            # whole remainder (context[4:-1] grabbed the rest of the path
+            # and produced labels like "⟐ loan_final}:join:accu").
+            if context.startswith("CTE{") and "/" not in context and ":" not in context:
+                label = context[4:context.index("}")]  # extract name between { }
+            elif ":join:" in context:
+                label = context.rsplit(":", 1)[-1]  # derived-table alias (p2, accu, …)
             elif "/" in context:
                 label = context.rsplit("/", 1)[-1]
             else:
@@ -964,6 +1013,92 @@ class _RoleBasedExtractor:
         on_expr = join.args.get("on")
         if on_expr:
             self._walk_columns_in_expr(on_expr, context, defined_in="JOIN ON", scope=scope)
+            # Phase 2 (B-series): materialize computed JOIN-key expressions
+            self._walk_join_key_expressions(on_expr, context)
+
+    def _walk_join_key_expressions(self, on_expr, context: str):
+        """Materialize expression nodes for computed JOIN keys (Phase 2).
+
+        A JOIN ON predicate like
+            CONCAT(p2.poctcd, p2.pogmab, LPAD(p2.poacb, 3, '0')) = p1.lending_ref
+        compares a computed expression over columns with another column.
+        The expression side becomes an EXPRESSION variable so the graph
+        shows the key construction itself: REF edges to the operand columns
+        (dependency_graph Phase 3 picks them up from `source_columns`) and a
+        JOIN edge from the OTHER side of the comparison (the other side's
+        variable id is recorded on `source_variables`; dependency_graph
+        Phase 6b emits the edge). Only expressions with Column operands are
+        materialized — plain column=column and column=literal comparisons
+        are already represented by the JOIN ON column vars.
+        """
+        if on_expr is None:
+            return
+        try:
+            nodes = list(on_expr.walk(
+                prune=lambda n: isinstance(n, (exp.Subquery, exp.Exists, exp.CTE))))
+        except Exception:
+            # benign: walk failure → no join-key nodes (only degrades key
+            # granularity, never crashes extraction)
+            return
+        for node in nodes:
+            # Predicates only (EQ/NEQ/GT/…): DPipe ("||") is also a Binary
+            # but is the KEY EXPRESSION itself, not a comparison — matching
+            # it would materialize the key's inner halves as phantom nodes
+            # (RPAD(p4.iiapty, …) appearing alongside the full CONCAT key).
+            if not isinstance(node, exp.Predicate):
+                continue
+            if isinstance(node, exp.Connector):
+                continue  # AND/OR structure — not a key comparison
+            left, right = node.this, node.expression
+            for side, other in ((left, right), (right, left)):
+                self._materialize_join_key_side(side, other, context)
+
+    def _materialize_join_key_side(self, side, other, context: str):
+        """Create the EXPRESSION variable for one side of a JOIN-key
+        comparison, paired with the other side via `source_variables`."""
+        if side is None or other is None:
+            return
+        if isinstance(side, (exp.Column, exp.Literal, exp.Subquery, exp.Exists)):
+            return  # plain columns / literals / subqueries are not materialized
+        src_cols = _extract_source_columns(side)
+        if not src_cols:
+            return  # an expression without column operands (constants) is not a key
+        name = _sql(side)
+        if not name:
+            return
+        # Flatten the rendered SQL to a single line — the dialect render
+        # emits newlines for nested calls, which would produce multi-line
+        # field labels in the L2 graph.
+        name = " ".join(name.split())
+        # Source tables = distinct qualifier prefixes of the operand columns
+        # (e.g. CONCAT(p2.poctcd, ...) → ["p2"] — the derived-table alias).
+        src_tables = []
+        for sc in src_cols:
+            if "." in sc:
+                p = sc.split(".", 1)[0]
+                if p not in src_tables:
+                    src_tables.append(p)
+        var = self._add(name, VariableType.EXPRESSION,
+                        sql_expr=name,
+                        defined_in="JOIN ON",
+                        context=context,
+                        source_cols=src_cols,
+                        source_tables=src_tables,
+                        is_output=False)
+        if var is None:
+            return
+        # Pair with the OTHER side of the comparison: the other side's
+        # variable in THIS context receives the JOIN edge from the
+        # expression node (emitted by dependency_graph Phase 6b). The other
+        # side of a column is its rendered form ("p1.lending_ref"); of an
+        # expression, its rendered SQL.
+        other_name = _sql(other)
+        if not other_name:
+            return
+        for existing in self.result.variables:
+            if existing.name == other_name and existing.context == context:
+                var.source_variables = list(var.source_variables or []) + [existing.id]
+                break
 
     def _register_table(self, table: exp.Table, context: str, join_table: bool = False,
                         dml: str = "", scope: _SelectScope | None = None):
@@ -1660,7 +1795,7 @@ class _RoleBasedExtractor:
                     # carry its own WITH when parenthesized).
                     with_clause = side.args.get("with") or side.args.get("with_")
                     if with_clause:
-                        self._walk_cte_definitions(with_clause)
+                        self._walk_cte_definitions(with_clause, context=side_ctx)
                     self._walk_select(side, side_ctx, is_cte=False,
                                       derived_alias=derived_alias,
                                       cte_name=cte_name, setop_body=True)

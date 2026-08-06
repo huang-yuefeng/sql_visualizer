@@ -31,12 +31,19 @@ EDGE_SEMANTICS = {
     "CORRELATED": {"propagates_value": False, "always_bidir": True},
     "INDIRECT":   {"propagates_value": False, "always_bidir": True},
     "SET_OP":     {"propagates_value": False, "always_bidir": True},
-    "SUBSET":     {"propagates_value": False, "always_bidir": True},
     "SUBQUERY":   {"propagates_value": False, "always_bidir": True},
     "TABLE_FLOW": {"propagates_value": False, "always_bidir": True},
     "JOIN":       {"propagates_value": False, "always_bidir": False},
     "FILTER":     {"propagates_value": False, "always_bidir": False},
     "SCHEMA":     {"propagates_value": False, "always_bidir": False},
+    # B-series: SUBSET is pure connectivity padding (dependency_graph
+    # Phase 7/8 "BRIDGE" safety net) — it does NOT carry data semantics.
+    # Phase 1 (stopgap) skipped SUBSET edges leading INTO constant
+    # producers (literal/aggregate/window neighbors); Phase 2 makes SUBSET
+    # never walkable at all (bidir=False): nothing enters the lineage
+    # closure over a SUBSET bridge, which is what kept constants, filter-
+    # only columns, and detached second-statement vars in the graph.
+    "SUBSET":     {"propagates_value": False, "always_bidir": False},
 }
 
 # Production edges "produce" a value in the target — derived from EDGE_SEMANTICS,
@@ -69,9 +76,21 @@ def compute_field_lineage(graph_data: dict, target_table: str,
       FILTER:     conditional — both ends must be in R via production
       CORRELATED: bidirectional, always follow
       INDIRECT:   bidirectional, always follow
-      SUBSET:     bidirectional, always follow
+      SUBSET:     NEVER followed (B-series Phase 2 — connectivity padding
+                  with no data semantics: propagates_value=False,
+                  always_bidir=False)
       SET_OP:     bidirectional, always follow
     """
+    # None-seed guard (B-series): empty/missing table or field args (and a
+    # missing graph) return an empty closure gracefully — never
+    # AttributeError/TypeError (e.g. a filter_relevant call with only a
+    # table, or a None field).
+    if not graph_data:
+        return set()
+    if not target_table or not target_field:
+        _log.info(f'R18 lineage: missing target table/field ({target_table!r}/{target_field!r}) — empty closure')
+        return set()
+
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
 
@@ -244,13 +263,23 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                     if edge_filter is not None and etype not in edge_filter:
                         pass  # skip
                     else:
-                        has_prod = False
-                        for (n2, e2, d2) in adj.get(neighbor, []):
-                            if n2 in R and e2 in _PRODUCTION:
-                                has_prod = True
-                                break
-                        if has_prod:
+                        # B-series Phase 2: materialized join-key EXPRESSION
+                        # nodes (CONCAT/RPAD/|| on columns in JOIN ON) are
+                        # admitted UNCONDITIONALLY — the key construction
+                        # itself is part of the field's data flow (its
+                        # operand columns then arrive via REF). All other
+                        # JOIN partners (vtables, ctes, plain columns) stay
+                        # conditional on production evidence.
+                        if node_types.get(neighbor, "") == "expression":
                             should_add = True
+                        else:
+                            has_prod = False
+                            for (n2, e2, d2) in adj.get(neighbor, []):
+                                if n2 in R and e2 in _PRODUCTION:
+                                    has_prod = True
+                                    break
+                            if has_prod:
+                                should_add = True
                 elif etype == "FILTER":
                     if edge_filter is not None and etype not in edge_filter:
                         pass  # skip
@@ -307,6 +336,12 @@ def filter_relevant(graph_data: dict, target_table: str,
     """
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
+
+    # None-seed guard (B-series): no table/field → return the graph
+    # unchanged (the name-based fallback below would crash on
+    # `None in label`).
+    if not target_table or not target_field:
+        return graph_data
 
     lineage = compute_field_lineage(graph_data, target_table, target_field, table_schemas)
 

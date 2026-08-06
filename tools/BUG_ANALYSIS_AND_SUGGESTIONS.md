@@ -2751,3 +2751,97 @@ valuable ones kept with refined, code-grounded solutions.
   = 54 tests, 1.05s, no hang; `pytest-timeout` not installed (the `--timeout` flag errors);
   review nits: "530 def test_" is wrong (438 across 27 files) and the `test_services/`
   subpath does not exist (suite is flat).
+
+---
+
+### ✅ B-series IMPLEMENTED + VERIFIED (v3.3.138, 2026-08-06 — parallel team)
+
+All 3 phases shipped in one round (Team 1: extractor/lineage/l2; Team 2: index pipeline;
+Team 3: deploy guard), 62 new backend tests, suites green (626 passed / 5 skipped).
+
+- **Phase 1 — SUBSET never walkable** (`lineage.py` `EDGE_SEMANTICS`): `SUBSET` →
+  `{propagates_value: False, always_bidir: False}` — removed from `_BIDIR`. The "safety-net
+  bridge" no longer contributes lineage, so constants (`STATUS`, `total_rows`, `load_time`,
+  `remarks`, …), the second statement's columns, label-subquery keys, and partition columns
+  (data_dt/p_dt) all drop out of the closure.
+- **Phase 2 — join-key materialization** (`variable_extractor_v2.py`
+  `_walk_join_key_expressions`): CONCAT/RPAD/`||` expressions in JOIN ON become EXPRESSION
+  vars (`defined_in="JOIN ON"`); `dependency_graph.py` Phase 6b emits JOIN edges from the
+  other side → expression node; `_classify_relationship` → REF for JOIN ON expression
+  targets; lineage JOIN rule admits expression neighbors unconditionally (vtables/ctes/
+  plain columns keep production evidence). Recovered: p2's 6 CONCAT parts
+  (poctcd/pogmab/poacb/poacs/poacx/podtao), p4's iiapty/iiblno, the p1/p2/p3/p4/p6 join-key
+  operands. Filter-only columns (podcg/poapty/poofla/pofdtt/pocnlm/poclin) stay out.
+- **Phase 3 — presentation** (`l2_builder.py`): B4 dedup on undecorated label
+  (`(parent_table_id, undecorated_label, stmt_idx)`) — the 27 `↻` twins collapse; B3
+  `_resolve_scope_parent` context-segment walk parents fields (CTE{…}/TOP{idx}:… segments);
+  B5 label/table_name split — display strips `⟐ `, `table_name` keeps the raw sentinel.
+
+**Verified on workspace `8f843283a9d8` (BDM_ACC_LOAN_INFO_SUP_M.sql, `lending_ref`):
+L2 fields 78 → 12** (predicted band 25-35 was optimistic on the low side — the old 78 came
+entirely from SUBSET bridges; strict production semantics legitimately excludes loan_final
+computed outputs and NULL constants). Acceptance: absent = STATUS/total_rows/load_time/
+remarks/contract_no/acct_no/product_code/branch_code_sk/a.*/b.*/c.*; present+parented =
+p1.lending_ref (×2 — legitimate C-9 split, see below), p2's 6 CONCAT parts, p4's
+iiapty/iiblno, output lending_ref; no `↻` twins, no `⟐`/`}`-mangled labels, no parentless
+fields, no constant literals.
+
+**Two documented follow-up observations (by-design, no code change)**:
+1. **DML edges absent from filtered L2** — the 16 raw DML edges are `relationship`-keyed
+   (pre-existing serialization; `edge_type` null) and target the *output* tables
+   (`bdm_acc_loan_info_sup`, `rrcdm_job_log_exec_par`), never the searched table; their
+   producers are reachable only via the now-severed SUBSET bridge, so the DML edges drop
+   with the producers. Consequence of Phase 1, not a regression. If a DML write INTO the
+   searched table is ever required, DML forward (col→table) is already walked
+   unconditionally (`lineage.py:229-239`) — the producer needs a real production path.
+2. **Comparison-side join keys render edge-less** — `p1.lending_ref` (TOP0) and
+   `p1.lending_ref` (CTE{rollover_loan_info}/subq1/subq) are two distinct raw nodes
+   (different contexts, `stmt_idx` 0 vs None → the C-9 split keeps them apart; verified NOT
+   a B4 twin — different ids, never a `↻`-stamped duplicate). Both are JOIN ON operands
+   whose own column source is only SCHEMA-reachable, so they show as fields under p1 with
+   no edges. Cosmetic; the join-key chain itself (operands → CONCAT expression) is fully
+   wired.
+
+**Existing workspaces need re-index after deploy** for full B-series/C-9 fixes — old
+analysis caches (pre-fix format) produce partial results (probe showed 1 field before
+re-index, 12 after).
+
+---
+
+### ✅ C-series IMPLEMENTED + VERIFIED (v3.3.138, 2026-08-06 — parallel team)
+
+- **C-1 CTAS → script** (`folder_index_service.py` `classify_sql_text`): kind==TABLE +
+  expression not None → "script" before the `_SCHEMA_CREATE_KINDS` check. +classifier tests.
+- **C-2 S4b-consistent caches**: index now deletes ALL `graph_3_*.json` after the S4b pass
+  (unconditional, `_invalidate_graph_caches`); the index-time graph precompute was REMOVED
+  (it wrote pre-S4b graphs that C-2 immediately deleted — double analysis per script);
+  `precomputed_count` stays 0 in responses; the L2 miss path prefers the S4b-mutated
+  `analysis_{cache_key}.json` and WRITES graph caches (format_version 3); L1/L2 agree on
+  post-S4b `source_tables`; `GRAPH_CACHE_PREFIX` → `graph_3_2_17`.
+- **C-3 revocation mirror** (`_revoke_s4b_cache_update`): `schema_candidates` cleanup +
+  cached graph invalidation mirrored into the revoke path.
+- **C-5 post-loop star expansion**: `SELECT a.*` is expanded from the schema evidence of
+  its source tables AFTER the main resolution loop (no per-row evidence lookups).
+- **C-7 deploy guard** (`target_deploy.sh`): missing RELEASE.txt → red ERROR + exit 1;
+  strictly-behind (fetch OK ∧ behind>0 ∧ ahead==0) → reset advice + exit 1; diverged /
+  ahead / fetch-failed → YELLOW + continue. `bash -n` verified.
+- **C-9 per-statement dedup**: extractor contexts `TOP` → `TOP{stmt_idx}` (CTE walk threads
+  the enclosing context); `stmt_idx` lands in node data (`graph_service._stmt_idx_of`);
+  L2 dedup key = `(parent_table_id, undecorated_label, stmt_idx)`. Same-named vars in
+  different statements no longer collapse. 18 tests pinning `"TOP"`/`"TOP0"`-style contexts
+  updated to the new contract (verified not regressions); `test_l2_table_dedup.py`
+  comment-relaxed for stmt_idx keys as C-9 specified.
+- **C-10 + C-2(b) merged miss paths**: `dataflow_service.py` and `l2_builder._load_or_build_graph`
+  both prefer analysis caches before re-analysis.
+- **C-13 single parse + anchor fix**: `parse_by_script`/`parsed_cache` — one parse per script
+  across the index pipeline; token-position index for `_statement_anchor` (sqlglot sets no
+  `expr.start/end`, so line offsets are reconstructed from tokens). **C-13(b) is the
+  P3-13(b) impossibility made practical** — `expr.start/end` still doesn't exist, the
+  statement anchor is now derived from the token stream instead.
+- **ENV-2 kept**: C-9 re-scope tracked through the whole round (this entry + B-series
+  observation 2 document the stmt_idx consequence).
+
+**Verification**: backend 626 passed / 5 skipped (baseline 564 → +62 net new), frontend 64
+passed. All C-series items have dedicated tests (`test_c_index_pipeline.py` 32 tests:
+TestC1CtasClassification, TestC2GraphCacheInvalidation, TestC3RevocationMirror,
+TestC5StarExpansion, TestC13SingleParse).

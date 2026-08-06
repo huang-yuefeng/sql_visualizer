@@ -465,7 +465,7 @@ def test_s2_setop_derived_output_chain():
     stats = r.resolution_stats
     for name in ("sold_item_sk", "time_sk"):
         top = [v for v in _col_vars(r)
-               if v.name == name and v.context == "TOP"]
+               if v.name == name and v.context == "TOP0"]
         assert top and top[0].source_tables == ["tmp"], (name, top)
     # one-hop only — the outputs were plain aliases of item columns, but a
     # set-op branch must never two-hop (the branches' sources differ)
@@ -496,7 +496,7 @@ def test_s2_union_cte_outputs_and_star_expansion():
     assert stats["unresolved"] == [], stats
     for name in ("txn_id", "debit_amount_usd", "total_debit_usd"):
         top = [v for v in _col_vars(r)
-               if v.name == name and v.context == "TOP"]
+               if v.name == name and v.context == "TOP0"]
         assert top and top[0].source_tables == ["positions_with_action"], (
             name, top)
 
@@ -515,7 +515,7 @@ def test_s2_union_cte_direct_output_resolution():
     stats = r.resolution_stats
     assert stats["unresolved"] == [], stats
     for name in ("txn_id", "debit_amount_usd"):
-        top = [v for v in _col_vars(r) if v.name == name and v.context == "TOP"]
+        top = [v for v in _col_vars(r) if v.name == name and v.context == "TOP0"]
         assert top and top[0].source_tables == ["positions"], (name, top)
 
 

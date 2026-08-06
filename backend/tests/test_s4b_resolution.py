@@ -543,11 +543,11 @@ def test_m13_cache_attribution_context_scoped(monkeypatch):
     analysis var that is VISIBLE in the candidate's context (mirrors S4a
     `_finalize_schema_candidates`'s `v.context in cand["contexts"]`).
     The same bare name `f` appears in TWO statements of q.sql with
-    different visible sets: statement 1 (context TOP, tables {t1, x} —
-    t1 owns f) and statement 2's subquery (context TOP/subq, tables
+    different visible sets: statement 1 (context TOP0, tables {t1, x} —
+    t1 owns f) and statement 2's subquery (context TOP1/subq1, tables
     {y, z} — no owner; a second workspace owner t2 exists but is NOT
     visible there). S4b attributes f → t1; the cache update must touch
-    ONLY the TOP var — the subquery var (where t1 was never visible)
+    ONLY the TOP0 var — the subquery var (where t1 was never visible)
     must keep empty source_tables. `visible` still scopes only the
     candidate-record removal."""
     ws = _make_ws({
@@ -566,12 +566,18 @@ def test_m13_cache_attribution_context_scoped(monkeypatch):
         fvars = [v for v in qc["variables"]
                  if v.get("variable_type") == "column"
                  and v.get("name") == "f"]
-        assert len(fvars) == 2, fvars  # TOP + subquery context copies
-        top = [v for v in fvars if v.get("context") == "TOP"]
-        subq = [v for v in fvars if v.get("context") != "TOP"]
+        # C-9: per-statement contexts — stmt1's f (TOP0), stmt2's subquery f
+        # (TOP1/subq1) and stmt2's outer expression-copy f (TOP1) are now
+        # three DISTINCT vars (the old shared "TOP" collapsed them).
+        assert len(fvars) == 3, fvars  # TOP0 + TOP1/subq1 + TOP1 copies
+        top = [v for v in fvars if v.get("context") == "TOP0"]
+        subq = [v for v in fvars if v.get("context") == "TOP1/subq1"]
+        outer = [v for v in fvars if v.get("context") == "TOP1"]
         assert top and top[0]["source_tables"] == ["t1"], top
         assert subq and subq[0]["source_tables"] == [], \
             "non-visible (subquery) var must NOT be attributed: %r" % subq
+        assert outer and outer[0]["source_tables"] == [], \
+            "stmt-2 outer copy must NOT be attributed (t1 not visible there): %r" % outer
         # candidate-record removal stays scoped by (field, visible set):
         # only the TOP candidate was resolved — the subquery candidate
         # (different visible set) remains for the report.
@@ -655,8 +661,11 @@ def test_a1_ddl_only_sql_is_schema_evidence_not_script(monkeypatch):
         cache_dir = get_workspace_dir(ws) / "cache"
         caches = [p.name for p in cache_dir.glob("analysis_*.json")]
         assert len(caches) == 1, caches  # only q.sql — DDL file gets no cache
+        # C-2: index-time graph caches are invalidated right after the S4b
+        # pass (they'd be pre-S4b and stale) — L2 rebuilds on demand from
+        # the post-S4b analysis cache. The DDL file never contributes one.
         graphs = [p.name for p in cache_dir.glob("graph_*.json")]
-        assert len(graphs) == 1, graphs
+        assert len(graphs) == 0, graphs
         ev = result["schema_evidence"]
         assert ev["present"] is True and ev["tables"] >= 1 and ev["columns"] >= 1, ev
     finally:

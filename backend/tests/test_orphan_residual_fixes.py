@@ -110,12 +110,12 @@ def test_fix_a_outer_phantom_copy_never_guessed():
     # M4: the outer-context phantom copies no longer exist (they previously
     # double-registered every branch column, inflating total_columns).
     phantoms = [v for v in _col_vars(r)
-                if v.name in ("SourceAirport", "DestAirport") and v.context == "TOP"]
+                if v.name in ("SourceAirport", "DestAirport") and v.context == "TOP0"]
     assert phantoms == [], phantoms
     # the branch copies resolve inside their own branch scopes (single table)
     branch = [v for v in _col_vars(r)
               if v.name in ("SourceAirport", "DestAirport")
-              and v.context.startswith("TOP/subq")]
+              and v.context.startswith("TOP0/subq")]
     assert branch, "branch-context copies should exist"
     assert all(v.source_tables == ["Flights"] for v in branch), branch
     assert "SourceAirport" not in r.resolution_stats["unresolved"]
@@ -190,9 +190,9 @@ def test_m2_alias_of_cte_resolved_column_lands_same_table():
     attributed to t1 while its own source column id resolved to the CTE w."""
     r = extract_variables_from_sql(
         "WITH w AS (SELECT id FROM t2) SELECT id AS c FROM t1, w", "m2")
-    c = _find_src(r, "c", ["w"], context="TOP")
+    c = _find_src(r, "c", ["w"], context="TOP0")
     assert c.source_tables == ["w"], c
-    id_src = _find_src(r, "id", ["w"], context="TOP")
+    id_src = _find_src(r, "id", ["w"], context="TOP0")
     assert id_src.source_tables == ["w"], id_src  # same table as its source
     assert r.resolution_stats["resolved_by"]["expr_alias"] >= 1, r.resolution_stats
     assert "c" not in r.resolution_stats["unresolved"], r.resolution_stats
@@ -203,7 +203,7 @@ def test_m2_alias_of_derived_output_column_two_hop():
     resolves via the derived chain (two-hop when the output carries one)."""
     r = extract_variables_from_sql(
         "SELECT x AS c FROM t1, (SELECT t.x FROM t) d", "m2d")
-    c = _find_src(r, "c", ["t"], context="TOP")
+    c = _find_src(r, "c", ["t"], context="TOP0")
     assert c.source_tables == ["t"], c  # two-hop to the source table
     assert r.resolution_stats["resolved_by"]["expr_alias"] >= 1, r.resolution_stats
 
@@ -230,7 +230,7 @@ def test_fix_c_derived_output_one_hop():
         "case when a then b else c end act_sales "
         "FROM store_sales) t", "fixc1")
     outer = _find_src(r, "act_sales", ["t"])
-    assert outer.context == "TOP", outer
+    assert outer.context == "TOP0", outer
     assert outer.source_tables == ["t"], outer
     assert r.resolution_stats["resolved_by"]["expr_alias"] >= 1, r.resolution_stats
     assert "act_sales" not in r.resolution_stats["unresolved"], r.resolution_stats
@@ -243,7 +243,7 @@ def test_fix_c_derived_unaliased_projection_output():
         "SELECT ss_customer_sk FROM "
         "(SELECT ss_customer_sk FROM store_sales) d", "fixc2")
     outer = _find_src(r, "ss_customer_sk", ["d"])
-    assert outer.context == "TOP", outer
+    assert outer.context == "TOP0", outer
     assert "ss_customer_sk" not in r.resolution_stats["unresolved"], r.resolution_stats
 
 
@@ -252,7 +252,7 @@ def test_fix_c_derived_output_two_hop_to_source():
     of a plain column, the outer bare ref skips to the source table."""
     r = extract_variables_from_sql(
         "SELECT y FROM (SELECT t.x AS y FROM t) d", "fixc3")
-    outer = _find_src(r, "y", ["t"], context="TOP")
+    outer = _find_src(r, "y", ["t"], context="TOP0")
     assert outer.source_tables == ["t"], outer
     assert r.resolution_stats["resolved_by"]["expr_alias"] >= 1, r.resolution_stats
     assert "y" not in r.resolution_stats["unresolved"], r.resolution_stats
@@ -263,7 +263,7 @@ def test_fix_c_derived_from_join_visible():
     r = extract_variables_from_sql(
         "SELECT z FROM t1 JOIN (SELECT sum(a) z FROM t2) d ON t1.id = d.a",
         "fixc4")
-    outer = _find_src(r, "z", ["d"], context="TOP")
+    outer = _find_src(r, "z", ["d"], context="TOP0")
     assert outer.source_tables == ["d"], outer
     assert "z" not in r.resolution_stats["unresolved"], r.resolution_stats
 
@@ -294,7 +294,7 @@ def test_fix_c_two_candidate_deriveds_ambiguous():
     r = extract_variables_from_sql(
         "SELECT x FROM (SELECT a x FROM t) d1, (SELECT b x FROM u) d2", "fixc7")
     outer = _find(r, "x", VariableType.COLUMN)
-    top_copies = [v for v in _col_vars(r) if v.name == "x" and v.context == "TOP"]
+    top_copies = [v for v in _col_vars(r) if v.name == "x" and v.context == "TOP0"]
     assert top_copies and top_copies[0].source_tables == [], top_copies
     assert r.resolution_stats["resolved_by"]["expr_alias"] == 0, r.resolution_stats
 
@@ -307,7 +307,7 @@ def test_l3_fix_c_shadows_physical_table_owner():
     never silently reordered."""
     r = extract_variables_from_sql(
         "SELECT x FROM (SELECT SUM(a) AS x FROM t1) d, t2", "l3")
-    outer = _find_src(r, "x", ["d"], context="TOP")
+    outer = _find_src(r, "x", ["d"], context="TOP0")
     assert outer.source_tables == ["d"], outer  # derived chain wins
     assert "x" not in r.resolution_stats["unresolved"], r.resolution_stats
 
@@ -322,7 +322,7 @@ def test_l4_junk_derived_output_names_not_recorded():
     r = extract_variables_from_sql(
         "SELECT x FROM (SELECT 1 AS x, 2 AS y FROM t2) d", "l4b")
     assert "x" not in r.resolution_stats["unresolved"], r.resolution_stats
-    assert _find_src(r, "x", ["d"], context="TOP").source_tables == ["d"]
+    assert _find_src(r, "x", ["d"], context="TOP0").source_tables == ["d"]
 
 
 def test_l5_unaliased_qualified_projection_two_hop():
@@ -331,7 +331,7 @@ def test_l5_unaliased_qualified_projection_two_hop():
     physical table — S1 semantics without the alias var."""
     r = extract_variables_from_sql(
         "SELECT col FROM (SELECT t.col FROM t2 t) d", "l5")
-    outer = _find_src(r, "col", ["t2"], context="TOP")
+    outer = _find_src(r, "col", ["t2"], context="TOP0")
     assert outer.source_tables == ["t2"], outer
     assert "col" not in r.resolution_stats["unresolved"], r.resolution_stats
 
@@ -342,7 +342,7 @@ def test_fix_c_cte_behavior_unchanged():
     r = extract_variables_from_sql(
         "WITH c AS (SELECT SUM(a) AS s FROM t) SELECT s FROM c", "fixc8")
     s = _find_src(r, "s", ["c"])
-    assert s.context == "TOP", s
+    assert s.context == "TOP0", s
     assert r.resolution_stats["resolved_by"]["expr_alias"] == 1, r.resolution_stats
     assert r.resolution_stats["unresolved"] == [], r.resolution_stats
 

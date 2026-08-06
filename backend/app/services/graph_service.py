@@ -97,6 +97,24 @@ def get_edge_style(edge_type: str) -> dict:
     """Get per-type display style for an edge."""
     return EDGE_TYPE_STYLE.get(edge_type, EDGE_TYPE_STYLE["SUBSET"])
 
+def _stmt_idx_of(context: str):
+    """C-9: statement index of a variable context.
+
+    Top-level statement contexts are "TOP0", "TOP1", … (branch and subquery
+    descendants keep the prefix: "TOP0/union1", "TOP0:join:p2"). CTE-body
+    scopes ("CTE{loan_final}") and legacy "TOP" carry no index → None.
+    """
+    if not context or not context.startswith("TOP"):
+        return None
+    digits = ""
+    for ch in context[3:]:
+        if ch.isdigit():
+            digits += ch
+        else:
+            break
+    return int(digits) if digits else None
+
+
 def get_category(edge_type: str) -> str:
     """Map edge type to one of 7 visual categories."""
     return CATEGORY_MAP.get(edge_type, "structure")
@@ -171,6 +189,12 @@ def build_graph_data(analysis: dict) -> dict:
                 # H3: carry source_columns across the graph boundary (lineage seed
                 # matching + L2 target detection depend on it)
                 "source_columns": v.get("source_columns", []),
+                # B3/C-9: carry the extraction context and the statement
+                # index across the graph boundary — the L2 builder uses
+                # context for the scope-based parent fallback (B3) and
+                # stmt_idx for per-statement field dedup (C-9).
+                "context": v.get("context", ""),
+                "stmt_idx": _stmt_idx_of(v.get("context", "")),
                 # P2: Pre-resolved canonical names
                 "table_name": table_name,
                 "field_name": field_name,

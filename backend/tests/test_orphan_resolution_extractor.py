@@ -83,7 +83,7 @@ def test_s2_cte_output_column_resolves_downstream_ref():
     r = extract_variables_from_sql(sql, "s2c")
     s = _find(r, "s")  # the bare downstream reference in TOP context
     assert s.source_tables == ["c"], s
-    assert s.context == "TOP", s
+    assert s.context == "TOP0", s
     assert r.resolution_stats["resolved_by"]["expr_alias"] == 1, r.resolution_stats
     assert r.resolution_stats["unresolved"] == [], r.resolution_stats
 
@@ -144,10 +144,10 @@ def test_s3_subquery_inner_column_not_attributed_to_outer_scope():
     """A column inside a subquery must not be attributed to outer tables."""
     r = extract_variables_from_sql(
         "SELECT (SELECT MAX(x) FROM t2) AS m FROM t1", "s3sub")
-    inner_x = [v for v in _col_vars(r) if v.name == "x" and v.context.startswith("TOP/subq")]
+    inner_x = [v for v in _col_vars(r) if v.name == "x" and v.context.startswith("TOP0/subq")]
     assert inner_x and inner_x[0].source_tables == ["t2"], inner_x
     # the outer-context phantom copy stays unattributed (never guessed)
-    outer_x = [v for v in _col_vars(r) if v.name == "x" and v.context == "TOP"]
+    outer_x = [v for v in _col_vars(r) if v.name == "x" and v.context == "TOP0"]
     assert outer_x and outer_x[0].source_tables == [], outer_x
 
 
