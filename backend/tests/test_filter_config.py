@@ -699,6 +699,73 @@ class TestR3NoMatchesDiagnostic:
         assert "Filter active: YES  (1 tables, 1 fields in scope)" in joined, joined
 
 
+class TestR17BaseIndexDiagnostic:
+    """BE2 (issue c): the R17 search diagnostic must distinguish a field
+    absent from the BASE index (no script queries it — the filter CSVs are
+    not to blame) from a field present in the base index but excluded by the
+    active filter CSV (legitimate 'add to table_col.csv' hint)."""
+
+    def _run_search(self, monkeypatch, ws_id, table, field):
+        from app.routers.dataflow import search_dataflow
+        diag_msgs = []
+
+        def fake_push(ws_id_, stage, message):
+            diag_msgs.append(message)
+
+        monkeypatch.setattr("app.routers.dataflow._push", fake_push)
+        result = asyncio.run(search_dataflow(ws_id, {"table": table, "field": field}))
+        return result, "\n".join(diag_msgs)
+
+    def test_r17_field_absent_from_base_index_no_csv_blame(self, monkeypatch, indexed_ws):
+        """No filter active; the field is absent from the base index → the
+        diagnostic says 'not queried by any indexed script', NOT 'add to
+        table_col.csv' (the CSV is not the cause)."""
+        result, joined = self._run_search(monkeypatch, indexed_ws,
+                                          "stg_customers", "ghost_field")
+        assert result["match_mode"] == "no_matches", result
+        assert "SEARCH DIAGNOSTIC" in joined, joined
+        assert "ghost_field is not queried by any indexed script" in joined, joined
+        assert "no data flow exists" in joined, joined
+        assert "table_col.csv" not in joined, joined
+
+    def test_r17_table_absent_from_base_index_no_csv_blame(self, monkeypatch, indexed_ws):
+        """No filter active; the table is absent from the base index → the
+        diagnostic says the table is not queried, not a CSV hint."""
+        result, joined = self._run_search(monkeypatch, indexed_ws,
+                                          "ghost_table", "customer_id")
+        assert result["match_mode"] == "no_matches", result
+        assert "ghost_table is not queried by any indexed script" in joined, joined
+        assert "no data flow exists" in joined, joined
+        assert "script_table.csv" not in joined, joined
+
+    def test_r17_field_filtered_out_keeps_csv_hint(self, monkeypatch, indexed_ws):
+        """The field IS in the base index but excluded by the active filter
+        CSV → keep the legitimate 'add to table_col.csv or clear filter'
+        hint (this is the only case where the CSV is the cause)."""
+        _upload(indexed_ws,
+                script_table_csv=CSV1 + f"{STEP2},stg_customers\n",
+                table_col_csv=CSV2 + "ETL,stg_customers,customer_id,Staging customer id\n")
+        # "amount" is indexed (step1/step3/step4) but not in the filter scope
+        result, joined = self._run_search(monkeypatch, indexed_ws,
+                                          "stg_customers", "amount")
+        assert result["match_mode"] == "no_matches", result
+        assert "Field not in filter scope - add to table_col.csv or clear filter" in joined, joined
+
+    def test_r17_filter_active_field_absent_from_base_not_csv_blame(self, monkeypatch, indexed_ws):
+        """Filter active AND the field absent from the base index → the real
+        cause is 'no script queries it', not the CSV. (The old code blamed
+        the filter CSV for every field missing from the filtered index.)"""
+        _upload(indexed_ws,
+                script_table_csv=CSV1 + f"{STEP2},x\n",
+                table_col_csv=CSV2 + "ETL,y,some_col,Column\n")
+        result, joined = self._run_search(monkeypatch, indexed_ws,
+                                          "stg_customers", "ghost_field")
+        assert result["match_mode"] == "no_matches", result
+        assert "ghost_field is not queried by any indexed script" in joined, joined
+        assert "table_col.csv" not in joined, joined
+        assert "script_table.csv" not in joined, joined
+
+
 class TestF2DeleteWorkspaceValidation:
     """F2: DELETE /workspace/{ws_id} validates ws_id before touching disk —
     400 for a malformed id (path-traversal guard), 404 for a valid-format

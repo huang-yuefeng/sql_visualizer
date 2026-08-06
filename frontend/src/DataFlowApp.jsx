@@ -44,6 +44,11 @@ export default function DataFlowApp() {
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [l2FullGraph, setL2FullGraph] = useState(null);
   const [l2Result, setL2Result] = useState(null);
+  // L2 not-in-flow: the view's search field is not referenced in this
+  // script — backend returns the FULL unfiltered script graph plus
+  // search_matched:false + a message. Absence of search_matched = matched.
+  const [l2NotInFlow, setL2NotInFlow] = useState(false);
+  const [l2NotInFlowMessage, setL2NotInFlowMessage] = useState(null);
   const [highlights, setHighlights] = useState([]);
   const [sqlHighlightRange, setSqlHighlightRange] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -83,11 +88,26 @@ export default function DataFlowApp() {
   const activeView = views.find(v => v.view_id === activeViewId)
     || views.flatMap(v => v.children || []).find(c => c.view_id === activeViewId);
 
+  // ── Apply a level2 response: graph + result + not-in-flow banner state.
+  // Every L2 entry path goes through here so the banner can never go stale.
+  const applyL2Result = useCallback((result) => {
+    setL2Graph(result.graph);
+    setL2Result(result);
+    // Contract: search_matched === false → the search field is not in this
+    // script (graph is the full unfiltered one); field absent from the
+    // response means the search target matched (or none exists).
+    const notInFlow = result.search_matched === false;
+    setL2NotInFlow(notInFlow);
+    setL2NotInFlowMessage(notInFlow ? (result.message || null) : null);
+  }, []);
+
   // ── Upload & Analyze ──────────────────────────────────────────────
   const handleUpload = useCallback(async (file) => {
     uploadTokenRef.current = Date.now(); // cancels any in-flight R3 restore
     clearLastSearch();
-    setL1Graph(null); setL2Graph(null); setL2Result(null); setLoading(true); setError(null);
+    setL1Graph(null); setL2Graph(null); setL2Result(null);
+    setL2NotInFlow(false); setL2NotInFlowMessage(null);
+    setLoading(true); setError(null);
     try {
       // Clean up old workspace before creating new one
       if (wsId) {
@@ -212,7 +232,9 @@ export default function DataFlowApp() {
   // ── Search ────────────────────────────────────────────────────────
   const handleSearch = useCallback(async (table, field) => {
     if (!wsId) return;
-    setL1Graph(null); setL2Graph(null); setL2Result(null); setLoading(true); setError(null);
+    setL1Graph(null); setL2Graph(null); setL2Result(null);
+    setL2NotInFlow(false); setL2NotInFlowMessage(null);
+    setLoading(true); setError(null);
     try {
       const result = await api.searchDataFlow(wsId, table, field);
       const newView = {
@@ -258,8 +280,7 @@ export default function DataFlowApp() {
     try {
       const viewIdForApi = parentViewIdRef.current || activeViewId;
       const result = await api.getLevel2Graph(wsId, viewIdForApi, scriptName);
-      setL2Graph(result.graph);
-      setL2Result(result);
+      applyL2Result(result);
       setSqlText(result.sql_text || '');
       setHighlights(result.highlights || []);
       setCurrentScriptName(scriptName);
@@ -321,8 +342,7 @@ export default function DataFlowApp() {
       try {
         const parentView = views.find(v => v.view_id === entry.parent_view_id);
         const result = await api.getLevel2Graph(wsId, entry.parent_view_id, entry.script_name);
-        setL2Graph(result.graph);
-        setL2Result(result);
+        applyL2Result(result);
         setSqlText(result.sql_text || '');
         setHighlights(result.highlights || []);
         setCurrentScriptName(entry.script_name);
@@ -339,6 +359,7 @@ export default function DataFlowApp() {
       setL1Graph(entry.l1_graph_cache || { nodes: [], edges: [] });
       setGraphLevel('L1');
       setL2Graph(null);
+      setL2NotInFlow(false); setL2NotInFlowMessage(null);
       setSqlText('');
       setActiveL1Table(null);
     }
@@ -390,8 +411,7 @@ export default function DataFlowApp() {
         try {
           const result = await api.getLevel2Graph(wsId, parentId, currentScriptName, false);
           setL2FullGraph(result.graph);
-          setL2Graph(result.graph);
-          setL2Result(result);
+          applyL2Result(result);
           setL2Filtered(false);
         } catch (e) { setError(e.message); }
       }
@@ -399,8 +419,7 @@ export default function DataFlowApp() {
       // Switching back to filtered
       try {
         const result = await api.getLevel2Graph(wsId, parentId, currentScriptName, true);
-        setL2Graph(result.graph);
-        setL2Result(result);
+        applyL2Result(result);
         setL2Filtered(true);
       } catch (e) { setError(e.message); }
     }
@@ -454,6 +473,7 @@ export default function DataFlowApp() {
     });
     if (activeViewId === viewId) {
       setActiveViewId(null); setL1Graph(null); setL2Graph(null);
+      setL2NotInFlow(false); setL2NotInFlowMessage(null);
       setSqlText('');
     }
   }, [wsId, activeViewId]);
@@ -524,7 +544,9 @@ export default function DataFlowApp() {
             onSelectionChange={setSelectedScripts}
             indexed={indexed} stale={stale}
             onReindex={async () => {
-              setL1Graph(null); setL2Graph(null); setL2Result(null); setLoading(true);
+              setL1Graph(null); setL2Graph(null); setL2Result(null);
+              setL2NotInFlow(false); setL2NotInFlowMessage(null);
+              setLoading(true);
               try {
                 const idxResult = await api.indexWorkspace(wsId, selectedScripts);
                 setResolutionStats(idxResult.resolution_stats || null);
@@ -598,8 +620,10 @@ export default function DataFlowApp() {
 
       {/* Center: graph */}
       <div className="panel-center">
-        {/* R3: visible notice for empty no-match search results (F1) */}
-        {graphData && activeView?.match_mode === 'no_matches' && (
+        {/* R3: visible notice for empty no-match search results (F1).
+            Renders whenever the active view is a no_matches search — the
+            backend message is shown verbatim. */}
+        {activeView?.match_mode === 'no_matches' && (
           <div className="no-match-banner">
             ⚠️ No matches: {activeView.message || 'no tables in scope'} — empty result view
           </div>
@@ -663,6 +687,13 @@ export default function DataFlowApp() {
             </div>
           </div>
           <div className="inline-l2-graph">
+            {/* L2 not-in-flow: search field not referenced in this script —
+                backend message shown verbatim above the full-script graph */}
+            {l2NotInFlow && (
+              <div className="no-match-banner">
+                ⚠️ {l2NotInFlowMessage || 'Field not in this script — showing the full script graph'}
+              </div>
+            )}
             <DataFlowGraph
               graphData={l2Filtered ? l2Graph : l2FullGraph}
               level="L2"

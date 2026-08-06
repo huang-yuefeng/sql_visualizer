@@ -408,6 +408,22 @@ def test_loc_anchored_to_statement_not_string_literal():
     assert cand["loc"] == 3, cand  # the statement's line, not the literal's (2)
 
 
+def test_loc_anchor_skips_string_literal_as():
+    """L16: a string literal containing the token `as` is NOT the
+    statement-anchor `as` — `'as' AS c, a` must not collapse to `c, a`
+    and steal the later statement's anchor line. The old text-based `as`
+    drop removed the STRING literal alongside the AS keyword, making the
+    earlier statement's head identical to the real one (loc 2 instead of 3).
+    """
+    r = extract_variables_from_sql(
+        "-- header comment\n"
+        "SELECT 'as' AS c, a FROM t1;\n"
+        "SELECT c, a FROM web_sales ws JOIN web_page wp ON ws.id = wp.id;\n",
+        "s4a_l16")
+    cand = _cand(r.resolution_stats, "c")
+    assert cand["loc"] == 3, cand  # the real statement's line, not the 'as' (2)
+
+
 def test_candidate_dedup_same_scope():
     """Repeated bare uses in the same scope → one candidate record."""
     r = extract_variables_from_sql(

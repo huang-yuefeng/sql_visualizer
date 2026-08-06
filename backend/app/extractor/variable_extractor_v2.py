@@ -421,6 +421,16 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
     return result
 
 
+def _is_as_keyword(tok) -> bool:
+    """The statement-anchor `as`: the AS KEYWORD only (a non-STRING token
+    with text "as") — never a string literal containing `as`. String
+    literals are skipped when scanning for the anchor, mirroring
+    `_find_position`'s string-skip semantics (L16): `'as' AS c, a` must
+    not collapse to `c, a` and steal a later statement's anchor line.
+    """
+    return tok.text.lower() == "as" and tok.token_type != TokenType.STRING
+
+
 class _RoleBasedExtractor:
     """Walks the AST, classifies every Identifier by its structural role."""
 
@@ -532,14 +542,19 @@ class _RoleBasedExtractor:
                 # the same conservative fallback.
                 rendered = []
             if rendered:
-                # Skip AS tokens on BOTH sides: sqlglot's render inserts
-                # `AS` before aliases (`MERGE INTO customers tgt` renders
-                # as "MERGE INTO customers AS tgt"), which breaks the
-                # 4-token head match for alias-bearing statement heads.
+                # Skip AS KEYWORD tokens on BOTH sides: sqlglot's render
+                # inserts `AS` before aliases (`MERGE INTO customers tgt`
+                # renders as "MERGE INTO customers AS tgt"), which breaks
+                # the 4-token head match for alias-bearing statement heads.
+                # Only the KEYWORD counts — a STRING literal containing
+                # `as` is never the anchor (string skip mirrors
+                # `_find_position`), and dropping it from BOTH sides would
+                # collapse `'as' AS c, a` into `c, a`, letting an earlier
+                # statement masquerade as a later one's head (L16).
                 head = [t.text.lower() for t in rendered
-                        if t.text.lower() != "as"][:4]
+                        if not _is_as_keyword(t)][:4]
                 tokens = [t for t in self._tokens
-                          if t.text.lower() != "as"]
+                          if not _is_as_keyword(t)]
                 # First match of the statement's own first-4-token sequence.
                 # The statement's own text is a unique token subsequence, so
                 # the first match IS its own occurrence in the file (identical

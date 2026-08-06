@@ -163,7 +163,9 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     Returns: {table_index, field_index, script_count, precomputed_count,
               resolution_stats} — resolution_stats carries the R20 coverage
               numbers aggregated from per-script extraction + the S4b
-              cross-script schema pass.
+              cross-script schema pass (plus `ambiguous` — fields claimed
+              by ≥2 DIFFERENT owners across scripts: never attributed,
+              revoked from the index, counted and reported).
     """
     from app.extractor.adapter import run_full_analysis
 
@@ -440,6 +442,15 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     #      case-insensitive equality (R4: "id" never matches "customer_id").
     #   3. len(owners) == 1 → attribute; 0 (evidence absent / table not
     #      visible) or ≥2 (ambiguous) → stays unresolved + reported.
+    # M12 (review): rule 3 is additionally gated on OWNER CONFLICTS — a
+    # field claimed by ≥2 DIFFERENT owners (two scripts' candidates, or a
+    # candidate whose owner differs from an existing S1–S3/S4a index
+    # attribution) is AMBIGUOUS: no plan for it is applied (no index
+    # attribution, no cache update, no schema counter), stale index
+    # attributions are revoked, and the field returns to the unresolved
+    # pool — counted in resolution_stats["ambiguous"] and listed in the
+    # report instead of silently letting the first claim win. Same-owner
+    # re-claims keep the no-op skip (first attribution stands).
     # L2 (review): the owner check matches TABLE names EXACTLY first — a
     # case-insensitive fallback applies only when the visible table has NO
     # exact entry in m_ws (distinct case variants like Orders/orders must
@@ -456,7 +467,11 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                 return False  # 0 or ≥2 case variants → no evidence (never guess)
         return field_lower in {c.lower() for c in cols}
 
-    s4b_resolved = []  # (field, owner, cand_script, cand_record) — S4b additions
+    # M12 (review): TWO-PHASE processing — phase A PLANS each candidate
+    # (read-only, no index/cache mutation); phase B detects OWNER CONFLICTS;
+    # phase C applies only non-conflicted plans. A field claimed by ≥2
+    # different owners is ambiguous and never attributed.
+    s4b_plans = []  # (field, owner, cand_script, cand_record, visible)
     for _srec, _crec in schema_candidate_records:
         if not isinstance(_crec, dict):
             continue
@@ -465,9 +480,6 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                    if isinstance(t, str) and t]
         if not isinstance(_f, str) or not _f or not visible:
             continue  # malformed record — never guess on it
-        fdata = field_index.get(_f)
-        if fdata and fdata.get("tables"):
-            continue  # already attributed (S1–S3/S4a or another script) — no-op
         if _f.lower() in {t.lower() for t in visible}:
             continue  # R6 guard — field == visible table: never attribute
         owners = [t for t in visible if _table_owns(t, _f.lower())]
@@ -481,19 +493,70 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
         # candidate unresolved (never guess) and let it surface in the report.
         if owner not in table_index:
             continue
+        s4b_plans.append((_f, owner, _srec, _crec, visible))
+
+    # Phase B — owner-conflict detection (read-only):
+    #   * ≥2 plans for the same field with DIFFERENT owners (two scripts'
+    #     candidates) → ambiguous;
+    #   * a plan whose owner differs from the field's EXISTING index
+    #     attribution (S1–S3/S4a extractor-side) → ambiguous too — the
+    #     different-owner claim must not be silently skipped ("first script
+    #     wins") and the stale attribution must not keep winning.
+    ambiguous_fields = set()
+    _claimed_owners = {}
+    for _f, _owner, _srec, _crec, _vis in s4b_plans:
+        _claimed_owners.setdefault(_f, set()).add(_owner.lower())
+    for _f, _owners in _claimed_owners.items():
+        if len(_owners) > 1:
+            ambiguous_fields.add(_f)
+    for _f, _owner, _srec, _crec, _vis in s4b_plans:
+        _fdata = field_index.get(_f)
+        _existing = ([t for t in _fdata.get("tables")
+                      if isinstance(t, str) and t] if _fdata else [])
+        if _existing and _owner.lower() not in {t.lower() for t in _existing}:
+            ambiguous_fields.add(_f)
+
+    # Phase C — apply. Ambiguous fields are REVOKED first (the existing
+    # attribution leaves table_index/field_index and the field returns to
+    # the unresolved pool so the report lists it), then only non-conflicted
+    # plans attribute.
+    for _f in ambiguous_fields:
+        _fdata = field_index.get(_f)
+        if not _fdata:
+            continue
+        for _t in list(_fdata.get("tables") or []):
+            _ti = table_index.get(_t)
+            if _ti:
+                _ti["fields"].discard(_f)
+        _fdata["tables"].clear()
+        extractor_unresolved.add(_f)  # back into the unresolved pool → report
+
+    s4b_resolved = []  # (field, owner, cand_script, cand_record) — S4b additions
+    for _f, owner, _srec, _crec, visible in s4b_plans:
+        if _f in ambiguous_fields:
+            continue  # M12 — different-owner claim: never attribute
+        fdata = field_index.get(_f)
+        if fdata and fdata.get("tables"):
+            continue  # already attributed to the SAME owner — no-op skip
         # Index-level attribution (same mechanics as the old loop, but the
         # candidate's own scope replaces workspace-global uniqueness).
         field_index.setdefault(_f, {"tables": set(), "scripts": set()})
         field_index[_f]["tables"].add(owner)
         table_index[owner]["fields"].add(_f)
-        by_strategy["schema"] += 1
         extractor_unresolved.discard(_f)  # out of the per-script unresolved lists
         # Persist into the analysis cache: var attribution + resolution_stats
         # (unresolved drop, schema +1, candidate removal) so cache consumers
         # (L1/L2) see the resolution too.
-        _apply_s4b_cache_update(cache_by_script.get(_srec), _f, owner, visible)
+        # M15 (review): the schema-strategy counter counts only real
+        # attribution events — `_apply_s4b_cache_update` returns how many
+        # analysis vars it actually modified; a stale/missing cache (0
+        # modified) is not an attribution event and must not count.
+        if _apply_s4b_cache_update(cache_by_script.get(_srec), _f, owner,
+                                   visible, _crec):
+            by_strategy["schema"] += 1
         s4b_resolved.append((_f, owner, _srec, _crec))
     s4b_unique_owners = len(s4b_resolved)
+    n_ambiguous = len(ambiguous_fields)
 
     # P1: Build pair_index[(table,field)] → {scripts} for fast seed-script lookup.
     # Used by Algorithm 2 step 2a to find seed scripts without scanning all data.
@@ -592,6 +655,11 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
         "container_resolved": len(container_resolved),
         "coverage_pct": coverage_pct,
         "by_strategy": dict(by_strategy),
+        # M12: fields claimed by ≥2 DIFFERENT owners (cross-script S4b
+        # conflict, or a candidate vs an existing S1–S3/S4a attribution) —
+        # never attributed; revoked fields return to the unresolved pool
+        # and are listed in the report's UNRESOLVED section.
+        "ambiguous": n_ambiguous,
     }
     _push_resolution_report(ws_id, resolution_stats, orphan_fields,
                             container_resolved,
@@ -756,28 +824,50 @@ def _evidence_loc(owner: str, field: str,
 
 
 def _apply_s4b_cache_update(cache_path, field: str, owner: str,
-                            visible: list) -> None:
+                            visible: list, crec: dict | None = None) -> int:
     """S4b: persist an index-time attribution into the script's analysis
     cache — var.source_tables, resolution_stats (field dropped from
     `unresolved`, `resolved_by["schema"]` +1, the candidate record removed).
     Best-effort: a stale/missing cache is skipped — the in-memory indexes
     are already updated, and a re-index re-extracts from scratch.
+
+    M13 (review): the var attribution is CONTEXT-SCOPED, mirroring S4a's
+    `_finalize_schema_candidates` (`v.context in cand["contexts"]`) — a var
+    is updated only when its `context` is one of the candidate record's
+    `contexts` (the statement scopes where the bare column was actually
+    seen). A same-named var in a DIFFERENT context (where the owner was not
+    visible) is never attributed. Records without the `contexts` key
+    (older analyses / injected fixtures) keep the legacy any-context
+    behavior — never a silent no-op. `visible` still scopes ONLY the
+    candidate-record removal (same field + same visible set).
+
+    Returns the number of analysis variables actually attributed — M15:
+    the caller counts a schema-strategy attribution event only when ≥1 var
+    was modified (a stale cache modifies none).
     """
     if not cache_path:
-        return
+        return 0
     try:
         cdata = json.loads(Path(cache_path).read_text(encoding="utf-8"))
     except Exception:
-        return  # stale/missing cache — update skipped by design (best-effort)
+        return 0  # stale/missing cache — update skipped by design (best-effort)
     if not isinstance(cdata, dict):
-        return
+        return 0
     changed = False
+    # M13: context-scoped var matching (mirrors S4a) — a var is attributed
+    # only when its context is one of the candidate's recorded contexts.
+    has_contexts = isinstance(crec, dict) and "contexts" in crec
+    cand_contexts = [c for c in (crec.get("contexts") or [])
+                     if isinstance(c, str)] if has_contexts else []
+    n_attributed = 0
     for v in cdata.get("variables", []) or []:
         if (isinstance(v, dict)
                 and v.get("variable_type") == "column"
                 and v.get("name") == field
+                and (not has_contexts or v.get("context") in cand_contexts)
                 and not v.get("source_tables")):
             v["source_tables"] = [owner]
+            n_attributed += 1
             changed = True
     rs = cdata.get("resolution_stats")
     if isinstance(rs, dict):
@@ -802,6 +892,7 @@ def _apply_s4b_cache_update(cache_path, field: str, owner: str,
                 json.dumps(cdata, indent=2, ensure_ascii=False))
         except Exception:
             pass  # cache persistence is best-effort
+    return n_attributed  # M15: vars actually modified (0 = no event)
 
 
 def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict,
@@ -828,6 +919,10 @@ def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict,
     provenance) plus the bare-use loc when it differs; old-shape caches
     without provenance keep the Phase-1 candidate-loc format. Old caches
     without the keys produce a byte-identical block.
+
+    M12 (review): the unresolved line additionally shows `ambiguous: N` —
+    fields claimed by ≥2 DIFFERENT owners across scripts (never attributed;
+    revoked attributions return to the UNRESOLVED section).
     """
     W = 80
     total = stats.get("total_columns", 0)
@@ -843,7 +938,8 @@ def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict,
     lines.append(("│ column vars: %d | resolved: %d (%g%%) |"
                   % (total, resolved, coverage_pct)).ljust(W - 1) + "│")
     lines.append(("│   unresolved: %d | resolved-to-container (no table): %d"
-                  % (n, nc)).ljust(W - 1) + "│")
+                  " | ambiguous: %d" % (n, nc, stats.get("ambiguous", 0)))
+                 .ljust(W - 1) + "│")
     lines.append(("│   by strategy (attribution events, not unique vars): "
                   "pa=%d ea=%d scope=%d schema=%d"
                   % (by.get("plain_alias", 0), by.get("expr_alias", 0),

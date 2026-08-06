@@ -190,6 +190,8 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
     table_nodes, field_nodes, other_nodes, alias_map = l2b._classify_compound_nodes(
         nodes, full_graph, STEP3, target_node_ids, direct_ids)
     id_map = l2b._build_id_map(table_nodes, field_nodes, other_nodes)
+    target_mapped, direct_mapped = l2b._map_search_target_ids(
+        field_nodes, table_nodes, target_node_ids, direct_ids, id_map)
     new_edges, node_labels = l2b._build_edge_list(edges, nodes, id_map, sql)
     new_edges = l2b._combine_edges(new_edges)
     new_edges = l2b._promote_field_edges(new_edges, field_nodes)
@@ -203,6 +205,10 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
                                    dml_pairs, full_graph, nodes)
     phased = l2b._assemble_output(table_nodes, field_nodes, new_edges, nodes,
                                   sql, STEP3, f"{TARGET_TABLE}.{TARGET_FIELD}")
+    # Issue a: the orchestrator stamps search_matched on the result dict
+    # (False only when a filter was requested and nothing matched — here
+    # relevance_filter=True, so it is exactly bool(target or direct)).
+    phased["search_matched"] = bool(target_mapped or direct_mapped)
 
     assert json.dumps(phased, sort_keys=True) == \
         json.dumps(expected, sort_keys=True)
