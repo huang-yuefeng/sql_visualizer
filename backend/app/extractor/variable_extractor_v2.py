@@ -445,7 +445,9 @@ class _RoleBasedExtractor:
         self._counter: dict[str, int] = {}
         self._cte_names: set[str] = set()
         self._table_aliases: dict[str, str] = {}  # alias → real table name
-        self._seen: set[tuple[str, str]] = set()   # (name, type) dedup
+        # Node identity key is (name, type.value, context) — see `_add`
+        # (C-9: statement-scoped contexts made the dedup key a 3-tuple).
+        self._seen: set[tuple[str, str, str]] = set()
         # R20 orphan resolution state
         self._resolution_stats: dict = default_resolution_stats()
         self._cte_output_columns: dict[str, set[str]] = {}  # cte name → output column names (S2)
@@ -1040,6 +1042,7 @@ class _RoleBasedExtractor:
             # benign: walk failure → no join-key nodes (only degrades key
             # granularity, never crashes extraction)
             return
+        pairs: list[tuple[str, str]] = []  # (materialized var id, other-side name)
         for node in nodes:
             # Predicates only (EQ/NEQ/GT/…): DPipe ("||") is also a Binary
             # but is the KEY EXPRESSION itself, not a comparison — matching
@@ -1051,21 +1054,38 @@ class _RoleBasedExtractor:
                 continue  # AND/OR structure — not a key comparison
             left, right = node.this, node.expression
             for side, other in ((left, right), (right, left)):
-                self._materialize_join_key_side(side, other, context)
+                var = self._materialize_join_key_side(side, other, context)
+                if var is None:
+                    continue
+                other_name = _sql(other)
+                if other_name:
+                    pairs.append((var.id, " ".join(other_name.split())))
+        # Order-independent pairing (B-series fix): in an
+        # expression=expression comparison the FIRST side is materialized
+        # before its counterpart exists, so pairing at creation time only
+        # ever linked the SECOND side — half the JOIN_KEY edges were
+        # missing. Cross-link both sides of every comparison after the
+        # whole walk instead.
+        if pairs:
+            self._pair_join_key_sides(pairs, context)
 
-    def _materialize_join_key_side(self, side, other, context: str):
+    def _materialize_join_key_side(self, side, other, context: str) -> VariableDefinition | None:
         """Create the EXPRESSION variable for one side of a JOIN-key
-        comparison, paired with the other side via `source_variables`."""
+        comparison. Returns the new variable, or None when the side is not
+        materializable (plain column/literal/subquery side, expression
+        without column operands, or an already-materialized duplicate).
+        The pairing with the OTHER side is deferred to
+        `_pair_join_key_sides` so it is independent of walk order."""
         if side is None or other is None:
-            return
+            return None
         if isinstance(side, (exp.Column, exp.Literal, exp.Subquery, exp.Exists)):
-            return  # plain columns / literals / subqueries are not materialized
+            return None  # plain columns / literals / subqueries are not materialized
         src_cols = _extract_source_columns(side)
         if not src_cols:
-            return  # an expression without column operands (constants) is not a key
+            return None  # an expression without column operands (constants) is not a key
         name = _sql(side)
         if not name:
-            return
+            return None
         # Flatten the rendered SQL to a single line — the dialect render
         # emits newlines for nested calls, which would produce multi-line
         # field labels in the L2 graph.
@@ -1078,27 +1098,53 @@ class _RoleBasedExtractor:
                 p = sc.split(".", 1)[0]
                 if p not in src_tables:
                     src_tables.append(p)
-        var = self._add(name, VariableType.EXPRESSION,
-                        sql_expr=name,
-                        defined_in="JOIN ON",
-                        context=context,
-                        source_cols=src_cols,
-                        source_tables=src_tables,
-                        is_output=False)
-        if var is None:
+        return self._add(name, VariableType.EXPRESSION,
+                         sql_expr=name,
+                         defined_in="JOIN ON",
+                         context=context,
+                         source_cols=src_cols,
+                         source_tables=src_tables,
+                         is_output=False)
+
+    def _pair_join_key_sides(self, pairs: list[tuple[str, str]], context: str):
+        """Cross-link both sides of every JOIN-key comparison — symmetric
+        and order-independent.
+
+        Each side appends the OTHER side's variable id to its own
+        `source_variables`; dependency_graph Phase 6b then emits the
+        JOIN_KEY edge FROM the other side TO the expression node. An
+        expression=expression comparison therefore yields a JOIN edge
+        incident on BOTH materialized nodes regardless of which side was
+        materialized first (previously only the second-materialized side
+        was paired, so the first side stayed edge-less)."""
+        if not pairs:
             return
-        # Pair with the OTHER side of the comparison: the other side's
-        # variable in THIS context receives the JOIN edge from the
-        # expression node (emitted by dependency_graph Phase 6b). The other
-        # side of a column is its rendered form ("p1.lending_ref"); of an
-        # expression, its rendered SQL.
-        other_name = _sql(other)
-        if not other_name:
-            return
-        for existing in self.result.variables:
-            if existing.name == other_name and existing.context == context:
-                var.source_variables = list(var.source_variables or []) + [existing.id]
-                break
+        by_id = {v.id: v for v in self.result.variables}
+        by_name: dict[str, VariableDefinition] = {}
+        for v in self.result.variables:
+            if v.context != context:
+                continue
+            by_name.setdefault(v.name, v)  # first var of that name, as before
+        for var_id, other_name in pairs:
+            var = by_id.get(var_id)
+            if var is None:
+                continue
+            other = by_name.get(other_name)
+            if other is None or other.id == var.id:
+                continue
+            others = list(var.source_variables or [])
+            if other.id not in others:
+                others.append(other.id)
+            var.source_variables = others
+            # Symmetric: the OTHER side records this side too. Inert for
+            # Phase 6b when the other side is a plain column (only
+            # EXPRESSION vars emit JOIN_KEY edges), but keeps the pairing
+            # record complete — and for expression=expression comparisons
+            # it is what gives the first-materialized node its edge.
+            back = list(other.source_variables or [])
+            if var.id not in back:
+                back.append(var.id)
+            other.source_variables = back
 
     def _register_table(self, table: exp.Table, context: str, join_table: bool = False,
                         dml: str = "", scope: _SelectScope | None = None):

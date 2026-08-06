@@ -45,11 +45,24 @@ def _target_field_sc(sc: str, target_field: str) -> bool:
 def _compute_highlight_ranges(graph_data: dict, highlight_ids: set,
                                sql_text: str) -> list:
     """Compute line ranges to highlight based on node line_map."""
-    line_map = graph_data.get("line_map", {})
+    # D1: recompute the line map from the graph's own node expressions —
+    # the stored line_map was computed at index/analysis time and may
+    # predate comment-line skipping (stale caches would keep mapping table
+    # variables onto header comment lines). The node sql_expressions are
+    # verbatim copies of the analysis variables', so the result is
+    # identical to a fresh analysis.
+    line_map = _recompute_line_map(
+        [{"id": nd.get("data", nd).get("id", ""),
+          "sql_expression": nd.get("data", nd).get("sql_expression", "")}
+         for nd in graph_data.get("nodes", [])], sql_text)
     ranges = []
     for nid in highlight_ids:
         if nid in line_map:
             start, end = line_map[nid]
+            # D2: (0,0) is the "no line matched" placeholder — highlighting
+            # line 0 would paint the editor's gutter. Never emit it.
+            if start < 1:
+                continue
             ranges.append([start, end])
     if not ranges:
         return []
@@ -64,6 +77,18 @@ def _compute_highlight_ranges(graph_data: dict, highlight_ids: set,
         else:
             merged.append(r)
     return merged
+
+
+def _recompute_line_map(var_likes: list, sql_text: str) -> dict:
+    """D1: recompute line_map from cached variable/node dicts.
+
+    Cached line_maps were written before comment-line skipping existed in
+    map_variables_to_lines — their table variables point at header comment
+    lines. Recompute here so cached workspaces (analysis + graph caches)
+    benefit identically to fresh analyses, without a cache-version bump.
+    """
+    from app.extractor.sql_line_mapper import map_variables_to_lines
+    return map_variables_to_lines(var_likes, sql_text)
 
 
 # ── L2 phase functions (CW4: split from the _build_l2_graph monolith) ──
@@ -91,6 +116,13 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
     schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
     if graph_cache_path.exists():
         full_graph = json.loads(graph_cache_path.read_text())
+        # D1: cached graphs carry a line_map computed before comment-line
+        # skipping existed — recompute from the cached node expressions so
+        # stale caches behave like fresh analyses.
+        full_graph["line_map"] = _recompute_line_map(
+            [{"id": n["data"].get("id", ""),
+              "sql_expression": n["data"].get("sql_expression", "")}
+             for n in full_graph.get("nodes", [])], sql_text)
         # CW7: normalize edge_type on cache read (cache stores "relationship")
         for _e in full_graph.get("edges", []):
             _ed = _e.get("data", _e)
@@ -113,6 +145,11 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
         result = None
         if analysis_cache_path.exists():
             result = json.loads(analysis_cache_path.read_text())
+            # D1: analysis caches predate comment-line skipping too — the
+            # stored line_map is stale; recompute before build_graph_data
+            # copies it into the graph.
+            result["line_map"] = _recompute_line_map(
+                result.get("variables", []), sql_text)
         if result is None:
             result = run_full_analysis(sql_text, script_name, ws_id=ws_id)
         full_graph = build_graph_data(result)
@@ -205,6 +242,44 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
     return target_node_ids, direct_ids
 
 
+def _scope_distance(field_ctx: str, cand_ctx: str):
+    """B3/P1: how close a candidate node's scope context is to a field's.
+
+    0 when the contexts are equal; a positive difference when the
+    candidate's context is a proper prefix of the field's (the candidate is
+    an enclosing scope — the smaller the diff, the closer); None when the
+    contexts are unrelated. The field can only belong to a scope that
+    CONTAINS it, so deeper-than-field candidates never match.
+    """
+    if not field_ctx or not cand_ctx:
+        return None
+    if field_ctx == cand_ctx:
+        return 0
+    if field_ctx.startswith(cand_ctx + "/") or \
+       field_ctx.startswith(cand_ctx + ":"):
+        return len(field_ctx) - len(cand_ctx)
+    return None
+
+
+def _pick_scope_candidate(field_ctx: str, candidates: list):
+    """B3/P1: among same-named compound-node candidates, pick the one whose
+    scope context is nearest the field's context (exact first, then
+    enclosing scopes by distance); ties/fallback keep the previous
+    first-match behavior."""
+    best = None
+    best_dist = None
+    for cand in candidates:
+        d = _scope_distance(field_ctx, cand.get("context", ""))
+        if d is None:
+            continue
+        if best_dist is None or d < best_dist:
+            best = cand
+            best_dist = d
+    if best is not None:
+        return best
+    return candidates[0] if candidates else None
+
+
 def _resolve_scope_parent(nd: dict, table_nodes: dict):
     """B3: scope/derived-alias parent resolution for unattributed fields.
 
@@ -213,8 +288,10 @@ def _resolve_scope_parent(nd: dict, table_nodes: dict):
     extractor records that scope in the field's `context`
     ("CTE{loan_final}", "TOP0:join:p2", "CTE{rollover_loan_info}/subq1", …).
     Match order (first hit wins):
-      1. the SUBQUERY/derived-table compound node whose context EQUALS the
-         field's context (the derived table owning the field),
+      1. the SUBQUERY/derived-table compound node whose context is nearest
+         the field's context (B3/P1: exact equality, then enclosing scopes
+         by distance — the old exact-only rule could never fire for fields
+         nested deeper than the subquery node's own context),
       2. the CTE compound node named by a "CTE{name}" scope prefix,
       3. the enclosing scope: walk context segments up ("…/subq1:join:p2" →
          "…/subq1" → "CTE{…}") and repeat 1–2.
@@ -226,11 +303,12 @@ def _resolve_scope_parent(nd: dict, table_nodes: dict):
     segments = ctx.split("/")
     for cut in range(len(segments), 0, -1):
         scope_ctx = "/".join(segments[:cut])
-        # 1. exact-context derived-table / subquery match
-        for tid, tn in table_nodes.items():
-            if tn.get("variable_type") == "subquery" and \
-               tn.get("context") == scope_ctx:
-                return tn["id"]
+        # 1. nearest-context derived-table / subquery match
+        candidates = [tn for tn in table_nodes.values()
+                      if tn.get("variable_type") == "subquery"]
+        best = _pick_scope_candidate(scope_ctx, candidates)
+        if best is not None and _scope_distance(scope_ctx, best.get("context", "")) is not None:
+            return best["id"]
         # 2. CTE owner — "CTE{name}" scope: the CTE compound node carries
         #    the STATEMENT context, so match by the CTE's table name.
         if scope_ctx.startswith("CTE{"):
@@ -244,9 +322,16 @@ def _resolve_scope_parent(nd: dict, table_nodes: dict):
 
 
 def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
-                             target_node_ids: set, direct_ids: set) -> tuple:
+                             target_node_ids: set, direct_ids: set,
+                             search_table: str | None = None) -> tuple:
     """Phase 3b (CW4): build the compound node structure — table parents and
     field children (plus alias_map read from the graph cache).
+
+    B3/P1: `search_table` names the searched base table (None for phase
+    calls that don't carry a search context). is_target seed fields that
+    landed on an alias of that table are re-parented onto the table's own
+    compound node when it has no same-named field yet — the seed shows on
+    the searched table instead of a random alias instance.
 
     Returns (table_nodes, field_nodes, other_nodes, alias_map).
     """
@@ -275,6 +360,25 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             if vt in ("table", "view", "cte", "subquery", "virtual_table",
                        "merge_target", "union_branch") and src_tables and len(src_tables) == 1:
                 alias_map[label] = src_tables[0]
+
+    # B3/P1: the cached alias map is label-keyed with last-writer-wins —
+    # when one alias label names different physical tables across scopes
+    # (p1 aliases bdm_acc_loan_info in the CTE scopes but loan_final at
+    # TOP0), the collapsed entry points the alias at the wrong table for
+    # the dominant usage. Rebuild first-writer-wins from the FULL graph's
+    # table variables and override the cached map.
+    node_alias_map = {}
+    for n in full_graph.get("nodes", []):
+        nd = n.get("data", n)
+        vt = nd.get("variable_type", "")
+        src_tables = nd.get("source_tables", [])
+        label = nd.get("label", "")
+        if (vt in ("table", "view", "cte", "subquery", "virtual_table",
+                   "merge_target", "union_branch") and src_tables
+                and len(src_tables) == 1):
+            node_alias_map.setdefault(label, src_tables[0])
+    if node_alias_map:
+        alias_map = node_alias_map
 
     # Classify each node
     for n in nodes:
@@ -355,6 +459,12 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             if src_tables and len(src_tables) == 1:
                 # Bug 28: Match source table name directly (aliases are now visible nodes)
                 # Try exact match first, then try canonical name if this is an alias
+                # NOTE: the same-name first-match below is INTENTIONAL —
+                # scope-aware picking here would split same-named fields
+                # across alias instances (each p2 scope re-owning the JOIN
+                # keys), changing field counts the search results pin
+                # (lending_ref 12-field result). Seed placement is handled
+                # by the B3/P1 seed re-parent pass instead.
                 src_name = src_tables[0]
                 for tid, tn in table_nodes.items():
                     if tn["table_name"] == src_name or tid == src_tables[0]:
@@ -497,6 +607,38 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 "original_id": nid,
                 "parent": parent_table_id,
             })
+
+    # B3/P1: seed re-parent — an is_target seed field that landed on an
+    # ALIAS of the searched table moves onto the searched table's own
+    # compound node when that node carries no same-named field yet (moving,
+    # never copying — the alias instance keeps its other fields). Without
+    # this the seed shows on the first same-name alias instance while the
+    # base table node stays field-less. When the keeper already owns the
+    # label (e.g. the alias field duplicates a bare-FROM read), the seed
+    # stays on the alias to avoid duplication.
+    if search_table:
+        keeper_tbl_id = None
+        for tn in table_nodes.values():
+            if tn.get("table_name") == search_table and tn.get("type") in (
+                    "source_table", "intermediate_table", "output_table"):
+                keeper_tbl_id = tn["id"]
+                break
+        if keeper_tbl_id:
+            table_by_new_id = {tn["id"]: tn for tn in table_nodes.values()}
+            keeper_labels = {f.get("label") for f in field_nodes
+                             if f.get("parent") == keeper_tbl_id}
+            for fn in field_nodes:
+                if not fn.get("is_target"):
+                    continue
+                parent_tn = table_by_new_id.get(fn.get("parent"))
+                if not parent_tn or parent_tn.get("type") != "alias_table":
+                    continue
+                if alias_map.get(parent_tn.get("table_name", "")) != search_table:
+                    continue
+                if fn.get("label") in keeper_labels:
+                    continue
+                fn["parent"] = keeper_tbl_id
+                keeper_labels.add(fn.get("label"))
 
     return table_nodes, field_nodes, other_nodes, alias_map
 
@@ -686,12 +828,19 @@ def _promote_field_edges(new_edges: list, field_nodes: list) -> list:
     SCHEMA edges (table→field ownership) are removed since ownership is
     implicit in the compound node structure. Each edge type keeps its own
     edge with its own sql_range (V3.3.65).
+
+    P2: edges incident on a search-target seed field stay at field level —
+    promoting them hid the seed's own data flow (e.g. its FILTER edges
+    vanished into the parent alias table node).
     """
     field_parents = {}
+    target_field_ids = set()  # P2: search-target seed fields keep field-level edges
     for fn in field_nodes:
         pid = fn.get("parent")
         if pid:
             field_parents[fn["id"]] = pid
+        if fn.get("is_target"):
+            target_field_ids.add(fn["id"])
 
     # V3.3.65: Promote fields→tables, keep edges separate per type.
     # Each edge type gets its own edge with its own sql_range.
@@ -704,9 +853,9 @@ def _promote_field_edges(new_edges: list, field_nodes: list) -> list:
 
         if etype == "SCHEMA":
             continue
-        if src in field_parents:
+        if src in field_parents and src not in target_field_ids:
             src = field_parents[src]
-        if tgt in field_parents:
+        if tgt in field_parents and tgt not in target_field_ids:
             tgt = field_parents[tgt]
         if src == tgt:
             continue
@@ -990,18 +1139,45 @@ def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
                     break
 
     # Sync 1: alias -> canonical (alias invariant)
+    full_orig_src = {}
+    for n in full_graph.get("nodes", []):
+        nd = n.get("data", n)
+        _st = nd.get("source_tables", [])
+        full_orig_src[nd.get("id", "")] = _st[0] if _st else ""
+    new_to_orig = {tn["id"]: tid for tid, tn in table_nodes.items()}
     for label, canonical in alias_map.items():
         if label == canonical:
             continue
-        # Find alias table node
-        alias_tbl_id = None
+        # Find alias table node(s) and the canonical node
+        alias_tbl_ids = []
         canon_tbl_id = None
         for tid, tn in table_nodes.items():
             if tn["table_name"] == label:
-                alias_tbl_id = tn["id"]
+                alias_tbl_ids.append(tn["id"])
             if tn["table_name"] == canonical:
                 canon_tbl_id = tn["id"]
-        if alias_tbl_id and canon_tbl_id and alias_tbl_id in field_by_parent:
+        if not alias_tbl_ids or not canon_tbl_id:
+            continue
+        # B3/P1: the same alias label has one compound node per scope — the
+        # old loop kept only the LAST instance (usually a field-less one) and
+        # the sync silently died. Pick the first instance that actually
+        # holds fields AND whose own source table is the canonical — the
+        # label can name different physical tables per scope (p1 aliases
+        # bdm_acc_loan_info in the CTE scopes but loan_final at TOP0; the
+        # derived-table p2 reads ods_hub_lsacmsp columns while p2@TOP0
+        # aliases bdm_acc_loan_info_sup), and syncing a foreign scope's
+        # fields onto the canonical would be wrong. When no instance
+        # qualifies, keep the previous behavior (skip).
+        alias_tbl_id = None
+        for aid in alias_tbl_ids:
+            if aid not in field_by_parent:
+                continue
+            if full_orig_src.get(new_to_orig.get(aid, "")) == canonical:
+                alias_tbl_id = aid
+                break
+        if alias_tbl_id is None:
+            continue
+        if alias_tbl_id in field_by_parent:
             # Copy alias fields to canonical table
             for af in field_by_parent[alias_tbl_id]:
                 exists = any(
@@ -1112,7 +1288,7 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
 
     target_node_ids, direct_ids = _compute_target_and_direct_ids(nodes, edges, table, field)
     table_nodes, field_nodes, other_nodes, alias_map = _classify_compound_nodes(
-        nodes, full_graph, script_name, target_node_ids, direct_ids)
+        nodes, full_graph, script_name, target_node_ids, direct_ids, table)
     id_map = _build_id_map(table_nodes, field_nodes, other_nodes)
     # Issue a: resolve search-target/direct ids to the merged keepers so
     # highlighting lands on the single table node / deduped field node,

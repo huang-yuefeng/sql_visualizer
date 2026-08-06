@@ -10,8 +10,8 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 
 - **Backend**: FastAPI + sqlglot (MySQL dialect), Docker `gps-sql-backend` on port 8000
 - **Frontend**: React 18 + Vite + Cytoscape.js, served from `frontend/dist/`
-- **Tests**: vitest (frontend, 64 passed), pytest (backend, 626 passed / 5 skipped in `backend/tests/`)
-- **Version**: See `/VERSION` (currently 3.3.138)
+- **Tests**: vitest (frontend, 64 passed), pytest (backend, 635 passed / 5 skipped in `backend/tests/`)
+- **Version**: See `/VERSION` (currently 3.3.139)
 - **Service IP**: `192.168.0.66:8000` (never use `localhost`)
 
 ## File Map (Key Source Files)
@@ -25,15 +25,16 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 | `routers/analysis.py` | 73 | Legacy `/api/analyze`, `/api/scripts`, `/api/analyze_multi` |
 | `services/filter_service.py` | 509 | **Filter logic** (R19): CSV parse → scopes → A∩B intersection → filter application + diagnostics (F6); shared `resolve_script` (R5, path-containment-checked); F3/F4/F5 (COL_NAME-only rows dropped + `ignored_rows` counters, case folding) |
 | `services/l1_builder.py` | 939 | Cross-script L1 builder (production BFS → lineage_field_pairs → filter); M4-B degraded fallback (`degraded: true` + diagnostic); C2 single-cache-pass (R24: single-script workspaces run the full pipeline inline — script node + tables + edges, clickable to L2) |
-| `services/l2_builder.py` | 1141 | Per-script L2 builder; C1 split into named phases (`_build_edge_list`, `_simplify_dml_edges`, `_map_search_target_ids`, ...) — byte-identity-verified. **R22: one compound node per physical table** (label-keyed merge, `merged_original_ids`, `search_matched` in return dict). **v3.3.138 (B-series)**: dedup key `(parent_table_id, undecorated_label, stmt_idx)` — B4 no `↻` twins, C-9 per-statement fields; `_resolve_scope_parent` context-segment walk (B3); label/table_name split for `⟐` (B5); `_load_or_build_graph` prefers S4b-mutated analysis caches (C-2b/C-10) |
+| `services/l2_builder.py` | 1317 | Per-script L2 builder; C1 split into named phases (`_build_edge_list`, `_simplify_dml_edges`, `_map_search_target_ids`, ...) — byte-identity-verified. **R22: one compound node per physical table** (label-keyed merge, `merged_original_ids`, `search_matched` in return dict). **v3.3.138 (B-series)**: dedup key `(parent_table_id, undecorated_label, stmt_idx)` — B4 no `↻` twins, C-9 per-statement fields; `_resolve_scope_parent` context-segment walk (B3); label/table_name split for `⟐` (B5); `_load_or_build_graph` prefers S4b-mutated analysis caches (C-2b/C-10). **v3.3.139**: D2 `(0,0)` highlight filter + `_recompute_line_map` stale-cache defense; `_scope_distance`/`_pick_scope_candidate` scope-aware parenting + seed re-parent onto searched table (B3/P1); Sync 1 iterates all same-name aliases (p1 sync live); P2 target seed fields keep field-level edges |
 | `services/dataflow_service.py` | 485 | SearchView, view persistence (views.json, persists match_mode), edge style helpers (R22: no-matches search semantics, L2 `search_matched`/not-in-flow full-graph response; R24: single-script L1 never pruned by the disconnected-script rule; C-2b: miss path builds from analysis cache + writes graph cache format_version 3) |
-| `services/folder_index_service.py` | 1318 | Folder scanning, script indexing, **A1 schema-file classification** (`file_class: schema\|script`), **S4b cross-script schema auto-resolution** (R22: two-phase plan→conflict-detect→apply, ambiguous fields revoked + `resolution_stats["ambiguous"]`, context-scoped cache attribution), resolution_stats aggregation, orphan report, index progress, `schema_evidence` in response. **v3.3.138 (C-series)**: CTAS→script (C-1), `_invalidate_graph_caches` post-S4b + index-time graph precompute REMOVED (C-2a), `_revoke_s4b_cache_update` (C-3), post-loop star expansion (C-5), `parse_by_script`/`parsed_cache` single parse (C-13a) |
+| `services/folder_index_service.py` | 1338 | Folder scanning, script indexing, **A1 schema-file classification** (`file_class: schema\|script`), **S4b cross-script schema auto-resolution** (R22: two-phase plan→conflict-detect→apply, ambiguous fields revoked + `resolution_stats["ambiguous"]`, context-scoped cache attribution), resolution_stats aggregation, orphan report, index progress, `schema_evidence` in response. **v3.3.138 (C-series)**: CTAS→script (C-1), `_invalidate_graph_caches` post-S4b + index-time graph precompute REMOVED (C-2a), `_revoke_s4b_cache_update` (C-3), post-loop star expansion (C-5), `parse_by_script`/`parsed_cache` single parse (C-13a). **v3.3.139**: C-4 apply-side `n_attributed>0` gate; C-5 star expansion excludes revoked/ambiguous fields |
 | `services/cache_keys.py` | 32 | `GRAPH_CACHE_PREFIX = "graph_3_2_17"` (single source of truth; bumped v3.3.138 C-2 to invalidate pre-S4b graphs) |
 | `services/graph_service.py` | 342 | Cytoscape JSON builder, NODE_STYLES, EDGE_TYPE_STYLE/CATEGORY_MAP, table_fields/alias_map; `_stmt_idx_of` + context/stmt_idx in node data (C-9) |
 | `services/sql_range_finder.py` | 708 | SQL line-range mapping for edge→code highlighting |
 | `services/logger.py` | 167 | SSE pipeline logger (ref-counted queue cleanup) |
-| `extractor/variable_extractor_v2.py` | 1981 | Role-based Identifier walking + S1–S6 orphan resolution; **S4a auto-attribution** (`_finalize_schema_candidates`, R6 field==table collision guard), statement-anchored loc (R22-L16: type-aware `_is_as_keyword` — string literals never the anchor; C-13b: token-position anchor), dict-of-dicts script_schemas; C4a unified stats (`resolved`/`unresolved_count`/`coverage_pct`). **v3.3.138**: contexts `TOP{stmt_idx}` (C-9), `_walk_join_key_expressions` (B-series Phase 2), label sanitation (B5) |
+| `extractor/variable_extractor_v2.py` | 2027 | Role-based Identifier walking + S1–S6 orphan resolution; **S4a auto-attribution** (`_finalize_schema_candidates`, R6 field==table collision guard), statement-anchored loc (R22-L16: type-aware `_is_as_keyword` — string literals never the anchor; C-13b: token-position anchor), dict-of-dicts script_schemas; C4a unified stats (`resolved`/`unresolved_count`/`coverage_pct`). **v3.3.138**: contexts `TOP{stmt_idx}` (C-9), `_walk_join_key_expressions` (B-series Phase 2), label sanitation (B5). **v3.3.139**: order-independent join-key pairing (`_pair_join_key_sides`) |
 | `extractor/dependency_graph.py` | 501 | VariableDefinition → VariableDependency (16 edge types); Phase 6b JOIN-key expression edges + REF classification (B-series Phase 2) |
+| `extractor/sql_line_mapper.py` | 71 | SQL expression → line mapping for `highlights` (D1: comment lines skipped, v3.3.139) |
 | `extractor/lineage.py` | 383 | `compute_field_lineage()`, `filter_relevant()` (R18). **v3.3.138 (B-series Phase 1)**: SUBSET `{propagates_value: False, always_bidir: False}` — never walkable; JOIN rule admits expression nodes unconditionally, others on production evidence; None-guards |
 | `extractor/schema_inference.py` | 180 | `infer_table_schemas()` — 7-pass iterative stabilization |
 | `models/variable.py` | 125 | VariableType enum (15 types), VariableDefinition |
@@ -109,3 +110,19 @@ docker compose -f docker-compose.yml up -d        # rebuild + start
 curl -s http://192.168.0.66:8000/api/health       # health check
 ./target_deploy.sh   # target-machine deploy: version-guarded (RELEASE.txt manifest + origin check), logs to target_deploy.log
 ```
+
+
+18. **Highlights point at real lines (v3.3.139, D1/D2)**: `sql_line_mapper` skips comment
+    lines when mapping expressions to lines; `_compute_highlight_ranges` drops `start<1`
+    entries; cached line_maps are recomputed on read (`_recompute_line_map`) so stale
+    pre-D1 caches render correct highlights without a cache-key bump.
+19. **Scope-aware seed parenting (v3.3.139, B3/P1)**: `_resolve_scope_parent` scores
+    candidates by scope distance (`_scope_distance`/`_pick_scope_candidate`); the search
+    seed re-parents onto the searched table's own compound node (`is_target` pass);
+    Sync 1 iterates all same-name alias instances and picks the first holding fields with
+    the canonical source table. Seed fields keep their FILTER/JOIN edges at field level
+    (P2 — no promotion for target seeds).
+20. **C-4/C-5 gates (v3.3.139)**: persisted S4b apply counters move only when
+    `n_attributed > 0` (mirror of the revoke-side `n_revoked > 0` gate); star expansion
+    never resurrects revoked/ambiguous fields (excluded by
+    `extractor_unresolved | ambiguous_fields`).

@@ -747,6 +747,12 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     # parse.
     star_expanded_fields = 0
     _star_seen = set()
+    # C-5↔C-3 (review): fields S4b revoked (ambiguous — claimed by ≥2
+    # different owners, returned to the unresolved pool) or left unresolved
+    # by the extractor must NOT re-enter the index via star evidence. This
+    # pass runs AFTER S4b, so a star over the owning table would otherwise
+    # resurrect a revoked field into field_index/pair_index.
+    _star_excluded = extractor_unresolved | ambiguous_fields
     for _rel, _stmts in parse_by_script.items():
         if not _stmts:
             continue  # unparsable script — nothing to detect
@@ -756,6 +762,8 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                 if not _cols:
                     continue  # no schema evidence → skip silently
                 for _c in _cols:
+                    if _c in _star_excluded:
+                        continue  # revoked/unresolved — never resurrect
                     if (_rel, _t, _c) in _star_seen:
                         continue
                     _star_seen.add((_rel, _t, _c))
@@ -1056,6 +1064,13 @@ def _apply_s4b_cache_update(cache_path, field: str, owner: str,
     behavior — never a silent no-op. `visible` still scopes ONLY the
     candidate-record removal (same field + same visible set).
 
+    C-4 (review): the `unresolved` drop + `resolved_by["schema"]` +1 are
+    gated on a REAL attribution event (n_attributed > 0) — the mirror of
+    the revoke side's `n_revoked > 0` gate. An M13 context-mismatch no-op
+    (the var's context is not in the candidate's recorded contexts) must
+    never move the persisted counters, exactly like the in-memory caller
+    gate (`by_strategy["schema"]` counts only n_attributed > 0 events).
+
     Returns the number of analysis variables actually attributed — M15:
     the caller counts a schema-strategy attribution event only when ≥1 var
     was modified (a stale cache modifies none).
@@ -1087,7 +1102,12 @@ def _apply_s4b_cache_update(cache_path, field: str, owner: str,
     rs = cdata.get("resolution_stats")
     if isinstance(rs, dict):
         ul = rs.get("unresolved")
-        if isinstance(ul, list) and field in ul:
+        # C-4: the persisted counters move only on a REAL attribution
+        # event (n_attributed > 0) — mirror the revoke side's
+        # `n_revoked > 0` gate (`:1164`). An M13 context-mismatch no-op
+        # (no var matched the candidate's contexts) must not drop the
+        # field from unresolved or bump resolved_by["schema"].
+        if (n_attributed > 0 and isinstance(ul, list) and field in ul):
             ul.remove(field)
             rb = rs.setdefault("resolved_by", {})
             rb["schema"] = (rb.get("schema", 0) or 0) + 1

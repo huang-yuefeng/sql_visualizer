@@ -130,8 +130,9 @@ def test_merged_table_fields_dedup(multi_ctx_ws):
     # main-statement projections (stmt_idx=0) parent under their own
     # alias/output nodes, so the keeper still shows each name exactly
     # once — no C-9 split here. The cross-statement split is covered in
-    # test_b_series_c9.py (two bare-FROM statements → same name under the
-    # same keeper at stmt_idx 0 and 1 → two distinct fields).
+    # test_b_series_l2.py::test_c9_per_statement_dedup (two bare-FROM
+    # statements → same name under the same keeper at stmt_idx 0 and 1 →
+    # two distinct fields).
     assert by_name["loan_id"], fields
     for fname, nodes in by_name.items():
         assert len(nodes) == 1, \

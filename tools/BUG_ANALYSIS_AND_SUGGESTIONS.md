@@ -3007,3 +3007,28 @@ Display gaps (documented for later):
 - Seed-matching quirk: the canonical L18 unprefixed `data_dt` node (`ab16ed071f73afbc`)
   has only a SUBSET edge to its table (no SCHEMA) → not seedable; seeds are the qualified
   `p1.data_dt` nodes (dependency_graph Phase 7/8 artifact).
+
+---
+
+## v3.3.139 — ALL DOCUMENTED ITEMS IMPLEMENTED + VERIFIED (2026-08-06, 3-team round)
+
+Round-4 verdicts and the data_dt investigation items are now closed at v3.3.139.
+Integration verification: backend suite **635 passed / 5 skipped**; live HTTP on
+workspace 8f843283a9d8 (service 192.168.0.66:8000): `data_dt` search → 1 field
+(`data_dt` on `l2_tbl_d5ff4bbf35` = `bdm_acc_loan_info`), 4 incident FILTER edges at
+field level, highlights `[[16,16],[43,43],[52,52],[118,118],[151,151],[160,160],[204,204]]`
+(predicate line 18 covered, no `[0,0]`, no header-comment line 3); `lending_ref` search →
+12 fields preserved, highlights clean.
+
+| Item | v3.3.139 status |
+|---|---|
+| D1 — highlights land on header comment lines | ✅ **IMPLEMENTED** — `sql_line_mapper.py` match loop skips `--`/`/*` comment lines (Team A) |
+| D2 — `(0,0)` highlight leakage | ✅ **IMPLEMENTED** — `_compute_highlight_ranges` drops `start < 1`; stale-cache reads recompute line_map via `_recompute_line_map` (`l2_builder.py:66-68`, :82, :45, :122, :151) |
+| P1 — seed fields parented under wrong alias instance | ✅ **IMPLEMENTED** — B3 scope-distance parenting (`_scope_distance`/`_pick_scope_candidate` in `_resolve_scope_parent`) + seed re-parent pass moves `is_target` seeds onto the searched table's compound node (`l2_builder.py:619-640`); Sync 1 iterates all same-name alias instances (first with fields + canonical source) |
+| P2 — seed FILTER edges promoted to table level | ✅ **IMPLEMENTED** — `_promote_field_edges` skips `target_field_ids` (is_target seed fields stay field-level) |
+| B3 wrong-instance parenting (round-4 ledger) | ✅ **IMPLEMENTED** — scope-distance scoring replaces first-match in `_resolve_scope_parent` rule 1; src_tables/prefix loops stay first-match (pinned 12-field lending_ref result preserved) |
+| C-4 apply-side gate (latent) | ✅ **IMPLEMENTED** — `_apply_s4b_cache_update` moves counters only when `n_attributed > 0` (mirror of revoke-side `n_revoked > 0` gate), `folder_index_service.py:1102-1113` |
+| C-5↔C-3 star resurrection | ✅ **IMPLEMENTED** — star expansion excludes `extractor_unresolved | ambiguous_fields` (`_star_excluded` built pre-loop, `folder_index_service.py:750`) |
+| 2/8 join-key expressions unpaired | ✅ **IMPLEMENTED** — `_pair_join_key_sides` deferred cross-link in `variable_extractor_v2.py:1107-1145`; now 0/8 unpaired (test `test_bdm_sample_join_key_expressions_all_paired`) |
+| `_seen` annotation + dangling test ref | ✅ **IMPLEMENTED** — `set[tuple[str, str, str]]`; `test_l2_table_dedup.py:133` comment points at `test_b_series_l2.py::test_c9_per_statement_dedup` |
+| RELEASE.txt stale | ✅ **Regenerated** — `VERSION=3.3.139`, `BUILT=2026-08-06 22:17:07 +0900`; COMMIT fixed to the integration commit hash |

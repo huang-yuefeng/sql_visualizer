@@ -188,7 +188,7 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
     target_node_ids, direct_ids = l2b._compute_target_and_direct_ids(
         nodes, edges, TARGET_TABLE, TARGET_FIELD)
     table_nodes, field_nodes, other_nodes, alias_map = l2b._classify_compound_nodes(
-        nodes, full_graph, STEP3, target_node_ids, direct_ids)
+        nodes, full_graph, STEP3, target_node_ids, direct_ids, TARGET_TABLE)
     id_map = l2b._build_id_map(table_nodes, field_nodes, other_nodes)
     target_mapped, direct_mapped = l2b._map_search_target_ids(
         field_nodes, table_nodes, target_node_ids, direct_ids, id_map)
@@ -342,3 +342,147 @@ def test_lineage_bfs_schema_directionality_invariant():
     assert {"c1", "T"} <= constrained
     assert "c2" in constrained    # SCHEMA forward: has a production path back to R
     assert "c3" not in constrained  # SCHEMA forward: no production path — filtered
+
+
+# ══════════════════════════════════════════════════════════════════════
+# D1/D2: highlight line mapping — comment lines and (0,0) placeholders
+# ══════════════════════════════════════════════════════════════════════
+
+def test_d1_table_var_maps_to_from_line_not_comment():
+    """D1: a table variable whose name appears in the header comment must
+    map to its real FROM line — never the comment line."""
+    from app.extractor.sql_line_mapper import map_variables_to_lines
+
+    sql = (
+        "-- 源表名：ODS [ods_hub_lsacmsp] BDM [bdm_acc_loan_info]\n"
+        "-- 创建时间：2025-11-11\n"
+        "SELECT loan_id\n"
+        "FROM bdm_acc_loan_info\n"
+        "WHERE data_dt = '2026-01-01';\n"
+    )
+    line_map = map_variables_to_lines(
+        [{"id": "t1", "sql_expression": "bdm_acc_loan_info"},
+         {"id": "c1", "sql_expression": "data_dt = '2026-01-01'"}],
+        sql)
+    assert line_map["t1"] == (4, 4), line_map   # FROM line, not comment line 1
+    assert line_map["c1"] == (5, 5), line_map
+
+
+def test_d2_highlights_never_zero_or_comment_lines():
+    """D2: (0,0) placeholders and comment-line mappings never reach the
+    highlights response — the start<1 guard drops unmapped vars and the
+    recompute skips comment lines."""
+    from app.services import l2_builder as l2b
+
+    sql = ("-- 源表名：bdm_acc_loan_info\n"
+           "SELECT loan_id FROM bdm_acc_loan_info WHERE data_dt = '2026-01-01';")
+    graph_data = {
+        "nodes": [
+            {"data": {"id": "t1", "sql_expression": "bdm_acc_loan_info"}},
+            {"data": {"id": "c1", "sql_expression": "data_dt"}},
+            {"data": {"id": "c2", "sql_expression": ""}},   # unmapped → (0,0)
+        ],
+        "edges": [],
+    }
+    ranges = l2b._compute_highlight_ranges(graph_data, {"t1", "c1", "c2"}, sql)
+    assert all(r[0] >= 1 for r in ranges), ranges
+    assert not any(r[0] <= 1 <= r[1] for r in ranges), ranges  # comment line
+    assert any(r[0] == 2 and r[1] == 2 for r in ranges), ranges  # FROM line
+
+
+# ══════════════════════════════════════════════════════════════════════
+# L2 data_dt investigation — real script (samples/sql_sample_v1)
+# ══════════════════════════════════════════════════════════════════════
+
+LOAN_INFO_SCRIPT = SAMPLES_DIR / "sql_sample_v1" / "BDM_ACC_LOAN_INFO_SUP_M.sql"
+LOAN_INFO_NAME = "BDM_ACC_LOAN_INFO_SUP_M.sql"
+
+
+@pytest.fixture
+def loan_info_ws():
+    """Workspace with the real BDM_ACC_LOAN_INFO_SUP_M.sql (zip-upload path)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(LOAN_INFO_NAME, LOAN_INFO_SCRIPT.read_text())
+    ws_id = create_workspace(buf.getvalue())
+    yield ws_id
+    delete_workspace(ws_id)
+
+
+def test_data_dt_seed_lands_on_searched_table(loan_info_ws):
+    """L2 data_dt investigation (user complaint): searching
+    bdm_acc_loan_info.data_dt must show the seed field on the searched
+    base table's compound node — not on the first p1 alias instance."""
+    sql = LOAN_INFO_SCRIPT.read_text()
+    graph = _build_l2_graph(loan_info_ws, LOAN_INFO_NAME, sql,
+                            "bdm_acc_loan_info", "data_dt",
+                            relevance_filter=True)
+    keeper = next(n["data"] for n in graph["nodes"]
+                  if n["data"].get("table_name") == "bdm_acc_loan_info"
+                  and n["data"].get("type") == "source_table")
+    seeds = [n["data"] for n in graph["nodes"] if n["data"].get("is_target")]
+    assert len(seeds) == 1, f"expected exactly 1 seed, got {len(seeds)}"
+    assert seeds[0]["parent"] == keeper["id"], \
+        f"seed must sit on the searched table node, got parent {seeds[0]['parent']}"
+
+    # The seed's own data flow stays visible: its FILTER edges survive at
+    # field level (P2 — no promotion to the alias/table node).
+    seed_id = seeds[0]["id"]
+    incident = [e["data"] for e in graph["edges"]
+                if seed_id in (e["data"]["source"], e["data"]["target"])]
+    assert incident, "the seed field must have incident edges"
+    assert any(e["edge_type"] == "FILTER" for e in incident), \
+        [e["edge_type"] for e in incident]
+
+
+def test_data_dt_highlights_cover_predicate_line(loan_info_ws):
+    """L2 data_dt investigation (complaint 1): the highlights response must
+    cover the real predicate line 18 and never cover the header comment
+    line 3 or the (0,0) placeholder — in the full graph and through the
+    real get_level2_graph response path."""
+    from app.services import l2_builder as l2b
+    from app.services.dataflow_service import get_level2_graph
+
+    sql = LOAN_INFO_SCRIPT.read_text()
+
+    # Full graph: line 18 (WHERE data_dt = '$(load_date)') must be covered.
+    full_graph, _ = l2b._load_or_build_graph(loan_info_ws, LOAN_INFO_NAME, sql)
+    all_ids = {n["data"]["id"] for n in full_graph.get("nodes", [])}
+    ranges = l2b._compute_highlight_ranges(full_graph, all_ids, sql)
+    assert any(r[0] <= 18 <= r[1] for r in ranges), \
+        f"predicate line 18 must be highlighted, got {ranges}"
+    assert not any(r[0] <= 3 <= r[1] for r in ranges), \
+        f"comment line 3 must never be highlighted, got {ranges}"
+    assert all(r[0] >= 1 for r in ranges), \
+        f"(0,0) placeholders must not leak, got {ranges}"
+
+    # Real response path (relevance-filtered): no [0,0], no comment lines.
+    out = get_level2_graph(loan_info_ws, loan_info_ws, LOAN_INFO_NAME,
+                           "bdm_acc_loan_info", "data_dt")
+    assert "error" not in out, out
+    hs = out["highlights"]
+    assert all(r[0] >= 1 for r in hs), hs
+    assert not any(r[0] <= 3 <= r[1] for r in hs), hs
+
+
+def test_d1_line_map_recomputed_from_stale_cache(loan_info_ws):
+    """D1: cached line_maps predate comment-line skipping — the L2 builder
+    recomputes on cache read (no cache-version bump available), so cached
+    workspaces behave like fresh analyses."""
+    from app.services import l2_builder as l2b
+
+    sql = LOAN_INFO_SCRIPT.read_text()
+    l2b._load_or_build_graph(loan_info_ws, LOAN_INFO_NAME, sql)  # write caches
+    cache_dir = get_workspace_dir(loan_info_ws) / "cache"
+    graph_cache = next(cache_dir.glob("graph_*.json"))
+    cached = json.loads(graph_cache.read_text())
+    assert cached.get("line_map"), "cache must carry a line_map"
+    cached["line_map"] = {}  # simulate a pre-D1 stale cache
+    graph_cache.write_text(json.dumps(cached))
+
+    full_graph, _ = l2b._load_or_build_graph(loan_info_ws, LOAN_INFO_NAME, sql)
+    lm = full_graph.get("line_map", {})
+    assert lm, "line_map must be recomputed on cache read"
+    starts = {v[0] for v in lm.values() if v[0] >= 1}
+    assert 3 not in starts, \
+        f"comment line 3 must never be a mapping target, got starts {sorted(starts)[:20]}"
