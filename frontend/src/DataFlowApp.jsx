@@ -46,7 +46,6 @@ export default function DataFlowApp() {
   const [l2Result, setL2Result] = useState(null);
   const [highlights, setHighlights] = useState([]);
   const [sqlHighlightRange, setSqlHighlightRange] = useState(null);
-  const [scriptInfo, setScriptInfo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState(null);
@@ -97,7 +96,7 @@ export default function DataFlowApp() {
         setTableIndex({}); setFieldIndex({}); setIndexed(false);
         setViews([]); setActiveViewId(null); setL1Graph(null);
         setL2Graph(null); setL2Result(null); setSqlText(''); setError(null);
-        setScriptInfo(null); setActiveL1Table(null); setCurrentScriptName(''); setL2Filtered(true);
+        setActiveL1Table(null); setCurrentScriptName(''); setL2Filtered(true);
         setL2FullGraph(null); setResolutionStats(null); setOrphanFieldSamples(null);
         setSchemaCandidates(null); setSchemaEvidence(null);
         setShowLog(true);
@@ -234,7 +233,7 @@ export default function DataFlowApp() {
       setGraphLevel('L1');
       setL2Graph(null);
       setSqlText('');
-      setScriptInfo(null); setActiveL1Table(null);
+      setActiveL1Table(null);
       // R3: persist the current view (incl. empty no-match results from F1)
       // so a reload restores it instead of resetting.
       saveLastSearch({
@@ -331,7 +330,7 @@ export default function DataFlowApp() {
         setL2Filtered(true);
         setL2FullGraph(null);
         setShowLog(true);
-        setScriptInfo(null); setActiveL1Table(null);
+        setActiveL1Table(null);
       } catch (e) {
         setError(e.message);
       }
@@ -341,7 +340,7 @@ export default function DataFlowApp() {
       setGraphLevel('L1');
       setL2Graph(null);
       setSqlText('');
-      setScriptInfo(null); setActiveL1Table(null);
+      setActiveL1Table(null);
     }
   }, [views, wsId]);
 
@@ -455,7 +454,7 @@ export default function DataFlowApp() {
     });
     if (activeViewId === viewId) {
       setActiveViewId(null); setL1Graph(null); setL2Graph(null);
-      setSqlText(''); setScriptInfo(null);
+      setSqlText('');
     }
   }, [wsId, activeViewId]);
 
@@ -613,8 +612,6 @@ export default function DataFlowApp() {
             breadcrumb={breadcrumb}
             onOpenL2={handleOpenL2}
             onToggleLayout={(mode) => { if (mode) { setLayoutMode(mode); } else { setLayoutMode(m => m === 'snake' ? 'pipeline' : 'snake'); }}}
-            scriptInfo={scriptInfo}
-            onScriptInfoChange={setScriptInfo}
             onToggleFilter={handleToggleFilter}
             l2Filtered={l2Filtered}
             l2TotalNodes={l2Result?.total_nodes || 0}

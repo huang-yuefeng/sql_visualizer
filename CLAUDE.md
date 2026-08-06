@@ -11,7 +11,7 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 - **Backend**: FastAPI + sqlglot (MySQL dialect), Docker `gps-sql-backend` on port 8000
 - **Frontend**: React 18 + Vite + Cytoscape.js, served from `frontend/dist/`
 - **Tests**: vitest (frontend, 70 passed), pytest (backend, 523 passed / 5 skipped in `backend/tests/`)
-- **Version**: See `/VERSION` (currently 3.3.134)
+- **Version**: See `/VERSION` (currently 3.3.135)
 - **Service IP**: `192.168.0.66:8000` (never use `localhost`)
 
 ## File Map (Key Source Files)
@@ -43,9 +43,9 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 
 | File | Lines | Role |
 |------|-------|------|
-| `DataFlowApp.jsx` | 716 | Data Flow Debugger main component (search, view persistence, resolution report, `schema_evidence` state) |
+| `DataFlowApp.jsx` | 713 | Data Flow Debugger main component (search, view persistence, resolution report, `schema_evidence` state) |
 | `App.jsx` | 857 | SQL Analysis (legacy single-script) |
-| `components/DataFlowGraph.jsx` | 188 | Cytoscape renderer |
+| `components/DataFlowGraph.jsx` | 167 | Cytoscape renderer |
 | `components/SqlPanel.jsx` | 332 | SQL display + syntax highlighting |
 | `components/FilterPanel.jsx` | 329 | Filter upload UI + warning banner (R2), renders `ignored_rows` |
 | `components/ResolutionReport.jsx` | 97 | Orphan resolution coverage badge + breakdown (R20) |

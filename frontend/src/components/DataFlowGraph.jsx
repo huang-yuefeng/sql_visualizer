@@ -9,7 +9,7 @@ import { FIT_PADDING } from '../config/layout';
  */
 export default function DataFlowGraph(props) {
   const {
-    graphData, level, layoutMode, onOpenL2, scriptInfo, onScriptInfoChange,
+    graphData, level, layoutMode, onOpenL2,
     onToggleFilter, l2Filtered, onEdgeClick, onToggleLayout, selectedEdgeId
   } = props;
 
@@ -38,17 +38,6 @@ export default function DataFlowGraph(props) {
           type: e.target.data().edge_type || 'edge',
           desc: e.target.data().category || '',
           color: e.target.data().color || '#5DADE2'
-        });
-      }
-    },
-    onTap: (e) => {
-      const data = e.target.data();
-      if (level === 'L1' && data.type === 'script_node') {
-        onScriptInfoChange?.({
-          id: data.id, label: data.label || data.script_name,
-          script_name: data.script_name, total_variables: data.total_variables,
-          input_tables: data.input_tables, output_tables: data.output_tables,
-          roles: data.roles || []
         });
       }
     },
@@ -171,16 +160,6 @@ export default function DataFlowGraph(props) {
         }}>
           <span style={{ color: edgeHover.color, fontWeight: 'bold' }}>{edgeHover.type}</span>
           {edgeHover.desc && <span style={{ color: '#aaa', marginLeft: 8 }}>{edgeHover.desc}</span>}
-        </div>
-      )}
-      {scriptInfo && level === 'L1' && (
-        <div className="script-info-popup">
-          <div className="sip-header">{scriptInfo.label}
-            <button onClick={() => onScriptInfoChange?.(null)}>×</button>
-          </div>
-          <div>Variables: {scriptInfo.total_variables || '?'}</div>
-          <div>Inputs: {(scriptInfo.input_tables || []).join(', ') || 'none'}</div>
-          <div>Outputs: {(scriptInfo.output_tables || []).join(', ') || 'none'}</div>
         </div>
       )}
     </div>
