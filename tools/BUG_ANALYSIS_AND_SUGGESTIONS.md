@@ -2482,3 +2482,79 @@ single integration commit. Design unchanged; no tips added; issues resolved esse
   `8f843283a9d8`): L1 = 7 nodes / 5 edges (script node + 4 tables + 2 fields), script node
   click → L2 loads; search on single-script workspace: script node present; no_matches
   message still shown for non-matching searches.
+
+## B-series — L2 field explosion: root cause + solution design (audit 2026-08-06)
+
+**Trigger**: workspace `8f843283a9d8`, script `BDM_ACC_LOAN_INFO_SUP_M.sql`, search
+`bdm_acc_loan_info.lending_ref` → L2 shows 122 nodes / 78 field nodes. The relevance filter
+works (full graph = 378), but the closure is over-inclusive. All measurements below are
+in-container simulations (read-only; no source changes).
+
+### Classification of the 78 fields (by entry mechanism)
+
+1. **SUBSET "safety-net" bridges treated as lineage (~40 fields — dominant)**.
+   `dependency_graph.py` Phase 7/8 (`:386-457`) emit SUBSET edges purely as connectivity
+   padding (`_add_edge(..., "SUBSET", "BRIDGE")`) for layout stability — zero lineage
+   semantics. `compute_field_lineage` (`lineage.py:221-223`, SUBSET ∈ `_BIDIR`) walks them
+   like real edges. The first CTE `rollover_loan_info` (legitimately in R — it defines
+   `lending_ref`) carries **54 SUBSET edges**; every bridged neighbor enters R: the second
+   statement's constants (`'Y'`→STATUS, `COUNT(1)`→total_rows, `getdate()`→load_time,
+   `NULL`→remarks, `''`→sub_src_system, table-name strings, rec_creat_dt_tm, object_domain,
+   reserved_field1–20 producers), p2's full 12-column set, label-subquery keys, partition
+   columns (data_dt/p_dt ×6). Verified: `STATUS` (type literal) and `total_rows` (aggregate)
+   connect to `rollover_loan_info` ONLY via SUBSET + SCHEMA→output.
+2. **Output-node wholesale pull (54 = 27 unique × 2)**. The `⟐ output` qo node merges both
+   INSERT statements' column lists (R22 one-node-per-physical-table). Each of the 27 renders
+   twice — column node + ` ↻` expression-producer node — because the dedup key
+   `(parent_table_id, label)` (l2_builder.py:347-352, 389-394) never collides: the producer
+   is stamped ` ↻` (l2_builder.py:377) so `STATUS` ≠ `STATUS ↻`.
+3. **Genuine flow (~20-25)**: seed, p2's 6 CONCAT key parts, p4's iiapty/iiblno,
+   accu.vlookup_key_value, p6.lending_ref, output columns with real producers. Correct.
+4. **Partition/filter keys** (data_dt/p_dt ×6) — by-design FILTER rule, noisy but intended.
+5. **Parentless display (15)** — p2's columns lack `source_tables` → float as `<NOPARENT>`.
+
+### Measured closure variants (seed `lending_ref`; R = lineage set size)
+
+| Variant | R | Result |
+|---------|---|--------|
+| Current | 112 | 122 L2 nodes / 78 fields |
+| Skip all SUBSET | 43 | over-prunes — loses p2 join keys & label keys |
+| Skip SUBSET + JOIN always-bidir | 125 | over-pulls — internal subquery cols (a.*/b.*/c.*) |
+| Skip SUBSET + JOIN expr-partners-only | 43 | no-op — JOIN edges are column↔**vtable** (33 col↔vtable, 29 col↔cte), never expressions |
+| Skip SUBSET into constants only | 105 | −7 constants; keeps all legit nodes — ceiling ~−14 output fields |
+
+**Key structural finding**: JOIN conditions are modeled as `column ↔ virtual_table` edges —
+the join-key expression (`CONCAT(p2.poctcd,…) = p1.lending_ref`) has **no node**. No closure
+rule can separate p2's 6 key columns from its 6 filter columns without an extractor change.
+
+### Solution (3 phases)
+
+**Phase 1 — closure stopgap (lineage.py, ~5 lines, ships alone)**: skip SUBSET edges whose
+other endpoint is a constant producer (literal/aggregate/window/function-call types).
+Measured 112→105, output fields 78→~64 (9 constant columns + 9 ↻ twins drop).
+
+**Phase 2 — join-key modeling (dependency_graph.py Phase 6 — the real fix)**:
+materialize the join-key expression as a node (CONCAT/RPAD/|| → expression node with REF
+edges to its operand columns; JOIN edge points at the expression, not the vtable). Then:
+exclude SUBSET from the closure entirely (112→43), and let JOIN admit expression partners
+(recover: p2's 6 CONCAT parts — not the 6 filter-only cols podcg/poapty/poofla/pofdtt/
+pocnlm/poclin — p4's iiapty/iiblno, accu.vlookup_key_value, p6/rollover chain). Estimated
+R ≈ 60-70 → **L2 fields ≈ 25-35** = the true contributing set. Constants and the second
+statement's columns have no production path → gone; a.*/b.*/c.* never enter. Side benefit:
+join keys become visible expression nodes in the full graph.
+
+**Phase 3 — renderer presentation (l2_builder.py)**:
+- B4: dedup on the undecorated label (strip ` ↻` before the `(parent, label)` key) →
+  column+producer pairs merge, output fields halve (−27).
+- B3: parent-resolution fallback — when `source_tables` is empty, parent via the column's
+  SCHEMA-edge table neighbor → p2's columns nest under `ods_hub_lsacmsp` instead of floating.
+- B5: sanitize virtual-table labels — drop `⟐`/`}` path garbage; name `query_output` nodes
+  after their target table.
+
+### Regression test plan (samples/sql_sample_v1/BDM_ACC_LOAN_INFO_SUP_M.sql, search `lending_ref`)
+- L2 filtered field count ≤ ~35 (Phase 2) or ≤ ~64 (Phase 1 only).
+- Absent: STATUS, total_rows, load_time, remarks, table_name, job_name, sub_src_system,
+  rec_creat_dt_tm, object_domain; contract_no/acct_no/product_code/branch_code_sk; a.*/b.*/c.*.
+- Present + parented: p1.lending_ref, p2's 6 CONCAT parts (poctcd/pogmab/poacb/poacs/poacx/
+  podtao), p4.iiapty/iiblno, accu.vlookup_key_value, output lending_ref.
+- No ` ↻` twins, no `⟐`/`}`-mangled labels, no parentless fields.
