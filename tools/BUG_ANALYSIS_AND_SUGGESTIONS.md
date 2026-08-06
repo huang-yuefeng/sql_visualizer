@@ -2226,3 +2226,29 @@ Implemented + landed (tests `test_orphan_residual_fixes.py`, 19 tests, all pass)
 
 **Full suite: 414 passed / 5 skipped.** Version 3.3.131 deployed, health OK.
 **Next steps:** SELECT-side schema enrichment Phase 0/1 (instrumentation + report-only audit) per the design's 6 open questions.
+
+---
+
+## S4 Phase 0/1 — SELECT-Side Schema Enrichment: Instrumentation + Calibration Audit (2026-08-06)
+
+**Phase 0 (instrumentation, report-only) + Phase 1 (report-only audit) implemented — behavior-neutral verified.**
+
+### What landed (v3.3.132, not yet committed at record time)
+- Extractor (`variable_extractor_v2.py`, +212 L): per-script `script_schemas` (canonical table → columns) from 3 evidence sources — qualified refs (alias→canonical resolved, db dropped), DML target column lists (INSERT/UPDATE/MERGE SET, evidence-only, no column vars), CREATE TABLE/CTAS column lists; `schema_candidates` stashing for unresolved bare columns in ≥2-table scopes ({field, visible_tables, loc, owner?}); `r6_collision` counter; `loc` from the tokenizer (first-occurrence caveat). NO attribution — `source_tables` untouched, `resolved_by["schema"]` stays 0, candidates remain in `unresolved`.
+- Index (`folder_index_service.py`, +145 L): M_ws workspace schema map; cross-script re-test; ORPHAN RESOLUTION REPORT gains `schema candidates: N (unique visible owner found: M) | r6 collision: K` + per-orphan `field: x → owner (evidence: script Ln, visible: ...)` lines; response gains `schema_candidates_summary: {total, unique_owner, r6_collision}` (always present, zeroed on old caches — old-cache report output byte-identical). `coverage_pct` unchanged.
+- Tests: `test_s4_instrumentation.py` (22) + `test_s4_report.py` (9). Full suite 445 passed / 5 skipped (was 414).
+
+### Calibration audit (team scan, 10 samples + combined evidence workspaces)
+- Sweep reproduced the baseline exactly: overall 96.60%, 291 orphans (behavior-neutral).
+- Combined tpcds+tpcds_qualified: **118 orphans with a unique visible owner** (80.3% of the 147 orphans); bare tpcds → 0 (no qualified refs / no DDL — evidence must come cross-script).
+- **Reality vs design estimate**: resolvable 76.6% (est. 55–65%) — higher; genuinely ambiguous 0% (est. 17–27%) — far lower (TPC-DS columns are schema-unique; the ≥2-owner rule is unit-tested but has no sample-level exercise — fixture corpus recommended).
+- **Human audit: 52 unique-owner proposals read line-by-line against SQL + DDL → 52 ✅ / 0 ❌ / 0 ⚠️ (100% correct)**, 118/118 mechanically DDL-verified (owner table present in the evidence statement's FROM). Cases validated: join predicates (21), filters (12), projections/group keys (15), special (4: q91 7-table-scope implicit aliases `cc_call_center_id Call_Center` — Fix-B chain couldn't fire, S4b fills the gap; spider_complex `isofficial → countrylanguage` case-insensitive real-world match).
+
+### Phase 2 gate: PASS (pending user go)
+- **Recommendations before enabling auto-resolution (S4a attribution + S4b replacing the scope-blind loop):**
+  1. Fix `loc` first-occurrence caveat (2/118: q76 string-literal `'ws_ship_hdemo_sk' col_name` — anchor to the candidate statement's line range, or suppress literal-only candidates)
+  2. Report should show the schema-EVIDENCE line (the DDL/qualified-ref line that proves the owner), not the bare-use line — DDL (`tpcds_qualified/tools/tpcds.sql`) proved the dominant source (118/118)
+  3. Add a small 1b fixture corpus (two visible tables both owning `id`/`name`) for sample-level never-guess validation
+  4. Remaining 1a classes are S2-extension territory, not S4: q71 derived-table output chains (`sold_item_sk`/`time_sk`), financial's 7 CTE-chain aggregate aliases
+  5. Design open-question 6 validated: an explicit "import schema from DDL file" workflow makes S4 effective for evidence-less workspaces
+- Design open-question 2 validated: case-insensitive whole-name matching is correct (spider `IsOfficial` vs bare `isofficial`; DDL `sr_return_amt_inc_tax` vs `SR_RETURN_AMT_INC_TAX`).

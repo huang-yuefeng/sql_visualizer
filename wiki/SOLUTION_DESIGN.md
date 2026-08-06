@@ -728,32 +728,52 @@ in the report.
 
 - **Phase 0 — instrumentation (no behavior change):** extractor emits
   `schema_candidates` + canonical `script_schemas`; report unchanged. Verify
-  shapes and index perf on the 101-file tpcds corpus.
+  shapes and index perf on the 101-file tpcds corpus. ✅ **Done (v3.3.132)** —
+  shapes verified behavior-neutral (sweep reproduced 96.60% / 291 orphans
+  exactly); tpcds indexes in 0.79s.
 - **Phase 1 — report-only:** ORPHAN RESOLUTION REPORT shows, per unresolved
   orphan, the unique visible owner when found (`field → table (evidence:
   script Ln)`); `r6_collision` bucket visible. Human-audit ~50 orphans across
   tpcds + financial; **this phase measures the real evidence coverage** and
-  calibrates the estimate below. Zero risk.
+  calibrates the estimate below. Zero risk. ✅ **Done (v3.3.132)** — 118
+  unique-owner proposals on the combined corpus (80.3% of orphans), 52
+  audited line-by-line → **100% correct**, 118/118 mechanically DDL-verified;
+  reality: resolvable 76.6% (est. 55–65%), genuinely ambiguous 0% (est.
+  17–27%, corpus-dependent — see 1b fixture recommendation).
 - **Phase 2 — auto-resolution:** enable S4a; replace the scope-blind index
   loop with S4b. Gate on Phase-1 audit results; watch coverage drop and
-  report spikes.
+  report spikes. **Gate: PASS (2026-08-06 audit) — pending user go.** Before
+  enabling: (1) fix the `loc` first-occurrence caveat (q76 string-literal
+  case, 2/118); (2) report the schema-evidence line (DDL/qualified ref) not
+  the bare-use line; (3) add a 1b fixture corpus (shared column names) for
+  sample-level never-guess validation; (4) remaining 1a classes
+  (derived-table output chains q71, financial CTE-chain aliases) are S2
+  extensions, not S4.
 - **Phase 3 — hardening (optional):** surface DDL/DML-list evidence into
   `table_index` fields (autocomplete) and `pair_index` seeds, consistent with
-  P1/P4.
+  P1/P4. Note: DDL evidence proved dominant (118/118 owners confirmed by the
+  DDL; bare tpcds → 0 owners) — an explicit "import schema from DDL file"
+  workflow (open question 6) is the highest-value Phase-3 item.
 
 ### Open questions
 
 1. Two-tier split (S4a extractor + S4b index) — accept as the resolution to
-   the R20-vs-cross-script tension? Default: yes.
+   the R20-vs-cross-script tension? Default: yes. ✅ **Validated by Phase-1
+   audit** — extractor-level M_a = 8 vs index-level M_idx = 118: cross-script
+   S4b is load-bearing (bare tpcds → 0 owners).
 2. Case-insensitive matching changes today's exact (case-sensitive) S4 set
-   membership — confirm this is the intended reading of R4.
+   membership — confirm this is the intended reading of R4. ✅ **Confirmed by
+   real-world matches** — spider `IsOfficial`→bare `isofficial`,
+   DDL `sr_return_amt_inc_tax`→`SR_RETURN_AMT_INC_TAX` (q1).
 3. db-qualified refs keyed by bare table name; multi-db same-name tables →
-   conservative ambiguity. Accept, or key M by (db, table)?
+   conservative ambiguity. Accept, or key M by (db, table)? — **Open** (no
+   multi-db sample exercises it; conservative ambiguity is the default).
 4. Should DML/DDL evidence surface in `table_index` fields (autocomplete) in
-   Phase 3, or remain schema-map-only?
+   Phase 3, or remain schema-map-only? — **Open** (Phase 3).
 5. The R6 guard is scoped to S4 here; S3 (single-table scope) has the same
    theoretical collision (`SELECT call_center FROM call_center`) — extend the
-   guard to S3 as a follow-up?
+   guard to S3 as a follow-up? — **Open** (small follow-up; 0 r6 collisions
+   observed across all samples).
 6. Workspaces with no evidence at all (bare tpcds corpus alone): S4 gains
    ~nothing until a qualified/DDL twin is indexed. Add an explicit
    "import schema from DDL file" workflow, or rely on users indexing DDL?

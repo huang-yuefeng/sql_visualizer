@@ -44,14 +44,33 @@ _SYSTEM_SCHEMAS = {"information_schema", "mysql", "pg_catalog", "sys"}
 # LEVEL (Oracle CONNECT BY), ROWNUM, trigger vars new/old.
 _PSEUDOCOLUMN_NAMES = {"level", "rownum", "new", "old"}
 
+# UPDATE/MERGE SET assignments parse as exp.EQ in sqlglot 30.x; older
+# releases used exp.UpdateSet / exp.SetItem. Version-robust tuple for
+# S4a source-2 (SET column list) evidence.
+_UPDATE_SET_NODES = tuple(
+    c for c in (exp.EQ, getattr(exp, "UpdateSet", None), getattr(exp, "SetItem", None))
+    if c is not None)
+
 
 def default_resolution_stats() -> dict:
-    """Fresh resolution_stats shape (R20) — also the ExtractionResult default."""
+    """Fresh resolution_stats shape (R20) — also the ExtractionResult default.
+
+    S4a (Phase 0, report-only) additions:
+      schema_candidates — unresolved bare columns in ≥2-table scopes, each
+        {field, visible_tables, loc} (+ `owner` only when a unique visible
+        table owns the field in the per-script evidence map). S4b input.
+      r6_collision — count of candidates whose field equals a visible table
+        name (R6 guard — never attributed).
+      script_schemas — per-script canonical table → sorted column evidence.
+    """
     return {
         "total_columns": 0,
         "resolved_by": {"plain_alias": 0, "expr_alias": 0, "scope": 0,
                         "schema": 0, "sys": 0, "other": 0},
         "unresolved": [],
+        "schema_candidates": [],
+        "r6_collision": 0,
+        "script_schemas": {},
     }
 
 
@@ -398,6 +417,13 @@ class _RoleBasedExtractor:
         # alias; a table name = the output is an S1 alias of a plain column.
         self._derived_output_columns: dict[str, dict] = {}
         self._subq_counter: int = 0  # unique subquery IDs
+        # S4a (Phase 0, report-only): SELECT-side schema enrichment state.
+        # Evidence and candidates are NEVER applied to source_tables —
+        # auto-resolution (Phase 2) is gated on a human audit.
+        self._script_schemas: dict[str, set[str]] = {}  # canonical table → column evidence
+        self._schema_candidates: list[dict] = []  # {field, visible_tables, loc[, owner]}
+        self._candidate_keys: set = set()         # (field, tuple(visible)) dedup
+        self._derived_aliases: set[str] = set()   # derived/SUBQUERY aliases (evidence guard)
         # Pre-tokenize SQL for accurate position lookups (Bug 4 fix)
         try:
             self._tokens = list(sqlglot.Tokenizer().tokenize(sql_text))
@@ -494,10 +520,18 @@ class _RoleBasedExtractor:
         phantom is guarded from attribution by `_in_scope_owner` and must
         not make an already-attributed field look orphaned in the report.
         """
+        # S4a (Phase 0): report-only unique-owner computation over the
+        # stashed candidates — fills `owner` on candidate records and counts
+        # R6 collisions. No var is ever attributed here.
+        r6 = self._finalize_schema_candidates()
         stats = {
             "total_columns": self._resolution_stats["total_columns"],
             "resolved_by": dict(self._resolution_stats["resolved_by"]),
             "unresolved": [],
+            "schema_candidates": self._schema_candidates,
+            "r6_collision": r6,
+            "script_schemas": {t: sorted(cols)
+                               for t, cols in self._script_schemas.items()},
         }
         attributed = {v.name for v in self.result.variables
                       if v.variable_type == VariableType.COLUMN
@@ -621,6 +655,19 @@ class _RoleBasedExtractor:
         main_table = select.args.get("this")
         if main_table and isinstance(main_table, exp.Table):
             self._register_table(main_table, context, dml=dml_mark, scope=scope)
+            # S4a source 2: UPDATE t SET a=… — SET targets are canonical
+            # schema evidence for t. EVIDENCE ONLY — the SET columns are
+            # still registered as ordinary column vars downstream (existing
+            # behavior); no new vars are created here.
+            if dml_mark == "UPDATE":
+                target_name = _clean(main_table.name or "")
+                if target_name:
+                    for e in (select.expressions or []):
+                        if (isinstance(e, _UPDATE_SET_NODES)
+                                and isinstance(e.this, exp.Column)):
+                            cname = _clean(e.this.name or "")
+                            if cname:
+                                self._script_schemas.setdefault(target_name, set()).add(cname)
 
         # FROM clause — table names and aliases
         from_exp = select.args.get("from") or select.args.get("from_")
@@ -641,6 +688,7 @@ class _RoleBasedExtractor:
             elif isinstance(ut, exp.Subquery):
                 sub_alias = _clean(ut.alias or "")
                 if sub_alias:
+                    self._derived_aliases.add(sub_alias)
                     self._add(sub_alias, VariableType.SUBQUERY,
                               sql_expr=_sql(ut.this),
                               defined_in="USING", context=context)
@@ -695,6 +743,7 @@ class _RoleBasedExtractor:
             sub_alias = _clean(from_exp.alias or "")
             sub_ctx = f"{context}/subq/{sub_alias}" if sub_alias else f"{context}/subq"
             if sub_alias:
+                self._derived_aliases.add(sub_alias)
                 self._add(sub_alias, VariableType.SUBQUERY,
                           sql_expr=_sql(from_exp.this),
                           defined_in=f"FROM:{context}", context=sub_ctx)
@@ -726,6 +775,7 @@ class _RoleBasedExtractor:
             sub_alias = _clean(join_expr.alias or lateral_alias or "")
             sub_ctx = f"{context}:join:{sub_alias}" if sub_alias else f"{context}:join_subq"
             if sub_alias:
+                self._derived_aliases.add(sub_alias)
                 self._add(sub_alias, VariableType.SUBQUERY,
                           sql_expr=_sql(join_expr.this),
                           defined_in=f"JOIN:{context}", context=sub_ctx)
@@ -864,6 +914,10 @@ class _RoleBasedExtractor:
 
         # ── R20 orphan resolution ─────────────────────────────────────
         if table:
+            # S4a source 1: qualified refs (t.col / alias.col / db.t.col)
+            # build the per-script canonical schema evidence map.
+            # REPORT-ONLY — evidence never attributes the variable.
+            self._record_qualified_evidence(col, table, scope)
             # Qualified column: S5 — qualifier sits in a system schema
             # (e.g. INFORMATION_SCHEMA.TABLES.TABLE_NAME).
             if var is not None and _clean(col.db or "").lower() in _SYSTEM_SCHEMAS:
@@ -920,7 +974,11 @@ class _RoleBasedExtractor:
             else:
                 var.source_tables = [name]
                 self._resolution_stats["resolved_by"]["scope"] += 1
-        # ≥2 physical tables → left unresolved (S4 at index time);
+        elif len(distinct) >= 2:
+            # S4a (Phase 0): the S3 "≥2 tables" branch — report-only. The
+            # candidate is stashed for the unique-owner post-pass (S4a) and
+            # the index-time cross-script re-test (S4b). Never attributed.
+            self._stash_schema_candidate(col_name, distinct, defined_in)
         # 0 physical tables → left unresolved.
 
     def _in_scope_owner(self, col: exp.Column, scope: _SelectScope) -> bool:
@@ -958,6 +1016,101 @@ class _RoleBasedExtractor:
         if scope is not None and qualifier in scope.aliases:
             return scope.aliases[qualifier]
         return self._table_aliases.get(qualifier, qualifier)
+
+    # ── S4a (Phase 0): SELECT-side schema evidence + candidates ──────
+    # REPORT-ONLY: nothing below ever sets source_tables. Evidence feeds
+    # `script_schemas`; the unique-owner computation only annotates the
+    # candidate records (`owner`), which stay in `unresolved`.
+
+    def _record_qualified_evidence(self, col: exp.Column, table: str,
+                                   scope: _SelectScope | None):
+        """S4a source 1: a qualified ref (t.col / alias.col / db.t.col) is
+        schema evidence for its canonical physical table.
+
+        Canonicalization: alias → physical via the script alias map
+        (scope-local first, then script-global); unaliased `t.col` → `t`;
+        `db.t.col` → `t` (db dropped). Excluded: `⟐` containers, CTE names,
+        derived-table aliases, system-schema qualifiers. Subquery-phantom
+        copies (outer-context raw-walk registrations) are gated via
+        `_in_scope_owner` so aliases resolve against the subquery's own scope.
+        """
+        if _clean(col.db or "").lower() in _SYSTEM_SCHEMAS:
+            return  # INFORMATION_SCHEMA/… refs are not physical evidence
+        if scope is not None:
+            if table in scope.ctes or table in scope.deriveds:
+                return  # CTE / derived-table qualifier — not physical
+            if not self._in_scope_owner(col, scope):
+                return  # subquery phantom copy — the inner walk records it
+        canonical = self._resolve_alias(table, scope)
+        col_name = _clean(col.name or "")
+        if (not col_name or canonical.startswith("⟐")
+                or canonical in self._cte_names
+                or canonical in self._derived_aliases):
+            return
+        self._script_schemas.setdefault(canonical, set()).add(col_name)
+
+    def _stash_schema_candidate(self, col_name: str, distinct: list,
+                                defined_in: str):
+        """S4a: record an unresolved bare column in a ≥2-table scope.
+
+        REPORT-ONLY — the var stays unresolved. The record feeds the
+        unique-owner post-pass (S4a) and the index-time cross-script re-test
+        (S4b). Deduped by (field, visible tables) so repeated occurrences in
+        the same scope produce one candidate.
+        """
+        visible = [name for _db, name in distinct]
+        key = (col_name, tuple(visible))
+        if key in self._candidate_keys:
+            return
+        self._candidate_keys.add(key)
+        line, _end = self._find_position(col_name)
+        loc = line if line and line > 0 else (defined_in or "unknown")
+        self._schema_candidates.append({
+            "field": col_name,
+            "visible_tables": visible,
+            "loc": loc,
+        })
+
+    def _finalize_schema_candidates(self) -> int:
+        """S4a post-pass (Phase 0, report-only): unique-owner computation.
+
+        Per candidate:
+          1. R6 guard — lower(field) ∈ lower(visible tables) → r6_collision,
+             never attributed.
+          2. owners = visible tables whose evidence contains the field
+             (whole-name equality, case-insensitive — R4: "id" never matches
+             "customer_id").
+          3. Exactly one owner → recorded on the candidate; 0 or ≥2 → no
+             owner key. The candidate var is NEVER attributed (Phase 2 is
+             gated on a human audit).
+        """
+        r6 = 0
+        for cand in self._schema_candidates:
+            field = cand["field"]
+            visible = cand["visible_tables"]
+            if field.lower() in {t.lower() for t in visible}:
+                r6 += 1
+                continue  # R6 guard — never attribute
+            owners = [t for t in visible
+                      if field.lower() in {c.lower()
+                                           for c in self._script_schemas.get(t, ())}]
+            if len(owners) == 1:
+                cand["owner"] = owners[0]
+        return r6
+
+    @staticmethod
+    def _projection_output_name(expr) -> str:
+        """S4a: a SELECT projection's output name (alias > bare column).
+
+        Mirrors `_walk_select_expression` auto-naming for the alias/column
+        cases; computed projections carry no usable column evidence and are
+        skipped (CTAS positional mapping is per-projection).
+        """
+        if isinstance(expr, exp.Alias):
+            return _clean(expr.alias or "")
+        if isinstance(expr, exp.Column):
+            return _clean(expr.name or "")
+        return ""
 
     # ── SELECT expression walker ────────────────────────────────────
 
@@ -1107,15 +1260,16 @@ class _RoleBasedExtractor:
     def _walk_merge(self, merge: exp.Merge, context: str):
         """Walk a MERGE statement."""
         target = merge.args.get("target") or merge.args.get("this")
+        target_name = ""
         if target and isinstance(target, exp.Table):
-            name = _clean(target.name or "")
+            target_name = _clean(target.name or "")
             alias = _clean(target.alias_or_name or "")
-            self._add(name, VariableType.MERGE_TARGET,
+            self._add(target_name, VariableType.MERGE_TARGET,
                       sql_expr=_sql(target), defined_in="MERGE", context=context)
-            if alias and alias != name:
+            if alias and alias != target_name:
                 self._add(alias, VariableType.MERGE_TARGET,
-                          sql_expr=f"{name} AS {alias}", defined_in="MERGE",
-                          context=context, source_tables=[name])
+                          sql_expr=f"{target_name} AS {alias}", defined_in="MERGE",
+                          context=context, source_tables=[target_name])
 
         # Source (USING)
         using = merge.args.get("using")
@@ -1126,6 +1280,7 @@ class _RoleBasedExtractor:
                 # Walk in SAME context so DML phase finds source columns
                 sub_alias = _clean(using.alias or "")
                 if sub_alias:
+                    self._derived_aliases.add(sub_alias)
                     self._add(sub_alias, VariableType.SUBQUERY,
                               sql_expr=_sql(using.this),
                               defined_in="MERGE USING", context=context)
@@ -1138,6 +1293,16 @@ class _RoleBasedExtractor:
 
         # WHEN clauses
         for when in (merge.args.get("whens") or []):
+            # S4a source 2: MERGE INTO t … WHEN UPDATE SET a=… — the SET
+            # targets are canonical schema evidence for t (report-only).
+            action = when.this or when.args.get("then")
+            if target_name and isinstance(action, exp.Update):
+                for e in (action.expressions or []):
+                    if (isinstance(e, _UPDATE_SET_NODES)
+                            and isinstance(e.this, exp.Column)):
+                        cname = _clean(e.this.name or "")
+                        if cname:
+                            self._script_schemas.setdefault(target_name, set()).add(cname)
             if hasattr(when, 'this') and when.this:
                 self._walk_columns_in_expr(when.this, context, defined_in="MERGE WHEN")
 
@@ -1147,6 +1312,17 @@ class _RoleBasedExtractor:
         """Walk an INSERT statement (INSERT INTO ... SELECT/VALUES)."""
         into = insert.args.get("into") or insert.args.get("this")
         if isinstance(into, exp.Schema):
+            # S4a source 2: INSERT INTO t (a,b) — the target column list is
+            # canonical schema evidence for t. EVIDENCE ONLY — no column
+            # variables are created (total_columns unchanged). A missing
+            # list (plain INSERT INTO t SELECT …) contributes no evidence.
+            target_canon = (_clean(into.this.name or "")
+                            if isinstance(into.this, exp.Table) else "")
+            if target_canon:
+                for col_ident in (into.expressions or []):
+                    cname = _clean(col_ident.name or "")
+                    if cname:
+                        self._script_schemas.setdefault(target_canon, set()).add(cname)
             into = into.this
         if isinstance(into, exp.Table):
             # Register target with INSERT marking (not default "FROM")
@@ -1199,13 +1375,35 @@ class _RoleBasedExtractor:
                                  f"VIEW:{name}" if name else context)
 
         elif kind == "TABLE":
+            # S4a canonical name: a Schema node (`CREATE TABLE t (a INT, …)`)
+            # carries the name on .this — `table_expr.name` is empty for it.
+            canonical = name
+            if isinstance(table_expr, exp.Schema):
+                canonical = (_clean(table_expr.this.name or "")
+                             if isinstance(table_expr.this, exp.Table) else canonical)
             if name:
                 self._add(name, VariableType.TABLE,
                           sql_expr=_sql(create), defined_in="CREATE TABLE", context=context)
+            # S4a source 3: DDL column definitions (CREATE TABLE t (a INT, …))
+            # → canonical schema evidence. REPORT-ONLY — no column variables.
+            if canonical and isinstance(table_expr, exp.Schema):
+                for col_def in (table_expr.expressions or []):
+                    if isinstance(col_def, exp.ColumnDef) and hasattr(col_def.this, "name"):
+                        cname = _clean(col_def.this.name or "")
+                        if cname:
+                            self._script_schemas.setdefault(canonical, set()).add(cname)
             # CTAS: CREATE TABLE ... AS SELECT — walk the inner SELECT
             inner = create.args.get("expression")
             if inner and isinstance(inner, exp.Select):
                 self._walk_select(inner, f"CTAS:{name}" if name else context, is_cte=False)
+                # S4a source 3: CTAS without a column list → the SELECT
+                # output aliases are positional column evidence for the new
+                # table (same semantics as the Bug 41 DML mapping).
+                if canonical and not isinstance(table_expr, exp.Schema):
+                    for p in (inner.expressions or []):
+                        pname = self._projection_output_name(p)
+                        if pname:
+                            self._script_schemas.setdefault(canonical, set()).add(pname)
             elif inner and isinstance(inner, (exp.Union, exp.Intersect, exp.Except)):
                 self._walk_setop(inner, type(inner).__name__.upper(),
                                  f"CTAS:{name}" if name else context)
