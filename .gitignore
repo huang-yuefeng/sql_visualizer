@@ -31,7 +31,8 @@ backend/.pytest_cache/
 docker_image/*.tar.gz
 
 # Build/image artifacts (N7 hygiene — keep out of git)
-docker_image/
+# NOTE: docker_image/part_* + checksums.md5 are REQUIRED in git — target_deploy.sh
+# reassembles the image from them. Only the tarball is ignored (see above).
 *.bak
 backend/app/static.bak.*/
 
