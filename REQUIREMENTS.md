@@ -1150,3 +1150,124 @@ genuinely-open items from the 2026-08-06 code review.
 - [ ] `git ls-files | grep -i '\.bak'` → empty; `git check-ignore x.bak.*` → ignored
 - [ ] Backend 556 passed / 5 skipped; frontend 70 passed + build OK; health
       `{"status":"ok","version":"3.3.136"}`
+
+## R23 — Remove browser auto-restore of last workspace (requirement change)
+
+> **Priority:** P2 | **Date:** 2026-08-06 | **Status:** Implemented (v3.3.137)
+
+**Description:** Opening the service always starts with NO workspace selected —
+the user picks or creates one from the upload panel. The app no longer reads
+localStorage to restore the last-used workspace + view after a page reload;
+the R3 search-view persistence feature (added so a reload resumes the last
+search) is removed entirely, including its dead helper code and the one-time
+purge of its localStorage key.
+
+### Problem
+
+User feedback: "When I open the service, there is a previous workspace. why?"
+On mount, `DataFlowApp` read saved state from localStorage
+(`df_last_search_view`, written at every search): it re-fetched the saved
+workspace (`getWorkspaceInfo`), re-scanned (`scanWorkspace`), re-indexed
+(`indexWorkspace`), re-listed views (`listViews`), and re-opened the saved
+view with its cached L1 graph — silently re-entering a workspace the user
+never asked to open. The behavior surprises users, implies state persisted
+without their intent, and races an upload started during the restore (the
+R3 `uploadTokenRef` guard).
+
+### Requirement
+
+1. **Clean start on load.** Opening the app always starts with no workspace
+   selected and the empty state ("Upload a folder to get started"); the user
+   picks or creates a workspace themselves. Nothing reads localStorage to
+   open a workspace or view on page load.
+2. **Remove the restore feature entirely.** Delete the mount-time restore
+   effect (the `saved.wsId` block calling `getWorkspaceInfo` /
+   `scanWorkspace` / `indexWorkspace` / `listViews`), the localStorage save
+   side (`LAST_SEARCH_KEY` / `loadLastSearch` / `saveLastSearch` /
+   `clearLastSearch` and their call sites in `handleSearch` /
+   `handleUpload`), and `mergeRestoredViews` (`restoreViews.js`) — its only
+   call site was the mount restore. Remove the now-unused API wrappers
+   `getWorkspaceInfo` and `scanWorkspace` from `client.js`, and the R3
+   upload-race guard (`uploadTokenRef`).
+3. **One-time key purge.** On mount the app removes `df_last_search_view`
+   from localStorage, so saved state from older sessions can never resurface
+   (e.g. after a revert). Other localStorage keys (`theme`,
+   `df_search_history`, `df_pinned_searches`) are untouched.
+4. **Frontend-only.** Backend untouched — workspaces/views remain server-side
+   state; only the auto-restore of them on load is gone.
+
+### Acceptance criteria
+
+- [ ] Opening the app → empty state, no workspace selected, no network calls
+      to `getWorkspaceInfo` / `scanWorkspace` / `indexWorkspace` / `listViews`
+      on mount
+- [ ] Zero references to `LAST_SEARCH_KEY` / `loadLastSearch` /
+      `saveLastSearch` / `clearLastSearch` / `mergeRestoredViews` /
+      `restoreViews` in `frontend/src`
+- [ ] `restoreViews.js` + `restoreViews.test.js` deleted; `uploadTokenRef`
+      gone from `DataFlowApp.jsx`
+- [ ] `df_last_search_view` removed from localStorage on mount
+- [ ] Upload / scan / index / search / view tree / L2 still work unchanged
+- [ ] Frontend tests pass (64) and production build succeeds
+
+## R24 — Single-script folders show their script in L1 (requirement change)
+
+> **Priority:** P1 | **Date:** 2026-08-06 | **Status:** Implemented (v3.3.137)
+
+**Description:** A workspace containing exactly one script must still show
+that script node in L1, and double-clicking it must open L2 — identical to
+multi-script workspaces. Verified with `samples/sql_sample_v1/`
+(`BDM_ACC_LOAN_INFO_SUP_M.sql`), the user's single-script repro folder.
+
+### Problem
+
+User feedback: "when there is only one script in the folder, we should show
+it in L1, when clicking on script there should be L2. I am testing
+sql_sample_v1." A single-script workspace search returned a **0-node L1**:
+`_build_l1_graph`'s single-script shortcut returned only the bare script
+node (no tables, no edges, no `lineage_field_pairs`), and
+`_filter_l1_by_lineage`'s R18.1 cleanup then pruned that script as
+"disconnected" (0 remaining table edges) — nothing was left to double-click
+into L2. Both the search response and the level1 endpoint produced the
+0-node graph, and the persisted `l1_graph_cache` in `views.json` stored it.
+
+### Requirement
+
+1. **Script node always present.** For a matched search in a single-script
+   workspace (and for the level1 rebuild path of such a view), L1 must
+   contain the script node — with its flow tables when the lineage filter
+   keeps them. The R18.1 "remove disconnected scripts" rule may never prune
+   the only script of a 1-script graph: the search already established it is
+   in the searched field's flow (`match_mode` exact/expanded). Multi-script
+   R18.1 pruning is unchanged.
+2. **Full pipeline shape, not a bare node.** `_build_l1_graph` analyzes the
+   one script inline (`analyze_multiple_scripts` refuses <2 scripts) and
+   feeds the same `all_scripts` shape downstream, so L1 gets tables,
+   `reads_from`/`writes_to` edges and lineage field children — exactly like
+   the multi-script path (previously the shortcut skipped the entire
+   pipeline).
+3. **Click opens L2.** The script node carries `script_name`; the existing
+   frontend `onDblTap` → `handleOpenL2` flow opens L2 unchanged (no
+   frontend change required).
+4. **R22 no_matches interaction (unchanged by design).** A search whose
+   field is not queried by any script in the workspace still returns
+   `match_mode: "no_matches"` + the accurate message + an EMPTY L1, in a
+   single-script workspace exactly as in any other — the banner + empty
+   graph for no_matches is intentional and untouched. Only a *matching*
+   search in a single-script workspace shows the script node.
+
+### Acceptance criteria
+
+- [ ] Single-script workspace + matching search → L1 contains the script
+      node (with its flow tables); node count > 0
+- [ ] level1 endpoint for that view → same node set, script node present
+- [ ] Double-click on the L1 script node → L2 opens (level2 works,
+      `search_matched` absent = matched)
+- [ ] Single-script workspace + no_matches search → still `no_matches` +
+      message + empty L1 (R22 preserved)
+- [ ] Multi-script R18.1 disconnected-script pruning unchanged (guard is
+      1-script-only)
+- [ ] New searches persist a non-empty `l1_graph_cache` in `views.json`
+- [ ] Backend scoped tests pass (8 new R24 tests); live verification:
+      fresh single-script workspace upload → search → L1 shows the script
+      node

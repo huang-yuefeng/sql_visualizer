@@ -56,17 +56,6 @@ export async function deleteWorkspace(wsId) {
   return res.json();
 }
 
-export async function getWorkspaceInfo(wsId) {
-  const res = await fetch(`/api/workspace/${wsId}`);
-  if (!res.ok) throw new Error(await errorDetail(res));
-  return res.json();
-}
-
-export async function scanWorkspace(wsId) {
-  const res = await fetch(`/api/workspace/${wsId}/scan`, { method: 'POST' });
-  return res.json();
-}
-
 export async function indexWorkspace(wsId, scripts) {
   const res = await fetch(`/api/workspace/${wsId}/index`, {
     method: 'POST',
