@@ -31,6 +31,8 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
   const [showFieldDrop, setShowFieldDrop] = useState(false);
   const [filterActive, setFilterActive] = useState(false);
   const [filterStats, setFilterStats] = useState(null);
+  const [filterWarning, setFilterWarning] = useState(null);   // F4/R2: payload.warning
+  const [filterIgnored, setFilterIgnored] = useState([]);     // F4/R2: payload.ignored_tables
   const [uploadingFilter, setUploadingFilter] = useState(false);
   const [filterExpanded, setFilterExpanded] = useState(false);
   const [searchHistory, setSearchHistory] = useState(loadHistory);
@@ -130,6 +132,8 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
         await api.uploadFilterConfig(wsId, null, null);
         setFilterActive(false);
         setFilterStats(null);
+        setFilterWarning(null);
+        setFilterIgnored([]);
       } catch (e) { console.error(e); }
       setUploadingFilter(false);
       return;
@@ -139,6 +143,9 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
       const result = await api.uploadFilterConfig(wsId, stFile, tcFile);
       setFilterActive(result.filtered);
       setFilterStats(`${result.table_count} tables, ${result.field_count} fields`);
+      // F4/R2: surface ignored tables + human warning from the payload
+      setFilterWarning(result.warning || null);
+      setFilterIgnored(Array.isArray(result.ignored_tables) ? result.ignored_tables : []);
       if (onFilterApplied) await onFilterApplied(result);
     } catch (e) { console.error(e); }
     setUploadingFilter(false);
@@ -150,6 +157,8 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
       await api.uploadFilterConfig(wsId, null, null);
       setFilterActive(false);
       setFilterStats(null);
+      setFilterWarning(null);
+      setFilterIgnored([]);
       if (onFilterApplied) await onFilterApplied(null);
     } catch (e) { console.error(e); }
   };
@@ -169,6 +178,22 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
           </span>
           <span className="ifb-toggle">{filterExpanded ? '▲' : '▼'}</span>
         </div>
+        {/* F4/R2: warn when the filter dropped tables (visible even when collapsed) */}
+        {filterWarning && (
+          <div className="filter-warning">
+            <span className="fw-icon">⚠️</span>
+            <div className="fw-text">
+              {filterWarning}
+              {filterIgnored.length > 0 && (
+                <div className="fw-ignored">
+                  {filterIgnored.length} table{filterIgnored.length > 1 ? 's' : ''} ignored:{' '}
+                  {filterIgnored.slice(0, 10).join(', ')}
+                  {filterIgnored.length > 10 && ` … +${filterIgnored.length - 10} more`}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {filterExpanded && (
           <div className="ifb-body">
             <p className="ifb-hint">

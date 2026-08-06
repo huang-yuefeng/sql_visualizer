@@ -6,11 +6,17 @@ Also pushes to per-workspace thread-safe queues for SSE streaming to frontend.
 import time
 import sys
 import queue  # thread-safe, unlike asyncio.Queue
+import threading
 
 # ── SSE queue registry ──────────────────────────────────────────────────
 # Per-workspace thread-safe queues for frontend log streaming.
 # queue.Queue is thread-safe — safe to put() from sync thread pool threads.
 _log_queues: dict[str, queue.Queue] = {}
+# L2: registry mutations are guarded by a lock; _log_refs counts active SSE
+# streams per workspace so a queue is only dropped when the LAST consumer
+# disconnects (auto-cleanup — was: removed only on explicit delete).
+_log_lock = threading.Lock()
+_log_refs: dict[str, int] = {}
 _MAX_QUEUE = 500
 
 
@@ -33,14 +39,46 @@ def _push(ws_id: str | None, stage: str, message: str):
 
 def ensure_queue(ws_id: str) -> queue.Queue:
     """Get or create the thread-safe queue for a workspace."""
-    if ws_id not in _log_queues:
-        _log_queues[ws_id] = queue.Queue(maxsize=_MAX_QUEUE)
-    return _log_queues[ws_id]
+    with _log_lock:
+        if ws_id not in _log_queues:
+            _log_queues[ws_id] = queue.Queue(maxsize=_MAX_QUEUE)
+        return _log_queues[ws_id]
+
+
+def register_queue(ws_id: str) -> queue.Queue:
+    """Mark an active SSE consumer for a workspace (L2: auto-cleanup).
+
+    Returns the shared queue. Call on stream start; the stream's finally
+    block must call unregister_queue.
+    """
+    with _log_lock:
+        q = _log_queues.get(ws_id)
+        if q is None:
+            q = _log_queues[ws_id] = queue.Queue(maxsize=_MAX_QUEUE)
+        _log_refs[ws_id] = _log_refs.get(ws_id, 0) + 1
+        return q
+
+
+def unregister_queue(ws_id: str):
+    """Drop a consumer's reference; remove the queue when the last one leaves.
+
+    L2: SSE streams auto-clean their queue on disconnect instead of leaving
+    it in the registry forever.
+    """
+    with _log_lock:
+        remaining = _log_refs.get(ws_id, 0) - 1
+        if remaining > 0:
+            _log_refs[ws_id] = remaining
+        else:
+            _log_refs.pop(ws_id, None)
+            _log_queues.pop(ws_id, None)
 
 
 def remove_queue(ws_id: str):
-    """Remove the queue for a workspace (cleanup)."""
-    _log_queues.pop(ws_id, None)
+    """Remove the queue for a workspace (explicit cleanup, e.g. delete)."""
+    with _log_lock:
+        _log_refs.pop(ws_id, None)
+        _log_queues.pop(ws_id, None)
 
 
 # ── Pipeline stages ────────────────────────────────────────────────────

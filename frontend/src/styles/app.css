@@ -428,6 +428,57 @@
 .ifb-hint { font-size: 0.65rem; color: #666; margin: 0 0 6px 0; }
 .ifb-actions { display: flex; gap: 6px; margin-top: 6px; }
 
+/* ── Filter warning banner (F4/R2): ignored tables + human warning ── */
+.filter-warning {
+  display: flex; align-items: flex-start; gap: 6px;
+  margin: 0 8px 8px 8px; padding: 6px 8px;
+  background: rgba(218, 68, 83, 0.12);
+  border: 1px solid #DA4453;
+  border-radius: 4px;
+  font-size: 0.68rem; color: #E74C3C;
+}
+.filter-warning .fw-icon { font-size: 0.8rem; line-height: 1.1; }
+.filter-warning .fw-text { flex: 1; }
+.fw-ignored { margin-top: 3px; color: #F39C12; }
+
+/* ── No-match search notice (R3/F1) ── */
+.no-match-banner {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  background: rgba(243, 156, 18, 0.15);
+  border: 1px solid #F39C12; color: #F39C12;
+  padding: 6px 14px; border-radius: 4px;
+  font-size: 0.75rem; z-index: 50;
+  white-space: nowrap;
+}
+
+/* ── Orphan Resolution Report (R20) ── */
+.resolution-report {
+  border: 1px solid #3a3a5a; border-radius: 4px;
+  margin-bottom: 10px; overflow: hidden;
+  background: #16162a;
+}
+.rr-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; cursor: pointer; font-size: 0.75rem; user-select: none;
+}
+.rr-header:hover { background: #1e1e3a; }
+.rr-icon { font-size: 0.9rem; }
+.rr-title { flex: 1; color: #aaa; font-weight: 500; }
+.rr-coverage { font-weight: 600; font-size: 0.8rem; }
+.rr-toggle { color: #666; font-size: 0.6rem; }
+.rr-body { padding: 0 10px 10px 10px; font-size: 0.7rem; color: #bbb; }
+.rr-line { margin-bottom: 6px; }
+.rr-strategies { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 6px; }
+.rr-strategy { color: #9a9abf; }
+.rr-unresolved { border-top: 1px dashed #3a3a5a; padding-top: 6px; }
+.rr-unresolved-head { color: #E74C3C; margin-bottom: 4px; }
+.rr-unresolved-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.rr-unresolved-name {
+  background: rgba(231, 76, 60, 0.1); border: 1px solid rgba(231, 76, 60, 0.3);
+  color: #E74C3C; border-radius: 3px; padding: 1px 6px; font-size: 0.65rem;
+}
+.rr-clean { color: #2ECC71; }
+
 /* ── Export Config Clickable Rows ── */
 .config-row {
   display: flex; align-items: center; gap: 8px;

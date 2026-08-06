@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.services.workspace_service import get_workspace, get_workspace_dir
 from app.services.logger import _push, _ts
 from app.services.dataflow_service import (
-    _load_views, _save_views,
+    _load_views, _save_views, _persist_search_view,
     create_search, get_level2_graph,
     list_views, delete_view,
 )
@@ -60,42 +60,12 @@ def _emit_search_diagnostic(ws_id, table, field, filter_active, scope_tables, sc
         _push(ws_id, "profile", line)
 
 
-@router.post("/workspace/{ws_id}/search")
-async def search_dataflow(ws_id: str, body: dict):
-    """Search for data flow of table.field. body: {table, field}"""
-    ws = get_workspace(ws_id)
-    if not ws:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+def _search_diagnostic_values(ws_id, table, field, ti, fi, result):
+    """Compute the R17 diagnostic inputs (shared by the normal + no_matches paths).
 
-    if not ws.get("indexed"):
-        raise HTTPException(status_code=400, detail="Workspace not indexed. Run index first.")
-
-    table = body.get("table", "").strip()
-    field = body.get("field", "").strip()
-    if not table or not field:
-        raise HTTPException(status_code=400, detail="Both 'table' and 'field' are required")
-
-    ti, fi, filtered_active = _load_index(ws_id)
-    if not ti and not fi:
-        if filtered_active:
-            # F1: filter active but empty (empty intersection) — indexing
-            # already passed (see 400 guard above); the filter simply matches
-            # nothing. Return a successful empty result instead of a 400.
-            return {
-                "view_id": uuid.uuid4().hex[:12],
-                "table": table,
-                "field": field,
-                "script_ids": [],
-                "l1_graph": {"nodes": [], "edges": [], "target": "table.field"},
-                "match_mode": "no_matches",
-                "message": "Filter active — no tables in scope",
-            }
-        raise HTTPException(status_code=400, detail="Indexes not found. Run index first.")
-
-    lineage_mode = body.get("lineage_mode", True)  # R18: default True
-    result = create_search(ws_id, table, field, ti, fi, lineage_mode=lineage_mode)
-
-    # ── R17: Search diagnostic logging ──
+    The no_matches path (F1/R3) reuses the same inputs so the emitted block
+    is identical in shape to a regular search's.
+    """
     cache_dir = get_workspace_dir(ws_id) / "cache"
     filter_active = (cache_dir / "filtered_index.json").exists()
     if filter_active:
@@ -122,9 +92,65 @@ async def search_dataflow(ws_id: str, body: dict):
         suggestion = "No matching scripts - check table/field name spelling"
     else:
         suggestion = "OK"
-    _emit_search_diagnostic(ws_id, table, field, filter_active, scope_tables, scope_fields,
-                            table_in_index, field_in_index, table_scripts, field_scripts,
-                            match_scripts, suggestion)
+    return (filter_active, scope_tables, scope_fields, table_in_index, field_in_index,
+            table_scripts, field_scripts, match_scripts, suggestion)
+
+
+@router.post("/workspace/{ws_id}/search")
+async def search_dataflow(ws_id: str, body: dict):
+    """Search for data flow of table.field. body: {table, field}"""
+    ws = get_workspace(ws_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    if not ws.get("indexed"):
+        raise HTTPException(status_code=400, detail="Workspace not indexed. Run index first.")
+
+    table = body.get("table", "").strip()
+    field = body.get("field", "").strip()
+    if not table or not field:
+        raise HTTPException(status_code=400, detail="Both 'table' and 'field' are required")
+
+    ti, fi, filtered_active = _load_index(ws_id)
+    if not ti and not fi:
+        if filtered_active:
+            # F1: filter active but empty (empty intersection) — indexing
+            # already passed (see 400 guard above); the filter simply matches
+            # nothing. Return a successful empty result instead of a 400.
+            result = {
+                "view_id": uuid.uuid4().hex[:12],
+                "table": table,
+                "field": field,
+                "script_ids": [],
+                "l1_graph": {"nodes": [], "edges": [], "target": "table.field"},
+                "match_mode": "no_matches",
+                "message": "Filter active — no tables in scope",
+            }
+            # R3: the no_matches path also emits the R17 search diagnostic
+            # (same block shape as a regular search, via the same _push hook).
+            _emit_search_diagnostic(ws_id, table, field,
+                                    *_search_diagnostic_values(ws_id, table, field, ti, fi, result))
+            # R3: persist the empty view like any other search, so it
+            # survives reload (create_search is bypassed on this path).
+            _persist_search_view(ws_id, {
+                "view_id": result["view_id"],
+                "type": "search",
+                "table": table,
+                "field": field,
+                "script_ids": [],
+                "script_count": 0,
+                "l1_graph_cache": {"nodes": [], "edges": []},
+                "children": [],
+            })
+            return result
+        raise HTTPException(status_code=400, detail="Indexes not found. Run index first.")
+
+    lineage_mode = body.get("lineage_mode", True)  # R18: default True
+    result = create_search(ws_id, table, field, ti, fi, lineage_mode=lineage_mode)
+
+    # ── R17: Search diagnostic logging ──
+    _emit_search_diagnostic(ws_id, table, field,
+                            *_search_diagnostic_values(ws_id, table, field, ti, fi, result))
     return result
 
 

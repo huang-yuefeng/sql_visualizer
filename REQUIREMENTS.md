@@ -982,6 +982,14 @@ When both files are uploaded:
 
 ---
 
+### Note (R1 — 2026-08-06): blank COL_NAME semantics (decision made)
+
+A `table_col.csv` row with **`TABLE_NAME` set but blank/empty `COL_NAME`** means the table has **no column constraint**: all of its indexed fields pass the field filter. This restores pre-F2 behavior and matches the "single-file uploads unchanged" principle — a table-only file filters tables, not fields.
+
+- If a table appears in **both** a COL_NAME row and a blank-COL_NAME row, the blank row wins: the table is unconstrained (the column rows' union plus everything else of that table).
+- Unconstrained status only applies within the effective table scope — with both files, a blank row for a table outside A∩B does **not** let that table's fields leak into the filtered field index.
+- Implemented in `backend/app/services/filter_service.py` (F6 extraction) with regression tests in `backend/tests/test_filter_config.py` (`TestR1BlankColName`).
+
 ## R20 — Orphan Resolution Coverage Report (extraction-phase resolution feedback)
 
 > **Priority:** P1 | **Date:** 2026-08-04 | **Status:** Design done (SOLUTION_DESIGN.md "Orphan Resolution")

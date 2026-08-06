@@ -233,3 +233,48 @@ class TestReviewerFixes:
         assert "c" not in ti, "CTE name leaked into table_index"
         # the CTE-resolved field is not an orphan (extractor resolved it)
         assert r["orphan_field_count"] == 0, r
+
+
+class TestL3Progress:
+    """L3: _INDEX_PROGRESS is lock-guarded; errors accumulate instead of
+    being silently reset on the error path."""
+
+    def test_l3_errors_accumulate_in_progress(self):
+        """Per-script failures surface in get_index_progress with progress kept."""
+        from app.services.folder_index_service import get_index_progress
+        ws = _make_ws({"ok.sql": "SELECT 1;\n"})
+        try:
+            result = index_scripts(ws, ["missing.sql", "ok.sql"])
+            assert result["errors"], "missing script must be reported"
+            p = get_index_progress(ws)
+            assert p["phase"] == "done", p
+            assert p["current"] == 2 and p["total"] == 2, p
+            errs = p["errors"]
+            assert len(errs) == 1, errs
+            assert errs[0]["script"] == "missing.sql", errs
+            assert errs[0]["error"] == "File not found", errs
+        finally:
+            delete_workspace(ws)
+
+    def test_l3_new_run_resets_previous_errors(self):
+        """A fresh index run starts from zero — previous errors don't leak."""
+        from app.services.folder_index_service import get_index_progress
+        ws = _make_ws({"ok.sql": "SELECT 1;\n"})
+        try:
+            index_scripts(ws, ["missing.sql"])
+            p1 = get_index_progress(ws)
+            assert len(p1["errors"]) == 1, p1
+            index_scripts(ws, ["ok.sql"])
+            p2 = get_index_progress(ws)
+            assert p2["errors"] == [], p2
+            assert p2["current"] == 1 and p2["total"] == 1, p2
+        finally:
+            delete_workspace(ws)
+
+    def test_l3_progress_shape_unchanged(self, tc1_ws):
+        """The progress dict keeps its {current,total,phase,errors} shape."""
+        from app.services.folder_index_service import get_index_progress
+        index_scripts(tc1_ws, ["t.sql"])
+        p = get_index_progress(tc1_ws)
+        assert set(p) == {"current", "total", "phase", "errors"}, p
+        assert p["phase"] == "done"
