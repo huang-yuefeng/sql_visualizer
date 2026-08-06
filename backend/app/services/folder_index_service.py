@@ -91,6 +91,15 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     stats_seen = False    # any script carried resolution_stats (fallback gate)
     by_strategy = {"plain_alias": 0, "expr_alias": 0, "scope": 0,
                    "schema": 0, "sys": 0, "other": 0}
+    # S4 (Phase 1 — REPORT ONLY) accumulation: the workspace schema map M_ws
+    # (union of the extractor's per-script script_schemas) plus the
+    # cross-script schema_candidates records. Phase 1 never attributes —
+    # the index-side re-test only feeds the ORPHAN RESOLUTION REPORT for
+    # the human audit (Phase 2 auto-resolution is gated on that audit).
+    m_ws = {}                    # canonical table -> set(columns)
+    schema_candidate_records = []  # (script, {field, visible_tables, loc, ...})
+    r6_collision_total = 0       # summed per-script r6_collision
+    s4c_seen = False             # any script carried the new S4 keys
 
     for i, rel_path in enumerate(script_paths):
         sp = get_script_path(ws_id, rel_path)
@@ -131,6 +140,34 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                 for _f in rs.get("unresolved", []) or []:
                     if isinstance(_f, str):
                         extractor_unresolved.add(_f)
+
+                # ── S4 (Phase 1) inputs: SELECT-side schema evidence ──
+                # The extractor (S4a, landing in parallel) emits
+                # `schema_candidates` / `script_schemas` / `r6_collision`
+                # with new analyses; old caches lack them — read
+                # defensively so the report stays byte-identical on old
+                # data. Everything here is REPORT ONLY: the index-side
+                # re-test below never attributes anything.
+                ss4c = rs.get("script_schemas")
+                if isinstance(ss4c, dict):
+                    for _t, _cols in ss4c.items():
+                        if not isinstance(_t, str) or not isinstance(
+                                _cols, (list, tuple, set)):
+                            continue
+                        m_ws.setdefault(_t, set()).update(
+                            c for c in _cols if isinstance(c, str))
+                sc4c = rs.get("schema_candidates")
+                if isinstance(sc4c, list):
+                    for _c in sc4c:
+                        if isinstance(_c, dict):
+                            schema_candidate_records.append((rel_path, _c))
+                _r6 = rs.get("r6_collision")
+                if isinstance(_r6, (int, float)) and not isinstance(_r6, bool):
+                    r6_collision_total += int(_r6)
+                s4c_seen = (s4c_seen
+                            or "schema_candidates" in rs
+                            or "script_schemas" in rs
+                            or "r6_collision" in rs)
 
             # ── S4 input (Phase 2): per-script inferred schemas ──
             # schema_inference expects attribute-style objects; the analysis
@@ -350,6 +387,53 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                        if not fdata.get("tables")}
     container_resolved = sorted(no_table_fields - set(orphan_fields))
 
+    # ── S4b (Phase 1 — REPORT ONLY): cross-script candidate re-test ──
+    # For every post-S4 orphan, union its candidate records' visible tables
+    # across ALL scripts, then compute owners = {t in visible(field) :
+    # field in M_ws[t]} — whole-name, case-insensitive equality (the R4
+    # word-boundary invariant: "id" never matches "customer_id", "Id"
+    # matches "id"). len(owners) != 1 (0 = evidence absent, ≥2 = ambiguous)
+    # → NO owner line: never guess, never fall back to workspace-global
+    # uniqueness. R6: field name == a visible table name → never an owner.
+    # Phase 1 only SHOWS candidates — no attribution, coverage_pct and the
+    # orphan set are untouched (the S4b re-test is the Phase-2 rule, run
+    # here against the residual orphan set for the human audit).
+    schema_candidates_by_field = {}
+    for _srec, _crec in schema_candidate_records:
+        _f = _crec.get("field")
+        if isinstance(_f, str) and _f:
+            schema_candidates_by_field.setdefault(_f, []).append((_srec, _crec))
+    m_ws_lower = {t.lower(): {c.lower() for c in cols}
+                  for t, cols in m_ws.items()}
+    s4c_owner_lines = []  # (field, owner, script, loc_label, visible_txt)
+    for fname in sorted(orphan_fields):
+        recs = schema_candidates_by_field.get(fname)
+        if not recs:
+            continue
+        # visible(field) = union of visible_tables across all scripts
+        # (deduped case-insensitively, original case preserved)
+        visible = {}
+        for _srec, _crec in recs:
+            for _t in _crec.get("visible_tables") or []:
+                if isinstance(_t, str) and _t:
+                    visible.setdefault(_t.lower(), _t)
+        visible_names = list(visible.values())
+        if fname.lower() in visible:
+            continue  # R6: field == visible table → never an owner
+        owners = [t for t in visible_names
+                  if fname.lower() in m_ws_lower.get(t.lower(), ())]
+        if len(owners) != 1:
+            continue  # 0 owners or ≥2 → no owner line (never guess)
+        # Evidence: script name + loc from the deterministic first record
+        # (sorted by script name); a string/missing loc reuses the report's
+        # SQL-evidence line search.
+        _srec, _crec = sorted(recs, key=lambda r: r[0])[0]
+        loc_label = _loc_label(ws_id, _srec, fname, _crec.get("loc"))
+        vis_txt = (", visible: %s" % ", ".join(visible_names[:6])
+                   if visible_names else "")
+        s4c_owner_lines.append((fname, owners[0], _srec, loc_label, vis_txt))
+    s4c_unique_owners = len(s4c_owner_lines)
+
     # L3: don't shadow `total` (script count) — the "done" progress below
     # must report scripts, not column variables.
     total_cols = total_columns
@@ -365,7 +449,12 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
         "by_strategy": dict(by_strategy),
     }
     _push_resolution_report(ws_id, resolution_stats, orphan_fields,
-                            container_resolved)
+                            container_resolved,
+                            s4c_seen=s4c_seen,
+                            n_cand=len(schema_candidate_records),
+                            n_owner=s4c_unique_owners,
+                            r6_total=r6_collision_total,
+                            owner_lines=s4c_owner_lines)
 
     # Update workspace meta
     ws_dir = get_workspace_dir(ws_id)
@@ -385,6 +474,15 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
         "orphan_field_count": len(orphan_fields),
         "orphan_field_samples": list(sorted(orphan_fields))[:20],
         "resolution_stats": resolution_stats,
+        # S4 (Phase 1): SELECT-side candidate summary — REPORT ONLY, nothing
+        # attributed. N = total candidate records across scripts, M = orphan
+        # fields with a unique visible owner line, K = summed r6_collision.
+        # Zeroed on old caches (no new keys) so consumers get a stable shape.
+        "schema_candidates_summary": {
+            "total": len(schema_candidate_records),
+            "unique_owner": s4c_unique_owners,
+            "r6_collision": r6_collision_total,
+        },
     }
 
 
@@ -397,8 +495,32 @@ def _resolve_orphan_script(ws_id: str, name: str):
     return resolve_script(ws_id, name)
 
 
+def _loc_label(ws_id: str, script: str, field: str, loc) -> str:
+    """Evidence loc for an S4b owner line: an int loc renders as L<int>;
+    a string loc (or a missing loc) reuses the report's SQL-evidence line
+    search — first line of `script` mentioning the field — so the evidence
+    stays consistent with the UNRESOLVED section's mechanism.
+    """
+    if isinstance(loc, int) and not isinstance(loc, bool):
+        return "L%d" % loc
+    sp = _resolve_orphan_script(ws_id, script)
+    if sp:
+        try:
+            sql_txt = sp.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            sql_txt = ""
+        needle = field.lower()
+        for i, ln in enumerate(sql_txt.split("\n")):
+            if needle in ln.lower():
+                return "L%d" % (i + 1)
+    return str(loc) if loc is not None else ""
+
+
 def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict,
-                            container_resolved: list | None = None):
+                            container_resolved: list | None = None,
+                            *, s4c_seen: bool = False, n_cand: int = 0,
+                            n_owner: int = 0, r6_total: int = 0,
+                            owner_lines: list | None = None):
     """R20: coverage diagnostic — resolved vs total column variables.
 
     Supersedes the Bug-54 ORPHAN FIELD REPORT (same SQL-evidence mechanism
@@ -408,6 +530,12 @@ def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict,
     E1 (reviewer): "resolved to output container" fields (⟐ output / CTE —
     script-scoped, no usable workspace table) are surfaced as a distinct
     bucket so nothing is invisible.
+
+    S4 (Phase 1, REPORT ONLY): when new analyses carry the S4a keys
+    (s4c_seen), a schema-candidates summary line (`schema candidates: N
+    (unique visible owner found: M) | r6 collision: K`) plus one owner line
+    per orphan with a unique visible owner follows the strategy lines.
+    Old caches without the keys produce a byte-identical block.
     """
     W = 80
     total = stats.get("total_columns", 0)
@@ -433,6 +561,19 @@ def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict,
     if nc:
         lines.append(("│   container-resolved sample: %s"
                       % ", ".join(cont[:5])).ljust(W - 1) + "│")
+    if s4c_seen:
+        # S4 (Phase 1): SELECT-side schema candidates — REPORT ONLY. Only
+        # shown when new analyses carry the keys; old caches keep the
+        # pre-Phase-1 block byte-identical. Owner lines are sorted by field
+        # name (caller builds them from `sorted(orphan_fields)`).
+        lines.append(("│   schema candidates: %d (unique visible owner found:"
+                      " %d) | r6 collision: %d" % (n_cand, n_owner, r6_total))
+                     .ljust(W - 1) + "│")
+        for fname, owner, script, loc_label, vis_txt in (owner_lines or []):
+            loc_part = (" %s" % loc_label) if loc_label else ""
+            lines.append(("│   field: %s → %s (evidence: %s%s%s)"
+                          % (fname[:26], owner[:30], script[:32],
+                             loc_part, vis_txt)).ljust(W - 1) + "│")
     lines.append("│" + "─" * (W - 2) + "│")
     if n:
         lines.append(("│ UNRESOLVED orphans — possible bad cases, check SQL:")

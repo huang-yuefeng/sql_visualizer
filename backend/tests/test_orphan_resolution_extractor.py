@@ -207,11 +207,17 @@ def test_resolution_stats_shape_and_totals():
     r = extract_variables_from_sql(
         "SELECT sb.total_amount AS batch_total FROM settlement_batch sb", "shape")
     stats = r.resolution_stats
-    assert set(stats) == {"total_columns", "resolved_by", "unresolved"}, stats
+    assert set(stats) == {"total_columns", "resolved_by", "unresolved",
+                          "schema_candidates", "r6_collision",
+                          "script_schemas"}, stats
     assert set(stats["resolved_by"]) == {"plain_alias", "expr_alias", "scope",
                                          "schema", "sys", "other"}, stats
     assert stats["total_columns"] == len(_col_vars(r)) == 2, stats
     assert stats["resolved_by"]["schema"] == 0  # S4 runs at index time only
+    # S4a Phase 0: instrumentation is report-only — candidates/evidence are
+    # emitted but nothing is resolved (schema stays 0).
+    assert stats["schema_candidates"] == [], stats
+    assert stats["r6_collision"] == 0, stats
 
 
 def test_resolution_stats_in_full_analysis_result():
@@ -250,7 +256,9 @@ def test_resolution_stats_in_cached_analysis_json(small_ws):
         data = json.loads(fp.read_text())
         assert "resolution_stats" in data, fp
         stats = data["resolution_stats"]
-        assert set(stats) == {"total_columns", "resolved_by", "unresolved"}, stats
+        assert set(stats) == {"total_columns", "resolved_by", "unresolved",
+                              "schema_candidates", "r6_collision",
+                              "script_schemas"}, stats
         assert stats["resolved_by"]["plain_alias"] >= 1, stats
         assert stats["resolved_by"]["scope"] >= 1, stats
         assert stats["unresolved"] == [], stats
