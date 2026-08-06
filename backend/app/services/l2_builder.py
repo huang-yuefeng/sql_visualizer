@@ -206,6 +206,8 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
     # ── Build compound node structure ──
     # Group field-level nodes by their parent table/CTE
     table_nodes = {}       # id -> table compound node
+    table_nodes_by_label = {}  # table label -> keeper compound node (issue a)
+    fields_by_key = {}     # (parent_id, field label) -> keeper field node (issue a)
     field_nodes = []       # field children
     other_nodes = []       # expression, aggregate, etc. (non-compound)
     seen_ids = set()
@@ -248,6 +250,21 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             # Aliases carry fields and show the data flow explicitly:
             #   canonical_table --ALIAS--> alias (with fields) --DML--> target_table
             is_alias = (label in alias_map and alias_map[label] != label)
+            # Issue a: one physical table must appear as exactly ONE L2
+            # table node. The extractor emits one TABLE variable per scope,
+            # so the same table read/written by N contexts produced N nodes.
+            # Non-alias table/view nodes are keyed by their label (the
+            # physical table name) instead of the context nid — the first
+            # occurrence is the keeper, later contexts merge into it (their
+            # nids are recorded on the keeper so _build_id_map re-points
+            # every edge to it). Aliases/subqueries/CTEs keep per-context
+            # semantics (Bug 28 visible aliases; distinct subquery scopes).
+            if vt in ("table", "view") and not is_alias:
+                keeper = table_nodes_by_label.get(label)
+                if keeper is not None:
+                    keeper["merged_original_ids"].append(nid)
+                    continue
+
             tbl_id = f"l2_tbl_{hashlib.md5(nid.encode()).hexdigest()[:10]}"
             if is_alias:
                 tbl_type = "alias_table"
@@ -268,6 +285,9 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 "variable_type": vt,
                 "original_id": nid,
             }
+            if vt in ("table", "view") and not is_alias:
+                table_nodes[nid]["merged_original_ids"] = []
+                table_nodes_by_label[label] = table_nodes[nid]
             continue
 
         # ── Column-like nodes → field children ──
@@ -319,6 +339,17 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             }
             if parent_table_id:
                 field_node["parent"] = parent_table_id
+                # Issue a: same (keeper table, field name) → one field node.
+                # Contexts merged into a keeper table all re-parent here, so
+                # the same physical field from two contexts would otherwise
+                # duplicate; later duplicates' edges re-point to the first
+                # via merged_original_ids in _build_id_map.
+                dup = fields_by_key.get((parent_table_id, field_node["label"]))
+                if dup is not None:
+                    dup["merged_original_ids"].append(nid)
+                    continue
+                field_node["merged_original_ids"] = []
+                fields_by_key[(parent_table_id, field_node["label"])] = field_node
             field_nodes.append(field_node)
             continue
 
@@ -353,6 +384,14 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             }
             if parent_table_id:
                 field_node["parent"] = parent_table_id
+                # Issue a: same dedup semantics as the column branch — one
+                # computed field per (keeper table, label).
+                dup = fields_by_key.get((parent_table_id, field_node["label"]))
+                if dup is not None:
+                    dup["merged_original_ids"].append(nid)
+                    continue
+                field_node["merged_original_ids"] = []
+                fields_by_key[(parent_table_id, field_node["label"])] = field_node
             field_nodes.append(field_node)
             continue
 
@@ -377,13 +416,48 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
     return table_nodes, field_nodes, other_nodes, alias_map
 
 
+def _map_search_target_ids(field_nodes: list, table_nodes: dict,
+                           target_node_ids: set, direct_ids: set,
+                           id_map: dict) -> tuple:
+    """Phase 3c (issue a): resolve search-target/direct ids through id_map.
+
+    _compute_target_and_direct_ids yields ORIGINAL graph nids; after the
+    table/field dedup those may belong to merged-away contexts. Mapping
+    every id through id_map resolves them to the merged keeper (single
+    table node / deduped field node), so the highlight never lands on a
+    ghost nid. Field nodes are re-marked in place: a target field that
+    arrived via a merged-away context still lights up on the keeper.
+
+    Returns (target_mapped, direct_mapped).
+    """
+    target_mapped = {id_map.get(i, i) for i in target_node_ids}
+    direct_mapped = {id_map.get(i, i) for i in direct_ids}
+    for fn in field_nodes:
+        if fn["id"] in target_mapped:
+            fn["is_target"] = True
+        if fn["id"] in direct_mapped:
+            fn["field_group"] = "direct"
+    return target_mapped, direct_mapped
+
+
 def _build_id_map(table_nodes: dict, field_nodes: list, other_nodes: list) -> dict:
-    """Map original IDs to new compound IDs (shared by the edge phases)."""
+    """Map original IDs to new compound IDs (shared by the edge phases).
+
+    Issue a: every nid merged into a keeper (recorded on the keeper's
+    merged_original_ids) maps to the keeper's new id, so _build_edge_list
+    re-points all edges that touched a merged context to the single
+    surviving table/field node. Self-loops created by the merge are
+    dropped downstream in _build_edge_list.
+    """
     id_map = {}
     for tn in table_nodes.values():
         id_map[tn["original_id"]] = tn["id"]
+        for mnid in tn.get("merged_original_ids", []):
+            id_map[mnid] = tn["id"]
     for fn in field_nodes:
         id_map[fn["original_id"]] = fn["id"]
+        for mnid in fn.get("merged_original_ids", []):
+            id_map[mnid] = fn["id"]
     for on in other_nodes:
         id_map[on["original_id"]] = on["id"]
     return id_map
@@ -883,9 +957,14 @@ def _assemble_output(table_nodes: dict, field_nodes: list, new_edges: list,
                      target_full: str) -> dict:
     """Phase 11 (CW4): assemble the output graph and run the range partition pass."""
     # ── Assemble output (only table+field compound nodes) ──
+    # Issue a: merged_original_ids is builder-internal bookkeeping (the
+    # dedup merge record) — it must never leak into the API response.
+    def _clean(d: dict) -> dict:
+        return {k: v for k, v in d.items() if k != "merged_original_ids"}
+
     all_new_nodes = (
-        [{"data": tn} for tn in table_nodes.values()] +
-        [{"data": fn} for fn in field_nodes]
+        [{"data": _clean(tn)} for tn in table_nodes.values()] +
+        [{"data": _clean(fn)} for fn in field_nodes]
     )
 
     # Partition pass: reduce edge range overlap so edges form a near-partition
@@ -919,7 +998,13 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         "total_nodes": int,           # nodes before filtering
         "filtered_nodes": int,        # nodes after filtering
         "target": "table.field",
+        "search_matched": bool,       # False only when a filter was requested
+                                      # and no target/direct seed matched
       }
+
+    Issue a: one physical table → exactly one table node (dedup by table
+    label); all contexts' edges re-point to the keeper. Field nodes of
+    merged contexts re-parent to the keeper and dedup by (parent, name).
 
     Node types in L2:
       - source_table, intermediate_table, output_table (compound parents)
@@ -944,6 +1029,11 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     table_nodes, field_nodes, other_nodes, alias_map = _classify_compound_nodes(
         nodes, full_graph, script_name, target_node_ids, direct_ids)
     id_map = _build_id_map(table_nodes, field_nodes, other_nodes)
+    # Issue a: resolve search-target/direct ids to the merged keepers so
+    # highlighting lands on the single table node / deduped field node,
+    # never on a merged-away ghost nid.
+    target_mapped, direct_mapped = _map_search_target_ids(
+        field_nodes, table_nodes, target_node_ids, direct_ids, id_map)
 
     new_edges, node_labels = _build_edge_list(edges, nodes, id_map, sql_text)
     new_edges = _combine_edges(new_edges)
@@ -956,5 +1046,11 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
 
     _sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map, dml_pairs,
                                full_graph, nodes)
-    return _assemble_output(table_nodes, field_nodes, new_edges, nodes, sql_text,
-                            script_name, f"{table}.{field}")
+    result = _assemble_output(table_nodes, field_nodes, new_edges, nodes, sql_text,
+                              script_name, f"{table}.{field}")
+    # Issue a: search_matched contract (frontend + BE2). False ONLY when a
+    # relevance filter was requested and no target/direct seed matched —
+    # the exact "the searched field is not in this script" signal. True
+    # when the field matched, or when no filter was requested.
+    result["search_matched"] = (not relevance_filter) or bool(target_mapped or direct_mapped)
+    return result

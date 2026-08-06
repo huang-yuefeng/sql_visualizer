@@ -440,6 +440,182 @@ def test_l2_case_variant_tables_not_merged():
         delete_workspace(ws2)
 
 
+# ── M12/M13/M15 (review batch 2): owner conflicts, context-scoped cache
+# ── attribution, gated schema counter ─────────────────────────────────────
+
+def test_m12_two_scripts_different_owners_ambiguous(monkeypatch):
+    """Review M12: two scripts' candidates claim the SAME field with
+    DIFFERENT owners (a owns f, b owns f) — the second claim must NOT be
+    silently skipped ("first script wins"): the field is AMBIGUOUS —
+    never attributed, counted in resolution_stats["ambiguous"], listed in
+    the report's UNRESOLVED section, and neither script's cache var is
+    touched."""
+    ws = _make_ws({
+        "ddl_a.sql": "CREATE TABLE a (f INT);\n",
+        "ddl_b.sql": "CREATE TABLE b (f INT);\n",
+        "q1.sql": "SELECT f FROM a JOIN x ON a.k = x.k;\n",
+        "q2.sql": "SELECT f FROM b JOIN y ON b.k = y.k;\n",
+    })
+    try:
+        result, joined = _run_capture(monkeypatch, ws,
+                                      ["ddl_a.sql", "ddl_b.sql",
+                                       "q1.sql", "q2.sql"])
+        stats = result["resolution_stats"]
+        assert result["field_index"]["f"]["tables"] == [], \
+            "different-owner claims → ambiguous, never attributed"
+        assert "f" in result["orphan_field_samples"], \
+            "stays reported as unresolved (not silently resolved)"
+        assert stats["by_strategy"]["schema"] == 0, stats
+        assert stats["ambiguous"] == 1, stats
+        assert result["schema_candidates_summary"]["unique_owner"] == 0
+        assert "ambiguous: 1" in joined, joined
+        assert "field: f →" not in joined, "no owner line for the ambiguous field"
+        assert "field: f   script: q1.sql" in joined, \
+            "ambiguous field listed in the UNRESOLVED section"
+        # neither script's analysis-cache var was attributed
+        for name in ("q1.sql", "q2.sql"):
+            qc = _cache_for(ws, name)
+            fv = next(v for v in qc["variables"]
+                      if v.get("variable_type") == "column"
+                      and v.get("name") == "f")
+            assert fv["source_tables"] == [], (name, fv)
+    finally:
+        delete_workspace(ws)
+
+
+def test_m12_two_scripts_same_owner_still_resolved(monkeypatch):
+    """Review M12: the same-owner re-claim keeps the current no-op skip —
+    two scripts both resolve f → a: attributed once (schema +1),
+    ambiguous 0, still resolved."""
+    ws = _make_ws({
+        "ddl_a.sql": "CREATE TABLE a (f INT);\n",
+        "q1.sql": "SELECT f FROM a JOIN x ON a.k = x.k;\n",
+        "q2.sql": "SELECT f FROM a JOIN y ON a.k = y.k;\n",
+    })
+    try:
+        result, _ = _run_capture(monkeypatch, ws,
+                                 ["ddl_a.sql", "q1.sql", "q2.sql"])
+        stats = result["resolution_stats"]
+        assert result["field_index"]["f"]["tables"] == ["a"]
+        assert stats["by_strategy"]["schema"] == 1, stats
+        assert stats["ambiguous"] == 0, stats
+        assert "f" not in result["orphan_field_samples"]
+        assert result["schema_candidates_summary"]["unique_owner"] == 1
+    finally:
+        delete_workspace(ws)
+
+
+def test_m12_candidate_vs_extractor_attribution_conflict_revoked(monkeypatch):
+    """Review M12: the field's EXISTING index owner (S1–S3 extractor-side,
+    `SELECT f FROM a`) vs a different-owner S4b claim (f → c) → ambiguous:
+    the stale index attribution is REVOKED (field_index cleared, f removed
+    from the old owner's table entry) and the field returns to the
+    unresolved pool; the claim is never applied."""
+    ws = _make_ws({
+        "a.sql": "SELECT f FROM a;\n",
+        "ddl_c.sql": "CREATE TABLE c (f INT);\n",
+        "q2.sql": "SELECT f FROM c JOIN d ON c.k = d.k;\n",
+    })
+    try:
+        result, _ = _run_capture(monkeypatch, ws,
+                                 ["a.sql", "ddl_c.sql", "q2.sql"])
+        stats = result["resolution_stats"]
+        assert result["field_index"]["f"]["tables"] == [], \
+            result["field_index"]["f"]
+        assert "f" not in result["table_index"]["a"]["fields"], \
+            "stale attribution removed from the old owner's table entry"
+        assert "f" in result["orphan_field_samples"], \
+            "returns to the unresolved pool (reported)"
+        assert stats["ambiguous"] == 1, stats
+        assert stats["by_strategy"]["schema"] == 0, stats
+        # the q2 claim was not applied to its cache var
+        qc = _cache_for(ws, "q2.sql")
+        fv = next(v for v in qc["variables"]
+                  if v.get("variable_type") == "column"
+                  and v.get("name") == "f")
+        assert fv["source_tables"] == [], fv
+    finally:
+        delete_workspace(ws)
+
+
+def test_m13_cache_attribution_context_scoped(monkeypatch):
+    """Review M13: `_apply_s4b_cache_update` must attribute only the
+    analysis var that is VISIBLE in the candidate's context (mirrors S4a
+    `_finalize_schema_candidates`'s `v.context in cand["contexts"]`).
+    The same bare name `f` appears in TWO statements of q.sql with
+    different visible sets: statement 1 (context TOP, tables {t1, x} —
+    t1 owns f) and statement 2's subquery (context TOP/subq, tables
+    {y, z} — no owner; a second workspace owner t2 exists but is NOT
+    visible there). S4b attributes f → t1; the cache update must touch
+    ONLY the TOP var — the subquery var (where t1 was never visible)
+    must keep empty source_tables. `visible` still scopes only the
+    candidate-record removal."""
+    ws = _make_ws({
+        "ddl_t1.sql": "CREATE TABLE t1 (f INT);\n",
+        "ddl_t2.sql": "CREATE TABLE t2 (f INT);\n",
+        "q.sql": ("SELECT f FROM t1 JOIN x ON t1.k = x.k;\n"
+                  "SELECT (SELECT f FROM y JOIN z ON y.k = z.k) sub FROM s;\n"),
+    })
+    try:
+        result, _ = _run_capture(monkeypatch, ws,
+                                 ["ddl_t1.sql", "ddl_t2.sql", "q.sql"])
+        assert result["field_index"]["f"]["tables"] == ["t1"]
+        assert result["resolution_stats"]["by_strategy"]["schema"] == 1
+        qc = _cache_for(ws, "q.sql")
+        assert qc is not None
+        fvars = [v for v in qc["variables"]
+                 if v.get("variable_type") == "column"
+                 and v.get("name") == "f"]
+        assert len(fvars) == 2, fvars  # TOP + subquery context copies
+        top = [v for v in fvars if v.get("context") == "TOP"]
+        subq = [v for v in fvars if v.get("context") != "TOP"]
+        assert top and top[0]["source_tables"] == ["t1"], top
+        assert subq and subq[0]["source_tables"] == [], \
+            "non-visible (subquery) var must NOT be attributed: %r" % subq
+        # candidate-record removal stays scoped by (field, visible set):
+        # only the TOP candidate was resolved — the subquery candidate
+        # (different visible set) remains for the report.
+        remaining = [c["visible_tables"] for c in
+                     qc["resolution_stats"]["schema_candidates"]]
+        assert remaining == [["y", "z"]], remaining
+    finally:
+        delete_workspace(ws)
+
+
+def test_m15_schema_counter_gated_on_actual_var_attribution(monkeypatch):
+    """Review M15: by_strategy["schema"] counts attribution EVENTS on real
+    analysis variables — `_apply_s4b_cache_update` returns how many vars it
+    modified. When the cache update modifies none (stale/missing cache),
+    the counter stays 0 even though the in-memory index attribution
+    happened; with a live cache it increments."""
+    from app.services import folder_index_service as fis
+    ws = _make_ws({
+        "ddl.sql": "CREATE TABLE a (f INT);\n",
+        "q.sql": "SELECT f FROM a JOIN x ON a.k = x.k;\n",
+    })
+    try:
+        # stale-cache simulation: the S4b cache update attributes nothing
+        msgs = []
+        monkeypatch.setattr(
+            "app.services.folder_index_service._push",
+            lambda ws_id, stage, message: msgs.append((stage, message)))
+        real_update = fis._apply_s4b_cache_update
+        monkeypatch.setattr(fis, "_apply_s4b_cache_update",
+                            lambda *a, **k: 0)
+        result = index_scripts(ws, ["ddl.sql", "q.sql"])
+        assert result["field_index"]["f"]["tables"] == ["a"], \
+            "in-memory index attribution still happens"
+        assert result["resolution_stats"]["by_strategy"]["schema"] == 0, \
+            "no analysis var was actually modified → not counted"
+        # live cache: re-index with the real cache update
+        monkeypatch.setattr(fis, "_apply_s4b_cache_update", real_update)
+        result2 = index_scripts(ws, ["ddl.sql", "q.sql"])
+        assert result2["resolution_stats"]["by_strategy"]["schema"] == 1, \
+            result2["resolution_stats"]
+    finally:
+        delete_workspace(ws)
+
+
 # ── A1 (Item 1): DDL-file classification + schema-evidence report ────────
 
 def _tree_node(tree: dict, name: str) -> dict | None:

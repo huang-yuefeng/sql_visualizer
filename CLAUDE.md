@@ -10,8 +10,8 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 
 - **Backend**: FastAPI + sqlglot (MySQL dialect), Docker `gps-sql-backend` on port 8000
 - **Frontend**: React 18 + Vite + Cytoscape.js, served from `frontend/dist/`
-- **Tests**: vitest (frontend, 70 passed), pytest (backend, 523 passed / 5 skipped in `backend/tests/`)
-- **Version**: See `/VERSION` (currently 3.3.135)
+- **Tests**: vitest (frontend, 70 passed), pytest (backend, 556 passed / 5 skipped in `backend/tests/`)
+- **Version**: See `/VERSION` (currently 3.3.136)
 - **Service IP**: `192.168.0.66:8000` (never use `localhost`)
 
 ## File Map (Key Source Files)
@@ -20,19 +20,19 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 
 | File | Lines | Role |
 |------|-------|------|
-| `routers/dataflow.py` | 401 | `GET /api/workspace/{ws_id}/views/{view_id}/level1`, `GET .../level2?script=&filter=`, `POST .../search`, view CRUD, `GET .../scripts/{name}/highlight` |
+| `routers/dataflow.py` | 439 | `GET /api/workspace/{ws_id}/views/{view_id}/level1`, `GET .../level2?script=&filter=`, `POST .../search`, view CRUD, `GET .../scripts/{name}/highlight` (R22: level1 lineage filter, base-index diagnostics) |
 | `routers/workspace.py` | 214 | `/api/workspace` CRUD (DELETE: 400 malformed / 404 missing / 200 deleted), scan, index, filter-config, export-config, autocomplete |
 | `routers/analysis.py` | 73 | Legacy `/api/analyze`, `/api/scripts`, `/api/analyze_multi` |
 | `services/filter_service.py` | 509 | **Filter logic** (R19): CSV parse → scopes → A∩B intersection → filter application + diagnostics (F6); shared `resolve_script` (R5, path-containment-checked); F3/F4/F5 (COL_NAME-only rows dropped + `ignored_rows` counters, case folding) |
 | `services/l1_builder.py` | 920 | Cross-script L1 builder (production BFS → lineage_field_pairs → filter); M4-B degraded fallback (`degraded: true` + diagnostic); C2 single-cache-pass |
-| `services/l2_builder.py` | 960 | Per-script L2 builder; C1 split into 13 named phases (`_build_edge_list`, `_simplify_dml_edges`, ...) — byte-identity-verified |
-| `services/dataflow_service.py` | 398 | SearchView, view persistence (views.json, persists match_mode), edge style helpers |
-| `services/folder_index_service.py` | 938 | Folder scanning, script indexing, **A1 schema-file classification** (`file_class: schema\|script`), **S4b cross-script schema auto-resolution** (scope-aware, owner-in-index, exact-name-first), resolution_stats aggregation, orphan report, index progress, `schema_evidence` in response |
-| `services/cache_keys.py` | 15 | `GRAPH_CACHE_PREFIX = "graph_3_2_15"` (single source of truth) |
+| `services/l2_builder.py` | 1056 | Per-script L2 builder; C1 split into named phases (`_build_edge_list`, `_simplify_dml_edges`, `_map_search_target_ids`, ...) — byte-identity-verified. **R22: one compound node per physical table** (label-keyed merge, `merged_original_ids`, field dedup by (parent,name), `search_matched` in return dict) |
+| `services/dataflow_service.py` | 466 | SearchView, view persistence (views.json, persists match_mode), edge style helpers (R22: no-matches search semantics, L2 `search_matched`/not-in-flow full-graph response) |
+| `services/folder_index_service.py` | 1034 | Folder scanning, script indexing, **A1 schema-file classification** (`file_class: schema\|script`), **S4b cross-script schema auto-resolution** (R22: two-phase plan→conflict-detect→apply, ambiguous fields revoked + `resolution_stats["ambiguous"]`, context-scoped cache attribution), resolution_stats aggregation, orphan report, index progress, `schema_evidence` in response |
+| `services/cache_keys.py` | 24 | `GRAPH_CACHE_PREFIX = "graph_3_2_16"` (single source of truth; bumped R22-M14 to invalidate pre-S4b caches) |
 | `services/graph_service.py` | 318 | Cytoscape JSON builder, NODE_STYLES, EDGE_TYPE_STYLE/CATEGORY_MAP, table_fields/alias_map |
 | `services/sql_range_finder.py` | 708 | SQL line-range mapping for edge→code highlighting |
 | `services/logger.py` | 167 | SSE pipeline logger (ref-counted queue cleanup) |
-| `extractor/variable_extractor_v2.py` | 1831 | Role-based Identifier walking + S1–S6 orphan resolution; **S4a auto-attribution** (`_finalize_schema_candidates`, R6 field==table collision guard), statement-anchored loc, dict-of-dicts script_schemas; C4a unified stats (`resolved`/`unresolved_count`/`coverage_pct`) |
+| `extractor/variable_extractor_v2.py` | 1846 | Role-based Identifier walking + S1–S6 orphan resolution; **S4a auto-attribution** (`_finalize_schema_candidates`, R6 field==table collision guard), statement-anchored loc (R22-L16: type-aware `_is_as_keyword` — string literals never the anchor), dict-of-dicts script_schemas; C4a unified stats (`resolved`/`unresolved_count`/`coverage_pct`) |
 | `extractor/dependency_graph.py` | 479 | VariableDefinition → VariableDependency (16 edge types) |
 | `extractor/lineage.py` | 348 | `compute_field_lineage()`, `filter_relevant()` (R18) |
 | `extractor/schema_inference.py` | 180 | `infer_table_schemas()` — 7-pass iterative stabilization |
@@ -43,7 +43,7 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 
 | File | Lines | Role |
 |------|-------|------|
-| `DataFlowApp.jsx` | 713 | Data Flow Debugger main component (search, view persistence, resolution report, `schema_evidence` state) |
+| `DataFlowApp.jsx` | 744 | Data Flow Debugger main component (search, view persistence, resolution report, `schema_evidence` state; R22: `applyL2Result` + L2 not-in-flow banner, L1 no-matches message banner) |
 | `App.jsx` | 857 | SQL Analysis (legacy single-script) |
 | `components/DataFlowGraph.jsx` | 167 | Cytoscape renderer |
 | `components/SqlPanel.jsx` | 332 | SQL display + syntax highlighting |
@@ -79,6 +79,8 @@ L2 (per-script): `l2_builder.py` — tables + fields + all 16 edge types within 
 7. **Filter semantics (R19)**: two-file filter = A∩B intersection; blank COL_NAME row = table unconstrained (all fields kept); `resolve_script` enforces path containment (H1); COL_NAME-only rows dropped by design and counted in `ignored_rows` (F3).
 8. **M4-B**: L1's degraded fallback is visible — response carries `degraded: true` + an L1 GRAPH DEGRADED diagnostic box.
 9. **Diagnostics, never fixes**: when source files are wrong/incomplete, the tool reports in the diagnostic panel — it never edits user files, annotates, or works around them (A1 report-only design).
+10. **L2 one-node-per-table (R22)**: compound table nodes are keyed by physical-table label (first occurrence = keeper); data flow may pass through a table multiple times via multiple edges. Aliases/subqueries/CTEs stay per-context. `_build_l2_graph` returns `search_matched` (False only when filtering was requested and no seed matched); the level2 response adds `search_matched: false` + `message` + full graph for not-in-flow scripts. Search matches a script only if it queries the searched field — `no_matches` + message otherwise, never fallback padding.
+11. **S4b two-phase attribution (R22/M12–M15)**: plan → conflict-detect → apply; different-owner claims mark the field `ambiguous` (revoked, reported in `resolution_stats["ambiguous"]`); cache attribution is context-scoped; `GRAPH_CACHE_PREFIX` bumps invalidate pre-S4b graphs.
 
 ## Running Tests
 

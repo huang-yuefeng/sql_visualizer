@@ -34,6 +34,7 @@ docker_image/*.tar.gz
 # NOTE: docker_image/part_* + checksums.md5 are REQUIRED in git — target_deploy.sh
 # reassembles the image from them. Only the tarball is ignored (see above).
 *.bak
+*.bak.*
 backend/app/static.bak.*/
 
 # target-machine deploy log (target_deploy.sh)

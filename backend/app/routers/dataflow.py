@@ -65,12 +65,18 @@ def _emit_search_diagnostic(ws_id, table, field, filter_active, scope_tables, sc
 
 
 def _search_diagnostic_values(table, field, ti, fi, result, filter_active,
-                              scope_tables, scope_fields):
+                              scope_tables, scope_fields,
+                              base_table_in_index=True, base_field_in_index=True):
     """Compute the R17 diagnostic inputs (shared by the normal + no_matches paths).
 
     The no_matches path (F1/R3) reuses the same inputs so the emitted block
     is identical in shape to a regular search's. Index and scope values come
     from _load_index (L8) — no re-read of filtered_index.json here.
+
+    BE2 (issue c): the suggestion must distinguish a table/field that is
+    absent from the BASE index (no script queries it — no data flow exists,
+    and the filter CSVs are NOT to blame) from one that IS in the base index
+    but excluded by the active filter (legitimate CSV hint).
     """
     tdata = ti.get(table, {})
     fdata = fi.get(field, {})
@@ -79,7 +85,12 @@ def _search_diagnostic_values(table, field, ti, fi, result, filter_active,
     table_scripts = len(tdata.get("scripts", [])) if tdata else 0
     field_scripts = len(fdata.get("scripts", [])) if fdata else 0
     match_scripts = len(result.get("script_ids", []))
-    if filter_active and not table_in_index:
+    if not base_table_in_index:
+        suggestion = "Table %s is not queried by any indexed script - no data flow exists for it" % table
+    elif not base_field_in_index:
+        suggestion = ("Field %s.%s is not queried by any indexed script - "
+                      "no data flow exists for it") % (table, field)
+    elif filter_active and not table_in_index:
         suggestion = "Table not in filter scope - add to script_table.csv or clear filter"
     elif filter_active and not field_in_index:
         suggestion = "Field not in filter scope - add to table_col.csv or clear filter"
@@ -91,6 +102,22 @@ def _search_diagnostic_values(table, field, ti, fi, result, filter_active,
         suggestion = "OK"
     return (filter_active, scope_tables, scope_fields, table_in_index, field_in_index,
             table_scripts, field_scripts, match_scripts, suggestion)
+
+
+def _load_base_index(ws_id: str) -> tuple[dict, dict]:
+    """Load the UNFILTERED table_index.json / field_index.json.
+
+    BE2 (issue c): the R17 diagnostic needs to know whether a searched
+    table/field exists in the base index at all — the loaded (possibly
+    filtered) index cannot distinguish "no script queries it" from "the
+    filter CSV excluded it".
+    """
+    cache_dir = get_workspace_dir(ws_id) / "cache"
+    ti_path = cache_dir / "table_index.json"
+    fi_path = cache_dir / "field_index.json"
+    ti = json.loads(ti_path.read_text()) if ti_path.exists() else {}
+    fi = json.loads(fi_path.read_text()) if fi_path.exists() else {}
+    return ti, fi
 
 
 @router.post("/workspace/{ws_id}/search")
@@ -109,6 +136,10 @@ async def search_dataflow(ws_id: str, body: dict):
         raise HTTPException(status_code=400, detail="Both 'table' and 'field' are required")
 
     ti, fi, filtered_active, scope_tables, scope_fields = _load_index(ws_id)
+    # BE2: base-index presence drives the R17 suggestion (base vs CSV scope).
+    base_ti, base_fi = _load_base_index(ws_id)
+    base_table_in_index = table in base_ti
+    base_field_in_index = field in base_fi
     if not ti and not fi:
         if filtered_active:
             # F1: filter active but empty (empty intersection) — indexing
@@ -127,7 +158,8 @@ async def search_dataflow(ws_id: str, body: dict):
             # (same block shape as a regular search, via the same _push hook).
             _emit_search_diagnostic(ws_id, table, field,
                                     *_search_diagnostic_values(table, field, ti, fi, result,
-                                                               filtered_active, scope_tables, scope_fields))
+                                                               filtered_active, scope_tables, scope_fields,
+                                                               base_table_in_index, base_field_in_index))
             # R3: persist the empty view like any other search, so it
             # survives reload (create_search is bypassed on this path).
             # N4: l1_graph_cache carries `target` for shape parity with
@@ -154,7 +186,8 @@ async def search_dataflow(ws_id: str, body: dict):
     # ── R17: Search diagnostic logging ──
     _emit_search_diagnostic(ws_id, table, field,
                             *_search_diagnostic_values(table, field, ti, fi, result,
-                                                       filtered_active, scope_tables, scope_fields))
+                                                       filtered_active, scope_tables, scope_fields,
+                                                       base_table_in_index, base_field_in_index))
     return result
 
 
@@ -209,12 +242,17 @@ async def get_level1(ws_id: str, view_id: str):
         raise HTTPException(status_code=404, detail="View not found")
     
     # Rebuild L1 graph fresh — never return stale cache
-    from app.services.dataflow_service import _build_l1_graph
+    from app.services.dataflow_service import _build_l1_graph, _filter_l1_by_lineage
     script_ids = view.get("script_ids", [])
     table = view.get("table", "")
     field = view.get("field", "")
     l1_graph = _build_l1_graph(ws_id, script_ids, table, field)
-    
+    # BE2 (issues b+c): mirror the search-time path — search views carry a
+    # table+field, so apply the same R18 lineage filter. Only flow-relevant
+    # scripts/tables survive (keeps L1 simple, consistent with /search).
+    if table and field:
+        l1_graph = _filter_l1_by_lineage(l1_graph, table, field)
+
     return {
         "view_id": view_id,
         "table": table,

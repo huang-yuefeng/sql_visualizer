@@ -2395,3 +2395,57 @@ single integration commit. Design unchanged; no tips added; issues resolved esse
 - `docker_image/` pieces still v3.3.134 — `target_deploy.sh` version guard will
   fail fast on a v3.3.135 checkout until `release.sh` regenerates pieces
   (intended: deploy must follow review approval).
+
+## R22 — L2 table dedup + data-flow-participation search (v3.3.136, 2026-08-06)
+
+- **Issues (user report, repro script OCR-reconstructed → `samples/sql_sample_v1/`)**:
+  a. same physical table parsed into multiple L2 nodes (4× `bdm_acc_loan_info`; 64
+     table nodes for ~15 real tables); b. search `bdm_acc_loan_info.ABROAD_LOAD_PURPOSE`
+     matched the script although the field is never queried by it (`fallback` padding);
+     c. L2 degraded to a 5-node / 0-edge skeleton with no explanation.
+- **Implementation** (parallel teams, contract: `search_matched` bool on `_build_l2_graph`):
+  - **Issue a** (`l2_builder.py` +101/−5): TABLE branch keys compound nodes by label —
+    one keeper per physical table, `merged_original_ids` per node, field nodes dedup by
+    (parent, label), new `_map_search_target_ids` phase re-points search highlights via
+    `id_map`, merge-created self-loops dropped, `_assemble_output` strips internal keys.
+    Extractor/cache untouched — merge runs per request on the cached graph.
+  - **Issues b+c** (`dataflow_service.py`, `routers/dataflow.py`): `create_search` drops the
+    `field_scripts | table_scripts` fallback union → `no_matches` + message when the field is
+    queried by no script (or never under the searched table); `get_level2_graph` returns
+    `search_matched: false` + message + FULL graph when the view's field is absent from the
+    script; level1 endpoint now applies the R18 lineage filter; R17 diagnostic fixed via
+    `_load_base_index` (base-absent → "not queried by any indexed script", never CSV blame).
+  - **Frontend** (`DataFlowApp.jsx` +9 hunks, `app.css`): `applyL2Result` helper captures
+    `search_matched === false` + message at all 4 L2 response sites; L2 banner renders inside
+    `.inline-l2-graph` (now `position: relative`) reusing `.no-match-banner`; L1 no_matches
+    banner guard dropped to render whenever `match_mode === "no_matches"` with the message.
+- **Verification**: live API on repro workspace `e3bb7297c663`: unfiltered L2 64→54 table
+  nodes, `bdm_acc_loan_info` 4→1, `ods_hub_lsacmsp` 4→1, 0 dangling, 0 leaked keys; search →
+  `no_matches` + message; L2 → `search_matched: false` + full graph (378 nodes / 147 edges);
+  control search `lending_ref` still `exact`. Backend **556 passed / 5 skipped** (was 523/5),
+  frontend **70 passed** + build OK. Deployed v3.3.136, health OK.
+
+## Code-review fixes M12–M15, L16, R21-1/2 (v3.3.136, 2026-08-06)
+
+- **M12** (`folder_index_service.py`): S4b is now two-phase (plan → conflict-detect → apply);
+  ≥2 plans with different owners (or plan owner ≠ existing extractor attribution) → field marked
+  `ambiguous_fields`, revoked from prior owners (index cleared, back to UNRESOLVED),
+  `resolution_stats["ambiguous"]` added and surfaced in the report.
+- **M13** (`folder_index_service.py:826-895`): `_apply_s4b_cache_update` gates attribution on
+  `v.get("context") in cand["contexts"]` (mirrors S4a); records without `contexts` keep the
+  legacy any-context behavior.
+- **M14** (`cache_keys.py`): `GRAPH_CACHE_PREFIX` `graph_3_2_15` → `graph_3_2_16` (invalidation
+  bump — post-S4b analyses can't be served from pre-attribution caches).
+- **M15** (`folder_index_service.py:554-557,895`): `_apply_s4b_cache_update` returns
+  `n_attributed`; `by_strategy["schema"]` increments only when ≥1 var was actually attributed.
+- **L16** (`variable_extractor_v2.py`): new `_is_as_keyword` (text "as" ∧ non-STRING);
+  `_statement_anchor` head/stream filters type-aware — `'as'` inside a string literal is never
+  the anchor (test `test_loc_anchor_skips_string_literal_as`: red before, green after).
+- **R21-1/2**: 8 stale tracked `.bak*` files removed (`docker-compose.yml.bak`,
+  `App.jsx.bak.20260723_122525`, `DataFlowApp.jsx.bak`, `DataFlowGraph.jsx.bak`,
+  `useCytoscapeGraph.js.bak*` ×3, `graphStyles.js.bak` — all verified unreferenced, build
+  clean); `.gitignore` += `*.bak.*`; REQUIREMENTS.md R21 criterion reworded.
+- **Tests**: +5 S4b (M12 ×3, M13, M15 — mutation-verified), +1 L16, +6 L2 dedup,
+  +8 sample_v1 repro; all scoped suites green, full suite 556 passed at integration.
+- Follow-up (out of scope): extractor S4a `_finalize_schema_candidates` still increments
+  `resolved_by["schema"]` unconditionally — same pattern as M15, worth mirroring later.

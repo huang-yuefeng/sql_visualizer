@@ -52,10 +52,23 @@ async def create_search(ws_id: str, table: str, field: str,
     matching_scripts = sorted(field_scripts & table_scripts)
 
     match_mode = "exact"
+    if not field_scripts:
+        # BE2 (issues b+c): a field that no script in the index queries has
+        # NO data flow. Do NOT fall back to padding in all scripts that
+        # reference the table — that made L1 include scripts that are not in
+        # the searched field's data flow at all.
+        return await _no_matches_result(
+            ws_id, table, field,
+            f"Field {table}.{field} is not queried by any script in this "
+            "workspace — no data flow exists for it")
     if not matching_scripts:
-        # Try broader: scripts touching field only
-        matching_scripts = sorted(field_scripts | table_scripts)
-        match_mode = "fallback"
+        # The field exists in the index (referenced under other tables) but
+        # no script references it together with the searched table — the
+        # table.field pair has no data flow either.
+        return await _no_matches_result(
+            ws_id, table, field,
+            f"No script in this workspace references {table}.{field} — "
+            "no data flow exists for it")
     else:
         # Full transitive closure: any script in the table-dependency connected
         # component can affect or be affected by the target variable.
@@ -132,6 +145,39 @@ async def create_search(ws_id: str, table: str, field: str,
         "script_ids": matching_scripts,
         "l1_graph": l1_graph,
         "match_mode": match_mode,
+    }
+
+
+async def _no_matches_result(ws_id: str, table: str, field: str, message: str) -> dict:
+    """BE2: no-matches search result (field absent from index / no pair flow).
+
+    Returns the banner-compatible shape the frontend renders for
+    ``match_mode === "no_matches"`` (match_mode + message + empty L1 graph),
+    identical to the F1 filter-active no_matches path in routers/dataflow.py.
+    The view is persisted (R3) so a reload restores the banner.
+    """
+    view_id = uuid.uuid4().hex[:12]
+    l1_graph = {"nodes": [], "edges": [], "target": "table.field"}
+    await _persist_search_view(ws_id, {
+        "view_id": view_id,
+        "type": "search",
+        "table": table,
+        "field": field,
+        "script_ids": [],
+        "script_count": 0,
+        "l1_graph_cache": l1_graph,
+        "match_mode": "no_matches",
+        "message": message,
+        "children": [],
+    })
+    return {
+        "view_id": view_id,
+        "table": table,
+        "field": field,
+        "script_ids": [],
+        "l1_graph": l1_graph,
+        "match_mode": "no_matches",
+        "message": message,
     }
 
 
@@ -303,6 +349,22 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     else:
         filtered = graph_data
 
+    # Build the transformed L2 graph with compound nodes
+    l2_result = _build_l2_graph(ws_id, script_name, sql_text, table, field, filter_relevant_nodes)
+
+    # BE2 (issues b+c): the script is not in the searched field's data flow.
+    # `search_matched` is emitted by _build_l2_graph (BE1 contract): False
+    # ONLY when filtering was requested and no target/direct seed matched.
+    # Absent → treat as matched. In the not-in-flow case the relevance filter
+    # would leave a misleading table-only skeleton — instead rebuild the FULL
+    # graph so the panel stays useful, and tell the frontend via
+    # search_matched:false + message.
+    search_matched = l2_result.get("search_matched", True)
+    not_in_flow = bool(table and field) and filter_relevant_nodes and search_matched is False
+    if not_in_flow:
+        l2_result = _build_l2_graph(ws_id, script_name, sql_text, table, field, False)
+        filtered = graph_data  # highlights/fallback counts reflect the full graph
+
     # Compute highlight ranges
     highlight_ids = set()
     for n in filtered.get("nodes", []):
@@ -311,15 +373,13 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
 
     highlights = _compute_highlight_ranges(graph_data, highlight_ids, sql_text)
 
-    # Build the transformed L2 graph with compound nodes
-    l2_result = _build_l2_graph(ws_id, script_name, sql_text, table, field, filter_relevant_nodes)
     if not l2_result.get("error"):
         # _build_l2_graph returns {nodes, edges, ...} directly, extract graph
         l2_graph_data = {
             "nodes": l2_result.get("nodes", []),
             "edges": l2_result.get("edges", []),
         }
-        return {
+        response = {
             "script_name": script_name,
             "sql_text": sql_text,
             "graph": l2_graph_data,
@@ -328,6 +388,14 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
             "filtered_nodes": l2_result.get("filtered_nodes", len(filtered.get("nodes", []))),
             "total_edges": len(l2_result.get("edges", [])),
         }
+        if not_in_flow:
+            response["search_matched"] = False
+            response["message"] = (
+                f"Script {script_name} is not in the data flow of "
+                f"{table}.{field} — the field is not queried in this script. "
+                "Showing the full script graph."
+            )
+        return response
     
     # Fallback: return raw graph with edge count
     return {

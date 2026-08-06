@@ -669,6 +669,9 @@
 .inline-l2-graph {
   height: 400px;
   border-bottom: 1px solid #2a2a4a;
+  /* anchor for the absolutely-positioned .no-match-banner (L2 not-in-flow),
+     mirroring .panel-center for the L1 no_matches banner */
+  position: relative;
 }
 .inline-l2-sql {
   /* max-height removed — user drags freely */

@@ -1055,9 +1055,98 @@ double-clicking into L2.
 
 ### Acceptance criteria
 
-- [ ] Zero references to `scriptInfo` / `onScriptInfoChange` / `script-info-popup` / `sip-header` in `frontend/src` (excluding gitignored `*.bak` backups)
+- [ ] Zero references to `scriptInfo` / `onScriptInfoChange` / `script-info-popup` / `sip-header` in `frontend/src` (excluding `*.bak` backup files, removed from tracking in R21)
 - [ ] Single-click on L1 script node → no UI change
 - [ ] Double-click on L1 script node → L2 still opens
 - [ ] Edge hover tooltip, edge click, hover cursor still work
 - [ ] Frontend tests pass (70) and production build succeeds
 - [ ] No CSS rule referencing the popup classes remains in `app.css`
+
+## R22 — L2 table dedup + data-flow-participation search (requirement change, 2026-08-06)
+
+> **Priority:** P1 | **Date:** 2026-08-06 | **Status:** Implemented (v3.3.136)
+
+**Description:** Fixes for three user-reported issues on the repro script
+`BDM_ACC_LOAN_INFO_SUP_M.sql` (OCR-reconstructed from user screenshots,
+preserved as a regression case in `samples/sql_sample_v1/`), plus the
+genuinely-open items from the 2026-08-06 code review.
+
+### Problem
+
+1. **Issue a — duplicate table nodes.** One physical table used in multiple
+   SQL contexts (CTE FROM, JOIN alias, subquery) rendered as N L2 nodes — the
+   repro script showed 4× `bdm_acc_loan_info` (64 table nodes for ~15 tables).
+   Cause: `_classify_compound_nodes` keys compound table nodes by the
+   context-scoped variable id; the extractor emits one TABLE variable per
+   scope.
+2. **Issue b — false search match.** Searching `bdm_acc_loan_info.ABROAD_LOAD_
+   PURPOSE` matched the script although the field is never queried by it
+   (`match_mode: "fallback"` padded in all table-referencing scripts), making
+   the L1 include scripts/tables not in the searched field's data flow.
+3. **Issue c — misleading L2 skeleton.** With the absent search field, the L2
+   relevance filter degraded to a 5-node / 0-edge table-only skeleton with no
+   explanation anywhere.
+4. **Code-review items M12–M15, L16, R21-1/2** — S4b "first script wins",
+   context-blind cache attribution, stale graph caches, unconditional schema
+   counter, `_statement_anchor` string-token miss, tracked `.bak` hygiene.
+
+### Requirement
+
+1. **One L2 table node per physical table.** Non-alias `table`/`view` nodes
+   are merged by label into a single compound node (first occurrence is the
+   keeper); the data flow may pass through it multiple times — edges from
+   every context re-point to the keeper; field nodes dedup by (parent, name);
+   search-target highlights map through the merge. Aliases/subqueries/CTEs
+   keep per-context nodes. The merge runs per request on the cached graph —
+   no extractor/cache-format changes. `_build_l2_graph` returns
+   `search_matched: bool` (False only when a relevance filter was requested
+   and no target/direct seed matched).
+2. **Search matches only real data flow.** A `table.field` search matches a
+   script only if that field is queried by it. No fallback padding: when no
+   script queries the field → `match_mode: "no_matches"` + an accurate
+   message ("Field X is not queried by any script in this workspace — no
+   data flow exists for it") + empty L1. The R17 diagnostic distinguishes
+   base-index-absent (never blames the filter CSVs) from filter-excluded
+   (keeps the "add to table_col.csv" hint). The level1 endpoint applies the
+   same R18 lineage filter as the search-time path.
+3. **L2 "not in data flow" state.** When the view's search field is absent
+   from the script, the level2 response carries `search_matched: false` +
+   a message and returns the FULL unfiltered graph; the frontend renders a
+   banner ("Script X is not in the data flow of T.F — the field is not
+   queried in this script") above the graph. Absence of `search_matched`
+   means matched.
+4. **Code-review fixes.** M12: two-phase S4b (plan → conflict-detect →
+   apply), cross-owner conflicts marked `ambiguous_fields`, revoked from
+   prior owners, returned to UNRESOLVED, counted in
+   `resolution_stats["ambiguous"]`. M13: S4b cache attribution gated on the
+   variable's context ∈ candidate contexts. M14: `GRAPH_CACHE_PREFIX`
+   bumped to `graph_3_2_16`. M15: `by_strategy["schema"]` incremented only
+   when ≥1 var actually attributed. L16: `_statement_anchor` uses a
+   type-aware `_is_as_keyword` (never matches a STRING literal as the anchor
+   `as`). R21-1/2: all tracked `.bak*` files removed from git, `.gitignore`
+   covers `*.bak.*`, requirement wording corrected.
+5. **Regression fixture.** The OCR-reconstructed script is committed under
+   `samples/sql_sample_v1/` (with README provenance) and pinned by
+   `backend/tests/test_dataflow/test_sample_v1_repro.py` (8 tests: extractor
+   invariants 344 vars / 1102 deps, 4-context same-table signature, field
+   `ABROAD_LOAD_PURPOSE` deliberately absent).
+
+### Acceptance criteria
+
+- [ ] Repro script unfiltered L2: `bdm_acc_loan_info` = 1 node (was 4); total
+      table nodes 54 (was 64); zero dangling edge endpoints; zero leaked
+      `merged_original_ids`
+- [ ] Search `bdm_acc_loan_info.ABROAD_LOAD_PURPOSE` → `no_matches` + message;
+      control search (`lending_ref`) still `exact`
+- [ ] L2 with that view → `search_matched: false` + message + full graph
+      (378 nodes / 147 edges); field-present view → no `search_matched` key
+- [ ] L1 no-match banner shows the message; L2 not-in-flow banner shows it too
+      (same `.no-match-banner` style)
+- [ ] M12: two scripts, same field, different owners → ambiguous + reported;
+      same owner → still resolved. M13: attribution respects context.
+      M15: counter stays 0 when nothing attributed (mutation-verified)
+- [ ] L16: `SELECT 'as' AS c, a FROM t1;` before a real statement → anchor on
+      the real line (test verified red before, green after)
+- [ ] `git ls-files | grep -i '\.bak'` → empty; `git check-ignore x.bak.*` → ignored
+- [ ] Backend 556 passed / 5 skipped; frontend 70 passed + build OK; health
+      `{"status":"ok","version":"3.3.136"}`
