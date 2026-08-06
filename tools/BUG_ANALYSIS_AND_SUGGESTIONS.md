@@ -2367,3 +2367,31 @@ single integration commit. Design unchanged; no tips added; issues resolved esse
   with rollback; health-JSON version verify with rollback.
 - **Logging**: deploy writes a timestamped `target_deploy.log` in the repo root (gitignored).
 - `release.sh` and `target_deploy.sh` both syntax-checked (`bash -n`).
+
+## R21 — Remove L1 script-info popup (v3.3.135, 2026-08-06)
+
+- **Requirement change** (user report): the bottom-right L1 popup (label +
+  "Variables:"/"Inputs:"/"Outputs:" lists, fed by single-click on script nodes)
+  has no `max-height` — long input/output table lists grow it to cover most of
+  the L1 panel. Requested: remove it (see REQUIREMENTS.md R21).
+- **Implementation** (deletions only, 3 files):
+  - `frontend/src/components/DataFlowGraph.jsx` (−22): props destructure lost
+    `scriptInfo, onScriptInfoChange`; the `onTap` handler removed from the
+    `useCytoscapeGraph` options (the hook guards `if (o.onTap)` — handler simply
+    never registered); popup JSX block removed. `onDblTap` (L2 open),
+    `onEdgeTap`, `onEdgeHover`, `onHoverEnter`/`onHoverLeave` (cursor) intact.
+  - `frontend/src/DataFlowApp.jsx` (−3 net): `scriptInfo` state, 5
+    `setScriptInfo(null)` reset sites, and props at the L1 render site removed;
+    L2 render site never had them (verified byte-identical vs HEAD).
+  - `frontend/src/styles/app.css` (−8): `.script-info-popup` + `.sip-header`
+    rules removed; `.graph-canvas` sizing untouched (popup was an absolute
+    overlay — no layout impact).
+- **Verification**: two-team flow — Team A implemented, Team B ran adversarial
+  regression review (9/9 PASS): diff scope exact, handlers intact, zero
+  dangling references (grep across frontend/src, `*.bak` gitignored), 70
+  frontend tests pass, `npm run build` OK, popup data consumed nowhere else
+  (App.jsx/export.js read the analyze-API summary objects — separate channel).
+- Deployed locally (static copy + restart), health `{"status":"ok","version":"3.3.135"}`.
+- `docker_image/` pieces still v3.3.134 — `target_deploy.sh` version guard will
+  fail fast on a v3.3.135 checkout until `release.sh` regenerates pieces
+  (intended: deploy must follow review approval).

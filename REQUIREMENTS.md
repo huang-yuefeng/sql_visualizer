@@ -1019,3 +1019,45 @@ A `table_col.csv` row with **`TABLE_NAME` set but blank/empty `COL_NAME`** means
 - [ ] Coverage is computed AFTER all scripts are parsed (post-extraction/index)
 - [ ] Existing samples: coverage ≥ 90% after S1–S6 (per the verified strategy estimates)
 - [ ] Existing tests still pass (355+)
+
+## R21 — Remove L1 Script-Info Popup (requirement change)
+
+> **Priority:** P2 | **Date:** 2026-08-06 | **Status:** Implemented (v3.3.135)
+
+**Description:** Remove the bottom-right popup box on the L1 graph that shows the
+single-clicked script's label plus "Variables:", "Inputs:", and "Outputs:" lists.
+This reverses one UI element of the original L1 design; the underlying data
+(total_variables / input_tables / output_tables) remains on the script nodes and
+in the L2 view — only the overlay popup goes away.
+
+### Problem
+
+The popup (`.script-info-popup`, absolutely positioned bottom-right,
+`max-width: 250px`, **no `max-height`**) is fed by a single-click `onTap` handler
+on L1 `script_node`s. For scripts with long input/output table lists the box
+grows until it covers most of the L1 panel, hiding the graph the user is trying
+to navigate. It can only be dismissed with the small × button and reappears on
+every single click; its information duplicates what the user already gets by
+double-clicking into L2.
+
+### Requirement
+
+1. **Remove the popup and its data plumbing** — 3 files, deletions only:
+   - `frontend/src/components/DataFlowGraph.jsx`: drop the
+     `scriptInfo`/`onScriptInfoChange` props, the `onTap` handler that fed the
+     popup, and the popup JSX block.
+   - `frontend/src/DataFlowApp.jsx`: drop the `scriptInfo` state + its setter
+     call sites and the props at both `<DataFlowGraph>` render sites.
+   - `frontend/src/styles/app.css`: drop `.script-info-popup` + `.sip-header`.
+2. **Single-click on an L1 script node does nothing** (no popup, no nav).
+3. **Everything else unchanged**: double-click-to-open-L2 (`onDblTap`), edge
+   hover tooltip, edge click, hover cursor, layout toggles, graph canvas sizing.
+
+### Acceptance criteria
+
+- [ ] Zero references to `scriptInfo` / `onScriptInfoChange` / `script-info-popup` / `sip-header` in `frontend/src` (excluding gitignored `*.bak` backups)
+- [ ] Single-click on L1 script node → no UI change
+- [ ] Double-click on L1 script node → L2 still opens
+- [ ] Edge hover tooltip, edge click, hover cursor still work
+- [ ] Frontend tests pass (70) and production build succeeds
+- [ ] No CSS rule referencing the popup classes remains in `app.css`
