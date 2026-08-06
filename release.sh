@@ -73,6 +73,13 @@ PIECE_COUNT=$(ls "$IMAGE_DIR"/part_* | wc -l)
 
 # Generate checksums
 (cd "$IMAGE_DIR" && md5sum part_* > checksums.md5)
+
+# Release manifest (target_deploy.sh version guard)
+{
+    echo "VERSION=$VERSION"
+    echo "COMMIT=$(git rev-parse HEAD)"
+    echo "BUILT=$(date '+%Y-%m-%d %H:%M:%S %z')"
+} > "$IMAGE_DIR/RELEASE.txt"
 echo "  Split into $PIECE_COUNT pieces ($IMAGE_SIZE total)"
 
 # ── 4. Git operations ──────────────────────────────────────────────
@@ -84,6 +91,7 @@ git rm --cached "$IMAGE_DIR"/part_* "$IMAGE_DIR"/checksums.md5 2>/dev/null || tr
 # Stage new pieces
 git add "$IMAGE_DIR"/part_*
 git add "$IMAGE_DIR"/checksums.md5
+git add "$IMAGE_DIR"/RELEASE.txt
 
 # Stage source files (explicit paths, not git add -A)
 git add VERSION backend/ frontend/ samples/ Dockerfile Dockerfile.dev \
@@ -111,4 +119,5 @@ echo -e "${GREEN}=== Done ===${NC}"
 echo "  Version:  v$VERSION"
 echo "  Image:    $IMAGE_SIZE"
 echo "  Pieces:   $PIECE_COUNT (in $IMAGE_DIR/)"
+echo "  Manifest: $IMAGE_DIR/RELEASE.txt"
 echo "  Commit:   $COMMIT_MSG"
