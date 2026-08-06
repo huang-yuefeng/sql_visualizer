@@ -2558,3 +2558,152 @@ join keys become visible expression nodes in the full graph.
 - Present + parented: p1.lending_ref, p2's 6 CONCAT parts (poctcd/pogmab/poacb/poacs/poacx/
   podtao), p4.iiapty/iiblno, accu.vlookup_key_value, output lending_ref.
 - No ` ↻` twins, no `⟐`/`}`-mangled labels, no parentless fields.
+
+## C-series — Code-review round-2 solutions (wiki/CODE_REVIEW_2026-08-06.md, 2026-08-06)
+
+Solution designs for every open issue in the round-2 review (P1-1…P3-13, ENV-1/2).
+Verdicts from the 4-agent argumentation round are folded in (P1-1/P2-2/P2-6/P3-12/P3-13
+confirmed; P2-3/P2-4/P2-7/P3-8/P3-9/P3-10/P3-11 partially; ENV-1 refuted — 564 passed /
+5 skipped in 8.23s in-container, no deadlock, pytest-timeout not installed).
+
+### C-1 (P1-1, High) — CTAS .sql classified as schema
+- **Fix** (`folder_index_service.py:52-75`): in `classify_sql_text`, before the kind check,
+  `if isinstance(stmt, exp.Create) and stmt.args.get("kind") == "TABLE" and
+  stmt.args.get("expression") is not None: return "script"` — a CREATE TABLE … AS SELECT
+  writes data (DML-like); its body's fields must stay in the pipeline. CREATE VIEW/
+  MATERIALIZED VIEW keep their DDL-only classification (view bodies are definitions).
+- **Edge**: CTAS with no expression (plain CREATE TABLE) stays schema; parse-failure default
+  to "script" unchanged.
+- **Test**: +2 in a classifier unit test — CTAS → script, plain CREATE TABLE → schema;
+  regression: CTAS body's output fields appear in search/L1/L2 (A1 test module).
+
+### C-2 (P2-2, Medium) — S4b-attributed analysis caches vs stale graph caches
+- **Fix** (two halves): (a) `folder_index_service.py:325-330` index-time graph precomputation
+  runs BEFORE the S4b pass — after S4b apply (post `_apply_s4b_cache_update` loop), delete
+  every `{GRAPH_CACHE_PREFIX}_*.json` in the workspace cache dir (rebuild is on-demand,
+  ~1-2 s/script — indexing is already the slow pass); (b) `l2_builder.py:75-122` miss path
+  must build `graph_data` from the per-script **analysis cache** (the S4b-mutated
+  `cache_by_script` persisted during index) when present — `build_graph_data(analysis)` —
+  instead of a fresh `run_full_analysis`; fresh parse only when no analysis cache exists.
+  Bump `GRAPH_CACHE_PREFIX` once (3_2_17) to clear caches produced before this fix.
+- **Edge**: analysis cache present but pre-S4b (old index) — treat as absent (or stamp the
+  S4b pass version into the analysis cache; version-check on load).
+- **Test**: index a 2-script workspace with S4b attribution → assert graph cache files gone
+  and that L2 (cold cache) shows the S4b-attributed `source_tables` on the resolved field.
+
+### C-3 (P2-3, Medium) — S4b revocation never touches analysis/graph caches
+- **Fix** (`folder_index_service.py:523-531`): add `_revoke_s4b_cache_update(cache, field,
+  owner)` mirroring `_apply_s4b_cache_update`: clear `source_tables` on matching vars
+  (name==field, source_tables contains owner), re-add field to `rs["unresolved"]`, drop it
+  from `rs["resolved_by"]["schema"]` (floor 0), remove the schema_candidates entry; then
+  delete the revoked scripts' `{GRAPH_CACHE_PREFIX}_{md5(name+text)[:12]}.json` (index has
+  name+text — cheap) so no rebuild resurrects the attribution. Call it in the
+  `ambiguous_fields` loop before the index-level revoke.
+- **Test**: ambiguous-field fixture → L2/L1 no longer show `source_tables=[old_owner]`;
+  `resolution_stats` consistent with the index-level revoke.
+
+### C-4 (P2-4, Medium) — persisted schema counter increments with no real attribution
+- **Fix** (`folder_index_service.py:866-880`): gate the unresolved-drop + `rb["schema"] += 1`
+  on `n_attributed > 0`, mirroring the M15 in-memory gate (`by_strategy["schema"]` only
+  counts when `_apply_s4b_cache_update` returned True). Stale/missing cache (0 vars modified)
+  must not mutate counters.
+- **Test**: S4b plan against a script whose cache is missing → cache counters unchanged,
+  in-memory counter unchanged.
+
+### C-5 (P2-5, Medium) — SELECT * / expression-only references invisible to search
+- **Fix**: index-time star expansion — when a script contains `SELECT * FROM t` /
+  `INSERT INTO x SELECT * FROM t`, expand t's known columns (workspace schema evidence:
+  schema files + `infer_table_schemas`) into `field_index[(t, c)]` with the script attached,
+  so a field search legitimately finds the script. No schema evidence for t → no expansion
+  and no padding (BE2 semantics untouched: search returns `no_matches`, never a union
+  fallback).
+- **Test**: script `INSERT INTO x SELECT * FROM orders` + orders schema file → search
+  `orders.order_id` finds the script in L1; without the schema file → `no_matches` message.
+
+### C-6 (P2-6, Medium) — frontend coverage gap (banners + R22 acceptance)
+- **Fix**: (a) backend service-level L2 regression in `test_dataflow/` using
+  `samples/sql_sample_v1/` — call `get_level2_graph` directly: `bdm_acc_loan_info.lending_ref`
+  → `search_matched` true, filtered node count < full count; a script not in the field's flow
+  → `search_matched:false` + message + full graph; (b) `DataFlowApp.test.jsx` component tests
+  (add `@testing-library/react` + `@testing-library/jest-dom` if absent): mock
+  `api/client.js`; assert the no-match banner renders on `match_mode === "no_matches"`, the
+  not-in-flow banner on `search_matched:false`, and that Show-All with the cached full graph
+  clears `l2NotInFlow` (the C-11 fix).
+- **Test**: the tests themselves; existing 64 frontend + 564 backend suites must stay green.
+
+### C-7 (P2-7, Medium) — target_deploy.sh guard edges
+- **Fix** (`target_deploy.sh:62-64, 80-83`): (a) missing `RELEASE.txt` → red error + `exit 1`
+  ("fresh release clone? run git pull / re-copy image pieces"), not a warning; (b) the
+  stale-checkout fix line `git clean -fd docker_image/ && git reset --hard origin/main` prints
+  only when the fetch succeeded AND `git rev-list --count HEAD..origin/main` is a number > 0
+  (local strictly behind); otherwise warn "local ahead/diverged or origin unreachable —
+  resolve manually". Never advise `reset --hard` on a failed/absent fetch.
+- **Test**: manual — temp clone without RELEASE.txt → exits 1; clone behind origin → reset
+  advice; clone ahead of origin → no reset advice.
+
+### C-8 (P3-8, Low) — logger drops messages pushed before the SSE stream connects
+- **Fix** (`logger.py:32-40`): per-ws bounded buffer `_log_buffer: dict[str, deque]`
+  (`maxlen=200`), guarded by `_log_lock`; `_push` with no live queue → `buffer[ws].append`; a
+  new `ensure_queue` drains the buffer into the queue (respecting `_MAX_QUEUE`) before
+  returning; `unregister_queue` also drops the buffer (no consumer = nothing to replay).
+- **Test**: push before `ensure_queue`, then drain → entries delivered in order; >200 pushes
+  → oldest dropped, no unbounded growth.
+
+### C-9 (P3-9, Low) — computed-expression dedup over-merges across statements
+- **Fix** (`l2_builder.py:337-352, 376-394`): dedup key becomes `(parent_table_id,
+  undecorated_label, stmt_idx)` — carry the producing statement index into the graph node
+  JSON (extractor's statement-anchored loc, R22-L16 `_statement_anchor` line; 0 = unknown)
+  and key on it. Combines with B-series B4: `undecorated_label` strips ` ↻` so the
+  column+producer pair still merges (one node), while `sum(x) AS total` from two different
+  statements no longer collapses.
+- **Edge**: nodes with no stmt info (anchor fallback 0) dedup as today.
+- **Test**: one script, two statements each `SUM(x) AS total` → two L2 field nodes
+  (previously one); `total` + `total ↻` still one node (B4).
+
+### C-10 (P3-10, Low) — not_in_flow double analysis + full-graph highlight flood
+- **Fix** (`dataflow_service.py:337-370`): (a) miss path also writes the graph cache it just
+  built (`graph_cache_path.write_text(...)` mirroring `l2_builder.py:114`) so
+  `_build_l2_graph`'s internal `_load_or_build_graph` cache-hits instead of re-analyzing —
+  cold-cache cost goes from 2 full analyses to 1; (b) `not_in_flow` rebuild becomes a cache
+  hit (no second analysis) — and optionally give `_build_l2_graph` a `graph_data` param to
+  skip the cache layer entirely; (c) `_compute_highlight_ranges` skips empty ranges so the
+  full-graph fallback doesn't highlight the whole script.
+- **Test**: monkeypatch `run_full_analysis` with a counter — cold cache + not-in-flow script
+  → exactly 1 call; highlights contain no empty ranges.
+
+### C-11 (P3-11, Low) — banner flash + stale not-in-flow on cached Show-All
+- **Fix** (`DataFlowApp.jsx:626, 411-416`): (a) gate the reload no-match banner on
+  `!loading`; (b) the Show-All cached branch routes through `applyL2Result` (sets
+  `l2Graph` + `l2NotInFlow` + `l2Message` from the cached full-graph response) instead of
+  only `setL2Graph`.
+- **Test**: covered by C-6(b) component tests (banner absent while loading; Show-All clears
+  the not-in-flow banner).
+
+### C-12 (P3-12, Low) — case-variant search yields misleading "not queried" suggestion
+- **Fix** (`routers/dataflow.py:107-126, 141-142`): keep search semantics exact (no behavior
+  change), but when `table not in base_ti` (resp. field), scan casefolded base-index keys and
+  set `suggestion = "Table 'X' not found in index — did you mean 'Y'?"` into the R17
+  diagnostic; unchanged when no case-variant exists.
+- **Test**: index `orders`, search `Orders` → `no_matches` + suggestion naming `orders`;
+  search `orders` → unchanged behavior.
+
+### C-13 (P3-13, Low) — A1 re-parses the tree; _statement_anchor quadratic
+- **Fix**: (a) `index_scripts` parses each script once and passes the parse (statements list)
+  into both `classify_sql_text` (new optional `preparsed` param) and the extractor entry
+  (`run_full_analysis` optional `preparsed`); (b) `_statement_anchor`
+  (`variable_extractor_v2.py:481-544`) replaces the render-and-tokenize-subsequence match
+  with the AST's own token offsets (sqlglot sets `expr.start`/`expr.end` from the parser):
+  precompute a sorted `(start_offset → statement)` index once per script and bisect per
+  anchor — O(n²) → O(n log n); keep the current subsequence match as fallback when offsets
+  are absent. `_anchor_cache` stays.
+- **Test**: anchors identical to today (existing `_is_as_keyword` R22-L16 tests are the
+  guard); no functional regression.
+
+### ENV-1 — closed (not reproduced): 564 passed / 5 skipped in 8.23s in-container; no
+deadlock; pytest-timeout not installed. If a CI sandbox ever shows the
+`test_filter_config.py` hang, add a `pytest-timeout` tripwire (2 s) or switch that test to
+`fastapi.testclient` — contingency only.
+### ENV-2 — deliberate behaviors (create_search semantics, dedup collapse): keep the R22/R24
+regression suites (l2_table_dedup 6, single-script L1 8, create_search no_matches) — the
+C-9 key refinement is the only planned change to the collapse behavior, and it keeps the
+R22 acceptance (one node per physical table) intact.
