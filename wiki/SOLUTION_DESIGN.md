@@ -772,10 +772,12 @@ in the report.
    cross-attribute) is the correct never-guess default. Revisit only if a
    multi-db same-name fixture demonstrates false positives.
 4. Should DML/DDL evidence surface in `table_index` fields (autocomplete) in
-   Phase 3, or remain schema-map-only? — **Open** (Phase 3). Phase 3 scope is
-   report-only per user decision (2026-08-06): classify DDL files at zip
+   Phase 3, or remain schema-map-only? — ✅ **Closed (2026-08-06, v3.3.134):
+   remain schema-map-only.** Phase 3 shipped as A1 (file_class classification,
+   report-only): classify DDL files at zip
    time so they contribute evidence without pipeline pollution; report
-   schema-evidence presence factually. No autocomplete seeding, no
+   schema-evidence presence factually (`schema_evidence` in the index
+   response). No autocomplete seeding, no
    annotation, no upload endpoint.
 5. The R6 guard is scoped to S4 here; S3 (single-table scope) has the same
    theoretical collision (`SELECT call_center FROM call_center`) — extend the
