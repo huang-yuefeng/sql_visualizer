@@ -10,6 +10,7 @@ import ResolutionReport from './components/ResolutionReport';
 import * as api from './api/client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useResizable } from './utils/useResizable';
+import { mergeRestoredViews } from './utils/restoreViews';
 import './styles/resizable.css';
 
 // ── R3: last search view persistence (survives reload, incl. empty
@@ -54,6 +55,8 @@ export default function DataFlowApp() {
   // R20: index-time orphan resolution report (folder_index_service payload)
   const [resolutionStats, setResolutionStats] = useState(null);
   const [orphanFieldSamples, setOrphanFieldSamples] = useState(null);
+  // R20/M11: schema_candidates_summary {total, unique_owner, r6_collision}
+  const [schemaCandidates, setSchemaCandidates] = useState(null);
   // R3: guards the mount-time view restore against a user upload racing it
   const uploadTokenRef = useRef(Date.now());
 
@@ -94,6 +97,7 @@ export default function DataFlowApp() {
         setL2Graph(null); setL2Result(null); setSqlText(''); setError(null);
         setScriptInfo(null); setActiveL1Table(null); setCurrentScriptName(''); setL2Filtered(true);
         setL2FullGraph(null); setResolutionStats(null); setOrphanFieldSamples(null);
+        setSchemaCandidates(null);
         setShowLog(true);
       }
       const result = await api.uploadWorkspace(file);
@@ -113,6 +117,7 @@ export default function DataFlowApp() {
       setFullFieldIndex(idxResult.field_index || {});
       setResolutionStats(idxResult.resolution_stats || null);
       setOrphanFieldSamples(idxResult.orphan_field_samples || null);
+      setSchemaCandidates(idxResult.schema_candidates_summary || null);
       setIndexed(true);
       setStale(false);
       setProgress(null);
@@ -172,12 +177,15 @@ export default function DataFlowApp() {
         setFullFieldIndex(idxResult.field_index || {});
         setResolutionStats(idxResult.resolution_stats || null);
         setOrphanFieldSamples(idxResult.orphan_field_samples || null);
+        setSchemaCandidates(idxResult.schema_candidates_summary || null);
         setIndexed(true);
         setStale(false);
         setProgress(null);
 
-        // Restore the view list; the saved view wins when the backend
-        // hasn't persisted it (F1 no_matches path skips views.json).
+        // Restore the view list; the saved view's match_mode/message ride
+        // only in localStorage (the backend persists the view but without
+        // those fields), so overlay them onto the server entry — or append
+        // the saved view wholesale if the server hasn't persisted it yet.
         let restoredViews = [];
         try {
           const vres = await api.listViews(saved.wsId);
@@ -185,9 +193,7 @@ export default function DataFlowApp() {
         } catch (e) { /* ignore */ }
         if (cancelled || uploadTokenRef.current !== token) return;
         const savedViewId = saved.activeViewId || saved.view.view_id;
-        const exists = restoredViews.some(v => v.view_id === savedViewId);
-        if (!exists) restoredViews = [...restoredViews, saved.view];
-        setViews(restoredViews);
+        setViews(mergeRestoredViews(restoredViews, saved.view, savedViewId));
         setActiveViewId(savedViewId);
         parentViewIdRef.current = savedViewId;
         const cachedGraph = saved.view.l1_graph_cache;
@@ -346,6 +352,7 @@ export default function DataFlowApp() {
     setViews([]); setActiveViewId(null); setL1Graph(null);
     setL2Graph(null); setSqlText(''); setError(null);
     setResolutionStats(null); setOrphanFieldSamples(null);
+    setSchemaCandidates(null);
   }, [wsId]);
 
   // ── L1 Table lens click ─────────────────────────────────────────
@@ -518,6 +525,7 @@ export default function DataFlowApp() {
                 const idxResult = await api.indexWorkspace(wsId, selectedScripts);
                 setResolutionStats(idxResult.resolution_stats || null);
                 setOrphanFieldSamples(idxResult.orphan_field_samples || null);
+                setSchemaCandidates(idxResult.schema_candidates_summary || null);
                 setStale(false); setIndexed(true);
               } catch (e) { setError(e.message); }
               setLoading(false);
@@ -554,6 +562,7 @@ export default function DataFlowApp() {
           <ResolutionReport
             stats={resolutionStats}
             orphanFieldSamples={orphanFieldSamples}
+            schemaCandidates={schemaCandidates}
           />
         )}
         <ViewBar

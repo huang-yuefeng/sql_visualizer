@@ -1,21 +1,28 @@
-"""S4 Phase 1 (REPORT ONLY) tests — index-side SELECT-side schema candidates.
+"""S4 Phase 2 (AUTO-RESOLUTION) tests — index-side S4b attribution + report.
 
-The extractor's S4a (Phase 0, report-only) emits per-script
-`schema_candidates` / `script_schemas` / `r6_collision` inside
-`resolution_stats`; the index side (S4b Phase 1) must:
+The extractor's S4a (auto-attribution) emits per-script
+`schema_candidates` (S4a residuals — still-unresolved bare columns in
+≥2-table scopes, each carrying its OWN visible_tables) / `script_schemas`
+(NEW {table: {col: evidence_line}} — OLD list shape handled too) /
+`r6_collision` inside `resolution_stats`; the index side (S4b Phase 2)
+must:
 
 - aggregate M_ws = union of all scripts' script_schemas
-- re-test each post-S4 orphan: owners = visible(field) ∩ M_ws (whole-name,
-  case-insensitive = R4; R6 field==table guard) — REPORT ONLY, never
-  attribute
-- extend the ORPHAN RESOLUTION REPORT (summary line + per-owner lines)
+- re-test each candidate ONLY within its own visible_tables: owners =
+  visible(field) ∩ M_ws (whole-name, case-insensitive = R4; R6
+  field==table guard) — exactly one owner → ATTRIBUTE (analysis-cache var,
+  field_index/table_index, by_strategy["schema"], coverage)
+- never attribute: 0 owners (evidence absent / table not visible), ≥2
+  owners (ambiguous), R6
+- extend the ORPHAN RESOLUTION REPORT (summary line + per-owner lines with
+  the schema-EVIDENCE line from the new provenance)
 - expose `schema_candidates_summary` on the index response
-- stay byte-identical on old caches (keys absent) and never touch
-  coverage_pct / the orphan set
+- stay byte-identical on old caches (keys absent)
 
-Most tests use the REAL extractor output (S4a is landed); the run_full_analysis
-wrapper (`_s4c_sim`) is used only where a scenario cannot be produced by the
-real extractor: string locs, partial keys, and old-style stripping.
+Most tests use the REAL extractor output; the run_full_analysis wrapper
+(`_s4c_sim`) is used only where a scenario cannot be produced by the real
+extractor: string locs, partial keys, old-style stripping, and the new
+dict-of-dicts provenance shape.
 """
 
 import io
@@ -84,17 +91,15 @@ def _run_capture(monkeypatch, ws_id, scripts, sim=None):
     return result, joined
 
 
-# ── TC1: cross-script unique owner ──────────────────────────────────────
+# ── TC1: cross-script unique owner (Phase 2: ATTRIBUTED) ────────────────
 
-def test_cross_script_unique_owner_line(monkeypatch):
+def test_cross_script_unique_owner_attributed(monkeypatch):
     """Bare column in a 2-table scope; the owner's schema evidence lives in
-    ANOTHER script (DML target list, design source 2) → the report shows the
-    unique visible owner line. Nothing is attributed: the field stays in the
-    UNRESOLVED section (REPORT ONLY).
-
-    Note: the evidence script must be evidence-only (DDL/DML list) — a
-    qualified ref in the same workspace would already attribute the field
-    via S1, taking it out of the orphan set the report covers.
+    ANOTHER script (DML target list, design source 2) → S4b attributes:
+    field_index/table_index updated, by_strategy["schema"] +1, the field
+    leaves the orphan set, and the report shows the owner line. The
+    evidence script must be evidence-only (DDL/DML list) — a qualified ref
+    in the same workspace would already attribute via S1.
     """
     ws = _make_ws({
         "s1.sql": "INSERT INTO web_sales (ws_web_page_sk) SELECT x FROM src1;\n",
@@ -105,15 +110,15 @@ def test_cross_script_unique_owner_line(monkeypatch):
                                       ["s1.sql", "s2.sql"])
         assert ("schema candidates: 1 (unique visible owner found: 1)"
                 " | r6 collision: 0") in joined, joined
-        assert ("field: ws_web_page_sk → web_sales (evidence: s2.sql L1"
+        assert ("field: ws_web_page_sk → web_sales (evidence:"
                 in joined), joined
-        # still an orphan — Phase 1 reports, never attributes
-        assert "UNRESOLVED orphans — possible bad cases, check SQL:" in joined
-        assert "field: ws_web_page_sk   script: s2.sql" in joined
+        # Phase 2: the field is resolved — no longer an orphan
+        assert "UNRESOLVED orphans — possible bad cases, check SQL:" not in joined
         fi = json.loads((get_workspace_dir(ws) / "cache"
                          / "field_index.json").read_text())
-        assert fi["ws_web_page_sk"]["tables"] == [], \
-            "Phase 1 must not attribute (REPORT ONLY)"
+        assert fi["ws_web_page_sk"]["tables"] == ["web_sales"], \
+            "S4b must attribute the unique visible owner"
+        assert result["resolution_stats"]["by_strategy"]["schema"] == 1
         assert result["schema_candidates_summary"] == {
             "total": 1, "unique_owner": 1, "r6_collision": 0}
     finally:
@@ -250,10 +255,15 @@ def test_case_insensitive_owner_and_word_boundary(monkeypatch):
                                       ["t.sql", "u.sql", "s2.sql"])
         assert ("schema candidates: 1 (unique visible owner found: 1)"
                 " | r6 collision: 0") in joined, joined
-        assert "field: id → t (evidence: s2.sql L1" in joined, joined
+        assert "field: id → t (evidence:" in joined, joined
         assert "→ u" not in joined, "customer_id must not match id (R4)"
-        assert "field: id   script: s2.sql" in joined, \
-            "still reported as an orphan (REPORT ONLY)"
+        # Phase 2: attributed to t, so it leaves the UNRESOLVED section
+        assert "field: id   script: s2.sql" not in joined, \
+            "resolved by S4b — must not stay in the UNRESOLVED section"
+        fi = json.loads((get_workspace_dir(ws) / "cache"
+                         / "field_index.json").read_text())
+        assert fi["id"]["tables"] == ["t"], fi["id"]
+        assert result["resolution_stats"]["by_strategy"]["schema"] == 1
         assert result["schema_candidates_summary"] == {
             "total": 1, "unique_owner": 1, "r6_collision": 0}
     finally:
@@ -285,10 +295,13 @@ def test_string_loc_uses_sql_evidence_search(monkeypatch):
 
 # ── Edge: partial new keys (mid-flight extractor) ────────────────────────
 
-def test_script_schemas_only_still_reports_zero_line(monkeypatch):
-    """New keys present but no candidate records (e.g. a mid-flight extractor
-    emitting script_schemas only) → summary line still shown, zeroed — the
-    report gate is key PRESENCE, not values."""
+def test_partial_s4_keys_fall_back_to_old_report(monkeypatch):
+    """Review N3: the Phase-2 report gate requires ALL THREE S4 keys
+    (schema_candidates, script_schemas, r6_collision) in the same analysis.
+    A partially-upgraded cache (script_schemas only — mid-flight extractor)
+    must keep the byte-identical Phase-1 block instead of printing a
+    misleading zeroed 'schema candidates' line; the response summary stays
+    zeroed."""
 
     def partial(sql_text, script_name, ws_id=None):
         result = _REAL_RUN(sql_text, script_name, ws_id=ws_id)
@@ -301,6 +314,25 @@ def test_script_schemas_only_still_reports_zero_line(monkeypatch):
         return result
 
     monkeypatch.setattr(adapter_mod, "run_full_analysis", partial)
+    ws = _make_ws({"t.sql":
+                   "INSERT INTO a (id, name) SELECT p, q FROM src1;\n"
+                   "INSERT INTO b (id, name) SELECT r, s FROM src2;\n"
+                   "SELECT id, name FROM a JOIN b ON a.x = b.y;\n"})
+    try:
+        result, joined = _run_capture(monkeypatch, ws, ["t.sql"])
+        assert "schema candidates:" not in joined, joined
+        assert "r6 collision" not in joined, joined
+        assert "UNRESOLVED orphans" in joined, joined
+        assert "field: id   script: t.sql" in joined, joined
+        assert result["schema_candidates_summary"] == {
+            "total": 0, "unique_owner": 0, "r6_collision": 0}
+    finally:
+        delete_workspace(ws)
+
+
+def test_all_three_keys_zeroed_line(monkeypatch):
+    """All three S4 keys present (empty values — the S4a extractor's default
+    emission on every script) → the Phase-2 line is shown, zeroed."""
     ws = _make_ws({"ddl.sql": "CREATE TABLE t (a INT);\n"})
     try:
         result, joined = _run_capture(monkeypatch, ws, ["ddl.sql"])
@@ -312,12 +344,13 @@ def test_script_schemas_only_still_reports_zero_line(monkeypatch):
         delete_workspace(ws)
 
 
-# ── TC6: coverage_pct unchanged — Phase 1 is pure-read ───────────────────
+# ── TC6: S4b behavior is key-source-independent (real vs injected) ───────
 
-def test_coverage_pct_unchanged_by_phase1(monkeypatch):
-    """Phase 1 changes NOTHING in the attribution pipeline — every
-    resolution_stats field (incl. coverage_pct) and the orphan set are
-    identical whether the indexer sees the S4c keys or not."""
+def test_s4b_result_independent_of_key_source(monkeypatch):
+    """S4b resolves the cross-script unique owner identically whether the
+    S4a keys come from the real extractor or are injected by the sim — the
+    indexer's attribution pipeline is deterministic. Both runs must end at
+    the same stats, and the field must be resolved (Phase 2)."""
     entries = {
         "ddl.sql": "CREATE TABLE web_sales (ws_web_page_sk INT);\n",
         "s2.sql": "SELECT ws_web_page_sk FROM web_sales JOIN web_page;\n",
@@ -338,6 +371,8 @@ def test_coverage_pct_unchanged_by_phase1(monkeypatch):
         assert (result_plain["resolution_stats"]["by_strategy"]
                 == result_sim["resolution_stats"]["by_strategy"])
         assert result_plain["orphan_field_count"] == \
-            result_sim["orphan_field_count"] == 1
+            result_sim["orphan_field_count"] == 0, \
+            "S4b resolves the unique visible owner (Phase 2)"
+        assert (result_plain["resolution_stats"]["by_strategy"]["schema"] == 1)
     finally:
         delete_workspace(ws)

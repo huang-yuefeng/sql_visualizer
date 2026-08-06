@@ -337,6 +337,218 @@ class TestR1BlankColName:
             assert f not in fi, f"{f} of ignored table must not leak"
 
 
+class TestH1ScriptPathContainment:
+    """H1 (P0): resolve_script must never resolve outside the scripts dir.
+
+    `name` is user-controlled via the filter CSV SCRIPT_NAME column — an
+    absolute path or `../` chain must return None, not an arbitrary file.
+    """
+
+    def test_h1_absolute_path_rejected(self, indexed_ws):
+        from app.services.filter_service import resolve_script
+        assert resolve_script(indexed_ws, "/etc/passwd") is None
+        assert resolve_script(indexed_ws, "/etc/hostname.sql") is None
+
+    def test_h1_parent_traversal_rejected(self, indexed_ws):
+        from app.services.filter_service import resolve_script
+        assert resolve_script(indexed_ws, "../secret.sql") is None
+        assert resolve_script(indexed_ws, "sub/../../etc/passwd") is None
+        assert resolve_script(indexed_ws, "../../../etc/passwd.sql") is None
+        assert resolve_script(indexed_ws, "..\\..\\secret.sql") is None
+
+    def test_h1_legit_variants_still_resolve(self, indexed_ws):
+        """Basename and ±.sql tolerance is preserved for in-scope names."""
+        from app.services.filter_service import resolve_script
+        p = resolve_script(indexed_ws, STEP2)
+        assert p is not None and p.exists()
+        assert resolve_script(indexed_ws, "step2_enrich_customers.sql") is not None
+        assert resolve_script(indexed_ws, "step2_enrich_customers") is not None
+        scripts_root = (get_workspace_dir(indexed_ws) / "scripts").resolve()
+        assert p.resolve().is_relative_to(scripts_root)
+
+    def test_h1_missing_name_returns_none(self, indexed_ws):
+        from app.services.filter_service import resolve_script
+        assert resolve_script(indexed_ws, "") is None
+        assert resolve_script(indexed_ws, "no_such_script.sql") is None
+
+
+class TestM5MalformedCsv:
+    """M5: short rows (missing trailing fields) must never 500."""
+
+    def test_m5_short_row_script_table_graceful(self, indexed_ws):
+        """'foo' (1 column, 2 declared headers) parses gracefully."""
+        r = _upload(indexed_ws, script_table_csv=CSV1 + "foo\n")
+        assert r["filtered"] is True
+        assert r["table_count"] == 0
+
+    def test_m5_short_row_table_col_graceful(self, indexed_ws):
+        """'ETL,stg_customers' (2 of 4 columns) parses gracefully — the
+        missing COL_NAME makes the table unconstrained (R1)."""
+        r = _upload(indexed_ws, table_col_csv=CSV2 + "ETL,stg_customers\n")
+        assert r["filtered"] is True
+        assert "stg_customers" in _filtered_tables(indexed_ws)
+
+    def test_m5_oversized_field_400(self, indexed_ws):
+        """A field beyond the csv module's limit raises csv.Error inside the
+        parse loop → HTTPException(400), not an unhandled 500."""
+        import fastapi
+        with pytest.raises(fastapi.HTTPException) as ei:
+            _upload(indexed_ws, script_table_csv=CSV1 + "x" * 200_000 + ",c\n")
+        assert ei.value.status_code == 400
+        assert "Invalid script_table.csv" in ei.value.detail
+
+    def test_m5_oversized_field_table_col_400(self, indexed_ws):
+        import fastapi
+        with pytest.raises(fastapi.HTTPException) as ei:
+            _upload(indexed_ws, table_col_csv=CSV2 + "ETL,stg_customers," + "x" * 200_000 + "\n")
+        assert ei.value.status_code == 400
+        assert "Invalid table_col.csv" in ei.value.detail
+
+
+class TestM6FieldTableSymmetry:
+    """M6: filtered_fi[f]["tables"] must mirror filtered_ti[t]["fields"]."""
+
+    def test_m6_shared_field_excludes_constrained_table(self, indexed_ws):
+        """Field f shared by unconstrained U and constrained C (both allowed):
+        filtered_fi[f]["tables"] lists U, NOT C (old code listed both)."""
+        cache = get_workspace_dir(indexed_ws) / "cache"
+        ti = json.loads((cache / "table_index.json").read_text())
+        fi = json.loads((cache / "field_index.json").read_text())
+        shared = [(f, fd.get("tables", [])) for f, fd in fi.items()
+                  if len(fd.get("tables", [])) >= 2]
+        assert shared, "fixture must have a field shared by ≥2 tables"
+        fname, tables = shared[0]
+        U, C = tables[0], tables[1]
+        c_fields = [f for f in ti[C].get("fields", []) if f != fname]
+        assert c_fields, "constrained table needs another field to constrain to"
+        other = c_fields[0]
+        r = _upload(indexed_ws, table_col_csv=CSV2
+                    + f"ETL,{U},,\n"                        # U: blank COL_NAME → unconstrained
+                    + f"ETL,{C},{other},{other} comment\n")  # C: constrained to `other`
+        assert r["filtered"] is True
+        filtered = _filtered(indexed_ws)
+        # the field survives via U...
+        assert fname in filtered["field_index"], fname
+        # ...but C must not claim it (symmetric with filtered_ti[C]["fields"])
+        assert C not in filtered["field_index"][fname]["tables"], filtered["field_index"][fname]
+        assert U in filtered["field_index"][fname]["tables"]
+        # full symmetry invariant: every field→table claim has the field in
+        # that table's own filtered entry
+        for f, fd in filtered["field_index"].items():
+            for t in fd.get("tables", []):
+                assert f in filtered["table_index"][t]["fields"], (f, t)
+        # mirror: C's table entry omits fname
+        assert fname not in filtered["table_index"][C]["fields"]
+
+    def test_m6_pure_column_filter_unaffected(self, indexed_ws):
+        """No unconstrained tables → behavior identical to before."""
+        r = _upload(indexed_ws, table_col_csv=CSV2
+                    + "ETL,stg_customers,customer_id,Staging customer id\n")
+        assert r["filtered"] is True
+        filtered = _filtered(indexed_ws)
+        assert "customer_id" in filtered["field_index"]
+        tables = filtered["field_index"]["customer_id"]["tables"]
+        assert "stg_customers" in tables
+        assert set(tables) <= set(filtered["table_index"])
+
+
+class TestN6BlankRowWinsDiagnostic:
+    """N6: a table with BOTH a blank-COL_NAME row and column rows gets a
+    diagnostic naming it (the blank row silently wins)."""
+
+    def test_n6_blank_row_wins_diagnostic(self, monkeypatch, indexed_ws):
+        diag_msgs = []
+
+        def fake_push(ws_id, stage, message):
+            diag_msgs.append(message)
+
+        monkeypatch.setattr("app.routers.workspace._push", fake_push)
+        _upload(indexed_ws, table_col_csv=CSV2
+                + "ETL,stg_customers,customer_id,Staging customer id\n"
+                + "ETL,stg_customers,\n")
+        joined = "\n".join(diag_msgs)
+        assert "blank row wins for: stg_customers" in joined, joined
+
+    def test_n6_no_blank_wins_line_when_clean(self, monkeypatch, indexed_ws):
+        diag_msgs = []
+
+        def fake_push(ws_id, stage, message):
+            diag_msgs.append(message)
+
+        monkeypatch.setattr("app.routers.workspace._push", fake_push)
+        _upload(indexed_ws, table_col_csv=CSV2
+                + "ETL,stg_customers,customer_id,Staging customer id\n")
+        joined = "\n".join(diag_msgs)
+        assert "blank row wins" not in joined, joined
+
+
+class TestL10CsvSizeCap:
+    """L10: filter CSVs are size-capped → HTTPException(400) on oversize."""
+
+    def test_l10_script_table_cap(self, indexed_ws, monkeypatch):
+        import fastapi
+        import app.services.filter_service as fs
+        monkeypatch.setattr(fs, "MAX_FILTER_CSV_BYTES", 5)
+        with pytest.raises(fastapi.HTTPException) as ei:
+            _upload(indexed_ws, script_table_csv=CSV1 + f"{STEP2},stg_customers\n")
+        assert ei.value.status_code == 400
+        assert "too large" in ei.value.detail
+
+    def test_l10_table_col_cap(self, indexed_ws, monkeypatch):
+        import fastapi
+        import app.services.filter_service as fs
+        monkeypatch.setattr(fs, "MAX_FILTER_CSV_BYTES", 5)
+        with pytest.raises(fastapi.HTTPException) as ei:
+            _upload(indexed_ws, table_col_csv=CSV2 + "ETL,stg_customers,customer_id,Comment\n")
+        assert ei.value.status_code == 400
+        assert "too large" in ei.value.detail
+
+
+class TestL11CsvEncoding:
+    """L11: non-UTF-8 (GBK/BOM) CSVs decode via fallbacks, with a hint."""
+
+    def test_l11_decode_gbk(self):
+        from app.services.filter_service import _decode_csv
+        text, enc = _decode_csv("客户,customer\n".encode("gbk"))
+        assert enc == "gb18030"
+        assert text == "客户,customer\n"
+        text, enc = _decode_csv(b"\xef\xbb\xbfSCRIPT_NAME,TABLE_NAME\nfoo\n")
+        assert enc == "utf-8-sig"
+        assert text.startswith("SCRIPT_NAME")
+        text, enc = _decode_csv(bytes(range(128, 256)))
+        assert enc == "latin-1"
+        assert len(text) == 128
+
+    def test_l11_gbk_upload_decodes_with_hint(self, monkeypatch, indexed_ws):
+        """A GBK-encoded table_col.csv filters correctly, names intact, and
+        the R16 diag notes the encoding instead of silently corrupting."""
+        diag_msgs = []
+
+        def fake_push(ws_id, stage, message):
+            diag_msgs.append(message)
+
+        monkeypatch.setattr("app.routers.workspace._push", fake_push)
+        csv_bytes = ("SYSTEM,TABLE_NAME,COL_NAME,COL_COMMENT\n"
+                     "ETL,客户表,名称,备注\n"
+                     "ETL,stg_customers,customer_id,Staging customer id\n").encode("gbk")
+        st = UploadFile(filename="table_col.csv", file=io.BytesIO(csv_bytes))
+        r = asyncio.run(upload_filter_config(indexed_ws, script_table=None, table_col=st))
+        assert r["filtered"] is True
+        assert "stg_customers" in _filtered_tables(indexed_ws)
+        joined = "\n".join(diag_msgs)
+        assert "客户表" in joined, joined       # decoded, not mojibake
+        assert "gb18030" in joined, joined     # encoding hint emitted
+        assert "�" not in joined, joined   # no silent U+FFFD corruption
+
+    def test_l11_utf8_bom_upload_still_filters(self, indexed_ws):
+        """A UTF-8 BOM must not break parsing (utf-8-sig strips it)."""
+        st = UploadFile(filename="script_table.csv",
+                        file=io.BytesIO(("﻿" + CSV1 + f"{STEP2},stg_customers\n").encode()))
+        r = asyncio.run(upload_filter_config(indexed_ws, script_table=st, table_col=None))
+        assert r["filtered"] is True
+        assert "stg_customers" in _filtered_tables(indexed_ws)
+
+
 class TestR3NoMatchesDiagnostic:
     """R3: the F1 no_matches search path also emits the R17 diagnostic."""
 
@@ -363,7 +575,12 @@ class TestR3NoMatchesDiagnostic:
         assert "Table not in filter scope" in joined, joined
 
     def test_r3_no_matches_view_persisted(self, indexed_ws):
-        """The F1 no-matches view is persisted to views.json like any search."""
+        """The F1 no-matches view is persisted to views.json like any search.
+
+        N4: l1_graph_cache carries `target` for shape parity with regular
+        views. M8: match_mode + message are saved so the frontend can show
+        the no-match banner after a reload.
+        """
         _upload(indexed_ws,
                 script_table_csv=CSV1 + f"{STEP2},x\n",
                 table_col_csv=CSV2 + "ETL,y,some_col,Column\n")
@@ -376,4 +593,53 @@ class TestR3NoMatchesDiagnostic:
         saved = [v for v in views if v["view_id"] == result["view_id"]]
         assert len(saved) == 1, views
         assert saved[0]["script_ids"] == [], saved[0]
-        assert saved[0]["l1_graph_cache"] == {"nodes": [], "edges": []}, saved[0]
+        assert saved[0]["l1_graph_cache"] == {"nodes": [], "edges": [],
+                                              "target": "table.field"}, saved[0]
+        assert saved[0]["match_mode"] == "no_matches", saved[0]
+        assert saved[0]["message"] == "Filter active — no tables in scope", saved[0]
+
+    def test_r3_no_matches_persisted_view_shape_matches_regular(self, indexed_ws):
+        """N4: no_matches cache shape (incl. target) is identical to a
+        regular search view's cache keys."""
+        _upload(indexed_ws,
+                script_table_csv=CSV1 + f"{STEP2},x\n",
+                table_col_csv=CSV2 + "ETL,y,some_col,Column\n")
+        from app.routers.dataflow import search_dataflow
+        from app.services.dataflow_service import list_views
+        result = asyncio.run(search_dataflow(
+            indexed_ws, {"table": "stg_customers", "field": "customer_id"}))
+        views = list_views(indexed_ws)
+        saved = [v for v in views if v["view_id"] == result["view_id"]][0]
+        assert "target" in saved["l1_graph_cache"], saved["l1_graph_cache"]
+
+    def test_m8_regular_search_view_persists_match_mode(self, indexed_ws):
+        """M8: create_search's persisted view carries match_mode so the
+        frontend can restore the search mode after a reload."""
+        from app.routers.dataflow import search_dataflow
+        from app.services.dataflow_service import list_views
+        result = asyncio.run(search_dataflow(
+            indexed_ws, {"table": "stg_customers", "field": "customer_id"}))
+        assert result["match_mode"] in ("exact", "expanded", "fallback"), result
+        views = list_views(indexed_ws)
+        saved = [v for v in views if v["view_id"] == result["view_id"]]
+        assert len(saved) == 1, views
+        assert saved[0]["match_mode"] == result["match_mode"], saved[0]
+
+    def test_l8_diagnostic_scope_counts_come_from_loaded_index(self, monkeypatch, indexed_ws):
+        """L8: the R17 diagnostic's scope counts match the loaded (filtered)
+        index — no second read of filtered_index.json inside the search."""
+        _upload(indexed_ws,
+                script_table_csv=CSV1 + f"{STEP2},stg_customers\n",
+                table_col_csv=CSV2 + "ETL,stg_customers,customer_id,Staging customer id\n")
+        from app.routers.dataflow import search_dataflow
+        diag_msgs = []
+
+        def fake_push(ws_id, stage, message):
+            diag_msgs.append(message)
+
+        monkeypatch.setattr("app.routers.dataflow._push", fake_push)
+        result = asyncio.run(search_dataflow(
+            indexed_ws, {"table": "stg_customers", "field": "customer_id"}))
+        assert result["match_mode"] != "no_matches", result
+        joined = "\n".join(diag_msgs)
+        assert "Filter active: YES  (1 tables, 1 fields in scope)" in joined, joined

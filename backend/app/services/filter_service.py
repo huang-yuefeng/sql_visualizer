@@ -10,14 +10,38 @@ application to table/field indexes, and the R16 diagnostic payload.
 Also hosts the shared script resolver `resolve_script` (R5) — reused by
 `folder_index_service` for its orphan-report SQL evidence.
 """
+import asyncio
 import csv
 import io
 import json
 import os
 from pathlib import Path
 
+from fastapi import HTTPException
+
 from app.services.logger import _push as _default_push
 from app.services.workspace_service import get_workspace_dir
+
+# L10: hard cap on filter-CSV uploads (zip uploads cap at 100 MB; these
+# two CSVs were uncapped → OOM/500 on a giant file).
+MAX_FILTER_CSV_BYTES = 20_000_000
+
+
+def _decode_csv(raw: bytes) -> tuple[str, str]:
+    """Decode filter-CSV bytes with encoding fallbacks (L11).
+
+    utf-8-sig (also strips a UTF-8 BOM if present) → gb18030 (covers
+    GBK/GB2312/Shift-JIS-adjacent CJK encodings common in filter CSVs) →
+    latin-1 (never fails — every byte maps, so no data is silently lost).
+    Returns (text, encoding) so the caller can log a hint when the file
+    wasn't plain UTF-8.
+    """
+    for enc in ("utf-8-sig", "gb18030"):
+        try:
+            return raw.decode(enc), enc
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("latin-1"), "latin-1"
 
 
 def resolve_script(ws_id: str, name: str) -> Path | None:
@@ -26,18 +50,23 @@ def resolve_script(ws_id: str, name: str) -> Path | None:
     Shared resolver (R5): the filter's SQL-evidence diagnostics and the
     orphan-resolution report use the same tolerance — try as-is, with
     .sql appended, basename variants, then an rglob fallback.
+
+    H1: `name` is user-controlled (filter CSV SCRIPT_NAME column), so every
+    candidate is .resolve()d and must stay INSIDE the workspace scripts dir —
+    absolute paths and `../` chains resolve to None instead of escaping.
     """
     if not name:
         return None
     scripts_dir = get_workspace_dir(ws_id) / "scripts"
+    scripts_root = scripts_dir.resolve()
     cands = [name]
     if not name.lower().endswith(".sql"):
         cands.append(name + ".sql")
     for c in list(cands):
         cands.append(os.path.basename(c))
     for c in cands:
-        p = scripts_dir / c
-        if p.exists():
+        p = (scripts_dir / c).resolve()
+        if p.is_relative_to(scripts_root) and p.exists():
             return p
     for p in scripts_dir.rglob("*.sql"):
         if p.name in cands or str(p.relative_to(scripts_dir)) in cands:
@@ -82,37 +111,44 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
 
     # ── R16: Filter diagnostic logging ──
     diag_lines = []
-    W = 80
-    def _diag_box(header, lines):
-        box = [f"┌─ {header} " + "─" * max(0, W - len(header) - 4) + "┐"]
-        for ln in lines:
-            box.append(f"│ {ln.ljust(W-4)}│")
-        box.append(f"└{'─'*(W-2)}┘")
-        return box
     diag_lines.append(("profile", f"┌─ FILTER DIAGNOSTIC ─{'─'*60}┐"))
 
     if script_table and script_table.filename:
-        raw = (await script_table.read()).decode("utf-8", errors="replace")
+        raw_bytes = await script_table.read()
+        if len(raw_bytes) > MAX_FILTER_CSV_BYTES:
+            raise HTTPException(status_code=400,
+                                detail=f"script_table.csv too large (max {MAX_FILTER_CSV_BYTES} bytes)")
+        raw, enc = _decode_csv(raw_bytes)
         allowed_scripts = set()
         allowed_tables = set()
-        reader = csv.DictReader(io.StringIO(raw))
-        headers1 = reader.fieldnames or []
-        rows = list(reader)
-        row_count = len(rows)
-        script_table_rows = rows  # keep for SQL-evidence diagnostics
-        for row in rows:
-            sn = row.get("SCRIPT_NAME", "").strip()
-            tn = row.get("TABLE_NAME", "").strip()
-            if sn:
-                distinct_scripts.add(sn)
-                allowed_scripts.add(sn)
-                allowed_scripts.add(os.path.basename(sn))
-                if not sn.lower().endswith('.sql'):
-                    allowed_scripts.add(sn + '.sql')
-                    allowed_scripts.add(os.path.basename(sn) + '.sql')
-            if tn: allowed_tables.add(tn)
+        try:
+            reader = csv.DictReader(io.StringIO(raw))
+            headers1 = reader.fieldnames or []
+            rows = list(reader)
+            row_count = len(rows)
+            script_table_rows = rows  # keep for SQL-evidence diagnostics
+            for row in rows:
+                # M5: short rows map missing trailing fields to None, not ""
+                sn = (row.get("SCRIPT_NAME") or "").strip()
+                tn = (row.get("TABLE_NAME") or "").strip()
+                if sn:
+                    distinct_scripts.add(sn)
+                    allowed_scripts.add(sn)
+                    allowed_scripts.add(os.path.basename(sn))
+                    if not sn.lower().endswith('.sql'):
+                        allowed_scripts.add(sn + '.sql')
+                        allowed_scripts.add(os.path.basename(sn) + '.sql')
+                if tn: allowed_tables.add(tn)
+        except HTTPException:
+            raise
+        except Exception as e:
+            # M5: never let a malformed CSV surface as an unhandled 500.
+            raise HTTPException(status_code=400,
+                                detail=f"Invalid script_table.csv: {e}")
         # Diagnostic: file 1
         diag_lines.append(("profile", f"│ File 1 (script_table): {script_table.filename}  rows={row_count}  headers={','.join(headers1)}".ljust(79)+"│"))
+        if enc != "utf-8-sig":
+            diag_lines.append(("profile", f"│   encoding: {enc} (not UTF-8)".ljust(79)+"│"))
         for i, row in enumerate(rows[:2]):
             diag_lines.append(("profile", f"│   Sample {i+1}: {row.get('SCRIPT_NAME','?')}→{row.get('TABLE_NAME','?')}".ljust(79)+"│"))
         # Bug 52: report distinct scripts; variants (path/.sql) shown separately
@@ -122,33 +158,51 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
         script_table_tables = set(allowed_tables) if allowed_tables else set()
 
     if table_col and table_col.filename:
-        raw = (await table_col.read()).decode("utf-8", errors="replace")
+        raw_bytes = await table_col.read()
+        if len(raw_bytes) > MAX_FILTER_CSV_BYTES:
+            raise HTTPException(status_code=400,
+                                detail=f"table_col.csv too large (max {MAX_FILTER_CSV_BYTES} bytes)")
+        raw, enc = _decode_csv(raw_bytes)
         file2_present = True
         if allowed_tables is None:
             allowed_tables = set()
         allowed_columns = set()
-        reader = csv.DictReader(io.StringIO(raw))
-        headers2 = reader.fieldnames or []
-        rows = list(reader)
-        row_count = len(rows)
-        col_only_count = 0      # F3: rows with COL_NAME but empty TABLE_NAME
-        for row in rows:
-            tn = row.get("TABLE_NAME", "").strip()
-            cn = row.get("COL_NAME", "").strip()
-            if tn:
-                allowed_tables.add(tn)
-                table_col_tables.add(tn)
-                if cn:
-                    table_columns.setdefault(tn, set()).add(cn)
-                    allowed_columns.add(cn)
-                else:
-                    # R1: blank COL_NAME row → the table has NO column
-                    # constraint (all its fields pass the field filter).
-                    unconstrained_tables.add(tn)
-            elif cn:
-                col_only_count += 1
+        tables_with_cols = set()  # N6: tables that have ≥1 COL_NAME row
+        blank_row_tables = set()  # N6: tables with a blank-COL_NAME row
+        try:
+            reader = csv.DictReader(io.StringIO(raw))
+            headers2 = reader.fieldnames or []
+            rows = list(reader)
+            row_count = len(rows)
+            col_only_count = 0      # F3: rows with COL_NAME but empty TABLE_NAME
+            for row in rows:
+                # M5: short rows map missing trailing fields to None, not ""
+                tn = (row.get("TABLE_NAME") or "").strip()
+                cn = (row.get("COL_NAME") or "").strip()
+                if tn:
+                    allowed_tables.add(tn)
+                    table_col_tables.add(tn)
+                    if cn:
+                        table_columns.setdefault(tn, set()).add(cn)
+                        allowed_columns.add(cn)
+                        tables_with_cols.add(tn)
+                    else:
+                        # R1: blank COL_NAME row → the table has NO column
+                        # constraint (all its fields pass the field filter).
+                        unconstrained_tables.add(tn)
+                        blank_row_tables.add(tn)
+                elif cn:
+                    col_only_count += 1
+        except HTTPException:
+            raise
+        except Exception as e:
+            # M5: never let a malformed CSV surface as an unhandled 500.
+            raise HTTPException(status_code=400,
+                                detail=f"Invalid table_col.csv: {e}")
         # Diagnostic: file 2
         diag_lines.append(("profile", f"│ File 2 (table_col): {table_col.filename}  rows={row_count}  headers={','.join(headers2)}".ljust(79)+"│"))
+        if enc != "utf-8-sig":
+            diag_lines.append(("profile", f"│   encoding: {enc} (not UTF-8)".ljust(79)+"│"))
         for i, row in enumerate(rows[:2]):
             diag_lines.append(("profile", f"│   Sample {i+1}: {row.get('TABLE_NAME','?')}→{row.get('COL_NAME','?')}".ljust(79)+"│"))
         diag_lines.append(("profile", f"│   Parsed: {len(allowed_columns)} columns, {len(allowed_tables)} tables".ljust(79)+"│"))
@@ -160,6 +214,12 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
         if unconstrained_tables:
             diag_lines.append(("profile", ("│ R1: %d table(s) have a blank COL_NAME row — unconstrained, all fields kept"
                                            % len(unconstrained_tables)).ljust(79)+"│"))
+            # N6: a blank row silently WINS over column rows for the same
+            # table — name them so a mixed CSV's intent is visible.
+            blank_wins = blank_row_tables & tables_with_cols
+            if blank_wins:
+                diag_lines.append(("profile", ("│ R1: blank row wins for: %s"
+                                               % ", ".join(sorted(blank_wins)[:5])).ljust(79)+"│"))
 
     # ── Bug 51/R19: two-file intersection — effective table scope = A ∩ B ──
     if script_table_tables is not None:
@@ -231,8 +291,15 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
             continue
         filtered_scripts = [s for s in fdata.get("scripts", [])
                            if allowed_scripts is None or s in allowed_scripts or os.path.basename(s) in allowed_scripts]
+        # M6: apply the SAME per-table predicate as the table pass (R1), so
+        # filtered_fi[f]["tables"] stays symmetric with filtered_ti[t]["fields"]:
+        # a field shared by an unconstrained table U and a constrained table C
+        # (both allowed) lists U but NOT C — C's own filtered_ti omits the field.
         filtered_tables = [t for t in fdata.get("tables", [])
-                          if allowed_tables is None or t in allowed_tables]
+                          if allowed_tables is None
+                          or (t in allowed_tables
+                              and (allowed_columns is None or fname in allowed_columns
+                                   or t in unconstrained_tables))]
         if filtered_scripts or filtered_tables:
             filtered_fi[fname] = {
                 "scripts": filtered_scripts,
@@ -244,11 +311,11 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
         filtered_ti = {}
         filtered_fi = {}
 
-    # Save filtered index
-    (cache_dir / "filtered_index.json").write_text(json.dumps({
-        "table_index": filtered_ti,
-        "field_index": filtered_fi,
-    }, indent=2))
+    # Save filtered index (L9: write off the event loop — large workspaces)
+    await asyncio.to_thread(
+        (cache_dir / "filtered_index.json").write_text,
+        json.dumps({"table_index": filtered_ti, "field_index": filtered_fi}, indent=2),
+    )
 
     # ── Bug 51/R19: diagnostic — table_col tables ignored by the intersection ──
     if script_table_tables is not None and allowed_tables is not None:
@@ -353,8 +420,8 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
                 shown_sql += 1
                 cand_scripts = set(idx_scripts)
                 for row in script_table_rows:
-                    if row.get("TABLE_NAME", "").strip() == tname:
-                        sn = row.get("SCRIPT_NAME", "").strip()
+                    if (row.get("TABLE_NAME") or "").strip() == tname:
+                        sn = (row.get("SCRIPT_NAME") or "").strip()
                         if sn:
                             cand_scripts.add(sn)
                 if not cand_scripts:

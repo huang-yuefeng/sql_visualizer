@@ -29,7 +29,15 @@ def _push(ws_id: str | None, stage: str, message: str):
     print(message, file=sys.stderr, flush=True)
     if ws_id:
         try:
-            q = ensure_queue(ws_id)  # create lazily, never drop messages
+            # M7: only put when a queue ALREADY exists. register_queue creates
+            # it before any stream starts; unregister_queue pops it when the
+            # last SSE client disconnects. Recreating it here (the old
+            # ensure_queue call) would resurrect a just-dropped queue with
+            # nobody listening — the registry would grow forever.
+            with _log_lock:
+                q = _log_queues.get(ws_id)
+            if q is None:
+                return  # no active SSE consumer — skip the put
             entry = {"ts": _ts(), "stage": stage, "msg": message}
             if q.qsize() < _MAX_QUEUE:
                 q.put_nowait(entry)

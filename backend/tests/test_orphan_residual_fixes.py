@@ -96,16 +96,44 @@ def test_fix_a_exists_setop_branch_attributed():
 
 
 def test_fix_a_outer_phantom_copy_never_guessed():
-    """The raw-walk copies in the outer context stay unattributed — the
-    branch Select, not the outer Select, is the owner (never guess)."""
+    """Set-op subquery bodies are walked ONCE — no outer-context phantoms.
+
+    M4: the raw walk no longer descends into a Subquery/EXISTS whose body
+    is a set-op (the explicit _walk_setop covers it with per-branch
+    scopes), so the branch columns register only in their own branch
+    contexts — where they resolve via S3 (single-table branch scopes) —
+    and are never attributed to the outer scope (never guess)."""
     r = extract_variables_from_sql(
         "SELECT AirportName FROM Airports WHERE AirportCode NOT IN "
         "(SELECT SourceAirport FROM Flights "
         "UNION SELECT DestAirport FROM Flights)", "fixa4")
+    # M4: the outer-context phantom copies no longer exist (they previously
+    # double-registered every branch column, inflating total_columns).
     phantoms = [v for v in _col_vars(r)
                 if v.name in ("SourceAirport", "DestAirport") and v.context == "TOP"]
-    assert phantoms, "outer-context phantom copies should exist"
-    assert all(v.source_tables == [] for v in phantoms), phantoms
+    assert phantoms == [], phantoms
+    # the branch copies resolve inside their own branch scopes (single table)
+    branch = [v for v in _col_vars(r)
+              if v.name in ("SourceAirport", "DestAirport")
+              and v.context.startswith("TOP/subq")]
+    assert branch, "branch-context copies should exist"
+    assert all(v.source_tables == ["Flights"] for v in branch), branch
+    assert "SourceAirport" not in r.resolution_stats["unresolved"]
+    assert "DestAirport" not in r.resolution_stats["unresolved"]
+
+
+def test_m4_setop_subquery_no_double_count():
+    """M4: the raw walk no longer descends into set-op subquery bodies, so
+    branch columns register ONCE (in their own branch scopes) — the spider
+    pattern's total_columns is the logical column count (4, not 6)."""
+    r = extract_variables_from_sql(
+        "SELECT x FROM t WHERE id IN "
+        "(SELECT a FROM u1 UNION SELECT b FROM u2)", "m4_spider")
+    stats = r.resolution_stats
+    assert stats["total_columns"] == 4, stats  # x, id, a, b — no duplicates
+    names = sorted(v.name for v in _col_vars(r))
+    assert names == ["a", "b", "id", "x"], names
+    assert stats["unresolved"] == [], stats  # a/b resolve in branch scopes
 
 
 # ── Fix B: alias→source-column→table chain for bare columns (plain_alias) ─
@@ -153,6 +181,31 @@ def test_fix_b_degenerate_same_name_alias_untouched():
     assert r.resolution_stats["resolved_by"]["scope"] == 1, r.resolution_stats
     assert _find_src(r, "amount", ["orders"]).source_tables == ["orders"]
     assert r.resolution_stats["unresolved"] == [], r.resolution_stats
+
+
+def test_m2_alias_of_cte_resolved_column_lands_same_table():
+    """M2: an alias of a bare column whose source resolves via the S2 CTE
+    chain must land on the SAME table as its source column — previously the
+    Fix B path only consulted the S3 physical scope, so `id AS c` was
+    attributed to t1 while its own source column id resolved to the CTE w."""
+    r = extract_variables_from_sql(
+        "WITH w AS (SELECT id FROM t2) SELECT id AS c FROM t1, w", "m2")
+    c = _find_src(r, "c", ["w"], context="TOP")
+    assert c.source_tables == ["w"], c
+    id_src = _find_src(r, "id", ["w"], context="TOP")
+    assert id_src.source_tables == ["w"], id_src  # same table as its source
+    assert r.resolution_stats["resolved_by"]["expr_alias"] >= 1, r.resolution_stats
+    assert "c" not in r.resolution_stats["unresolved"], r.resolution_stats
+
+
+def test_m2_alias_of_derived_output_column_two_hop():
+    """M2 mirrors the Fix C chain too: an alias of a derived-table output
+    resolves via the derived chain (two-hop when the output carries one)."""
+    r = extract_variables_from_sql(
+        "SELECT x AS c FROM t1, (SELECT t.x FROM t) d", "m2d")
+    c = _find_src(r, "c", ["t"], context="TOP")
+    assert c.source_tables == ["t"], c  # two-hop to the source table
+    assert r.resolution_stats["resolved_by"]["expr_alias"] >= 1, r.resolution_stats
 
 
 def test_fix_b_qualified_alias_behavior_unchanged():
@@ -244,6 +297,43 @@ def test_fix_c_two_candidate_deriveds_ambiguous():
     top_copies = [v for v in _col_vars(r) if v.name == "x" and v.context == "TOP"]
     assert top_copies and top_copies[0].source_tables == [], top_copies
     assert r.resolution_stats["resolved_by"]["expr_alias"] == 0, r.resolution_stats
+
+
+def test_l3_fix_c_shadows_physical_table_owner():
+    """L3 (kept by design): the Fix C derived-output check runs BEFORE the
+    S3 single-physical check — a derived output column shadows a physical
+    table that also owns the name. Corpus-audited (q71's spider pattern
+    relies on the derived chain winning); pinned here so the precedence is
+    never silently reordered."""
+    r = extract_variables_from_sql(
+        "SELECT x FROM (SELECT SUM(a) AS x FROM t1) d, t2", "l3")
+    outer = _find_src(r, "x", ["d"], context="TOP")
+    assert outer.source_tables == ["d"], outer  # derived chain wins
+    assert "x" not in r.resolution_stats["unresolved"], r.resolution_stats
+
+
+def test_l4_junk_derived_output_names_not_recorded():
+    """L4: bare Star/Literal projections auto-name to junk ("*", "1", …) —
+    never recorded as derived output columns (they are not resolvable
+    names). Explicit identifier aliases of literals ARE recorded."""
+    r = extract_variables_from_sql(
+        "SELECT s FROM (SELECT *, 1 FROM t2) d", "l4a")
+    assert "s" in r.resolution_stats["unresolved"], r.resolution_stats  # no outputs
+    r = extract_variables_from_sql(
+        "SELECT x FROM (SELECT 1 AS x, 2 AS y FROM t2) d", "l4b")
+    assert "x" not in r.resolution_stats["unresolved"], r.resolution_stats
+    assert _find_src(r, "x", ["d"], context="TOP").source_tables == ["d"]
+
+
+def test_l5_unaliased_qualified_projection_two_hop():
+    """L5: an unaliased QUALIFIED projection (`SELECT t.col FROM t2 t`)
+    records its derived output with a two-hop to the source column's
+    physical table — S1 semantics without the alias var."""
+    r = extract_variables_from_sql(
+        "SELECT col FROM (SELECT t.col FROM t2 t) d", "l5")
+    outer = _find_src(r, "col", ["t2"], context="TOP")
+    assert outer.source_tables == ["t2"], outer
+    assert "col" not in r.resolution_stats["unresolved"], r.resolution_stats
 
 
 def test_fix_c_cte_behavior_unchanged():

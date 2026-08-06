@@ -5,7 +5,9 @@ TC1–TC5 per spec. Fixture pattern from test_orphan_fields.py
 
 The extractor emits `resolution_stats` in new analyses; the indexer must
 read it DEFENSIVELY (TC5 — old analyses without the key), aggregate it
-(TC1/TC4), run the S4 schema pass for residual orphans, and push the
+(TC1/TC4), run the S4b cross-script schema pass (scope-aware — candidates
+re-tested only within their own visible tables; TC1 is the never-guess
+regression: evidence table not visible → stays unresolved), and push the
 ORPHAN RESOLUTION REPORT (TC3) + expose resolution_stats on the response.
 """
 
@@ -28,8 +30,11 @@ from app.services.workspace_service import (
 from app.services.folder_index_service import index_scripts
 
 # TC1: bare `id` is not qualified anywhere (S1–S3 cannot attribute it: two
-# physical tables in scope). S4 resolves it via the inferred schema — the
-# INSERT column list defines t1.id and no other table claims `id`.
+# physical tables in scope). The only schema evidence for `id` lives in
+# table t1 (the INSERT target column list) — which the statement does NOT
+# reference in its FROM. S4b must NOT attribute (never-guess: the old
+# scope-blind S4 loop wrongly matched workspace-unique t1.id here; the
+# SELECT-side `id` belongs to a/b/expression, not t1).
 TC1_SQL = (
     "INSERT INTO t1 (id) SELECT id FROM a JOIN b ON a.x = b.y;\n"
 )
@@ -105,20 +110,23 @@ def mwf_ws():
     delete_workspace(ws_id)
 
 
-def test_tc1_s4_resolves_unique_schema_owner(tc1_ws):
-    """S4: bare column with exactly ONE schema owner is attributed."""
+def test_tc1_scope_absent_schema_owner_stays_unresolved(tc1_ws):
+    """S4b never-guess regression: `id`'s only schema evidence is in t1
+    (INSERT target list) but the SELECT's visible tables are {a, b} — 0
+    visible owners → UNRESOLVED. (The old scope-blind S4 loop attributed
+    workspace-unique t1.id here — that was the bug this replaces.)"""
     result = index_scripts(tc1_ws, ["t.sql"])
     stats = result["resolution_stats"]
-    assert stats["by_strategy"]["schema"] >= 1, stats
-    assert stats["coverage_pct"] > 0, stats
-    assert result["orphan_field_count"] == 0, result["orphan_field_samples"]
-    assert result["field_index"]["id"]["tables"] == ["t1"], \
-        result["field_index"]["id"]
+    assert stats["by_strategy"]["schema"] == 0, stats
+    assert result["orphan_field_count"] == 1, result["orphan_field_samples"]
+    assert result["orphan_field_samples"] == ["id"], result["orphan_field_samples"]
+    assert result["field_index"]["id"]["tables"] == [], \
+        "never attribute to a table the statement doesn't reference"
     # persisted indexes must agree
     fi = json.loads((get_workspace_dir(tc1_ws) / "cache" / "field_index.json").read_text())
     ti = json.loads((get_workspace_dir(tc1_ws) / "cache" / "table_index.json").read_text())
-    assert fi["id"]["tables"] == ["t1"], fi["id"]
-    assert "id" in ti["t1"]["fields"], ti["t1"]
+    assert fi["id"]["tables"] == [], fi["id"]
+    assert "id" not in ti["t1"]["fields"], ti["t1"]
 
 
 def test_tc2_qualified_only_workflow_full_coverage(mwf_ws):
@@ -151,19 +159,27 @@ def test_tc3_report_block_pushed(monkeypatch, tc3_ws):
         "a SQL line mentioning the field must be shown in the UNRESOLVED section"
 
 
-def test_tc3b_report_block_pushed_when_no_orphans(monkeypatch, tc1_ws):
-    """0 orphans → block still pushed, with unresolved: 0 and no section."""
-    messages = []
+def test_tc3b_report_block_pushed_when_no_orphans(monkeypatch):
+    """0 orphans → block still pushed, with unresolved: 0 and no section.
+    (Qualified-only workspace — genuinely 0 orphans, unlike tc1_ws whose
+    scope-absent `id` S4b now correctly leaves unresolved.)"""
+    ws = _make_ws({"qualified.sql":
+                   "SELECT c.customer_id FROM crm_customers c;\n"})
+    try:
+        messages = []
 
-    def fake_push(ws_id, stage, message):
-        messages.append((stage, message))
+        def fake_push(ws_id, stage, message):
+            messages.append((stage, message))
 
-    monkeypatch.setattr("app.services.folder_index_service._push", fake_push)
-    index_scripts(tc1_ws, ["t.sql"])
-    joined = "\n".join(m for s, m in messages if s == "profile")
-    assert "ORPHAN RESOLUTION REPORT" in joined, joined
-    assert "unresolved: 0" in joined, joined
-    assert "UNRESOLVED orphans" not in joined, joined
+        monkeypatch.setattr("app.services.folder_index_service._push", fake_push)
+        result = index_scripts(ws, ["qualified.sql"])
+        assert result["orphan_field_count"] == 0, result
+        joined = "\n".join(m for s, m in messages if s == "profile")
+        assert "ORPHAN RESOLUTION REPORT" in joined, joined
+        assert "unresolved: 0" in joined, joined
+        assert "UNRESOLVED orphans" not in joined, joined
+    finally:
+        delete_workspace(ws)
 
 
 def test_tc4_response_has_resolution_stats(tc3_ws):
@@ -278,3 +294,23 @@ class TestL3Progress:
         p = get_index_progress(tc1_ws)
         assert set(p) == {"current", "total", "phase", "errors"}, p
         assert p["phase"] == "done"
+
+    def test_l7_progress_errors_are_copied(self):
+        """Review L7: get_index_progress returns a snapshot — mutating the
+        returned errors list or fields must not corrupt the registry."""
+        from app.services.folder_index_service import get_index_progress
+        ws = _make_ws({"ok.sql": "SELECT 1;\n"})
+        try:
+            index_scripts(ws, ["missing.sql"])
+            p1 = get_index_progress(ws)
+            assert len(p1["errors"]) == 1, p1
+            p1["errors"].append({"script": "bogus", "error": "injected"})
+            p1["errors"].clear()
+            p1["current"] = 999
+            p2 = get_index_progress(ws)
+            assert len(p2["errors"]) == 1, p2
+            assert p2["errors"][0]["script"] == "missing.sql", p2
+            assert p2["current"] == 1 and p2["total"] == 1, p2
+            assert p2["phase"] == "done", p2
+        finally:
+            delete_workspace(ws)
