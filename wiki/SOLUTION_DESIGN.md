@@ -475,3 +475,62 @@ SQL Text
 - **Output Table — SCHEMA-Defined Fields**: An output table's fields = {columns with SCHEMA edge FROM that output table}.
 - **DML Target Fields**: A DML target table's fields = {columns of DML source tables}. Recorded at extraction time (step 1f).
 - **Column Resolution (Bug 53)**: Every column reference carries the table that owns it. Qualified columns resolve via the name prefix; unqualified columns resolve via the visible-table scope stack (step 1c′). A table shows 0 fields in the index only if (a) its columns are referenced ambiguously (≥2 visible tables — documented limitation, schema-based resolution is future work), (b) it is not used by any uploaded script, or (c) it appears only in comments.
+
+---
+
+## Residual-Orphan Fixes — Confirmed Cases (2026-08-06)
+
+**Principle (reinforced):** uncertain cases (multi-table bare columns with no
+unique schema owner — types 1a/1b) are NEVER guessed. They are reported in
+the ORPHAN RESOLUTION REPORT for human review — a reported uncertainty is
+better than a hidden error, and manual power improves accuracy over time.
+Only CONFIRMED-resolution cases get automatic fixes:
+
+### Fix A — 1c: S3 set-op scope edge (UNION/EXCEPT/INTERSECT in subqueries)
+
+Verified: `SELECT DestAirport FROM Flights` inside `NOT IN (SELECT ... UNION
+SELECT DestAirport ...)` — a SINGLE-table scope still fails to attribute.
+Root cause to confirm during implementation: `_walk_setop` branch scopes
+and/or the `_in_scope_owner` guard (branch Select vs Union owner).
+
+Design: when walking a set-op (UNION/EXCEPT/INTERSECT), each branch SELECT
+pushes its own `_SelectScope`; the owner guard must accept the branch Select
+as owner. Fix `_walk_setop` + `_in_scope_owner`; test with the spider 052
+fixture (DestAirport must attribute to Flights).
+
+### Fix B — 2a: implicit aliases of qualified columns (S1 extension)
+
+Verified: `cc_call_center_id Call_Center` (implicit alias, no AS) — the
+alias var exists but the alias→source-column→table chain is not followed.
+
+Design: extend S1 to implicit aliases (sqlglot represents them via
+`alias_or_name` on the projection, no exp.Alias node). When an implicit alias
+of a plain qualified column is found, attribute the alias var to the source
+column's table (same as explicit S1). ~dozens of tpcds fields.
+
+### Fix C — 2b: expression aliases referenced downstream (S2 extension, two-hop)
+
+Verified: `... END act_sales` inside a derived subquery, then `sum(act_sales)`
+in the outer query — the outer bare reference should chain to the subquery's
+output column.
+
+Design: extend S2's output-column mechanism (currently CTE-only,
+`_cte_output_columns`) to DERIVED TABLES (aliased subqueries): record each
+derived table's output column names (its projections' aliases); when a bare
+column matches a visible derived table's output column, attribute to the
+derived alias (same semantics as the CTE case). Then chain: if the output
+column is itself an alias of a plain column (two-hop), follow S1 to the
+source table.
+
+### Expected impact
+
+| Fix | Orphans addressed | Sample evidence |
+|-----|-------------------|-----------------|
+| A (set-op scope) | spider DestAirport + similar | 052/053, 057 |
+| B (implicit alias) | Call_Center, Call_Center_Name, Manager + ~dozens | q91 |
+| C (derived-table two-hop) | act_sales, amc, average_sales, agg1-7, bought_city + ~40 | q93, q14, q90, 18 |
+
+After A+B+C, re-run the coverage sweep; the remaining residuals should be
+1a/1b (schema-required — reported, never guessed), type 3 (pseudocolumn
+aliases, genuinely unresolvable), and any NEW patterns the report surfaces
+(the feedback loop).
