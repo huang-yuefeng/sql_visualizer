@@ -6,7 +6,7 @@ import queue as thread_queue
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from app.services.logger import ensure_queue
+from app.services.logger import register_queue, unregister_queue
 
 router = APIRouter()
 
@@ -14,9 +14,11 @@ router = APIRouter()
 @router.get("/workspace/{ws_id}/logs")
 async def stream_logs(ws_id: str):
     """SSE stream of pipeline log messages for a workspace."""
-    q = ensure_queue(ws_id)  # thread-safe queue.Queue
-
     async def event_generator():
+        # L2: register as an active consumer; the finally block unregisters
+        # on disconnect (generator close / cancellation) so the queue is
+        # auto-removed when the last client leaves.
+        q = register_queue(ws_id)  # thread-safe queue.Queue
         loop = asyncio.get_event_loop()
         try:
             # Drain existing messages
@@ -39,6 +41,8 @@ async def stream_logs(ws_id: str):
                     break
         except Exception:
             pass
+        finally:
+            unregister_queue(ws_id)
 
     return StreamingResponse(
         event_generator(),

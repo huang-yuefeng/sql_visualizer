@@ -6,10 +6,19 @@ import ViewBar from './components/ViewBar';
 import DataFlowGraph from './components/DataFlowGraph';
 import SqlPanel from './components/SqlPanel';
 import LogPanel from './components/LogPanel';
+import ResolutionReport from './components/ResolutionReport';
 import * as api from './api/client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useResizable } from './utils/useResizable';
 import './styles/resizable.css';
+
+// ── R3: last search view persistence (survives reload, incl. empty
+// no-match results). localStorage is the app's existing client-side
+// persistence channel (theme, df_search_history, df_pinned_searches).
+const LAST_SEARCH_KEY = 'df_last_search_view';
+function loadLastSearch() { try { return JSON.parse(localStorage.getItem(LAST_SEARCH_KEY) || 'null'); } catch { return null; } }
+function saveLastSearch(payload) { try { localStorage.setItem(LAST_SEARCH_KEY, JSON.stringify(payload)); } catch { /* ignore */ } }
+function clearLastSearch() { try { localStorage.removeItem(LAST_SEARCH_KEY); } catch { /* ignore */ } }
 
 export default function DataFlowApp() {
   const [wsId, setWsId] = useState(null);
@@ -42,6 +51,11 @@ export default function DataFlowApp() {
   const [error, setError] = useState(null);
   const [activeL1Table, setActiveL1Table] = useState(null);
   const [showLog, setShowLog] = useState(true);
+  // R20: index-time orphan resolution report (folder_index_service payload)
+  const [resolutionStats, setResolutionStats] = useState(null);
+  const [orphanFieldSamples, setOrphanFieldSamples] = useState(null);
+  // R3: guards the mount-time view restore against a user upload racing it
+  const uploadTokenRef = useRef(Date.now());
 
   // ── Resizable panel state ─────────────────────────────────────────
   const [leftPanelWidth, setLeftPanelWidth] = useState(260);
@@ -67,6 +81,8 @@ export default function DataFlowApp() {
 
   // ── Upload & Analyze ──────────────────────────────────────────────
   const handleUpload = useCallback(async (file) => {
+    uploadTokenRef.current = Date.now(); // cancels any in-flight R3 restore
+    clearLastSearch();
     setL1Graph(null); setL2Graph(null); setL2Result(null); setLoading(true); setError(null);
     try {
       // Clean up old workspace before creating new one
@@ -77,7 +93,7 @@ export default function DataFlowApp() {
         setViews([]); setActiveViewId(null); setL1Graph(null);
         setL2Graph(null); setL2Result(null); setSqlText(''); setError(null);
         setScriptInfo(null); setActiveL1Table(null); setCurrentScriptName(''); setL2Filtered(true);
-        setL2FullGraph(null);
+        setL2FullGraph(null); setResolutionStats(null); setOrphanFieldSamples(null);
         setShowLog(true);
       }
       const result = await api.uploadWorkspace(file);
@@ -95,6 +111,8 @@ export default function DataFlowApp() {
       setFieldIndex(idxResult.field_index || {});
       setFullTableIndex(idxResult.table_index || {});
       setFullFieldIndex(idxResult.field_index || {});
+      setResolutionStats(idxResult.resolution_stats || null);
+      setOrphanFieldSamples(idxResult.orphan_field_samples || null);
       setIndexed(true);
       setStale(false);
       setProgress(null);
@@ -124,6 +142,64 @@ export default function DataFlowApp() {
     return () => clearInterval(progressTimerRef.current);
   }, [wsId, progress?.phase]);
 
+  // ── R3: restore last search view after reload (incl. empty no-match
+  // results). The workspace + views live server-side; the frontend resumes
+  // them with existing read-only endpoints and the saved view entry
+  // (l1_graph_cache) from localStorage. Any failure → drop the saved state.
+  useEffect(() => {
+    const saved = loadLastSearch();
+    if (!saved || !saved.wsId || !saved.view) return;
+    const token = uploadTokenRef.current;
+    let cancelled = false;
+    (async () => {
+      try {
+        await api.getWorkspaceInfo(saved.wsId); // throws 404 if workspace gone
+        if (cancelled || uploadTokenRef.current !== token) return;
+        setWsId(saved.wsId);
+        const tree = await api.scanWorkspace(saved.wsId);
+        if (cancelled || uploadTokenRef.current !== token) return;
+        setFileTree(tree);
+        const scripts = collectSqlFiles(tree);
+        setSelectedScripts(scripts);
+
+        // Re-index (cached server-side) to restore autocomplete + R20 report
+        setProgress({ current: 0, total: scripts.length, phase: 'analyzing' });
+        const idxResult = await api.indexWorkspace(saved.wsId, scripts);
+        if (cancelled || uploadTokenRef.current !== token) return;
+        setTableIndex(idxResult.table_index || {});
+        setFieldIndex(idxResult.field_index || {});
+        setFullTableIndex(idxResult.table_index || {});
+        setFullFieldIndex(idxResult.field_index || {});
+        setResolutionStats(idxResult.resolution_stats || null);
+        setOrphanFieldSamples(idxResult.orphan_field_samples || null);
+        setIndexed(true);
+        setStale(false);
+        setProgress(null);
+
+        // Restore the view list; the saved view wins when the backend
+        // hasn't persisted it (F1 no_matches path skips views.json).
+        let restoredViews = [];
+        try {
+          const vres = await api.listViews(saved.wsId);
+          restoredViews = vres && Array.isArray(vres.views) ? vres.views : [];
+        } catch (e) { /* ignore */ }
+        if (cancelled || uploadTokenRef.current !== token) return;
+        const savedViewId = saved.activeViewId || saved.view.view_id;
+        const exists = restoredViews.some(v => v.view_id === savedViewId);
+        if (!exists) restoredViews = [...restoredViews, saved.view];
+        setViews(restoredViews);
+        setActiveViewId(savedViewId);
+        parentViewIdRef.current = savedViewId;
+        const cachedGraph = saved.view.l1_graph_cache;
+        setL1Graph(cachedGraph && cachedGraph.nodes ? cachedGraph : { nodes: [], edges: [] });
+        setGraphLevel('L1');
+      } catch (e) {
+        clearLastSearch();
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // ── Search ────────────────────────────────────────────────────────
   const handleSearch = useCallback(async (table, field) => {
     if (!wsId) return;
@@ -138,6 +214,8 @@ export default function DataFlowApp() {
         l1_graph_cache: result.l1_graph,
         children: [],
         created_at: new Date().toISOString(),
+        match_mode: result.match_mode,
+        message: result.message,
       };
       setViews(prev => [...prev, newView]);
       setActiveViewId(result.view_id);
@@ -147,6 +225,15 @@ export default function DataFlowApp() {
       setL2Graph(null);
       setSqlText('');
       setScriptInfo(null); setActiveL1Table(null);
+      // R3: persist the current view (incl. empty no-match results from F1)
+      // so a reload restores it instead of resetting.
+      saveLastSearch({
+        wsId,
+        view: newView,
+        activeViewId: result.view_id,
+        match_mode: result.match_mode || null,
+        message: result.message || null,
+      });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -258,6 +345,7 @@ export default function DataFlowApp() {
     setTableIndex({}); setFieldIndex({}); setIndexed(false);
     setViews([]); setActiveViewId(null); setL1Graph(null);
     setL2Graph(null); setSqlText(''); setError(null);
+    setResolutionStats(null); setOrphanFieldSamples(null);
   }, [wsId]);
 
   // ── L1 Table lens click ─────────────────────────────────────────
@@ -427,7 +515,9 @@ export default function DataFlowApp() {
             onReindex={async () => {
               setL1Graph(null); setL2Graph(null); setL2Result(null); setLoading(true);
               try {
-                await api.indexWorkspace(wsId, selectedScripts);
+                const idxResult = await api.indexWorkspace(wsId, selectedScripts);
+                setResolutionStats(idxResult.resolution_stats || null);
+                setOrphanFieldSamples(idxResult.orphan_field_samples || null);
                 setStale(false); setIndexed(true);
               } catch (e) { setError(e.message); }
               setLoading(false);
@@ -459,6 +549,13 @@ export default function DataFlowApp() {
             }}
           />
         )}
+        {/* R20: orphan resolution coverage report (index-time) */}
+        {indexed && (
+          <ResolutionReport
+            stats={resolutionStats}
+            orphanFieldSamples={orphanFieldSamples}
+          />
+        )}
         <ViewBar
           views={views} activeViewId={activeViewId}
           onSelect={handleViewTreeClick}
@@ -485,6 +582,12 @@ export default function DataFlowApp() {
 
       {/* Center: graph */}
       <div className="panel-center">
+        {/* R3: visible notice for empty no-match search results (F1) */}
+        {graphData && activeView?.match_mode === 'no_matches' && (
+          <div className="no-match-banner">
+            ⚠️ No matches: {activeView.message || 'no tables in scope'} — empty result view
+          </div>
+        )}
         {graphData && (
           <DataFlowGraph
             graphData={graphData}

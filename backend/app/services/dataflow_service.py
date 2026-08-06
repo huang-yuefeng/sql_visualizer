@@ -109,8 +109,7 @@ def create_search(ws_id: str, table: str, field: str,
     )
 
     # Persist to views.json
-    views = _load_views(ws_id)
-    views.append({
+    _persist_search_view(ws_id, {
         "view_id": view.view_id,
         "type": "search",
         "table": view.table,
@@ -121,7 +120,6 @@ def create_search(ws_id: str, table: str, field: str,
         "children": [],
         "created_at": view.created_at,
     })
-    _save_views(ws_id, views)
 
     return {
         "view_id": view_id,
@@ -355,6 +353,18 @@ def _save_views(ws_id: str, views: list):
 
     views_path = ws_dir / "cache" / "views.json"
     views_path.write_text(json.dumps(views, indent=2, ensure_ascii=False))
+
+
+def _persist_search_view(ws_id: str, view: dict):
+    """Append a search view to views.json.
+
+    Shared by create_search and the F1 no_matches path (dataflow.py), so
+    every search — even an empty one — survives reload (R3).
+    """
+    view.setdefault("created_at", datetime.now(timezone.utc).isoformat())
+    views = _load_views(ws_id)
+    views.append(view)
+    _save_views(ws_id, views)
 
 
 def list_views(ws_id: str) -> list:

@@ -534,3 +534,227 @@ After A+B+C, re-run the coverage sweep; the remaining residuals should be
 1a/1b (schema-required — reported, never guessed), type 3 (pseudocolumn
 aliases, genuinely unresolvable), and any NEW patterns the report surfaces
 (the feedback loop).
+
+---
+
+## SELECT-Side Schema Enrichment — extending S4 to SELECT-side orphans (2026-08-06)
+
+> Status: Design confirmed, pending implementation. Appended per the 2026-08-06
+> residual-orphan review (types 1a/1b: bare columns in multi-table scopes with
+> no unique schema owner — the ~350 remaining unresolved columns, i.e. the
+> unq_multi class, 57.5% of the 659 classified).
+
+### Goal
+
+Resolve class 1a/1b — bare columns in scopes with ≥2 visible physical tables —
+using schema evidence, while preserving the never-guess principle (R4, R6).
+Today's S4 (index time only, `folder_index_service.py` "S4: schema-based
+resolution") has three structural gaps verified in code:
+
+1. **Alias-keyed schema map** — qualified evidence attaches to alias names
+   (`ss.s_store_sk` → key `ss`), never to canonical tables (`store_sales`).
+   `dependency_graph.py` Pass 4a skips original (unaliased) tables; Pass 6 of
+   `infer_table_schemas` copies original→alias, never alias→original. The S4
+   loop can therefore attribute to alias keys (`tbl in table_index` matches
+   alias table vars).
+2. **Scope-blind attribution** — the unique-owner test runs against the whole
+   workspace (`candidates = [tbl for tbl, fields in schema_map.items() ...]`),
+   not the statement's visible tables. A field known only in table T is
+   attributed to T even in statements that never reference T — a guess.
+3. **Missing authoritative evidence** — DML target column lists
+   (`INSERT INTO t (a,b)`) are deliberately not registered as variables (1c′
+   note) and CREATE TABLE column definitions are not parsed (`_walk_create`),
+   so neither contributes schema evidence.
+
+This design enriches the schema map with SELECT-side evidence and makes the
+unique-owner test scope-aware. It also fixes latent mis-attribution (gaps 1–2)
+under the same never-guess principle.
+
+### Schema sources (where the map comes from)
+
+The S4 schema map M: **canonical table name → set of column names**. Sources,
+in decreasing authority:
+
+| # | Source | Authority | Today | Enrichment |
+|---|--------|-----------|-------|------------|
+| 1 | Qualified column refs in the same script (`web_returns.wr_web_page_sk`, `ss.s_store_sk`, `db.t.col`) | Observed usage (medium) | Only alias-qualified refs reach SCHEMA edges; original tables and alias→canonical mapping are lost (gap 1) | Build the per-script map directly from column variables: prefix → canonical via the script alias map (`_table_aliases`), unaliased qualified refs included, db qualifier dropped (table part only) |
+| 2 | DML target column lists — `INSERT INTO t (a,b)`, `UPDATE t SET a=…`, `MERGE … SET a=…` | Authoritative (target defines its own columns) | Not extracted at all | Collect list/SET columns per target canonical name during the walk — **evidence only, NOT column variables** (`total_columns` unchanged) |
+| 3 | `CREATE TABLE t (a INT, b VARCHAR)` / CTAS column lists | Authoritative (DDL) | `_walk_create` registers the table name only | Parse the Schema node's `expressions` → evidence for t; CTAS without a list → SELECT output aliases (positional, same semantics as the Bug 41 DML mapping) |
+| 4 | Cross-script propagation (L1 lineage): per-script maps aggregated at index time | Aggregate of 1–3 | Partially (the scope-blind loop) | Scope-aware re-test (S4b) of S4a-remaining candidates against the workspace map |
+| 5 | Existing `infer_table_schemas` | — | S4 input | Unchanged for `lineage.py`/L2; no longer the S4 attribution input (replaced by the canonical per-script map) |
+
+**Why cross-script is load-bearing (verified):** the 101-file `samples/tpcds`
+corpus contains no qualified refs, no DML, and no DDL — TPC-DS evidence exists
+only in a sibling corpus (`tpcds_qualified`, e.g. `ss.s_store_sk AS id`) or
+user DDL (`samples/financial/tables_financial.sql`). A per-script-only pass
+would leave TPC-DS essentially unresolved; the workspace-level aggregation is
+what makes source 1 effective across scripts.
+
+Excluded from M (script-scoped, never S4 candidates): `⟐`-prefixed containers
+(`⟐ output`, `⟐ subq…`), CTE names, and derived-table aliases (their columns
+are S2 / Fix C territory).
+
+### Resolution rule
+
+**Inputs** — for each unresolved bare column var v (no prefix, no
+`source_tables`, survived S1/S2/S3/S5/S6, `_in_scope_owner` passed) whose
+nearest scope has **≥2 distinct physical tables** (S3's ≥2 branch):
+
+- `visible(v)` = distinct canonical table names of physical tables in the
+  nearest `_SelectScope` (already deduped by `_distinct_scope_tables`;
+  self-joins count once; CTE refs excluded)
+- schema map M (canonical keys)
+
+**Rule (applied identically in S4a and S4b):**
+
+```
+1. if lower(v.name) in {lower(t) for t in visible(v)}:     # R6 guard
+       count r6_collision; leave unresolved; NEVER attribute
+2. owners = {t in visible(v) : v.name ∈ M[t]}
+       # whole-name equality (case-insensitive) = the R4 word-boundary
+       # invariant — "id" never matches "customer_id"
+3. if len(owners) == 1:
+       v.source_tables = [the one owner]      # canonical name, same shape as S3
+       resolved_by["schema"] += 1
+4. else:  # 0 owners (evidence absent / table not in M) or ≥2 (ambiguous)
+       leave unresolved — stays in the ORPHAN RESOLUTION REPORT
+       # never fabricate, never fall back to workspace-global uniqueness
+```
+
+**Outputs:** `source_tables` = the table's **canonical** name (graph consumers,
+indexer and `build_resolution_stats` read it as today); stats bucket
+`resolved_by["schema"]`; unresolved list semantics unchanged.
+
+### Pipeline integration
+
+**Two-tier split (decision):** the schema pass runs in BOTH places, with one
+rule:
+
+- **S4a — inside the extractor** (`extract_variables_from_sql`): a post-pass
+  after the full statement walk (evidence may come from any statement,
+  including later ones). Build M_script from sources 1–3; for each candidate
+  stashed during the walk (the S3 "≥2 tables" branch now records
+  `(var, visible, context)` instead of just leaving the var), apply the rule.
+  Honors R20 ("all orphan resolution happens in the extraction phase") for
+  everything the script can prove itself: the per-script analysis cache is
+  self-contained and Level-1 reportable (`schema` bucket > 0 at extractor
+  time for self-evident scripts).
+- **S4b — index time, cross-script:** after all scripts are parsed and M_ws
+  is aggregated (source 4), re-apply the rule to the still-unresolved
+  candidates recorded in `resolution_stats["schema_candidates"]`
+  (`{field, visible_tables, line}` — emitted by S4a, so S4b needs no re-parse
+  and keeps the scope). Updates the analysis cache's var, `field_index`,
+  `table_index`, and `by_strategy["schema"]` as today.
+- **The existing scope-blind index loop is REPLACED by S4b.** It is strictly
+  safer: it can never attribute to a table the statement doesn't reference,
+  and never to alias keys. Consequence (expected): a small set of
+  previously-attributed-but-wrong entries un-resolve — a correctness win, not
+  a regression.
+
+**Ordering (unchanged precedence):** S5/S6 sentinels (`⟐system`/`⟐pseudo`) are
+set and returned first; then S2 (CTE output columns), then S3 (single-table
+scope), then S4a (≥2-table scopes); S4b at index time only re-tests S4a
+residuals. Fixes A/B/C feed S1/S2 before S4 runs, so two-hop chains landing
+in multi-table scopes now complete via S4.
+
+### Edge cases
+
+| Case | Handling |
+|------|----------|
+| Self-join (`FROM orders o1 JOIN orders o2`) | Distinct-physical dedup → 1 table → S3 path; S4 never fires (existing `test_s3_scope_aliases_count_once` guards) |
+| Alias vs canonical | Candidates and M keys are canonical (alias resolved via the script alias map); `ss.s_store_sk` evidence lands on `store_sales` |
+| Derived tables in scope | Not physical → never S4 candidates; their output columns resolve via S2 / Fix C |
+| CTEs in scope | Not physical → never S4 candidates; S2 covers CTE columns |
+| DML targets | Target is NOT a visible FROM table for SELECT-side columns; its column lists feed M (source 2). `UPDATE t SET col` — `col` has scope {t} → S3; the SET list is still evidence for t in other scripts |
+| Case sensitivity (R4) | Whole-name equality, both sides folded to lowercase (SQL identifiers are case-insensitive in MySQL/Hive/Postgres-unquoted); original case preserved in stored names. Clarifies R4 (word-boundary), does not weaken it |
+| R6 field==table collision | `lower(field) ∈ lower(visible)` → counted in `r6_collision`, never attributed, still reported (e.g. `Call_Center` vs `call_center`) |
+| Schema-absent table (1a) | Field in no visible table's M → 0 owners → unresolved. Cross-script re-test (S4b) covers evidence living in other scripts |
+| Field known but not visible here | 0 owners → unresolved — never a workspace-global fallback (replaces today's scope-blind behavior) |
+| Genuinely ambiguous (1b) | Field in ≥2 visible tables' M → unresolved by design (e.g. `SELECT id FROM a JOIN b ON a.id=b.id` — both `a` and `b` own `id`; existing `test_s3_multi_table_scope_left_unresolved` still passes) |
+| db-qualified refs (`db.t.col`) | M keyed by bare table name (db dropped) — matches table_index/graph conventions; multi-db same-name risk documented in Open Questions |
+| Subquery-copy artifacts | Only `_in_scope_owner`-authentic vars are candidates (the S3 guard already handles this) |
+| Word-boundary | Whole-name set membership — `id` never matches `customer_id`; no prefix/fuzzy matching anywhere |
+| Empty scope (no FROM) | `visible(v)` empty → 0 owners → unresolved (S6 covers known pseudocolumns first) |
+| Old caches without `schema_candidates` | Indexer reads defensively (same pattern as the existing `stats_seen` gate) — S4b skips scripts lacking candidates |
+
+### Stats & reporting
+
+- **Per-script (`resolution_stats`, analysis cache):** `resolved_by["schema"]`
+  now nonzero (S4a); new `schema_candidates` list `[{field, visible_tables,
+  line}]` (S4b input, persisted); new `r6_collision` counter. `unresolved`
+  semantics unchanged (excludes S5/S6, now also excludes S4a-resolved).
+- **Index-time aggregation:** unchanged shapes — `by_strategy` sums S4a+S4b
+  into `schema`; `orphan_fields.json` = post-S4 residual; coverage % formula
+  unchanged.
+- **ORPHAN RESOLUTION REPORT additions:** `schema candidates: N (unique
+  visible owner found: M) | r6 collision: K`, and in Phase 1 the per-orphan
+  candidate line (`field: x → web_sales (evidence: q14.sql L23)`) for human
+  audit. R20 feedback loop unchanged: coverage drop after any change is a
+  regression signal.
+
+### Test strategy
+
+**Unit (extend `test_orphan_resolution_extractor.py` + `test_orphan_resolution_index.py`):**
+- TPC-DS join predicate, both sides bare, each unique in M → both resolve
+  (`ws_sold_date_sk`→web_sales, `d_date_sk`→date_dim, `d_date`→date_dim,
+  `ws_web_page_sk`→web_sales, `wp_web_page_sk`→web_page — q77 `ws`/`wr` CTE
+  shape).
+- Ambiguous → unresolved: existing fixture `test_s3_multi_table_scope_left_unresolved`
+  (`id` in both `a` and `b`) must keep passing (this is the 1b invariant test).
+- Never-guess scope-blind regression: field known only in table T that is NOT
+  in the scope → unresolved (today's loop would wrongly attribute).
+- Evidence sources: `INSERT INTO t (a,b) SELECT …` + bare `a` later in a
+  2-table scope with t visible → resolved; INSERT list creates **no** column
+  vars (`total_columns` unchanged); `CREATE TABLE t (a INT)` evidence;
+  UPDATE SET list evidence.
+- Canonicalization: evidence via `ss.s_store_sk` → bare `s_store_sk` in
+  `{store_sales, …}` resolves (fails against today's alias-keyed map).
+- R6: bare column named like a visible table → `r6_collision`, unresolved.
+- Case-insensitive: DDL `Id INT` + bare `id` → resolves; `id` vs `customer_id`
+  never cross-match.
+- Self-join → S3 (not S4). Stats shapes: `schema > 0` extractor-side;
+  `schema_candidates`; old-cache fallback.
+- **Expectation-review item:** scan existing fixtures where only one side of a
+  join carries schema evidence — S4a may resolve what tests assert unresolved;
+  update assertions deliberately (this is the point of the fix).
+
+**Sample-based:** q77 (ws/wr CTEs above), q14/q90/q93 (multi-join + two-hop),
+spider 052/053, financial fin_query4/fin_query8 (MERGE + INSERT lists).
+Re-run the consolidated classification sweep (659-columns methodology) —
+expect unq_multi 57.5% → ≤15% on evidenced workspaces, and rising coverage %
+in the report.
+
+### Phased rollout
+
+- **Phase 0 — instrumentation (no behavior change):** extractor emits
+  `schema_candidates` + canonical `script_schemas`; report unchanged. Verify
+  shapes and index perf on the 101-file tpcds corpus.
+- **Phase 1 — report-only:** ORPHAN RESOLUTION REPORT shows, per unresolved
+  orphan, the unique visible owner when found (`field → table (evidence:
+  script Ln)`); `r6_collision` bucket visible. Human-audit ~50 orphans across
+  tpcds + financial; **this phase measures the real evidence coverage** and
+  calibrates the estimate below. Zero risk.
+- **Phase 2 — auto-resolution:** enable S4a; replace the scope-blind index
+  loop with S4b. Gate on Phase-1 audit results; watch coverage drop and
+  report spikes.
+- **Phase 3 — hardening (optional):** surface DDL/DML-list evidence into
+  `table_index` fields (autocomplete) and `pair_index` seeds, consistent with
+  P1/P4.
+
+### Open questions
+
+1. Two-tier split (S4a extractor + S4b index) — accept as the resolution to
+   the R20-vs-cross-script tension? Default: yes.
+2. Case-insensitive matching changes today's exact (case-sensitive) S4 set
+   membership — confirm this is the intended reading of R4.
+3. db-qualified refs keyed by bare table name; multi-db same-name tables →
+   conservative ambiguity. Accept, or key M by (db, table)?
+4. Should DML/DDL evidence surface in `table_index` fields (autocomplete) in
+   Phase 3, or remain schema-map-only?
+5. The R6 guard is scoped to S4 here; S3 (single-table scope) has the same
+   theoretical collision (`SELECT call_center FROM call_center`) — extend the
+   guard to S3 as a follow-up?
+6. Workspaces with no evidence at all (bare tpcds corpus alone): S4 gains
+   ~nothing until a qualified/DDL twin is indexed. Add an explicit
+   "import schema from DDL file" workflow, or rely on users indexing DDL?
+   (Phase 1 data decides.)

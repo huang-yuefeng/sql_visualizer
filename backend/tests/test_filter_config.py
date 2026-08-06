@@ -269,3 +269,111 @@ class TestFilterEdgeCases:
         assert "2 row(s)" in joined, joined
         # Valid rows still filter normally
         assert "stg_customers" in _filtered_tables(indexed_ws)
+
+
+class TestR1BlankColName:
+    """R1: a row with TABLE_NAME but blank COL_NAME = table with NO column
+    constraint — all its fields pass the field filter (restores pre-F2
+    behavior; matches R19's 'single-file uploads unchanged' principle)."""
+
+    def _full_table_fields(self, ws_id: str, tname: str) -> set:
+        """Fields of tname in the UNFILTERED table_index (the ground truth)."""
+        fp = get_workspace_dir(ws_id) / "cache" / "table_index.json"
+        ti = json.loads(fp.read_text())
+        return set(ti.get(tname, {}).get("fields", []))
+
+    def test_r1_file2_only_blank_col_name_keeps_all_fields(self, indexed_ws):
+        """'stg_customers,' (blank COL_NAME) → table kept with ALL its fields."""
+        r = _upload(indexed_ws, table_col_csv=CSV2 + "ETL,stg_customers,\n")
+        assert r["filtered"] is True
+        assert "stg_customers" in _filtered_tables(indexed_ws)
+        ti = _filtered(indexed_ws)["table_index"]
+        full = self._full_table_fields(indexed_ws, "stg_customers")
+        assert full, "fixture table must have indexed fields"
+        assert set(ti["stg_customers"]["fields"]) == full, ti["stg_customers"]
+        # field index passes every field of that table too
+        fi = _filtered(indexed_ws)["field_index"]
+        for f in full:
+            assert f in fi, f"{f} must pass the field filter (unconstrained table)"
+
+    def test_r1_blank_row_overrides_column_rows(self, indexed_ws):
+        """Table in BOTH a COL_NAME row and a blank-COL_NAME row → the blank
+        row wins: the column rows' union plus everything else = unconstrained."""
+        r = _upload(indexed_ws, table_col_csv=CSV2
+                    + "ETL,stg_customers,customer_id,Staging customer id\n"
+                    + "ETL,stg_customers,\n")
+        assert r["filtered"] is True
+        ti = _filtered(indexed_ws)["table_index"]
+        full = self._full_table_fields(indexed_ws, "stg_customers")
+        assert set(ti["stg_customers"]["fields"]) == full, ti["stg_customers"]
+        fi = _filtered(indexed_ws)["field_index"]
+        assert "customer_id" in fi
+        for f in full:
+            assert f in fi, f"{f} must pass (table unconstrained)"
+
+    def test_r1_two_file_intersection_respects_blank_row(self, indexed_ws):
+        """A∩B keeps an unconstrained intersection table; its fields survive."""
+        r = _upload(indexed_ws,
+                    script_table_csv=CSV1 + f"{STEP2},stg_customers\n",
+                    table_col_csv=CSV2 + "ETL,stg_customers,\n")
+        assert "stg_customers" in _filtered_tables(indexed_ws)
+        ti = _filtered(indexed_ws)["table_index"]
+        full = self._full_table_fields(indexed_ws, "stg_customers")
+        assert set(ti["stg_customers"]["fields"]) == full, ti["stg_customers"]
+
+    def test_r1_blank_row_does_not_leak_outside_intersection(self, indexed_ws):
+        """A blank row for a table OUTSIDE the effective scope must not let
+        its fields leak into the filtered field index (R19 intersection)."""
+        r = _upload(indexed_ws,
+                    script_table_csv=CSV1 + f"{STEP2},stg_customers\n",
+                    table_col_csv=(CSV2
+                                   + "ETL,stg_customers,customer_id,Staging customer id\n"
+                                   + "ETL,daily_summary,\n"))  # blank row, table not in A
+        assert "daily_summary" not in _filtered_tables(indexed_ws)
+        ignored_fields = self._full_table_fields(indexed_ws, "daily_summary")
+        assert ignored_fields, "fixture must have daily_summary fields"
+        fi = _filtered(indexed_ws)["field_index"]
+        for f in ignored_fields:
+            assert f not in fi, f"{f} of ignored table must not leak"
+
+
+class TestR3NoMatchesDiagnostic:
+    """R3: the F1 no_matches search path also emits the R17 diagnostic."""
+
+    def test_r3_no_matches_search_emits_diagnostic(self, monkeypatch, indexed_ws):
+        """Search on a filter-active-but-empty workspace pushes an R17 block."""
+        _upload(indexed_ws,
+                script_table_csv=CSV1 + f"{STEP2},x\n",
+                table_col_csv=CSV2 + "ETL,y,some_col,Column\n")
+        from app.routers.dataflow import search_dataflow
+        diag_msgs = []
+
+        def fake_push(ws_id, stage, message):
+            diag_msgs.append(message)
+
+        monkeypatch.setattr("app.routers.dataflow._push", fake_push)
+        result = asyncio.run(search_dataflow(
+            indexed_ws, {"table": "stg_customers", "field": "customer_id"}))
+        assert result["match_mode"] == "no_matches", result
+        joined = "\n".join(diag_msgs)
+        assert "SEARCH DIAGNOSTIC" in joined, joined
+        assert "Filter active: YES  (0 tables, 0 fields in scope)" in joined, joined
+        assert "Table in index: NO" in joined, joined
+        assert "Matching scripts: 0" in joined, joined
+        assert "Table not in filter scope" in joined, joined
+
+    def test_r3_no_matches_view_persisted(self, indexed_ws):
+        """The F1 no-matches view is persisted to views.json like any search."""
+        _upload(indexed_ws,
+                script_table_csv=CSV1 + f"{STEP2},x\n",
+                table_col_csv=CSV2 + "ETL,y,some_col,Column\n")
+        from app.routers.dataflow import search_dataflow
+        from app.services.dataflow_service import list_views
+        result = asyncio.run(search_dataflow(
+            indexed_ws, {"table": "stg_customers", "field": "customer_id"}))
+        assert result["match_mode"] == "no_matches", result
+        views = list_views(indexed_ws)
+        saved = [v for v in views if v["view_id"] == result["view_id"]]
+        assert len(saved) == 1, views
+        assert saved[0]["script_ids"] == [], saved[0]
+        assert saved[0]["l1_graph_cache"] == {"nodes": [], "edges": []}, saved[0]

@@ -2206,3 +2206,23 @@ Key facts:
 ## Residual-Orphan Fixes — Implementation Result (2026-08-06)
 
 Implemented + landed (tests `test_orphan_residual_fixes.py`, 19 tests, all pass): Fix A (set-op scope edge — `_walk_columns_in_expr` now walks Subquery/Exists bodies that are UNION/INTERSECT/EXCEPT via `_walk_setop`, giving each branch its own scope; spider 052/053 DestAirport+SourceAirport → Flights), Fix B (S1 bare-column chain — alias of a plain column inherits the source column's single-table S3 attribution; `cc_call_center_id Call_Center` → call_center), Fix C (derived-table output columns — S2 extended from CTEs to aliased derived tables with one-hop → derived alias and two-hop → source table; q93 `act_sales`/`ss_customer_sk` → t). Also made the unresolved report name-level-consistent (a field attributed in ANY scope is not listed as an orphan — subquery phantom copies no longer pollute). Coverage sweep (index-level, post-S4): overall 95.8% → 96.6% (tpcds 94→95.7, tpcds_qualified 95.8, financial 99.4 unchanged, dwh 100 unchanged, dialect 97.5→100, spider_complex 99.6); residual orphans 291 (baseline 661); remaining classes are schema-required 1a/1b (tpcds multi-table bare columns/aliases, financial alias-only fields) — reported, never guessed.
+
+---
+
+## Batch Implementation — 2026-08-06 (4 parallel teams, all landed in v3.3.131)
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| F6 filter_service.py extraction | ✅ Done | New `services/filter_service.py` (427 L) — parse → scopes → A∩B → filter + diagnostics; router thin (workspace.py 199 L); TC1-TC10 + F1-F5 pass unchanged |
+| R5 shared script resolver | ✅ Done | `filter_service.resolve_script()` single implementation; `_resolve_orphan_script` delegates |
+| R1 blank COL_NAME semantics | ✅ Decision + impl | Blank COL_NAME row = table **unconstrained** (all fields kept); no-leak guard outside A∩B; new diag line; 4 tests (`TestR1BlankColName`); REQUIREMENTS.md R19 note |
+| R3 no_matches diagnostic + persistence | ✅ Done | F1 branch emits R17 SEARCH DIAGNOSTIC via `_push`; view persisted to views.json via shared `_persist_search_view` (new test); frontend restores empty view via localStorage (`df_last_search_view`) |
+| L2 SSE queue cleanup | ✅ Done | Ref-counted per-workspace queues; dropped when last client disconnects (GeneratorExit/CancelledError safe) |
+| L3 index progress lock | ✅ Done | `_INDEX_PROGRESS_LOCK`; errors preserved not wiped; **bonus bug fixed**: R20 section overwrote `total` with `total_columns` → "done" progress showed 0/0 |
+| R2 filter warning banner | ✅ Done | FilterPanel renders `warning` + `ignored_tables` (capped 10) |
+| R20 coverage badge | ✅ Done | `ResolutionReport.jsx` + `resolutionReport.js` util (normalizes the 2 backend stats shapes); vitest 31/31 |
+| Orphan Fix A/B/C | ✅ Done (c919471) | See record above — coverage 95.8% → 96.6%, residuals 291 |
+| SELECT-side schema enrichment | 📋 Design only | Appended to SOLUTION_DESIGN.md — two-tier S4a (extractor) + S4b (index, scope-aware, replaces scope-blind loop); phased rollout report-only → auto; est. 55–65% of 1a/1b resolvable; 6 open questions for human |
+
+**Full suite: 414 passed / 5 skipped.** Version 3.3.131 deployed, health OK.
+**Next steps:** SELECT-side schema enrichment Phase 0/1 (instrumentation + report-only audit) per the design's 6 open questions.

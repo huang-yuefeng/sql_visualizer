@@ -1,22 +1,37 @@
 """Folder index service — scan directory tree, build table/field indexes."""
 import json
-import os
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from app.services.workspace_service import get_workspace_dir, get_script_path
 from app.services.logger import _push
+from app.services.filter_service import resolve_script
 
 SQL_EXTENSIONS = {".sql"}
 
 
 # Progress tracking for polling
 _INDEX_PROGRESS = {}  # ws_id -> {current, total, phase, errors}
+# L3: concurrent index runs / pollers must not tear the progress dict.
+_INDEX_PROGRESS_LOCK = threading.Lock()
 
-def _set_progress(ws_id: str, current: int, total: int, phase: str):
-    _INDEX_PROGRESS[ws_id] = {"current": current, "total": total, "phase": phase, "errors": []}
+def _set_progress(ws_id: str, current: int, total: int, phase: str, errors=None):
+    """Update index progress. `errors=None` preserves already-recorded
+    errors (L3 — the error path must not silently reset them)."""
+    with _INDEX_PROGRESS_LOCK:
+        prev = _INDEX_PROGRESS.get(ws_id)
+        if errors is None:
+            errors = prev.get("errors", []) if prev else []
+        _INDEX_PROGRESS[ws_id] = {"current": current, "total": total,
+                                  "phase": phase, "errors": errors}
 
 def get_index_progress(ws_id: str) -> dict:
-    return _INDEX_PROGRESS.get(ws_id, {"current": 0, "total": 0, "phase": "idle"})
+    """Return a snapshot of the progress dict (callers may not mutate it)."""
+    with _INDEX_PROGRESS_LOCK:
+        entry = _INDEX_PROGRESS.get(ws_id)
+    if entry is None:
+        return {"current": 0, "total": 0, "phase": "idle"}
+    return dict(entry)
 
 def scan_folder(ws_id: str) -> dict:
     """Walk workspace scripts/ dir, return hierarchical tree with is_sql flag."""
@@ -65,7 +80,8 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     precomputed = 0
     errors = []
     total = len(script_paths)
-    _set_progress(ws_id, 0, total, "analyzing")
+    # L3: explicit fresh start — clears any errors from a previous run.
+    _set_progress(ws_id, 0, total, "analyzing", errors=[])
 
     # R20 / S4 (Phase 2) accumulation: per-script inferred schemas + the
     # extractor's per-script resolution counters, aggregated at index time.
@@ -80,6 +96,8 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
         sp = get_script_path(ws_id, rel_path)
         if not sp or not sp.exists():
             errors.append({"script": rel_path, "error": "File not found"})
+            # L3: surface the error in progress without resetting it.
+            _set_progress(ws_id, i, total, "analyzing", errors=errors)
             continue
 
         try:
@@ -239,7 +257,9 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
 
         except Exception as e:
             errors.append({"script": rel_path, "error": str(e)})
-            _set_progress(ws_id, i + 1, total, "analyzing")
+            # L3: keep last progress + the error (was: _set_progress wiped
+            # the errors list back to zero on every failure).
+            _set_progress(ws_id, i + 1, total, "analyzing", errors=errors)
 
 
     # ── S4: schema-based resolution (Phase 2 — index time) ──
@@ -330,12 +350,14 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                        if not fdata.get("tables")}
     container_resolved = sorted(no_table_fields - set(orphan_fields))
 
-    total = total_columns
+    # L3: don't shadow `total` (script count) — the "done" progress below
+    # must report scripts, not column variables.
+    total_cols = total_columns
     unresolved = len(orphan_fields)
-    resolved = max(0, total - unresolved)
-    coverage_pct = round(resolved / total * 100, 1) if total else 100.0
+    resolved = max(0, total_cols - unresolved)
+    coverage_pct = round(resolved / total_cols * 100, 1) if total_cols else 100.0
     resolution_stats = {
-        "total_columns": total,
+        "total_columns": total_cols,
         "resolved": resolved,
         "unresolved": unresolved,
         "container_resolved": len(container_resolved),
@@ -369,25 +391,10 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
 def _resolve_orphan_script(ws_id: str, name: str):
     """Locate a script file by index name (path, basename, ±.sql).
 
-    Same tolerance as the filter's _resolve_script in workspace.py: try
-    as-is, with .sql appended, and basename variants, then rglob fallback.
+    R5: shared resolver — the filter's SQL-evidence diagnostics use the
+    same tolerance (see filter_service.resolve_script).
     """
-    if not name:
-        return None
-    scripts_dir = get_workspace_dir(ws_id) / "scripts"
-    cands = [name]
-    if not name.lower().endswith(".sql"):
-        cands.append(name + ".sql")
-    for c in list(cands):
-        cands.append(os.path.basename(c))
-    for c in cands:
-        p = scripts_dir / c
-        if p.exists():
-            return p
-    for p in scripts_dir.rglob("*.sql"):
-        if p.name in cands or str(p.relative_to(scripts_dir)) in cands:
-            return p
-    return None
+    return resolve_script(ws_id, name)
 
 
 def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict,
