@@ -1,69 +1,90 @@
-# Code Review — v3.3.139 (D1/D2 highlight fix + B3/P1/P2 display + C-4/C-5 + join-key pairing)
+# Code Review — v3.3.140/145 + working tree (strict data flow, anchors, highlight strategies)
 
-> **Reviewed:** 2026-08-06 → 08-07 (round 6) | **Version:** v3.3.139, HEAD `6a19c43`
-> **Scope:** commits `6692805`, `82c2c96`, `fc1cf9d`, `98f5015` (v3.3.139), `6a19c43` vs `7982efe` (`git diff 7982efe HEAD`) — highlight-pipeline fix (D1/D2), display improvements (B3/P1/P2), review-ledger items (C-4/C-5, join-key pairing), doc updates (+187 BUG_ANALYSIS, +100 this wiki, +27 CLAUDE.md).
-> **Reviewer:** Codex (read-only — no source modified) via 3 parallel sub-agents: Sartre (L2+sql_line_mapper), Franklin (extractor+index), Helmholtz (docs).
+> **Reviewed:** 2026-08-07 (round 7) | **Version:** VERSION 3.3.140; HEAD `85aac05` (labeled "docs" but **contains v3.3.145 source changes**); uncommitted working tree (I1–I5 implementation in progress)
+> **Scope:** `git diff 6a19c43 HEAD` + working tree (`dependency_graph.py` +121, `variable_extractor_v2.py` +284, `lineage.py` +30, `variable.py` +2, untracked `services/highlight_strategies.py` 93 L, `tools/HIGHLIGHT_REVIEW_SAMPLE.sql` 34 L) + docs (BUG_ANALYSIS +237, wiki/SOLUTION_DESIGN +129, CLAUDE.md, wiki)
+> **Reviewer:** Codex (read-only — no source modified) via 4 parallel sub-agents: Anscombe (core+old-advice), Godel (working tree), Dalton (docs), Mendel (tests; stalled, covered by Anscombe/Godel runs).
+> ⚠️ **Working tree mutated during the review** (dependency_graph appeared/disappeared; snapshot ≈18:45 JST) — the change set is not yet stable; commit atomically.
 
-## Overall verdict
+## State caveats (read first)
 
-The implementation claims (D1/D2, P1/P2, B3, C-4/C-5, join-key pairing, `_seen`, RELEASE.txt) are **accurate and verified** — the D1/D2/P1/P2 fix set is real, tested, and byte-exact on the highlight list. **5 items remain open/partial** (C-3 cross-run caches is the highest-risk), and the docs contain **3 overstated/unreproducible claims** to correct.
-
----
-
-## ✅ Fixed & verified (green tests)
-
-| Item | Verdict | Evidence |
-|---|---|---|
-| **D1** comment-line skipping | FIXED | `sql_line_mapper.py:47-49` skips `--`/`/*` lines; `test_d1_*` passes |
-| **D2** highlights never 0/comment (L2 path) | FIXED | `l2_builder.py:63-66` drops `start<1`; recompute on stale caches (:54,122,151); response highlights byte-exact `[[16,16],[43,43],[52,52],[118,118],[151,151],[160,160],[204,204]]` |
-| **P1** seed re-parent + scope-distance parenting | FIXED | `l2_builder.py:611-644` (seed on `l2_tbl_d5ff4bbf35`=bdm_acc_loan_info); `_scope_distance` :245 / `_pick_scope_candidate` :264 / `_resolve_scope_parent` :283 |
-| **P2** target-field edges preserved | FIXED | `_promote_field_edges` skips `target_field_ids` (:825-860); seed has 4 incident FILTER edges |
-| **B3** scope-distance replaces first-match (rule 1) | FIXED (partial, see open #3) | `_pick_scope_candidate` :264-281; src_tables/prefix loops stay first-match (:486-496) |
-| **C-4** apply-side `n_attributed>0` gate | FIXED (round-5 #1) | `folder_index_service.py:1110` `if (n_attributed > 0 and isinstance(ul,list) and field in ul)`; M13 mismatch → cache byte-identical; `test_apply_context_mismatch_noop_does_not_touch_counters` passes |
-| **C-5×C-3** star resurrection | FIXED (round-5 #2, by exclusion) | `_star_excluded = extractor_unresolved \| ambiguous_fields` (:755), per-column skip (:765); `test_star_does_not_resurrect_revoked_field` passes |
-| **Join-key expr=expr pairing** | FIXED (round-5 #4, order) | `_pair_join_key_sides` deferred cross-link (`variable_extractor_v2.py:1109-1147`); both sides paired, bidirectional JOIN_KEY; `test_expr_expr_join_key_both_sides_paired` + `test_bdm_sample_join_key_expressions_all_paired` (8/8) pass |
-| **C-3 per-cache guard** | FIXED (round-5 #3a) | `_revoke_s4b_cache_update` loads each cache's own `unresolved`, per-cache gate (:1164) |
-| **`_seen` annotation + dangling `test_b_series_c9.py` ref** | FIXED | `variable_extractor_v2.py:450`; `test_l2_table_dedup.py:133` → `test_b_series_l2.py::test_c9_per_statement_dedup` |
-| **RELEASE.txt regenerated** | FIXED | `docker_image/RELEASE.txt` VERSION=3.3.139, COMMIT=98f5015; matches repo VERSION — deploy guard no longer blocked |
-
-### Test results
-- `test_l1_l2_integration.py` 15 passed · `test_l2_table_dedup.py` 6 passed · `test_b_series_l2.py` + `test_b_series_join_keys.py` 19 passed · `test_b_series_join_keys.py` 9 passed
-- `test_c_index_pipeline.py` 34 collected: **real run hangs** at `TestC5StarExpansion` (`asyncio.to_thread` in `dataflow_service.py:461` — environmental, Python 3.14 sandbox); **34 passed with to_thread stub** — CI must pin Python ≤3.12.
+- **HEAD `85aac05` is broken standalone**: `l2_builder.py:28`, `dataflow_service.py:26`, `routers/dataflow.py:268` import `app.services.highlight_strategies`, which exists only as an **untracked** file → fresh checkout `ModuleNotFoundError` (verified via `git archive`).
+- **"docs:" commits carry undeclared code** (v3.3.145: I2 attribution removal, `highlight_strategy` param, cache `3_2_19`, `parse_errors` surface) — stop mixing code into docs commits.
+- Working tree implements I1 (def-site lines), I2 (qualified-column attribution), I3 (`_pick_anchor` max-≤), I4 (`alias_of`), I5 (containment) — committed docs still say "deferred/NOT fixed".
 
 ---
 
-## ⚠️ Still open / partial
+## Old-advice verdict (round-6 items, at HEAD)
 
-| # | Issue | Severity | Evidence |
+| # | Round-6 advice | Verdict | Evidence |
 |---|---|---|---|
-| 1 | **C-3 cross-run stale caches NOT fixed** — prior-run scripts not re-indexed keep stale `analysis_*.json` attribution when the field IS in current `field_index` (:688-693); the cross-run glob branch (:696-698) never adds to `extractor_unresolved` → report omits the field. L1/L2 consume these caches | **High** | `folder_index_service.py:683-701` (byte-identical to 7982efe) |
-| 2 | **D1/D2 is L2-path-only** — `(0,0)` still *written* at `sql_line_mapper.py:44`; unguarded consumers: `routers/variables.py:34,60`, `sql_highlight_service.py:48`, `export_config_service.py:160,203`, `sql_snippet_service.py:64,122` → stale comment anchors/`(0,0)` still surface there | Medium-High | `sql_line_mapper.py:44` vs `l2_builder.py:63-66` |
-| 3 | **B3 virtual_table blind spot** — rule 1 matches `variable_type == "subquery"` only (:306-308); probe ctx `"TOP0:output"` → parentless; column branch has no first-table fallback (:455-536; expression branch does :554). Latent (0 parentless on sample) | Medium | `l2_builder.py:303-318,455-536` |
-| 4 | **Duplicate display labels persist** — `p2`×7, `output`×2, `a`×5, `p1`×4 (unfiltered graph; `⟐ ` stripped :436). UI keying on `label` collides | Medium (cosmetic → latent) | `l2_builder.py:436` |
-| 5 | **Alias/DML sync stmt_idx-blind** — Sync 1/2 `exists` checks `(parent,label)` only (:1183,1204); cross-statement same-name fields collapse/expand asymmetrically source vs mirror | Medium | `l2_builder.py:1158-1175,1183-1185,1204-1206` |
-| 6 | **Join-key pairing name-brittle** — `by_name.setdefault(v.name, v)` first-var-wins, exact flattened-SQL match; re-render difference silently un-pairs. New data-model side effects: column vars carry expression ids in `source_variables`; expr=expr creates 2-cycles in graph JSON (inert today, unguarded) | Low-Med | `variable_extractor_v2.py:1127` |
-| 7 | **C-5 exclusion case-sensitivity + over-breadth** — revoked field can re-enter under different case variant; genuinely-unresolved fields with real DDL evidence lose star-search visibility (untested behavior change) | Low | `folder_index_service.py:755,765` |
-| 8 | **C-4 in-memory/persisted divergence** — on M13 mismatch, in-memory `field_index` still attributes while persisted cache keeps var unresolved; report vs cache-consumers can disagree | Low (pre-existing M13) | `folder_index_service.py:1096-1122` |
+| 1 | C-3 cross-run stale caches (High) | **STILL-OPEN** | `folder_index_service.py:687` (`extractor_unresolved.add` only inside `if _fdata:`); cross-run branch `:694-699` never adds → report omits; prior-run scripts keep stale attribution. Byte-identical to round-6 |
+| 2 | D1/D2 L2-path-only | **PARTIAL** | Root narrowed: extractor emits statement-scoped lines, `sql_line_mapper.py:57-60` lets them win; L2 guard in `highlight_strategies.py:54`. But `(0,0)` still written (`sql_line_mapper.py:54,84`); **19/253 vars on sample still `(0,0)`**; unguarded consumers unchanged (`routers/variables.py:33-34,59-60`, `sql_highlight_service.py:47-51` appends `[0,0]` unconditionally, `export_config_service.py:160,203`, `sql_snippet_service.py:64-65,122`) |
+| 3 | B3 virtual_table blind spot | **PARTIAL → REGRESSION** | v3.3.140 C8 added VT to `_resolve_scope_parent` (`l2_builder.py:342-347` @1046522), but HEAD `85aac05` **deleted the whole scope-parent machinery** (I2) → column branch `:424-452` has no fallback → **9 parentless fields (filtered) / 5 (unfiltered) vs 0 at 1046522** |
+| 4 | Duplicate display labels | **PARTIAL** | C3 disambiguates aliases with `@line` (`l2_builder.py:379,396`) — `p2×7 → p2@40/116/199`; non-alias intermediates still collide (`p2`×2, `accu`×2, `branch`×2, `p4`×2, `output`×2) |
+| 5 | Alias/DML sync stmt_idx-blind | **FIXED (v3.3.140 C7)** | `l2_builder.py:1106-1178` — sync 1/2 exists-checks now `(parent,label,stmt_idx)`, matching dedup key `:479,:527` |
+| 6 | Join-key pairing name-brittle | **STILL-OPEN (Low-Med)** | `variable_extractor_v2.py:1127` `by_name.setdefault(v.name,v)` first-var-wins; **4 same-rel JOIN 2-cycles** on sample; unguarded |
+| 7 | C-5 exclusion case-sensitivity | **STILL-OPEN (Low)** | `folder_index_service.py:755,765` — exact-match `_c in _star_excluded`, no case normalization |
+| 8 | C-4 in-memory/persisted divergence | **STILL-OPEN (Low, pre-existing)** | `folder_index_service.py:1110` apply-side gate; M13 mismatch → in-memory attributes, cache keeps unresolved |
+
+**Tally: 1 FIXED, 3 PARTIAL, 4 STILL-OPEN.** Nothing touched `folder_index_service` (C-3/C-4/C-5).
 
 ---
 
-## 📄 Doc accuracy (Helmholtz) — implementation claims all accurate; 3 problems
+## New findings (v3.3.140 + working tree)
 
-1. **"Predicate line 18 covered" is false for the response** (BUG_ANALYSIS:3020) — reproduced highlights start at `[16,16]`, never hit 18; line-18 coverage is full-graph-only (`test_l1_l2_integration.py:449-453`).
-2. **"All pass at HEAD: 626/5 … 40/40" overclaimed** (BUG_ANALYSIS:2862,2940) — `test_c_index_pipeline` still hangs at TestC5 under Python 3.14 in this sandbox; "40/40" matches no real count (15+24+34=73 collected).
-3. **Unreproducible counts**: "12 fields preserved" (really 2 `lending_ref`-named of 12 field nodes, BUG_ANALYSIS:3021); "18 raw data_dt nodes" (4 named vars / 30 expr-referencing / 13 field nodes, :2991); "32 tests" (34 collected, wiki:51). Minor line-ref offsets (±5) and internal wording tension (7 predicate reads vs 3 output-side of "10 occurrences", :2985).
+| # | Severity | Finding | Evidence |
+|---|---|---|---|
+| N1 | **High** | HEAD cannot boot without untracked `highlight_strategies.py`; imports at `l2_builder.py:28`, `dataflow_service.py:26`, `routers/dataflow.py:268` | `git archive HEAD` → `ModuleNotFoundError` |
+| N2 | **High (transient)** | dependency_graph I3/I4/I5 edits broke v3.3.140-pinned tests (`test_dependency_count` 644<660, `test_same_table_4_contexts_single_node` lost SUBSET) — later reverted; current tree still fails 2 tests (below) | `test_sample_v1_repro.py:67`, `test_l2_table_dedup.py:107` |
+| N3 | **Medium** | **Parentless-field regression at HEAD** — I2 deleted parent fallbacks; 5–9 parentless on sample (0 at 1046522) | `l2_builder.py:424-452` |
+| N4 | **Medium** | **Write-side DML asymmetry** in strict walker — `lineage.py:626-627` `DML: admit=fwd`: query on output table's field never reaches producers (`bdm_acc_loan_info_sup.data_dt` closure = 6 nodes, source-side reaches target) | `lineage.py:523,626-627` |
+| N5 | Low-Med | `(0,0)` still written for 19/253 vars (7.5%: ⟐ VTs + rendered CONCAT expressions); L2 path safe, other consumers not | `sql_line_mapper.py:54,84` |
+| N6 | Low-Med | Strict-walker identity edge cases — unqualified-owner rule needs exactly one table-like var in context (`lineage.py:471-505`); ambiguous → no seed → `search_matched=False`; `_field_part` last-segment skips expression-labeled computed vars; `_find_labeled` returns `ids[0]` no tie-break | `lineage.py` |
+| N7 | Medium | **I5 containment dead end-to-end** — `dependency_graph` tags 1 edge, but `adapter._dep_to_dict` (`:157-165`) and `graph_service.build_graph_data` (`:233-244`) drop `containment` → `lineage._is_containment` never fires; rollover→⟐subq edge still renders | `variable.py:111,127`, `adapter.py` |
+| N8 | Medium | **A3 parse_errors dead** — recorded in `extract_variables_from_sql` (`variable_extractor_v2.py:274,428-447`) but `run_full_analysis` returns no `parse_errors` key → `dataflow_service.py:384,390`, `l2_builder.py:156` always `[]`; new frontend UI can never show anything | `variable_extractor_v2.py`, `DataFlowApp.jsx` |
+| N9 | Medium | **I3 removes first-match fallback → pinned test regression not updated** (`test_same_table_4_contexts_single_node` asserts SUBSET edge); `_pick_anchor` requires `1<=x.line_start<=v.line_start` → line-0 vars get no bridge (conflates "synthetic" with "lookup failed") | `dependency_graph.py:421-451,484-540` |
+| N10 | Low-Med | **Cache-bump doc lies**: `cache_keys.py:40-52` claims `3_2_19` pairs with "B3/C5 picker deletion" — `l2_builder.py` still contains `_pick_scope_candidate`/`_scope_distance`/`_resolve_scope_parent` (`:283-362`, now mostly dead code) | `cache_keys.py`, `l2_builder.py:283-362` |
+| N11 | Low | `highlight_strategies._single_line_ranges` `int(line_start)` raises `ValueError` on malformed cache → 500, no try/except; `label_only`/unknown-name fallback/registry **untested**; frontend never passes `highlight_strategy` (design wanted a config key) | `highlight_strategies.py:41` |
+| N12 | Info | `tools/HIGHLIGHT_REVIEW_SAMPLE.sql` matches header lines but **not referenced by any test** (v3.3.144 open item: → pytest fixture) | file |
 
 ---
 
-## 🎯 Priority advice (no source modified)
+## Doc↔code discrepancies (Dalton)
 
-1. **Fix D1/D2 at the source** — stop writing `(0,0)` in `sql_line_mapper.py:44` and add read-time guard/recompute in the 4 unguarded consumers, not just L2.
-2. **Close the C-3 cross-run gap** — revoke prior-run caches across all scripts for the ambiguous field (not only current run) and add the cross-run field to `extractor_unresolved`.
-3. **Resolve B3 virtual_table blind spot** — add a VT-scope rule + column-branch first-table fallback + warn when all rules miss.
-4. **Make alias/DML sync stmt_idx-aware** and disambiguate display labels (type-scoped or id-based) before any UI keys on labels.
-5. **Docs**: fix the line-18 parenthetical, qualify suite-green claims with the Python version (pin ≤3.12 for CI), re-derive the 3 counts, refresh "32→34 collected".
+1. **Cache prefix wrong in all 3 docs** — CLAUDE.md:31/145, SOLUTION_DESIGN:908, BUG_ANALYSIS:3053 say `graph_3_2_18`; code (HEAD + WT) = `graph_3_2_19`.
+2. **SOLUTION_DESIGN §4 `FIELD_LIKE` list wrong** — docs list `{…, computed, window, variable}`; `VariableType` has no `computed`/`variable`; code uses `{…, case, transform, window}` (`lineage.py:403`). Code comments already flag the doc error.
+3. **v3.3.144 "no new fields needed / already exists" false at HEAD** — `alias_of`/`containment` are **new WT fields**; and the adapter **drops both** → I5 inert (doc's I5 expectation 13→12/18→17 not met; WT actual 11/5 with containment edge still present).
+4. **S1/S2/S3 + I1–I4 "deferred/NOT fixed" stale vs WT** — I1/I2/I3/I4 implemented and probe-verified (anchors `data_dt@160→bdm_acc_loan_info_sup@160`, `data_dt@213→rrcdm@211`, `ods_hub_lsacmsp@33→bdm@29`).
+5. **v3.3.144 "B machinery DELETED" overstated** — `_find_position_scoped` remains for columns/reads; only def-site (tables/aliases/CTE/subquery/DML/CREATE) converted.
+6. **Internal doc contradiction** — v3.3.143 I3 proposes line-containment anchors; v3.3.144 rejects it (no sqlglot positions) and uses max-≤; :143 never marked superseded.
+7. **CLAUDE.md File Map stale** — references deleted `_pick_scope_candidate`; line counts off (l2_builder 1317→1297, dataflow_service 485→527, variable_extractor 2120→2178, cache_keys 32→43, lineage 683→669).
+8. **Phantom-dedup "before" numbers don't reproduce** — doc 344→253 vars / 1102→660 deps; measured 354/1126 at `6a19c43` (sqlglot 30.8.0 vs doc's 30.12.0). After-numbers verified exactly.
+9. **"635/5" and "40/40" suite claims unverified/overclaimed** (same class as round-6 flag).
+
+---
+
+## Test results
+
+| Tree | Result |
+|---|---|
+| **Pristine v3.3.140 (`1046522`)** | **29 passed** — v3.3.140 itself green |
+| **HEAD `85aac05` + untracked** | **27 passed / 2 failed**: `test_same_table_4_contexts_single_node` (no SUBSET edge), `test_dependency_count` 644<660 |
+| **Working tree** | 2 failed / 37 passed — `test_b3_zero_parentless_fields` (pre-existing, parentless `lending_ref, data_dt, internal_key,…`), `test_same_table_4_contexts_single_node` (I3 regression, not updated) |
+| `test_c_index_pipeline` | environmental hang (asyncio.to_thread, Python 3.14 sandbox) — unchanged; CI must pin ≤3.12 |
+| highlight-related tests | pass individually (`test_d2_highlights_never_zero_or_comment_lines`, `test_data_dt_highlights_cover_predicate_line`, `test_target_highlight_lands_on_keeper`); `-k highlight` full run hangs (workspace fixture) |
+
+---
+
+## Priority advice (no source modified)
+
+1. **Commit `highlight_strategies.py` with its wiring** (or move import behind fallback) — HEAD is un-buildable standalone; stop shipping code in "docs:" commits.
+2. **Fix C-3 cross-run gap** (highest open item): revoke prior-run caches across all scripts + add cross-run fields to `extractor_unresolved`.
+3. **Restore a deliberate parent fallback** for the I2-deleted machinery — 5–9 parentless fields is a regression vs 1046522 (drop unattributable or attach with warning).
+4. **Wire I5 + A3 end-to-end**: serialize `alias_of`/`containment` in `adapter._var_to_dict/_dep_to_dict` and `parse_errors` through `run_full_analysis`, or remove the half-implementations.
+5. **Update the stale pinned test** for I3 (`test_same_table_4_contexts_single_node`) — SUBSET bridge removal is intentional per v3.3.143, so re-scope the expectation.
+6. **Docs**: single-source cache prefix (→ `cache_keys.GRAPH_CACHE_PREFIX`, currently `3_2_19`); fix SOLUTION_DESIGN §4 FIELD_LIKE; mark v3.3.143 superseded; refresh CLAUDE.md file map; flip I1–I4 statuses once committed.
 
 ## Verification method
 
-- 3 sub-agents in parallel on disjoint scopes (L2+sql_line_mapper / extractor+index / docs), each verifying `git diff 7982efe HEAD` against code at HEAD `6a19c43` with live probes on `samples/sql_sample_v1/BDM_ACC_LOAN_INFO_SUP_M.sql`.
-- Tests: l1_l2 15 ✅, l2_table_dedup 6 ✅, b_series_l2+join_keys 19 ✅, join_keys 9 ✅; c_index 34 ✅ (stub) / env-hang (Python 3.14 sandbox, `asyncio.to_thread` — environmental, not code).
+- 4 sub-agents in parallel (core+old-advice / working-tree / docs / tests), each with live probes on `samples/sql_sample_v1/BDM_ACC_LOAN_INFO_SUP_M.sql` + `tools/HIGHLIGHT_REVIEW_SAMPLE.sql`; `git archive` fresh-checkout check for the untracked-module break; byte-exact highlight re-probe `[[18,18],[43,43],[158,158],[160,160]]`.
+- No source files modified.
