@@ -195,6 +195,12 @@ def build_graph_data(analysis: dict) -> dict:
                 # stmt_idx for per-statement field dedup (C-9).
                 "context": v.get("context", ""),
                 "stmt_idx": _stmt_idx_of(v.get("context", "")),
+                # v3.3.140: carry the var's line span across the graph
+                # boundary (adapter._var_to_dict already emits
+                # line_start/line_end) — the strict table.field walker uses
+                # node-carried lines for its highlight ranges.
+                "line_start": v.get("line_start", 0),
+                "line_end": v.get("line_end", 0),
                 # P2: Pre-resolved canonical names
                 "table_name": table_name,
                 "field_name": field_name,

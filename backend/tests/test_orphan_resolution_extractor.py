@@ -146,9 +146,10 @@ def test_s3_subquery_inner_column_not_attributed_to_outer_scope():
         "SELECT (SELECT MAX(x) FROM t2) AS m FROM t1", "s3sub")
     inner_x = [v for v in _col_vars(r) if v.name == "x" and v.context.startswith("TOP0/subq")]
     assert inner_x and inner_x[0].source_tables == ["t2"], inner_x
-    # the outer-context phantom copy stays unattributed (never guessed)
+    # v3.3.140 phantom dedup: the raw walk no longer re-registers the
+    # subquery-interior column in the outer context — no outer copy exists.
     outer_x = [v for v in _col_vars(r) if v.name == "x" and v.context == "TOP0"]
-    assert outer_x and outer_x[0].source_tables == [], outer_x
+    assert outer_x == [], outer_x
 
 
 # ── S5: system schema columns ────────────────────────────────────────────

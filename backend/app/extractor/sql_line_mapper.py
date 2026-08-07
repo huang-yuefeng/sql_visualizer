@@ -16,6 +16,12 @@ def map_variables_to_lines(
     Accepts either VariableDefinition objects (analysis time) or plain dicts
     (cached analysis JSON replayed through _load_or_build_graph).
 
+    v3.3.140: the extractor now resolves positions statement-scoped, so a
+    variable carrying its own line_start/line_end wins directly (first-occurrence
+    text search maps repeated names/expressions to the wrong statement). The
+    text search below is kept only as the D1 fallback for stale caches that
+    carry no line info.
+
     D1: comment lines are never matched — header banners list every source
     table, so a table variable's first match used to land on the comment
     line instead of its real FROM line.
@@ -37,11 +43,20 @@ def map_variables_to_lines(
         if isinstance(var, dict):
             expr = (var.get("sql_expression") or "").strip()
             vid = var.get("id", "")
+            ls_carried = var.get("line_start", 0) or 0
+            le_carried = var.get("line_end", 0) or 0
         else:
             expr = var.sql_expression.strip()
             vid = var.id
+            ls_carried = var.line_start or 0
+            le_carried = var.line_end or 0
         if not expr:
             line_map[vid] = (0, 0)
+            continue
+
+        # v3.3.140: statement-scoped positions from the extractor win.
+        if ls_carried > 0 and le_carried > 0:
+            line_map[vid] = (ls_carried, le_carried)
             continue
 
         # Try to find the first line containing this expression

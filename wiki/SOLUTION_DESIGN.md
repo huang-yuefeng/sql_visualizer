@@ -793,3 +793,132 @@ in the report.
    pipeline pollution, evidence merged into M_ws); a workspace with no
    schema evidence anywhere is reported factually in the diagnostics.
    Never fix, never annotate — report only. (v3.3.134)
+
+---
+
+# v3.3.140 — Strict table.field Data Flow (L2)
+
+> **Date:** 2026-08-07 | **Version:** 3.3.140-dev | **Status:** Implementation (teams)
+
+## 1. Requirement change (user-confirmed 2026-08-07)
+
+The requirement is now **exact data flow of `table.field`** (per-instance identity),
+not table-level flow around the field:
+
+- **OLD (v3.3.139 and before):** seed by the searched field, expand by TABLE-level
+  flow — TABLE_FLOW/ALIAS/SCHEMA/JOIN walk *through tables* around the field.
+  Symptom: `bdm_evt_loan_trans`, `bdm_gdc_label_fin`, `bdm_sys_acc_loan_info`,
+  `ods_*` etc. appear in L2 for a `bdm_acc_loan_info.data_dt` search even though
+  those tables never carry the searched field (33 nodes on the sample).
+- **NEW:** seed by `table.field` identity (per-instance var), expand only where the
+  field itself participates (flow *of* the field). Result: ~8 nodes on the sample,
+  every survivor field-adjacent.
+
+**The old solution is kept for future use** — see §3 (architecture).
+
+## 2. Ground truth (samples/sql_sample_v1/BDM_ACC_LOAN_INFO_SUP_M.sql)
+
+Searched: `bdm_acc_loan_info.data_dt`. The field's real flow:
+
+| Line | SQL | Role |
+|------|-----|------|
+| 18 | `WHERE data_dt = '$(load_date)'` (CTE{rollover_loan_info}) | read seed (owner bdm_acc_loan_info) |
+| 43 | `SUBSTR(p1.data_dt,1,7) = ...` (same CTE, alias p1) | read seed via qualifier p1 |
+| 84/158 | `bdm_acc_loan_info p1` (CTE{loan_final}) / `p1.data_dt = '$(load_date)'` | read seed (p1 aliases bdm_acc_loan_info, NOT loan_final) |
+| 160 | `INSERT OVERWRITE TABLE bdm_acc_loan_info_sup PARTITION(data_dt=..., CHARGE_DEPARTMENT)` | write-side seed (PARTITION var) |
+| 202 | `p2.data_dt = DATEADD(...)` (read on the output table at TOP0) | NOT in flow (read-side on the output, not the searched table) |
+| 55/93 | `a.data_dt` / `t.data_dt` (other tables) | NOT in flow (owner ≠ searched table) |
+
+Expected L2: ~8 compound nodes (searched physical table, p1@29, p1@84, the two CTE
+containers, the L43 subquery output, the write target). Highlights byte-exact:
+`[[18,18],[43,43],[158,158],[160,160]]` — single line numbers, no columns.
+
+## 3. Architecture — old solution preserved
+
+`backend/app/extractor/lineage.py` gains a clearly-marked second mode; the legacy
+path is **byte-identical**:
+
+```
+LEGACY (v3.3.139 and before)          STRICT (v3.3.140, L2 only)
+──────────────────────────────        ──────────────────────────────
+compute_field_lineage()               compute_field_flow()
+filter_graph_by_lineage()             filter_by_field_flow()
+filter_relevant()                     (convenience wrapper)
+```
+- Old call sites keep calling `filter_relevant`/`filter_graph_by_lineage`
+  **unchanged**: L1 (`l1_builder.py` ×2), Bug-27 pairs (`dataflow_service.py:208`),
+  legacy consumers (`sql_highlight_service.py`, `dataflow_extractor.py`).
+- Only the two L2 call sites switch: `l2_builder._apply_relevance_filter` and
+  `dataflow_service.py:367`.
+- `EDGE_SEMANTICS`/`PRODUCTION_EDGES`/`ALWAYS_BIDIR_EDGES`/`_BIDIR` untouched.
+- Module section headers + docstring distinguish the two modes.
+
+## 4. Strict walker rules (compute_field_flow)
+
+- **Node map / adjacency** from graph_data (edge type = `edge_type` or `relationship`).
+- **Field-like vars** (FIELD_LIKE): variable_type ∈ {column, cte_column, literal,
+  aggregate, expression, computed, window, variable}; field part = last dotted
+  label segment == target_field.
+- **Seeds** = field-like vars with `_field_part == target_field` AND
+  (`defined_in == "PARTITION"` OR owner == target_table).
+  Owner resolution (identity-based — never walks SCHEMA edges, whose targets are
+  label-keyed last-writer-wins and topologically broken):
+  1. `source_tables[0]` if present;
+  2. else qualifier (label/sql_expression `X.y` → `X`) → table-like var labeled `X`
+     in the same context, else nearest ancestor context;
+  3. else unqualified → exactly-one same-context table-like var (labels starting
+     `⟐` excluded) — ambiguous → not a seed.
+- **seed_zone(nid)**: BFS from the seeds over FIELD_LAND edges = {REF, TRANSFORM,
+  AGGREGATE, WINDOW, COMPUTED} (both directions, memoized). Field identity flows
+  through these.
+- **Expansion** (visited set keyed by node ID):
+  - FIELD_LAND → admit neighbor (both directions).
+  - ALIAS → admit neighbor iff `neighbor.source_tables[0] == target_table`
+    (excludes p1@TOP0 whose source is loan_final).
+  - FILTER/JOIN → admit neighbor iff seed_zone(current) OR seed_zone(neighbor)
+    (admits the L43 SUBSTR chain's output; excludes the L93/L202/L225 conditions).
+  - DML → forward only (source→target).
+  - **Never walked:** TABLE_FLOW, SUBQUERY, SET_OP, CORRELATED, INDIRECT, SUBSET,
+    SCHEMA (SCHEMA replaced by identity resolution above).
+- **Owner-holder admission** (not an edge): for every admitted field-like var,
+  admit the table-like var it resolves to (per the 3-step rule above) — this puts
+  p1@29, p1@84, the physical bdm_acc_loan_info, and the INSERT target into the
+  closure.
+- **Container (scope-companion) rule:** for every admitted var whose context
+  contains `CTE{X}`, admit the CTE var labeled X (keeps rollover_loan_info and
+  loan_final visible as the scopes that contain the reads).
+
+## 5. Flaw-reduction pass (deltas vs. the earlier draft)
+
+1. **Highlights collapse into the filter** — one rule instead of a duplicated
+   criterion at response assembly: highlights = `[line_start, line_start]` of the
+   closure's field-like vars (node-carried lines, computed by the extractor's
+   comment-skipping line mapper). 202/16/52/118/151/204 are excluded *by
+   construction*; `not_in_flow` → empty highlights.
+2. **Extractor change dropped:** qualified columns no longer need
+   `source_tables` — the walker resolves owners via per-instance alias vars
+   (their `source_tables` are already reliable). Smaller diff, less risk.
+3. **Filter rule strengthened:** "seed-class endpoint" → **seed-zone** — admits
+   the SUBSTR chain output but still excludes every foreign-table condition.
+4. **Phantom fix verified** against sqlglot 30.12.0: `walk()` yields a node
+   before evaluating prune, so recording `id(node.this)` at the Subquery/Exists
+   wrapper prunes the Select subtree before any column registers.
+5. **Cache invalidation:** `EXTRACTOR_VERSION` stamped in `run_full_analysis`;
+   graph caches carry `format_version 4` (node data has line_start/line_end);
+   `GRAPH_CACHE_PREFIX → graph_3_2_18`.
+
+## 6. Change list (parallel teams, disjoint files)
+
+| Team | Files | Changes |
+|------|-------|---------|
+| A (foundation) | variable_extractor_v2.py, adapter.py, graph_service.py, cache_keys.py | phantom dedup prune (`Select` id set), PARTITION walk, EXTRACTOR_VERSION + stamp, node line_start/line_end, prefix bump |
+| B (walker) | lineage.py | compute_field_flow + filter_by_field_flow (rules §4), legacy byte-identical, section headers |
+| C (builder) | l2_builder.py, dataflow_service.py | switch to filter_by_field_flow, node-line highlights, P1 MOVE→COPY, alias identity (label, line_start) + "label@line" labels, ctx-aware parent refinement, _survive_join_edges gate, Sync 1/2 stmt_idx-aware, _resolve_scope_parent virtual_table, format_version 4 + extractor_version checks, not_in_flow → empty highlights |
+| D (verification) | tests/, VERSION, CLAUDE.md, BUG_ANALYSIS.md, this wiki | byte-exact assertions, pinned-count updates, docs, version bump — after integration |
+
+## 7. Verification targets
+
+- pytest suite in container (`docker exec gps-sql-backend python3 -m pytest tests/ -v`).
+- Sample probe: closure labels ≈ {data_dt×4 seeds, p1@29, p1@84, bdm_acc_loan_info,
+  bdm_acc_loan_info_sup, rollover_loan_info, loan_final, ⟐subq} (~10 raw → ~8 L2 nodes).
+- Highlights byte-exact `[[18,18],[43,43],[158,158],[160,160]]`.

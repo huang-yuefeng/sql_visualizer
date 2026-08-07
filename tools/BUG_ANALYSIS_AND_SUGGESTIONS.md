@@ -3032,3 +3032,24 @@ field level, highlights `[[16,16],[43,43],[52,52],[118,118],[151,151],[160,160],
 | 2/8 join-key expressions unpaired | ✅ **IMPLEMENTED** — `_pair_join_key_sides` deferred cross-link in `variable_extractor_v2.py:1107-1145`; now 0/8 unpaired (test `test_bdm_sample_join_key_expressions_all_paired`) |
 | `_seen` annotation + dangling test ref | ✅ **IMPLEMENTED** — `set[tuple[str, str, str]]`; `test_l2_table_dedup.py:133` comment points at `test_b_series_l2.py::test_c9_per_statement_dedup` |
 | RELEASE.txt stale | ✅ **Regenerated** — `VERSION=3.3.139`, `BUILT=2026-08-06 22:17:07 +0900`; COMMIT fixed to the integration commit hash |
+
+---
+
+## v3.3.140 — STRICT TABLE.FIELD DATA FLOW + STATEMENT-ANCHORED LINES (2026-08-07, 4-team round)
+
+Requirement change (user): L2 must show **exact table.field data flow** instead of
+table-level flow. The legacy path (`compute_field_lineage`/`filter_relevant` in
+`lineage.py`) is kept **byte-identical** for L1 + legacy consumers; the new strict
+walker (`compute_field_flow`/`filter_by_field_flow`, `lineage.py:523-680`) runs only on
+the L2 path (`l2_builder.py:_apply_relevance_filter`). Design: wiki/SOLUTION_DESIGN.md
+§v3.3.140.
+
+| Item | Status |
+|---|---|
+| Strict walker | ✅ `FIELD_LIKE`/`FIELD_LAND`/`NEVER` sets; seed = searched table.field identity (per-instance var); expand only where the field participates; ALIAS iff neighbor.source_tables[0]==target; FILTER/JOIN iff seed-zone endpoint; DML forward-only; owner resolution via source_tables[0] → qualifier label → unique same-context table-like var; container rule (CTE admit); identity admissions to fixpoint (`lineage.py`) |
+| Phantom dedup (raw-walk re-registration) | ✅ `_explicitly_walked_selects` prune — subquery-interior columns registered ONCE, in their own scope (`variable_extractor_v2.py:1222,1238,1248`); sample1: 344→253 vars, 1102→660 deps, bdm_acc_loan_info 4→3 contexts, 8→7 JOIN ON exprs (one phantom duplicate removed) |
+| Partition walk | ✅ bare `INSERT ... PARTITION(...)` parses onto the **Table** node; registers bare `exp.Column` AND `exp.EQ`(Column left) partition exprs (`data_dt='$(load_date)'` and `CHARGE_DEPARTMENT` both land on L160) |
+| Line-mapping bug (root cause of wrong highlights) | ✅ `map_variables_to_lines`/`_find_position` were **first-occurrence text scans** — p1.data_dt@158→43, alias p1@84→29, CHARGE_DEPARTMENT@160→44. Fixed: statement anchors recorded at `_walk_select/_walk_insert/_walk_merge/_walk_create` tops (`_record_stmt_anchor`); `_find_position_scoped` text-searches expr[:40] within `[anchor, next_anchor)` (nested-context anchors excluded), token-scan fallback, whole-stream fallback; `_add` uses it; `map_variables_to_lines` prefers var-carried `line_start`/`line_end` when > 0 (stale-cache text search kept as D1 fallback). `EXTRACTOR_VERSION = "2026-08-07.2"` |
+| Highlights contract change | ✅ highlights = **single line numbers** `[line,line]` from node-carried `line_start` of the closure's field-like vars (node data now carries `line_start`/`line_end`, `graph_service.py:201-202`; `format_version` 4; cache prefix `graph_3_2_18`) |
+| Verified on BDM_ACC_LOAN_INFO_SUP_M.sql | ✅ seed `bdm_acc_loan_info.data_dt` → closure 13 nodes; highlights `[[18,18],[43,43],[158,158],[160,160]]` **byte-exact** (E2E probe); L2 shows the seed on the physical table, the p1 alias copy (P1 MOVE→COPY), and the INSERT target's partition column; full suite **635 passed / 5 skipped** |
+| Behavior deltas vs 139 (pinned tests updated) | step3 L2 JOIN edges 2→1 (only the seed-side JOIN survives — the seed zone never propagates through a JOIN edge; the mirror key column is a different field instance); data_dt seeds 1→3 (physical + alias copy + target partition, all is_target); subquery outer phantom copies gone (S3/M13 assertions updated); Sync 1 canonical copy may coexist with a same-name CTE field under the merged keeper (C7, distinct original vars) |

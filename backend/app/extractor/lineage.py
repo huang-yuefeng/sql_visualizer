@@ -5,6 +5,10 @@ Provides:
   filter_graph_by_lineage()  — Filter graph nodes/edges by lineage set
   filter_relevant()          — Convenience: compute lineage then filter
 
+Two modes: legacy table-level lineage (compute_field_lineage/filter_relevant,
+L1 + legacy callers) and strict table.field flow (compute_field_flow/
+filter_by_field_flow, L2, v3.3.140+).
+
 Design: This module owns all SQL-semantic algorithms. L1/L2 graph builders
 are thin wrappers in dataflow_service.py that call these functions.
 """
@@ -380,4 +384,286 @@ def filter_relevant(graph_data: dict, target_table: str,
         "nodes": relevant_nodes,
         "edges": relevant_edges,
         "total_filtered": len(nodes) - len(relevant_nodes),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# STRICT TABLE.FIELD FLOW (v3.3.140+) — L2 only
+# New requirement (2026-08-07): exact data flow of table.field, not
+# table-level flow around the field. Legacy compute_field_lineage /
+# filter_relevant above remain the table-level path (L1 + legacy callers,
+# byte-identical). This section is the additive strict walker.
+# Rules: see wiki/SOLUTION_DESIGN.md §"v3.3.140" §4.
+# ═══════════════════════════════════════════════════════════════════════
+
+# Field-like variable types. Verified against backend/app/models/variable.py
+# (VariableType .value strings): the enum has no "computed"/"variable"
+# members — the computed-value types there are case/transform/expression/
+# window, so those are the members used here.
+FIELD_LIKE = {"column", "cte_column", "literal", "aggregate", "expression",
+              "case", "transform", "window"}
+# Field-identity edges: the field itself flows through these (both directions).
+FIELD_LAND = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED"}
+# Never walked by the strict walker. TABLE_FLOW/SCHEMA are replaced by
+# identity resolution (SCHEMA's label-keyed targets are last-writer-wins and
+# topologically broken); SUBQUERY/SET_OP/CORRELATED/INDIRECT/SUBSET carry no
+# field identity.
+NEVER = {"TABLE_FLOW", "SUBQUERY", "SET_OP", "CORRELATED", "INDIRECT", "SUBSET", "SCHEMA"}
+
+
+def _field_part(var):
+    """Last dotted segment of the label — the field name proper."""
+    return str(var.get("label") or "").rsplit(".", 1)[-1]
+
+
+def _table_like(var):
+    """Table-like vars: declared source types, or vars with resolved source_tables."""
+    return (var.get("variable_type") in
+            {"table", "view", "cte", "virtual_table", "subquery"}
+            or bool(var.get("source_tables")))
+
+
+def _context_of(var):
+    return var.get("context") or ""
+
+
+def _owner_index(nodes):
+    """context -> label -> [ids] for table-like vars (identity lookup index)."""
+    idx = {}
+    for n in nodes:
+        nd = n.get("data", n)
+        if not _table_like(nd):
+            continue
+        label = nd.get("label")
+        if not label:
+            continue
+        idx.setdefault(_context_of(nd), {}).setdefault(label, []).append(nd.get("id"))
+    return idx
+
+
+def _find_labeled(label, ctx, idx):
+    """Id of a table-like var labeled `label` in `ctx`, else nearest ancestor
+    context (context is a "/"-separated path; ancestor = rsplit("/", 1)[0],
+    walking up). Returns None if never found."""
+    cur = ctx
+    while True:
+        ids = idx.get(cur, {}).get(label)
+        if ids:
+            return ids[0]
+        if not cur or "/" not in cur:
+            return None
+        cur = cur.rsplit("/", 1)[0]
+
+
+def _resolve_owner_holder(var, nodes, idx=None):
+    """Id of the table-like var that owns `var` (3-step identity rule), or None.
+
+    1. source_tables non-empty -> var labeled source_tables[0] in same context,
+       else nearest ancestor context;
+    2. else if label or sql_expression contains "." (qualified, e.g.
+       "p1.data_dt") -> qualifier = first segment -> table-like var labeled
+       qualifier in same context, else nearest ancestor;
+    3. else (unqualified) -> exactly ONE table-like var in the same context
+       (labels starting "⟐" excluded) -> that var; zero or several -> None.
+    """
+    if idx is None:
+        idx = _owner_index(nodes)
+    ctx = _context_of(var)
+
+    st = var.get("source_tables") or []
+    if st:
+        return _find_labeled(st[0], ctx, idx)
+
+    label = str(var.get("label") or "")
+    if "." in label:
+        return _find_labeled(label.split(".", 1)[0], ctx, idx)
+    expr = str(var.get("sql_expression") or "")
+    if "." in expr:
+        return _find_labeled(expr.split(".", 1)[0].strip(), ctx, idx)
+
+    # unqualified: exactly one table-like var in the same context (⟐ excluded)
+    cands = []
+    for lbl, ids in idx.get(ctx, {}).items():
+        if lbl.startswith("⟐"):
+            continue
+        cands.extend(ids)
+    if len(cands) == 1:
+        return cands[0]
+    return None
+
+
+def _owner_of(var, node_map, idx=None):
+    """Physical owner table of `var`: holder's source_tables[0], or None.
+
+    When the holder IS the physical table itself (its source_tables are empty
+    — it owns, nothing owns it), the holder's own physical identity
+    (table_name, else label) is the owner name."""
+    holder = _resolve_owner_holder(var, node_map, idx)
+    hv = node_map.get(holder) if holder else None
+    if not hv:
+        return None
+    hst = hv.get("source_tables") or []
+    if hst:
+        return hst[0]
+    return hv.get("table_name") or hv.get("label")
+
+
+def _cte_var(name, node_map):
+    """Id of the CTE var (variable_type == "cte") labeled `name`, any context
+    (the one with the longest context if several); None if absent."""
+    best, best_len = None, -1
+    for nid, var in node_map.items():
+        if var.get("variable_type") == "cte" and (var.get("label") or "") == name:
+            ctx = _context_of(var)
+            if len(ctx) > best_len:
+                best, best_len = nid, len(ctx)
+    return best
+
+
+def compute_field_flow(graph_data, target_table, target_field,
+                       table_schemas=None) -> set:
+    """Strict table.field data flow closure (v3.3.140+, L2 only).
+
+    Seeds by exact field identity (per-instance table.field vars owned by
+    target_table, plus PARTITION-defined write-side vars), then expands only
+    where the field itself participates. Returns the set of node ids in the
+    strict closure.
+
+    table_schemas is accepted for signature parity with compute_field_lineage
+    but unused: SCHEMA-based validation is replaced by identity resolution
+    (wiki/SOLUTION_DESIGN.md §"v3.3.140" §4).
+    """
+    if not graph_data:
+        return set()
+    nodes = graph_data.get("nodes", []) or []
+    edges = graph_data.get("edges", []) or []
+
+    node_map = {}
+    for n in nodes:
+        nd = n.get("data", n)
+        node_map[nd.get("id")] = nd
+
+    # adjacency: nid -> [(neighbor, etype, forward)] — forward = nid is the
+    # edge's source. etype from edge_type or relationship.
+    adjacency = {}
+    for e in edges:
+        ed = e.get("data", e)
+        src, tgt = ed.get("source"), ed.get("target")
+        etype = ed.get("edge_type") or ed.get("relationship")
+        adjacency.setdefault(src, []).append((tgt, etype, True))
+        adjacency.setdefault(tgt, []).append((src, etype, False))
+
+    idx = _owner_index(nodes)
+
+    # ── Seeds: field-like vars whose field part is target_field, with
+    # defined_in == "PARTITION" or owner == target_table. ──
+    seeds = set()
+    for nid, var in node_map.items():
+        if var.get("variable_type") not in FIELD_LIKE:
+            continue
+        if _field_part(var) != target_field:
+            continue
+        if var.get("defined_in") == "PARTITION" or _owner_of(var, node_map, idx) == target_table:
+            seeds.add(nid)
+
+    # ── seed_zone: memoized BFS from the seeds over FIELD_LAND edges (both
+    # directions), computed lazily per queried node. Field identity flows
+    # through these edges; used by the FILTER/JOIN admission rule. ──
+    _zone_memo = {}
+
+    def _seed_zone(nid):
+        if nid not in _zone_memo:
+            zone = set()
+            stack = list(seeds)
+            while stack:
+                cur = stack.pop()
+                if cur in zone:
+                    continue
+                zone.add(cur)
+                for (nb, et, _fwd) in adjacency.get(cur, []):
+                    if et in FIELD_LAND and nb not in zone:
+                        stack.append(nb)
+            _zone_memo[nid] = nid in zone
+        return _zone_memo[nid]
+
+    # ── Expansion (visited keyed by node id — the only visited key). ──
+    visited = set(seeds)
+    stack = list(seeds)
+    while stack:
+        nid = stack.pop()
+        for (nb, et, fwd) in adjacency.get(nid, []):
+            if nb in visited:
+                continue
+            if et in FIELD_LAND:
+                admit = True
+            elif et == "ALIAS":
+                nb_var = node_map.get(nb)
+                nb_st = (nb_var or {}).get("source_tables") or []
+                admit = bool(nb_st) and nb_st[0] == target_table
+            elif et in ("FILTER", "JOIN"):
+                admit = _seed_zone(nid) or _seed_zone(nb)
+            elif et == "DML":
+                admit = fwd  # forward only (source -> target)
+            else:
+                admit = False  # NEVER types and anything unknown
+            if admit:
+                visited.add(nb)
+                stack.append(nb)
+
+    # ── Identity admissions over the visited set (repeat until stable — the
+    # closure is small). Not edges: owner-holders, physical tables, CTE
+    # containers. ──
+    changed = True
+    while changed:
+        changed = False
+        for nid in list(visited):
+            var = node_map.get(nid)
+            if not var:
+                continue
+            if var.get("variable_type") in FIELD_LIKE:
+                holder = _resolve_owner_holder(var, nodes, idx)
+                if holder and holder not in visited:
+                    visited.add(holder)
+                    changed = True
+                hv = node_map.get(holder) if holder else None
+                if hv:
+                    hst = hv.get("source_tables") or []
+                    if hst and hst[0]:
+                        tv = _find_labeled(hst[0], _context_of(hv), idx)
+                        if tv and tv not in visited:
+                            visited.add(tv)
+                            changed = True
+            # Container rule: context segments "CTE{...}" -> the CTE var
+            # labeled X (the scope that contains the reads).
+            for seg in _context_of(var).split("/"):
+                if seg.startswith("CTE{") and "}" in seg:
+                    cte_id = _cte_var(seg[4:seg.index("}")], node_map)
+                    if cte_id and cte_id not in visited:
+                        visited.add(cte_id)
+                        changed = True
+    return visited
+
+
+def filter_by_field_flow(graph_data, target_table, target_field,
+                         table_schemas=None) -> dict:
+    """Filter graph to the strict table.field flow closure (v3.3.140+, L2 only).
+
+    Returns a dict identical to graph_data except nodes = those whose id is in
+    the closure, edges = those with both ends in the closure; all other
+    top-level keys are kept. An empty closure yields 0 nodes — the caller
+    handles the not-in-flow case; this never raises.
+    """
+    if not graph_data:
+        return graph_data
+    closure = compute_field_flow(graph_data, target_table, target_field, table_schemas)
+    nodes = graph_data.get("nodes", []) or []
+    edges = graph_data.get("edges", []) or []
+    filtered_nodes = [n for n in nodes if n.get("data", n).get("id") in closure]
+    filtered_edges = [e for e in edges
+                      if (e.get("data", e).get("source") in closure and
+                          e.get("data", e).get("target") in closure)]
+    return {
+        **{k: v for k, v in graph_data.items() if k not in ("nodes", "edges")},
+        "nodes": filtered_nodes,
+        "edges": filtered_edges,
     }

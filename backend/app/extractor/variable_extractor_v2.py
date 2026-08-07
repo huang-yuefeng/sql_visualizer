@@ -30,6 +30,10 @@ from sqlglot.tokens import TokenType
 from app.models.variable import VariableDefinition, VariableType
 
 
+# Bump to invalidate analysis caches when extraction semantics change.
+EXTRACTOR_VERSION = "2026-08-07.2"
+
+
 # ── Orphan resolution (R20) constants ─────────────────────────────────
 
 # S5: sentinel attribution for columns resolved to a system schema
@@ -456,6 +460,10 @@ class _RoleBasedExtractor:
         # alias; a table name = the output is an S1 alias of a plain column.
         self._derived_output_columns: dict[str, dict] = {}
         self._subq_counter: int = 0  # unique subquery IDs
+        # Select bodies already walked by the explicit Subquery/Exists
+        # branches (with their own subq{N}/exists{N} contexts) — the raw
+        # walk prunes them so no phantom outer-context copies are registered.
+        self._explicitly_walked_selects: set = set()
         # S4a (Phase 2, auto-resolution): SELECT-side schema enrichment state.
         # `script_schemas` = canonical table → {column: evidence_line};
         # `schema_candidates` = STILL-UNRESOLVED bare columns in ≥2-table
@@ -479,6 +487,10 @@ class _RoleBasedExtractor:
         # string-literal caveat — `_find_position` returns the FIRST token
         # equal to the name, which a string literal on an earlier line beats).
         self._anchor_cache: dict[int, int] = {}
+        # Context-prefix → statement first-token line: recorded at each
+        # statement-walk entry so `_find_position_scoped` can scope line
+        # lookups to the variable's own statement (D-series).
+        self._stmt_anchor_lines: dict[str, int] = {}
         # C-13(b): AS-filtered token stream + first-token position index,
         # built ONCE per analysis. `_statement_anchor` scans the index
         # candidates instead of rebuilding the filtered list and linearly
@@ -539,6 +551,9 @@ class _RoleBasedExtractor:
         is unique enough that the first match is its own occurrence, and
         the match is exact — no text search, no string-literal confusion.
         Returns 0 when no match is found (callers fall back conservatively).
+        A leading WITH clause renders as a prefix and is stripped before
+        matching — the anchor is the statement's OWN first token (the
+        INSERT/SELECT keyword line), never the WITH line.
         """
         key = id(expr)
         cached = self._anchor_cache.get(key)
@@ -551,6 +566,22 @@ class _RoleBasedExtractor:
             # benign: render failure → no anchor (0); callers fall back
             # conservatively (documented in the docstring).
             stmt_sql = ""
+        if stmt_sql and (expr.args.get("with") is not None
+                         or expr.args.get("with_") is not None):
+            # The WITH clause is a modifier on the statement ("WITH cte AS
+            # (...) INSERT ..."); the statement's own first token is the one
+            # AFTER it. Strip the with args from a copy so the anchor lands
+            # on the statement keyword itself — otherwise a WITH-wrapped
+            # INSERT anchors at the WITH line and its scoped lookup range
+            # collapses to the with clause (D-series).
+            try:
+                stripped = expr.copy()
+                stripped.args.pop("with", None)
+                stripped.args.pop("with_", None)
+                stmt_sql = stripped.sql(dialect="mysql")
+            except Exception:
+                # benign: strip failure → keep the with-prefixed render.
+                pass
         if stmt_sql:
             try:
                 rendered = list(sqlglot.Tokenizer().tokenize(stmt_sql))
@@ -608,6 +639,68 @@ class _RoleBasedExtractor:
         self._anchor_cache[key] = line
         return line
 
+    def _record_stmt_anchor(self, context: str, stmt) -> None:
+        """Record the first-token line of the statement walked under `context`."""
+        if context and self._stmt_anchor_lines.get(context, 0) == 0:
+            line = self._statement_anchor(stmt)
+            if line > 0:
+                self._stmt_anchor_lines[context] = line
+
+    def _stmt_anchor_for(self, context: str) -> int:
+        """Longest recorded context that is a '/'-segment prefix of `context`."""
+        best, best_len = 0, -1
+        for ctx, line in self._stmt_anchor_lines.items():
+            if line <= 0:
+                continue
+            if context == ctx or context.startswith(ctx + "/"):
+                if len(ctx) > best_len:
+                    best, best_len = line, len(ctx)
+        return best
+
+    def _next_anchor_after(self, line: int, context: str = "") -> int:
+        """Smallest recorded anchor line > `line` from a context that is NOT
+        nested inside `context`. Nested statements (subquery/derived-table
+        bodies walked under `context`/`context/...`) must not truncate the
+        range: a var may legitimately sit anywhere inside its OWN statement,
+        including after a nested body's anchor (e.g. the loan_final-body
+        WHERE at line 158 sits after the :join:accu body anchor at 86 — the
+        next non-nested anchor is the following statement's 160)."""
+        def _nested(ctx: str) -> bool:
+            return (ctx == context or ctx.startswith(context + "/")
+                    or ctx.startswith(context + ":"))
+        return min((a for c, a in self._stmt_anchor_lines.items()
+                    if a > line and not _nested(c)), default=10**9)
+
+    def _find_position_scoped(self, name: str, sql_expr: str, context: str) -> tuple[int, int]:
+        """Statement-scoped line lookup within [stmt_anchor, next_anchor).
+
+        Whole-stream first-occurrence scans map repeated names/expressions to
+        the WRONG statement (e.g. the loan_final-body `p1.data_dt` read at line
+        158 → first 'p1.data_dt' text is line 43; the L84 alias
+        'bdm_acc_loan_info p1' → line 29). Scoping to the var's statement fixes
+        them. Order: (1) text search of sql_expr[:40] in the line range;
+        (2) token scan for the bare name in the same range; (3) fallback to
+        the whole-stream _find_position (old behavior — anchor not recorded).
+        """
+        anchor = self._stmt_anchor_for(context)
+        if anchor <= 0:
+            return self._find_position(name, sql_expr)
+        end = self._next_anchor_after(anchor, context)
+        search_key = (sql_expr or "").strip()[:40]
+        if search_key:
+            lines = self.sql_text.split("\n")
+            for i in range(anchor - 1, min(end, len(lines))):
+                if search_key in lines[i]:
+                    return (i + 1, i + 1)
+        try:
+            search = name.lower()
+            for tok in self._tokens:
+                if anchor <= tok.line < end and tok.text.lower() == search:
+                    return (tok.line, tok.line)
+        except Exception:
+            pass
+        return self._find_position(name, sql_expr)
+
     def _add(self, name: str, var_type: VariableType, sql_expr: str = "",
              defined_in: str = "", context: str = "TOP",
              source_cols: list[str] | None = None,
@@ -638,7 +731,7 @@ class _RoleBasedExtractor:
         self._seen.add(key)
 
         vid = self._next_id(f"{context}:{name}")
-        ls, le = self._find_position(name, sql_expr)
+        ls, le = self._find_position_scoped(name, sql_expr, context)
         var = VariableDefinition(
             id=vid, name=name, variable_type=var_type,
             sql_expression=sql_expr,
@@ -665,11 +758,10 @@ class _RoleBasedExtractor:
         marked-expected entries. Names are deduped, creation order kept.
 
         A name counts as unresolved only if NO COLUMN var with that name
-        carries attribution: subquery-interior columns are registered TWICE
-        (their own scope context + a raw-walk phantom copy in the outer
-        context — historical behavior, kept for BELONGS_TO edges). The
-        phantom is guarded from attribution by `_in_scope_owner` and must
-        not make an already-attributed field look orphaned in the report.
+        carries attribution: subquery-interior columns are registered ONCE,
+        in their own subquery-scope context (the raw walk prunes re-descent
+        into explicitly walked Select bodies — no phantom outer-context
+        copies since v3.3.140).
 
         C4a (R20 contract unification): additionally emits `resolved`
         (total − unresolved), `unresolved_count`, `coverage_pct`
@@ -816,6 +908,10 @@ class _RoleBasedExtractor:
         source tables differ, so two-hop output attribution is suppressed
         (q71 — one-hop to the derived alias only, never a guess).
         """
+        # D-series: record this statement's first-token line BEFORE scope
+        # creation so every var registered under `context` scopes its line
+        # lookup to [this anchor, next anchor).
+        self._record_stmt_anchor(context, select)
         # R20: per-statement scope — tables/aliases/CTEs this statement sees.
         scope = _SelectScope(owner=select)
         output_container = None  # what expression outputs attribute to (S2)
@@ -1190,13 +1286,17 @@ class _RoleBasedExtractor:
         """Walk an expression tree: register columns AND nested table aliases."""
         if expr is None:
             return
-        # M4: prune descent into set-op subquery/EXISTS bodies — the explicit
-        # branches below walk them (with their own branch scopes), so the raw
-        # walk must not ALSO descend and re-register every branch column in
-        # the outer context (context-keyed vars → double count, inflated
-        # total_columns). Select-body subqueries are deliberately UNTOUCHED
-        # (their outer-context phantom copies are historical behavior kept
-        # for BELONGS_TO edges).
+        # M4: prune descent into subquery/EXISTS bodies — the explicit
+        # branches below walk them ONCE with their own contexts
+        # (subq{N}/exists{N}), so the raw walk must not ALSO descend and
+        # re-register every branch column in the outer context
+        # (context-keyed vars → double count, inflated total_columns,
+        # phantom outer-context copies like "p1@subq3"). This covers both
+        # set-op bodies and Select bodies: walk() yields a node BEFORE
+        # evaluating prune for it and the Subquery/Exists wrapper is yielded
+        # before its Select child, so recording the Select at the wrapper
+        # guarantees the raw walk prunes that subtree before any column
+        # inside it is registered.
         for node in expr.walk(
                 prune=lambda n: (
                     isinstance(n, (exp.CTE,))
@@ -1205,7 +1305,9 @@ class _RoleBasedExtractor:
                                                 exp.Except)))
                     or (isinstance(n, exp.Exists)
                         and isinstance(n.this, (exp.Union, exp.Intersect,
-                                                exp.Except))))):
+                                                exp.Except)))
+                    or (isinstance(n, exp.Select)
+                        and id(n) in self._explicitly_walked_selects))):
             if isinstance(node, exp.Column):
                 self._register_column(node, context, defined_in, scope)
             # Walk INTO subqueries — fully process inner SELECT.
@@ -1217,6 +1319,11 @@ class _RoleBasedExtractor:
             # context, where `_in_scope_owner` correctly refused attribution.
             elif isinstance(node, exp.Subquery):
                 if isinstance(node.this, exp.Select):
+                    # record BEFORE _walk_select: the raw walk's prune is
+                    # evaluated when the wrapper's Select child is reached
+                    # (after this wrapper is yielded), so the subtree is
+                    # skipped there and only the explicit walk registers it.
+                    self._explicitly_walked_selects.add(id(node.this))
                     self._subq_counter += 1
                     self._walk_select(node.this, f"{context}/subq{self._subq_counter}", is_cte=False)
                 elif isinstance(node.this, (exp.Union, exp.Intersect, exp.Except)):
@@ -1226,6 +1333,7 @@ class _RoleBasedExtractor:
             elif isinstance(node, exp.Exists):
                 # EXISTS wraps a Select directly (not a Subquery)
                 if isinstance(node.this, exp.Select):
+                    self._explicitly_walked_selects.add(id(node.this))
                     self._subq_counter += 1
                     self._walk_select(node.this, f"{context}/exists{self._subq_counter}", is_cte=False)
                 elif isinstance(node.this, (exp.Union, exp.Intersect, exp.Except)):
@@ -1857,6 +1965,9 @@ class _RoleBasedExtractor:
 
     def _walk_merge(self, merge: exp.Merge, context: str):
         """Walk a MERGE statement."""
+        # D-series: record the merge's own anchor first so all its vars
+        # (target, USING, ON, WHEN) scope line lookups to this statement.
+        self._record_stmt_anchor(context, merge)
         # M3b: the merge ON/WHEN walks get a real scope so qualified refs
         # resolve via scope/script alias maps and evidence lines anchor to
         # the merge statement itself.
@@ -1922,6 +2033,10 @@ class _RoleBasedExtractor:
 
     def _walk_insert(self, insert: exp.Insert, context: str):
         """Walk an INSERT statement (INSERT INTO ... SELECT/VALUES)."""
+        # D-series: record BEFORE the into/target and PARTITION registration
+        # — the partition vars must resolve against the INSERT's anchor
+        # (line 160), not the source SELECT's (161), so first-recording wins.
+        self._record_stmt_anchor(context, insert)
         into = insert.args.get("into") or insert.args.get("this")
         if isinstance(into, exp.Schema):
             # S4a source 2: INSERT INTO t (a,b) — the target column list is
@@ -1938,6 +2053,9 @@ class _RoleBasedExtractor:
                         self._script_schemas.setdefault(
                             target_canon, {}).setdefault(cname, stmt_line)
             into = into.this
+        # name is defined by the Table branch below; init defensively so the
+        # PARTITION registration never hits a NameError for exotic targets.
+        name = ""
         if isinstance(into, exp.Table):
             # Register target with INSERT marking (not default "FROM")
             name = _clean(into.name or "")
@@ -1950,6 +2068,36 @@ class _RoleBasedExtractor:
                               sql_expr=f"{name} AS {alias}",
                               defined_in="INSERT", context=context,
                               source_tables=[name])
+        # v3.3.140: INSERT-with-partition target columns become column vars
+        # (e.g. INSERT OVERWRITE TABLE t PARTITION(data_dt='$(load_date)',
+        # CHARGE_DEPARTMENT)) so the write side seeds table.field flow.
+        # NOTE: sqlglot parses a bare PARTITION(...) after the target table
+        # onto the TABLE node (verified 30.8.0/30.12.0, all dialects);
+        # Insert.partition is only the Hive-style PARTITION BY clause — check
+        # both locations so the write-side seed exists regardless of form.
+        part = insert.args.get("partition")
+        if not isinstance(part, exp.Partition) and isinstance(into, (exp.Table, exp.Schema)):
+            part = into.args.get("partition")
+        if isinstance(part, exp.Partition) and name:
+            for part_expr in (part.expressions or []):
+                col = None
+                if isinstance(part_expr, exp.Column):
+                    col = part_expr
+                elif isinstance(part_expr, exp.EQ) and isinstance(part_expr.left, exp.Column):
+                    col = part_expr.left
+                if col is not None:
+                    pname = _clean(col.name or "")
+                    if pname:
+                        # sql_expr is the COLUMN, not the whole EQ: the text
+                        # search in _find_position_scoped is a spacing-
+                        # sensitive raw-substring match, and the rendered
+                        # "data_dt = '$(load_date)'" never occurs verbatim in
+                        # the source ("PARTITION(data_dt='$(load_date)', …)").
+                        # The bare column text does — same convention as
+                        # _register_column.
+                        self._add(pname, VariableType.COLUMN, sql_expr=_sql(col),
+                                  defined_in="PARTITION", context=context,
+                                  source_tables=[name])
         # Walk the source SELECT (INSERT INTO ... SELECT)
         expr = insert.args.get("expression")
         if expr and isinstance(expr, (exp.Select, exp.Union)):
@@ -1971,6 +2119,9 @@ class _RoleBasedExtractor:
 
     def _walk_create(self, create: exp.Create, context: str):
         """Walk a CREATE statement (TABLE, VIEW, MATERIALIZED VIEW, CTAS)."""
+        # D-series: record the CREATE's own anchor first so its vars
+        # (table, DDL columns, CTAS body) scope to this statement.
+        self._record_stmt_anchor(context, create)
         kind = str(create.args.get("kind", "")).upper()
         table_expr = create.args.get("this")
         name = _clean(table_expr.name or "") if table_expr and isinstance(table_expr, exp.Table) else ""

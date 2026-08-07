@@ -195,9 +195,10 @@ JOIN bdm_evt_loan_trans p2
 
 def test_bdm_sample_join_key_expressions_all_paired():
     """Regression: in the real BDM sample, every JOIN ON expression side
-    (8/8) records its counterpart — the two expression=expression CONCAT
+    (7/7) records its counterpart — the two expression=expression CONCAT
     comparisons used to leave the first-materialized side with EMPTY
-    source_variables."""
+    source_variables. (v3.3.140: 8 → 7 — the phantom-dedup removed one
+    raw-walk duplicate registration.)"""
     sample = (BACKEND_DIR.parent / "samples" / "sql_sample_v1"
               / "BDM_ACC_LOAN_INFO_SUP_M.sql")
     if not sample.exists():
@@ -206,7 +207,7 @@ def test_bdm_sample_join_key_expressions_all_paired():
     exprs = [v for v in res.variables
              if v.variable_type == VariableType.EXPRESSION
              and (v.defined_in or "").upper() == "JOIN ON"]
-    assert len(exprs) == 8, f"expected 8 JOIN ON expressions: {exprs}"
+    assert len(exprs) == 7, f"expected 7 JOIN ON expressions: {exprs}"
     empty = [e.name for e in exprs if not e.source_variables]
     assert empty == [], f"JOIN ON expressions with empty source_variables: {empty}"
 
