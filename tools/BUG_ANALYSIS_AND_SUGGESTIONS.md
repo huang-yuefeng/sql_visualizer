@@ -3269,3 +3269,57 @@ Verified: data_dt@160→bdm_acc_loan_info_sup@160 (max<=160; p1@162 excluded), d
 (<=213), ods_hub_lsacmsp@33→bdm@29 (tie vs p1@29 broken by empty source_tables).
 Also: alias_of keyed by VariableDefinition.id (:104, exists); VariableDependency.containment
 (:126, already exists) reused as the I5 tag — no new fields needed.
+
+## v3.3.145 — I2 EXPECTATION NOT MET: alias nodes empty in L2, dropped from filtered closure (2026-08-08, post-deploy review)
+
+### Finding (live-verified on 3.3.145, workspace 7d219a9100e1, BDM_ACC_LOAN_INFO_SUP_M.sql)
+
+The I2 requirement's stated expectation is NOT met. Requirement text (v3.3.141:3098):
+"Expectation: p1@67 shows ITS OWN reads (lending_ref@67, data_dt@158); p1@29 shows its
+own (data_dt@43, ...); no cross-alias field merge" — and the v3.3.143 solution's own
+verification: "every p1.x field resolves to its own-scope alias (43→p1@29, 158→p1@67,
+TOP0→p1@162)".
+
+Measured on the live API:
+- FULL L2 (search_matched=false mode): 16 alias nodes (p1@29, p1@84, p2@116, a@52, ...)
+  — ALL render with **0 field children** (empty shells).
+- Physical nodes hold everything: bdm_acc_loan_info 13 children (reads from rollover's
+  scope AND loan_final's p1 reads merged), bdm_acc_loan_info_sup 20, loan_final 23.
+- FILTERED L2 (search bdm_acc_loan_info.data_dt): 7 nodes / 5 edges — **no alias node
+  at all**; closure (strict walker) = 11 nodes: the 4 data_dt seeds + FILTER targets
+  (loan_final@64, ⟐subq@0) + identity admissions (owner-holders bdm@16/29/84/sup@160,
+  CTE containers rollover_loan_info@9/loan_final@64).
+
+Conclusion: the ORIGINAL I2 symptom ("p1 renders with ZERO field children") persists in
+a new form — fields moved from "wrong-alias by first-match (p1@29)" to "physical node,
+all scopes merged". The "no cross-alias field merge" promise is unmet, and the filtered
+view lost alias visibility entirely (pre-145: p1@29/p1@67 in the 13-node closure).
+
+### Root-cause chain (why it happened)
+
+1. I2 attribution implemented as specified: `source_tables = [_resolve_alias(table, scope)]`
+   → qualified field carries the PHYSICAL table name.
+2. L2 field attachment ("existing src_tables branch") attaches by source_tables[0] →
+   the physical-table compound node — NOT the own-scope alias node. The brief's
+   assumption ("158→p1@67" via simulation) was never validated against the real branch.
+3. Strict walker (v3.3.140): owner resolution = source_tables[0] → physical table;
+   SCHEMA ∈ NEVER (lineage.py:411) — fields land on owners via the identity pass, and
+   alias nodes are not owners anymore. ALIAS edge bdm@84→p1@84 exists but bdm@84 enters
+   the closure only post-BFS (identity pass), so the edge is never traversed.
+4. Verifier (A6) judged the alias-drop "legitimate I2 consequence, not a regression" —
+   checked closure counts only, never against the requirement's expectation text.
+
+### Fix direction (essential-perspective, NOT implemented — documentation only per user order)
+
+- L2 compound build: attach each qualified field to its own-scope alias compound node
+  using extraction-time info only — qualifier (var name prefix), context (on the var),
+  alias node identity (the v3.3.139 dedup key `(alias_parent_id, label, alias_line)`
+  already exists). Physical node keeps unqualified reads.
+- Filtered view (optional): walker rule to admit the ALIAS edge from an in-closure
+  physical owner to its same-scope alias (rule at lineage.py:620-623 already admits
+  when nb.source_tables[0]==target_table — owners must enter the BFS-visited set
+  instead of only the post-BFS identity pass, or the alias target must be added
+  alongside its owner in the identity pass).
+- Re-check expectation: after fix, full L2 p1@84 children == loan_final's p1 reads
+  (lending_ref@67/84, data_dt@158...); filtered closure regains p1 nodes; I5 13/17
+  numbers re-verified.
