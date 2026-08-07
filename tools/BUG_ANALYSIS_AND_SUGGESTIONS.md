@@ -3078,3 +3078,75 @@ Both answered with probe evidence — see below for the two **suggestions** rais
 | **S1 — L2 field-attribution gap for qualified columns** | `_register_column` (:1379) registers qualified columns (`p1.data_dt`) with EMPTY `source_tables` (R20 `if table:` branch returns early; S2/S3 is unqualified-only by design). L2 `_classify_compound_nodes` then falls back to the label-prefix `p1` → FIRST matching p1 compound (p1@29, registration order) → the 43 AND 158 reads both attach to p1@29; the `(parent, label, stmt_idx=None)` dedup collapses 158 into 43's field node (`merged_original_ids`). Net: p1@67 renders with ZERO field children; only 3 of the 4 data_dt fields materialize in L2; the 158 occurrence survives only as highlight `[158,158]` + a merged id. C5's scope-picking (`_pick_scope_candidate`) is NOT applied to the prefix branch (only to the src_tables branch) | Extend C5 scope-picking to the label-prefix branch (`label.split(".")[0]` → `_pick_scope_candidate(field_ctx, prefix-candidates)`), or attribute qualified columns in R20 (owner = qualifier label → alias_map). Verify against the pinned lending_ref 12-field count — scope-splitting same-named fields across alias instances is exactly what C5's docstring warns about, so test counts may shift |
 | **S2 — SUBSET BRIDGE artifacts target the first CTE** | Phase 8 of dependency_graph (:458-473, "ensure ≥2 edges for non-table nodes") glues under-connected reads to the first TABLE-type anchor of the main component — `data_dt` vars at L93 (accu subq, loan_final ctx), L160 (PARTITION), L213 (main SELECT output) all got `data_dt→rollover_loan_info` SUBSET edges although none of those reads is inside rollover. Display noise in the L2 view (edges pointing at an unrelated CTE) | Consider scope-aware anchor selection for Phase 8 (prefer same-context / enclosing-context TABLE anchors before the global first-match), or drop BRIDGE edges when the read already has ≥2 real edges |
 | **S3 — p1@67 node label was the alias-line bug (v3.3.140)** | the loan_final p1 alias (def L84) resolved to L67 (first name occurrence — AS-composition bug); L2 alias label `p1@67` and the ALIAS edge range [67,14,67,30] displayed the wrong line | Fix designed (definition-line refactor: keyword-anchored token scan FROM + name [AS] alias → L84; census of all 23 `_add` sites: 20 definition-anchored / 3 occurrence-anchored) — **implementation deferred, waiting for user order** |
+
+---
+
+## v3.3.142 — BDM_ACC_LOAN_INFO_SUP_M.sql: CONSOLIDATED ISSUE LIST (2026-08-07, analysis-only round)
+
+User asked for all existing issues on this script, each with: symptom → SQL-anchored
+reason → solution → expectation. Consolidates S1/S2/S3 (v3.3.141) + the artifact
+findings from the full-flow listing round. Analysis only — no source changes.
+
+### I1 — Alias definition-line bug: `p1` shows @67, defined @84 (family: S3)
+| | |
+|---|---|
+| Symptom | L2 alias node label `p1@67`; ALIAS edge range starts L67. Definition is L84 |
+| SQL reason | `FROM bdm_acc_loan_info p1` (L84) has an IMPLICIT alias (no `AS`). `_register_table` (:1055-1058) composes `"bdm_acc_loan_info AS p1"` — never matches → falls back to FIRST occurrence of the table name → `,p1.lending_ref` (L67). Same family: derived-table aliases `accu@75` (def ~L94 `) accu ON …`), `branch@72` (def ~L104), `p2@40` (def ~L119), `p4@74` (def ~L150) — registered with the whole SELECT as sql_expr → text search impossible → first occurrence |
+| Solution | Definition-line refactor (designed, census of all 23 `_add` sites: 20 definition-anchored / 3 occurrence-anchored): keyword-anchored token scan (FROM/JOIN/CTE/INSERT/UPDATE/MERGE + name [AS] alias) resolved in the extraction walk, `_find_position_scoped` demoted to fallback. **Deferred — awaiting user order** |
+| Expectation | Labels/edges/highlights on the DEFINITION line: `p1@84`, `accu@94`, `branch@104`, `p2@…`, `p4@…`; the alias line contains both table name and alias name |
+
+### I2 — L2 field-attribution gap: p1@67 renders with ZERO field children (family: S1)
+| | |
+|---|---|
+| Symptom | loan_final's p1 shows no fields although it reads `p1.data_dt` (L158) and `p1.lending_ref` (L67); both reads attach to p1@29 instead |
+| SQL reason | Qualified columns (`p1.data_dt`) are registered by `_register_column` (:1379) with EMPTY `source_tables` (R20 `if table:` branch early-returns; S2/S3 unqualified-only). L2 `_classify_compound_nodes` falls to label-prefix FIRST match → p1@29 for BOTH the 43 and 158 reads; dedup key `(parent, label, stmt_idx=None)` collapses 158 into 43's node. C5's scope-picking is NOT applied to the prefix branch |
+| Solution | Attribute qualified columns in R20 (qualifier → alias_map → source_tables), OR extend `_pick_scope_candidate` scope-distance to the label-prefix branch |
+| Expectation | p1@67 shows ITS OWN reads (`lending_ref@67`, `data_dt@158`); p1@29 shows its own (`data_dt@43`, `lending_ref@26`, `loan_maturity_dt@27`); no cross-alias field merge |
+
+### I3 — SUBSET BRIDGE artifacts: unrelated reads get edges to rollover_loan_info (family: S2)
+| | |
+|---|---|
+| Symptom | `data_dt@93` (accu's own read, loan_final ctx), `data_dt@160` (PARTITION), `data_dt@213` (TOP1), `rrcdm@211` — all carry SUBSET edges → rollover_loan_info though none is inside rollover (L9-63) |
+| SQL reason | Phase 8 (dependency_graph.py:458-473) "ensure ≥2 edges for non-table nodes" safety-net picks the FIRST TABLE anchor of the main component, which is rollover_loan_info@9 |
+| Solution | Scope-aware anchor selection (same / enclosing context first), or skip the bridge when the node already has ≥2 real edges |
+| Expectation | No cross-CTE SUBSET bridge edges; L2 shows only real reads |
+
+### I4 — ALIAS cross-product: 6 edges instead of 3; cross-statement `sup@223 → p2@181`
+| | |
+|---|---|
+| Symptom | `bdm_acc_loan_info@16/@29/@84` each connect to BOTH `p1@29` and `p1@67` (6 ALIAS edges); the TOP1 read `bdm_acc_loan_info_sup@223` also connects to the TOP0 alias `p2@181` |
+| SQL reason | Alias map keyed by name only — no scope/statement: every physical read of a table connects to every same-name alias whose `source_tables` matches. Three reads of bdm (L16/L29/L84) × two p1 aliases (L29/L84) = 6; sup read at L223 × p2@181 = cross-statement |
+| Solution | Scope the alias edges (physical read and alias must share context / statement) |
+| Expectation | Exactly the real pairs: `bdm@16→p1@29`, `bdm@29→p1@29`, `bdm@84→p1@67`, `sup@160→p2@181`, `sup@223→(TOP1 alias if any)` |
+
+### I5 — SCHEMA containment edge inside the field-flow closure
+| | |
+|---|---|
+| Symptom | `rollover_loan_info@9 → ⟐subq` appears in the data_dt closure — points OUT of rollover, looks like a flow arrow but is containment |
+| SQL reason | SCHEMA edges are emitted for container→nested-VT containment; the strict walker admits every edge with both ends in the closure (pure filter) |
+| Solution | Tag containment separately from field ownership (subtype), exclude containment from closure edges / L2 flow display (nesting already shows it) |
+| Expectation | data_dt closure 13→12 nodes / 18→17 edges without the containment edge; no outward "flow" arrows from a CTE to its own subqueries |
+
+### I6 — data_dt cut at ⟐subq: CORRECT by design (documented, not a bug)
+| | |
+|---|---|
+| Symptom | rollover_loan_info's data flow shows no p1 / no data_dt — the chain stops at the subquery |
+| SQL reason | v3.3.140 decision 21 (exact table.field semantics): the subq OUTPUT is `SELECT DISTINCT lending_ref, loan_maturity_dt` (L26-27) — data_dt never appears in it, so no SUBSET edge carries data_dt into rollover. PROOF: searching `lending_ref` restores the full chain (26 nodes / 48 edges) |
+| Solution | None (correct). Optional: surface a hint "field filtered out by subquery output" in UI |
+| Expectation | For data_dt the cut is CORRECT; the table-level chain `bdm→p1@29→⟐subq→⟐subq1→rollover` exists (L1 / table-level flow); lending_ref/loan_maturity_dt are the fields that actually flow through |
+
+### I7 — Partition constant has no incoming edge (minor / informational)
+| | |
+|---|---|
+| Symptom | Target partition `data_dt@160` has no source edge (appears in closure only via the wrong I3 bridge); 15 DML edges cover the SELECT columns only |
+| SQL reason | `PARTITION(data_dt='$(load_date)')` (L160) is a literal constant — no source column exists |
+| Solution | Optional: emit a literal-source edge (REF from the literal var) or document partition constants as literal-fed |
+| Expectation | Either a visible "source = '$(load_date)' @160" on the partition column, or at minimum no misleading bridge edge |
+
+### Context notes (real script behavior, NOT bugs)
+- `p2@181` reads `bdm_acc_loan_info_sup` (the INSERT's own target) — the script genuinely self-reads the target (L204 LEFT JOIN context).
+- `p1@162` in TOP0 aliases `loan_final` (not bdm_acc_loan_info) — main-statement `p1.data_dt` reads are therefore correctly EXCLUDED from the bdm_acc_loan_info.data_dt flow.
+- The 4 data_dt reads of bdm_acc_loan_info are L18 / L43 / L158 / L160(partition) — highlights `[[18,18],[43,43],[158,158],[160,160]]` byte-exact; L93's `data_dt` belongs to bdm_gdc_label_fin (different table) and is correctly excluded.
+
+### Fix order proposal (when authorized)
+1. I1 definition-line refactor (unblocks I2's attribution? no — I2 independent) — actually: 1. I2 (field attribution, small: R20 or C5), 2. I4 (scope alias edges), 3. I3 (Phase-8 scope-aware anchor), 4. I1 (definition-line refactor, largest), 5. I5 (containment tag), 6. I7 (literal edge, optional)
