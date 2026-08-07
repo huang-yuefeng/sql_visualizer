@@ -40,6 +40,9 @@ export default function DataFlowApp() {
   // search_matched:false + a message. Absence of search_matched = matched.
   const [l2NotInFlow, setL2NotInFlow] = useState(false);
   const [l2NotInFlowMessage, setL2NotInFlowMessage] = useState(null);
+  // A3: statement-level parse errors from the level2 response
+  // ({stmt_idx, detail}[]; [] when the script parses clean).
+  const [l2ParseErrors, setL2ParseErrors] = useState([]);
   const [highlights, setHighlights] = useState([]);
   const [sqlHighlightRange, setSqlHighlightRange] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -88,12 +91,15 @@ export default function DataFlowApp() {
     const notInFlow = result.search_matched === false;
     setL2NotInFlow(notInFlow);
     setL2NotInFlowMessage(notInFlow ? (result.message || null) : null);
+    // A3: parse_errors is a top-level array ({stmt_idx, detail}) — [] when none.
+    setL2ParseErrors(result.parse_errors || []);
   }, []);
 
   // ── Upload & Analyze ──────────────────────────────────────────────
   const handleUpload = useCallback(async (file) => {
     setL1Graph(null); setL2Graph(null); setL2Result(null);
     setL2NotInFlow(false); setL2NotInFlowMessage(null);
+    setL2ParseErrors([]);
     setLoading(true); setError(null);
     try {
       // Clean up old workspace before creating new one
@@ -168,6 +174,7 @@ export default function DataFlowApp() {
     if (!wsId) return;
     setL1Graph(null); setL2Graph(null); setL2Result(null);
     setL2NotInFlow(false); setL2NotInFlowMessage(null);
+    setL2ParseErrors([]);
     setLoading(true); setError(null);
     try {
       const result = await api.searchDataFlow(wsId, table, field);
@@ -285,6 +292,7 @@ export default function DataFlowApp() {
       setGraphLevel('L1');
       setL2Graph(null);
       setL2NotInFlow(false); setL2NotInFlowMessage(null);
+      setL2ParseErrors([]);
       setSqlText('');
       setActiveL1Table(null);
     }
@@ -399,6 +407,7 @@ export default function DataFlowApp() {
     if (activeViewId === viewId) {
       setActiveViewId(null); setL1Graph(null); setL2Graph(null);
       setL2NotInFlow(false); setL2NotInFlowMessage(null);
+      setL2ParseErrors([]);
       setSqlText('');
     }
   }, [wsId, activeViewId]);
@@ -471,6 +480,7 @@ export default function DataFlowApp() {
             onReindex={async () => {
               setL1Graph(null); setL2Graph(null); setL2Result(null);
               setL2NotInFlow(false); setL2NotInFlowMessage(null);
+              setL2ParseErrors([]);
               setLoading(true);
               try {
                 const idxResult = await api.indexWorkspace(wsId, selectedScripts);
@@ -612,6 +622,19 @@ export default function DataFlowApp() {
             </div>
           </div>
           <div className="inline-l2-graph">
+            {/* A3: statement-level parse errors from the level2 response —
+                one line per statement, backend detail shown verbatim. Uses the
+                no-match-banner style; shifts down when the not-in-flow banner
+                is also present so the two never overlap. */}
+            {l2ParseErrors.length > 0 && (
+              <div className="no-match-banner" style={l2NotInFlow ? { top: '44px' } : undefined}>
+                {l2ParseErrors.map(e => (
+                  <div key={e.stmt_idx}>
+                    ⚠️ SQL parse error in statement {e.stmt_idx} — {e.detail || 'check the script syntax'}
+                  </div>
+                ))}
+              </div>
+            )}
             {/* L2 not-in-flow: search field not referenced in this script —
                 backend message shown verbatim above the full-script graph */}
             {l2NotInFlow && (

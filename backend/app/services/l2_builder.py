@@ -25,16 +25,7 @@ from app.extractor.lineage import filter_by_field_flow
 from app.services.sql_range_finder import partition_edge_ranges
 from app.services.sql_range_finder import find_sql_range
 from app.services.cache_keys import GRAPH_CACHE_PREFIX
-
-# v3.3.140: the strict table.field walker's field-like var classes — the
-# vars whose line_start carries the field's own occurrence line (design doc
-# §4 FIELD_LIKE). Members verified against VariableType (models/variable.py):
-# the doc's "computed"/"variable" are not enum members — the actual
-# computed-value members are "case" and "transform".
-FIELD_LIKE_TYPES = frozenset({
-    "column", "cte_column", "literal", "aggregate", "expression",
-    "window", "case", "transform",
-})
+from app.services.highlight_strategies import get_strategy
 
 # ── L2 helper functions ──────────────────────────────────────────────
 
@@ -55,45 +46,14 @@ def _target_field_sc(sc: str, target_field: str) -> bool:
 
 def _compute_highlight_ranges(graph_data: dict, highlight_ids: set,
                                sql_text: str) -> list:
-    """Compute line ranges to highlight from node-carried single lines.
+    """Compute line ranges to highlight — the 'single_line' display strategy.
 
-    v3.3.140: highlights are single line numbers [line, line] taken from
-    the node-carried line_start (computed by the extractor's
-    comment-skipping line mapper) of the closure's field-like vars — the
-    line_map-based computation is gone. Only field-like nodes
-    (FIELD_LIKE_TYPES, or defined_in == "PARTITION") are eligible: the
-    strict table.field closure's field vars are exactly what must light
-    up. graph_data is the FULL graph while highlight_ids come from the
-    filtered graph, so this yields exactly the closure's field lines.
+    v3.3.145: the computation moved to the display-strategy module
+    (highlight_strategies.py); this wrapper keeps the name importable for
+    call sites that predate the registry (dataflow_service resolves via
+    get_strategy() so the level2 `highlight_strategy` param flows).
     """
-    ranges = []
-    for n in graph_data.get("nodes", []):
-        nd = n.get("data", n)
-        if nd.get("id", "") not in highlight_ids:
-            continue
-        vt = nd.get("variable_type", "")
-        if vt not in FIELD_LIKE_TYPES and \
-                (nd.get("defined_in") or "").upper() != "PARTITION":
-            continue
-        line = int(nd.get("line_start") or 0)
-        # D2: (0,0) was the "no line matched" placeholder — highlighting
-        # line 0 would paint the editor's gutter. Never emit it.
-        if line < 1:
-            continue
-        ranges.append([line, line])
-    if not ranges:
-        return []
-
-    # Merge overlapping/adjacent ranges
-    ranges.sort()
-    merged = [ranges[0]]
-    for r in ranges[1:]:
-        last = merged[-1]
-        if r[0] <= last[1] + 1:
-            merged[-1][1] = max(last[1], r[1])
-        else:
-            merged.append(r)
-    return merged
+    return get_strategy("single_line")(graph_data, highlight_ids, sql_text)
 
 
 def _recompute_line_map(var_likes: list, sql_text: str) -> dict:
@@ -189,6 +149,11 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
         # Item 4: cache format version — bump when graph schema changes
         # C9 (v3.3.140): format_version 4 = node-carried line_start/line_end.
         full_graph["format_version"] = 4
+        # v3.3.145: A1 records statement-level parse diagnostics on the
+        # analysis result — ride them on the graph cache so the fast path
+        # (and _build_l2_graph's response) serves the same data. Stale
+        # caches predating this default to [] (no reconstruction).
+        full_graph["parse_errors"] = result.get("parse_errors", [])
         graph_cache_path.write_text(json.dumps(full_graph, default=str))
         # R18: build table_schemas for lineage seed validation
         _table_schemas = infer_table_schemas(
@@ -278,88 +243,6 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
                     direct_ids.add(tgt)
                     queue.append(tgt)
     return target_node_ids, direct_ids
-
-
-def _scope_distance(field_ctx: str, cand_ctx: str):
-    """B3/P1: how close a candidate node's scope context is to a field's.
-
-    0 when the contexts are equal; a positive difference when the
-    candidate's context is a proper prefix of the field's (the candidate is
-    an enclosing scope — the smaller the diff, the closer); None when the
-    contexts are unrelated. The field can only belong to a scope that
-    CONTAINS it, so deeper-than-field candidates never match.
-    """
-    if not field_ctx or not cand_ctx:
-        return None
-    if field_ctx == cand_ctx:
-        return 0
-    if field_ctx.startswith(cand_ctx + "/") or \
-       field_ctx.startswith(cand_ctx + ":"):
-        return len(field_ctx) - len(cand_ctx)
-    return None
-
-
-def _pick_scope_candidate(field_ctx: str, candidates: list):
-    """B3/P1: among same-named compound-node candidates, pick the one whose
-    scope context is nearest the field's context (exact first, then
-    enclosing scopes by distance); ties/fallback keep the previous
-    first-match behavior."""
-    best = None
-    best_dist = None
-    for cand in candidates:
-        d = _scope_distance(field_ctx, cand.get("context", ""))
-        if d is None:
-            continue
-        if best_dist is None or d < best_dist:
-            best = cand
-            best_dist = d
-    if best is not None:
-        return best
-    return candidates[0] if candidates else None
-
-
-def _resolve_scope_parent(nd: dict, table_nodes: dict):
-    """B3: scope/derived-alias parent resolution for unattributed fields.
-
-    A field that carries no source_tables and no qualifying label prefix
-    still belongs to the alias/derived-table scope that DEFINES it — the
-    extractor records that scope in the field's `context`
-    ("CTE{loan_final}", "TOP0:join:p2", "CTE{rollover_loan_info}/subq1", …).
-    Match order (first hit wins):
-      1. the SUBQUERY/derived-table compound node whose context is nearest
-         the field's context (B3/P1: exact equality, then enclosing scopes
-         by distance — the old exact-only rule could never fire for fields
-         nested deeper than the subquery node's own context),
-      2. the CTE compound node named by a "CTE{name}" scope prefix,
-      3. the enclosing scope: walk context segments up ("…/subq1:join:p2" →
-         "…/subq1" → "CTE{…}") and repeat 1–2.
-    Returns the compound table id, or None when no scope matches.
-    """
-    ctx = (nd.get("context") or "").strip()
-    if not ctx:
-        return None
-    segments = ctx.split("/")
-    for cut in range(len(segments), 0, -1):
-        scope_ctx = "/".join(segments[:cut])
-        # 1. nearest-context derived-table / subquery match
-        # C8 (v3.3.140): also match virtual_table — the "⟐ output" class
-        # (SELECT/JOIN result sets) is the same scope-owning class for
-        # fields defined inside it (review item #3 blind spot).
-        candidates = [tn for tn in table_nodes.values()
-                      if tn.get("variable_type") in ("subquery", "virtual_table")]
-        best = _pick_scope_candidate(scope_ctx, candidates)
-        if best is not None and _scope_distance(scope_ctx, best.get("context", "")) is not None:
-            return best["id"]
-        # 2. CTE owner — "CTE{name}" scope: the CTE compound node carries
-        #    the STATEMENT context, so match by the CTE's table name.
-        if scope_ctx.startswith("CTE{"):
-            end = scope_ctx.find("}")
-            cte_name = scope_ctx[4:end] if end > 4 else ""
-            for tid, tn in table_nodes.items():
-                if tn.get("variable_type") == "cte" and \
-                   tn.get("table_name") == cte_name:
-                    return tn["id"]
-    return None
 
 
 def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
@@ -523,9 +406,9 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 "table_name": label,
                 "variable_type": vt,
                 "original_id": nid,
-                # B3: the extraction context is carried onto the compound
-                # node so scope-based parent fallback can match subquery
-                # nodes by context.
+                # The extraction context rides on the compound node — it is
+                # carried extraction-time info (scopes like
+                # "CTE{loan_final}/subq1"), surfaced in the L2 response.
                 "context": nd.get("context", ""),
             }
             if vt in ("table", "view") and not is_alias:
@@ -538,59 +421,29 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
 
         # ── Column-like nodes → field children ──
         if vt in ("column", "cte_column") or label.count(".") == 1:
-            # Find parent table from source_tables or name prefix
+            # Find parent table from source_tables
+            # I2 (v3.3.145): the extractor's source_tables are exact per
+            # field (set at extraction, incl. the defining alias/derived
+            # scope), so attribution is extraction-time only — the same-name
+            # first-match is pinned and the B3 scope-context picker plus the
+            # label-prefix first-match fallback are gone (dead for
+            # attribution). Seed placement is handled by the seed re-parent
+            # pass instead.
             parent_table_id = None
             if src_tables and len(src_tables) == 1:
                 # Bug 28: Match source table name directly (aliases are now visible nodes)
                 # Try exact match first, then try canonical name if this is an alias
-                # NOTE: the same-name first-match below is INTENTIONAL when
-                # there is exactly ONE candidate — scope-aware picking would
-                # split same-named fields across alias instances (each p2
-                # scope re-owning the JOIN keys), changing field counts the
-                # search results pin (lending_ref 12-field result). C5
-                # (v3.3.140): when MULTIPLE candidate parents share the name
-                # (the same physical table at different contexts/lines — e.g.
-                # the two p1 alias nodes), prefer the candidate whose context
-                # is the nearest ancestor of the field's context
-                # (_pick_scope_candidate); the single-candidate case keeps
-                # the pinned first-match behavior (no reordering). Seed
-                # placement is handled by the B3/P1 seed re-parent pass
-                # instead.
                 src_name = src_tables[0]
-                candidates = [tn for tid, tn in table_nodes.items()
-                              if tn["table_name"] == src_name or tid == src_tables[0]]
-                if candidates:
-                    if len(candidates) == 1:
-                        parent_table_id = candidates[0]["id"]
-                    else:
-                        best = _pick_scope_candidate(nd.get("context", ""), candidates)
-                        parent_table_id = best["id"] if best else candidates[0]["id"]
+                for tid, tn in table_nodes.items():
+                    if tn["table_name"] == src_name or tid == src_tables[0]:
+                        parent_table_id = tn["id"]
+                        break
                 if not parent_table_id:
                     resolved = alias_map.get(src_tables[0], src_tables[0])
                     for tid, tn in table_nodes.items():
                         if tn["table_name"] == resolved:
                             parent_table_id = tn["id"]
                             break
-            if not parent_table_id and "." in label:
-                prefix = label.split(".")[0]
-                # Bug 28: Try prefix directly (aliases are now visible nodes)
-                for tid, tn in table_nodes.items():
-                    if tn["table_name"] == prefix:
-                        parent_table_id = tn["id"]
-                        break
-                if not parent_table_id:
-                    resolved_prefix = alias_map.get(prefix, prefix)
-                    for tid, tn in table_nodes.items():
-                        if tn["table_name"] == resolved_prefix:
-                            parent_table_id = tn["id"]
-                            break
-            if not parent_table_id:
-                # B3: scope-based fallback — a field with no table
-                # attribution and no qualifying prefix still belongs to the
-                # alias/derived-table scope that DEFINES it (the CTE or
-                # subquery owning its context), falling back to the
-                # enclosing scope.
-                parent_table_id = _resolve_scope_parent(nd, table_nodes)
 
             is_target = (nid in target_node_ids)
             is_direct = (nid in direct_ids)
@@ -642,10 +495,6 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                     if tn["table_name"] in src_tables or tid in src_tables:
                         parent_table_id = tn["id"]
                         break
-            if not parent_table_id:
-                # B3: scope-based fallback (same contract as the column
-                # branch) before the old attach-to-first-table fallback.
-                parent_table_id = _resolve_scope_parent(nd, table_nodes)
             if not parent_table_id and table_nodes:
                 # Fallback: attach to first table node
                 _log.warning("L2 fallback: %s (%s) has no source table — attached to first table node '%s'",

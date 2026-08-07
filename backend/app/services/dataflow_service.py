@@ -23,7 +23,8 @@ from app.extractor.variable_extractor_v2 import EXTRACTOR_VERSION
 
 
 from app.services.l1_builder import _build_l1_graph
-from app.services.l2_builder import _build_l2_graph, _compute_highlight_ranges
+from app.services.l2_builder import _build_l2_graph
+from app.services.highlight_strategies import get_strategy
 
 @dataclass
 class SearchView:
@@ -310,9 +311,14 @@ def _filter_l1_by_lineage(l1_graph: dict, target_table: str, target_field: str) 
 
     return {**l1_graph, "nodes": filtered_nodes, "edges": filtered_edges}
 def get_level2_graph(ws_id: str, view_id: str, script_name: str,
-                     table: str, field: str, filter_relevant_nodes: bool = True) -> dict:
+                     table: str, field: str, filter_relevant_nodes: bool = True,
+                     highlight_strategy: str = "single_line") -> dict:
     """Build L2 graph for a script. Loads pre-computed graph cache,
-    applies relevance filter, returns {graph, highlights}."""
+    applies relevance filter, returns {graph, highlights, parse_errors}.
+
+    v3.3.145: `highlight_strategy` selects the display strategy for the
+    response `highlights` (see highlight_strategies.py); unknown names fall
+    back to 'single_line'. Strategies never change the graph itself."""
     ws_dir = get_workspace_dir(ws_id)
     from app.services.logger import api_request, stage_graph
 
@@ -372,7 +378,16 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         # so every on-demand build re-ran the full analysis).
         # C10 (v3.3.140): format_version 4 = node-carried line_start/line_end.
         graph_data["format_version"] = 4
+        # v3.3.145 (case-3): A1 records statement-level parse diagnostics
+        # on the analysis result — stamp them onto the graph cache so the
+        # fast path serves the same data (stale caches default to [] below).
+        graph_data["parse_errors"] = result.get("parse_errors", [])
         graph_cache_path.write_text(json.dumps(graph_data, default=str))
+
+    # v3.3.145 (case-3): parse_errors ride the graph cache (stamped at
+    # write time); stale caches predating this default to [] — no
+    # reconstruction.
+    parse_errors = graph_data.get("parse_errors", [])
 
     # Apply relevance filter (if requested)
     # v3.3.140: the strict table.field flow filter (filter_by_field_flow)
@@ -412,7 +427,10 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
             nd = n.get("data", n)
             highlight_ids.add(nd.get("id", ""))
 
-    highlights = _compute_highlight_ranges(graph_data, highlight_ids, sql_text)
+    # v3.3.145: the display strategy picks the highlight computation —
+    # 'single_line' (default) or 'label_only' (no SQL-panel ranges). The
+    # graph itself is identical either way.
+    highlights = get_strategy(highlight_strategy)(graph_data, highlight_ids, sql_text)
 
     if not l2_result.get("error"):
         # _build_l2_graph returns {nodes, edges, ...} directly, extract graph
@@ -425,6 +443,7 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
             "sql_text": sql_text,
             "graph": l2_graph_data,
             "highlights": highlights,
+            "parse_errors": parse_errors,
             "total_nodes": l2_result.get("total_nodes", len(graph_data.get("nodes", []))),
             "filtered_nodes": l2_result.get("filtered_nodes", len(filtered.get("nodes", []))),
             "total_edges": len(l2_result.get("edges", [])),
@@ -437,13 +456,14 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
                 "Showing the full script graph."
             )
         return response
-    
+
     # Fallback: return raw graph with edge count
     return {
         "script_name": script_name,
         "sql_text": sql_text,
         "graph": filtered,
         "highlights": highlights,
+        "parse_errors": parse_errors,
         "total_nodes": len(graph_data.get("nodes", [])),
         "filtered_nodes": len(filtered.get("nodes", [])),
         "total_edges": len(filtered.get("edges", [])),
