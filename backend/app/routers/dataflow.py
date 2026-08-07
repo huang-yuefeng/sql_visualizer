@@ -264,13 +264,19 @@ async def get_level1(ws_id: str, view_id: str):
 
 @router.get("/workspace/{ws_id}/views/{view_id}/level2")
 async def get_level2(ws_id: str, view_id: str, script: str = Query(...),
-                      filter: bool = Query(True)):
-    """Get L2 per-script graph for a view's script."""
+                      filter: bool = Query(True),
+                      highlight_strategy: str = Query("single_line")):
+    """Get L2 per-script graph for a view's script.
+
+    v3.3.145: optional `highlight_strategy` query param selects the display
+    strategy for the response `highlights` (single_line default, label_only
+    suppresses SQL-panel ranges); unknown names fall back to single_line.
+    """
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
     views = list_views(ws_id)
-    
+
     # Find parent view
     view = next((v for v in views if v["view_id"] == view_id), None)
     if not view:
@@ -280,14 +286,15 @@ async def get_level2(ws_id: str, view_id: str, script: str = Query(...),
                 if c["view_id"] == view_id:
                     view = v
                     break
-    
+
     if not view:
         raise HTTPException(status_code=404, detail="View not found")
 
     table = view.get("table", "")
     field = view.get("field", "")
 
-    result = get_level2_graph(ws_id, view_id, script, table, field, filter)
+    result = get_level2_graph(ws_id, view_id, script, table, field, filter,
+                              highlight_strategy)
     return result
 
 

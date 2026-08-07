@@ -33,5 +33,11 @@ v3.3.140 (2026-08-07): bumped to 3_2_18 — node data now carries
 line_start/line_end (format_version 4) and the L2 filter switches to the
 strict table.field flow (compute_field_flow). FORMAT bump: the graph JSON
 shape changed, so every cached graph is invalid.
+
+v3.3.145 (2026-08-07): bumped to 3_2_19 — INVALIDATION bump paired with
+the scope-context parent machinery removal (B3/C5 pickers deleted; L2
+attribution is extraction-time source_tables only, I2) and the new
+parse_errors key on the graph cache (def-line changes invalidate old
+graphs). Graph JSON format_version stays 4.
 """
-GRAPH_CACHE_PREFIX = "graph_3_2_18"
+GRAPH_CACHE_PREFIX = "graph_3_2_19"

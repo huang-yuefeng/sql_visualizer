@@ -3256,3 +3256,16 @@ Probe on sample (live extractor, S-B today): a(mid)→20 ✗, b→21 ✗, a(main
 - Include ⟐ SELECT lines (case 1) and/or lateral/values/unnest registration (case 2)?
 - I5 (containment subtype) / I7 (literal edge) inclusion in the order.
 - tools/HIGHLIGHT_REVIEW_SAMPLE.sql → pytest fixture (def lines 13/18/22/26/33 + reads).
+
+### I3 tie-break design — final (2026-08-07, implementation round)
+Probed during implementation: sqlglot 30.12.0 expressions carry NO positions; all vars are
+single-line [L,L] (line_end == line_start) — var-range containment cannot produce the
+expected anchors. Final deterministic rule (extraction-time only, no context strings):
+- keep the candidate stages (exact context equality → parent/prefix context), replace first-match;
+- within a stage: candidates with line <= v.line_start → take the MAXIMAL line (nearest owner);
+- tie at equal line: empty source_tables (physical table) > non-VIRTUAL_TABLE > variables order;
+- no candidate anywhere → SKIP the edge; the global first-match fallback is DELETED.
+Verified: data_dt@160→bdm_acc_loan_info_sup@160 (max<=160; p1@162 excluded), data_dt@213→rrcdm@211
+(<=213), ods_hub_lsacmsp@33→bdm@29 (tie vs p1@29 broken by empty source_tables).
+Also: alias_of keyed by VariableDefinition.id (:104, exists); VariableDependency.containment
+(:126, already exists) reused as the I5 tag — no new fields needed.
