@@ -275,3 +275,114 @@ SELECT literal at L213 is extracted). A complete lineage highlight would be
 
 Status: analysis only — no source changes. The 4 missing edge types (4.3) and
 Defect 5 (5.2) are the known defects future work must address.
+
+---
+
+# PART II — CANONICAL GROUND TRUTH v2 (benchmark spec, consolidated 2026-08-07)
+
+This part is the machine-comparable target. The benchmark
+(`backend/tests/test_ground_truth_benchmark.py`) compares the system's live L2
+output against THIS spec and reports a structured diff. Every solution update
+must re-run the benchmark (the loop protocol in §7.3).
+
+## 7.1 The three trials — what each proved
+
+```
+Trial 1 — filter_by_field_flow (the L2 search view):  11 nodes / 5 edges
+  RIGHT: touch lines [18,43,158,160]; layer-1 targets (rollover@9, ⟐subq,
+         loan_final@64, sup@160); highlight lines.
+  WRONG: bdm@29 / bdm@84 are DISCONNECTED stubs (no field→table edge — missing
+         #1/#2); stmt2 unreachable (no cross-statement link — missing #4).
+
+Trial 2 — downstream BFS on the full graph:           14 nodes / 10 edges
+  RIGHT: the downstream chain — subq→subq1→rollover, rollover→p6→loan_final,
+         loan_final→p1@198, sup→p2@199 self-join.
+  WRONG: blind to the SOURCE table reads; dead-ends before stmt2.
+
+Trial 3 — source_tables-driven closure (no edges):    13 nodes / 14 edges / 2 sinks
+  RIGHT: the full closure including rrcdm_job_log_exec_par@211; covers all 4
+         missing-edge semantics (#1/#2 read edges, #3 output→target, #4
+         cross-statement write→read) from extraction-time info alone.
+  LIMITS: prototype only, validated on this one script.
+```
+
+**Where all three agree (the stable core — must never change without evidence):**
+touch lines [18, 43, 158, 160]; highlight lines; the closure's TABLE SET; the
+4 missing-edge semantics; Defect 5 (L225 has no var).
+
+## 7.2 THE canonical spec (the benchmark target)
+
+**Nodes (13, canonical names @ lines):**
+
+```
+field (4):        data_dt@18, p1.data_dt@43, p1.data_dt@158, data_dt@160
+table/scope (7):  bdm_acc_loan_info@16, p1@29, p1@84, rollover_loan_info@9,
+                  loan_final@64, bdm_acc_loan_info_sup@160, rrcdm_job_log_exec_par@211
+VT plumbing (2):  ⟐ subq@0, ⟐ subq1@0
+```
+
+Normalization: `p1@29` ≡ `bdm_acc_loan_info@29` (I1 semantics — alias read at
+the same line = same table). Both graph renderings must map to the same
+canonical node for comparison purposes.
+
+**Sinks (2):** `bdm_acc_loan_info_sup@160`, `rrcdm_job_log_exec_par@211`.
+
+**Edges (14 semantic — the graph's 10 present + 4 missing; each must be
+covered by at least one system edge linking the canonical endpoints):**
+
+```
+present (10):
+  SUBSET  data_dt@18            → bdm_acc_loan_info@16
+  SUBSET  bdm_acc_loan_info@16  → rollover_loan_info@9
+  FILTER  p1.data_dt@43         → ⟐ subq@0
+  TABLE_FLOW p1@29              → ⟐ subq@0
+  TABLE_FLOW ⟐ subq@0           → ⟐ subq1@0
+  TABLE_FLOW ⟐ subq1@0          → rollover_loan_info@9
+  FILTER  p1.data_dt@158        → loan_final@64
+  TABLE_FLOW p1@84              → loan_final@64
+  ALIAS   rollover_loan_info@9  → p6@155   (+ TABLE_FLOW p6@155 → loan_final@64)
+  ALIAS   loan_final@64         → p1@198   (+ TABLE_FLOW p1@198 → sup@160,
+                                          TABLE_FLOW p2@199 → sup@160 self-join,
+                                          TABLE_FLOW p3@204 → sup@160)
+  SUBSET  data_dt@160           → bdm_acc_loan_info_sup@160
+
+missing (4 — the fix target; proposed system types in brackets):
+  1. p1.data_dt@43  → p1@29        [SUBSET — mirrors the unqualified data_dt@18→bdm@16]
+  2. p1.data_dt@158 → p1@84        [SUBSET]
+  3. ⟐ output@0     → bdm_acc_loan_info_sup@160   [DML or TABLE_FLOW — output VT→target]
+  4. bdm_acc_loan_info_sup@160 → bdm_acc_loan_info_sup@223 → rrcdm_job_log_exec_par@211
+                                    [TABLE_FLOW — cross-statement write→read]
+```
+
+Edge-type tolerance for coverage: any of {TABLE_FLOW, SUBSET, ALIAS, DML,
+REF} linking the canonical endpoints covers the semantic edge; the benchmark
+reports actual types so type mismatches are visible, but does not fail on them
+(types are a rendering decision; closure connectivity is the contract).
+
+**Highlights:**
+
+```
+field bdm_acc_loan_info.data_dt:  [[18,18],[43,43],[158,158],[160,160]]  (byte-exact)
+propagated bdm_acc_loan_info_sup.data_dt: [160, 202, 213]  (L225 = KNOWN GAP,
+    Defect 5 — extractor never creates a var at L225; benchmark marks it
+    "known gap", not a fail, until the extractor is fixed)
+```
+
+## 7.3 Benchmark protocol (the loop)
+
+1. Run `docker exec gps-sql-backend sh -c 'cd /app/backend && python3 -m
+   pytest tests/test_ground_truth_benchmark.py -v'` → structured diff
+   (missing/extra nodes, missing/extra edges, sinks, highlights, propagated).
+2. Classify each diff line:
+   - (a) solution defect → fix the solution (build on extraction-time info —
+     no patch solutions / no reconstruction from rendered output);
+   - (b) ground-truth wrong → update THIS spec, with evidence (which trial
+     proved it, why the old entry was wrong);
+   - (c) known gap → keep the marker until its root cause is fixed.
+3. Re-run the benchmark. Repeat until MATCH (empty diff).
+4. The benchmark is the regression gate: every solution update re-runs it.
+   Ground truth and solution converge by alternating these two loops.
+
+Convergence prediction (§4.4, to verify): once the 4 missing edges exist,
+Trial 1 and Trial 2 both converge to this 13-node / 14-edge / 2-sink spec.
+Trial 3 (source_tables closure) is the oracle that checks them.

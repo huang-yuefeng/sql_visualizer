@@ -3323,3 +3323,109 @@ view lost alias visibility entirely (pre-145: p1@29/p1@67 in the 13-node closure
 - Re-check expectation: after fix, full L2 p1@84 children == loan_final's p1 reads
   (lending_ref@67/84, data_dt@158...); filtered closure regains p1 nodes; I5 13/17
   numbers re-verified.
+
+## v3.3.146 — NEW-METHOD L2 EXPERIMENT: source_tables-driven closure vs. graph walk (2026-08-08, analysis-only round)
+
+### The new method (prototype, ran in-container — NO source changes)
+
+Input: only extraction-time `source_tables` + variable `context` (the info that
+already exists on every var). No graph edges at all — sidesteps the 4 missing
+edge types (ground truth §4.3) instead of waiting for them.
+
+```
+STEP 1  occurrences   = column vars named data_dt whose source_tables ∋
+                        bdm_acc_loan_info (the reads) + the DML-target
+                        partition write (column whose line == container's
+                        line, TOP0/TOP1)                      → [18, 43, 158, 160]
+STEP 2  table_of(occ) = qualified → alias table var with same name+context;
+                        bare → physical table var in same ctx  → bdm@16, p1@29,
+                                                                    p1@84, sup@160
+STEP 3  scope closure = fixed point: container_of(t) (TOP0/TOP1 → DML target,
+                        CTE{X} → cte var, nested → virtual_table), VT parent
+                        chains via ctx.rsplit('/'), then ANY table-like read
+                        whose canonical name (source_tables[0] else own name)
+                        is in the closure's scope names        → 6 scopes incl.
+                        rrcdm_job_log_exec_par@211 (via sup@223 read)
+STEP 4  edges         = READ field→table (×4), table→container (×3),
+                        consumption canonical→scope (×4), VT feeds (×3)
+```
+
+KEY FIX vs. first prototype: physical table reads have EMPTY source_tables
+(only alias reads carry it: p3@204 → ['bdm_sys_acc_loan_info']); the fixed
+point must fall back to the var's own name, else `bdm_acc_loan_info_sup@223`
+(read → stmt2) is invisible and the closure dies at stmt1 — exactly where
+the graph walk dies too.
+
+### Result (prototype run, deterministic)
+
+```
+new-method closure:  10 semantic nodes = 4 field occurrences + bdm_acc_loan_info@16
+                     + rollover_loan_info@9 + ⟐ subq@0 + ⟐ subq1@0 + loan_final@64
+                     + bdm_acc_loan_info_sup@160 + rrcdm_job_log_exec_par@211
+2 sinks reached:     bdm_acc_loan_info_sup@160, rrcdm_job_log_exec_par@211  ✓
+14 edges:            4 READ (18→bdm@16, 43→p1@29, 158→p1@84, 160→sup@160)
+                     3 container (bdm@16→rollover@9, p1@29→⟐subq, p1@84→loan_final@64)
+                     4 consumption (rollover→loan_final, loan_final→sup,
+                                    sup→sup self-join, sup→rrcdm)   ← the old #4!
+                     3 VT feeds (⟐subq→⟐subq1, ⟐subq1→rollover, ⟐subq→rollover)
+highlights:          [18, 43, 158, 160] — byte-identical to existing tool
+propagated:          sup.data_dt [202, 213] — matches ground truth §5.2 (225 still
+                     unextractable, Defect 5)
+```
+
+### Comparison — new method vs. the two existing calculations
+
+| what | filter_by_field_flow (11/5) | downstream BFS (14/10) | NEW method |
+|---|---|---|---|
+| field lines | [18,43,158,160] | [18,43,158,160] | [18,43,158,160] |
+| reaches stmt2 | ✗ dead-end at sup@160 | ✗ dead-end before stmt2 | ✓ rrcdm@211 in closure |
+| read edges field→alias (#1 #2 missing) | ✗ (stub tables @29/@84, 2 disconnected) | ✗ (source-blind) | ✓ READ 43→p1@29, 158→p1@84 |
+| DML output→sup (#3 missing) | ✗ | partial (TABLE_FLOW p1@198…) | ✓ consumption loan_final→sup |
+| cross-statement write→read (#4 missing) | ✗ | ✗ | ✓ sup→rrcdm via sup@223 |
+| sinks | 0 | 0 | 2 |
+| noise | 2 disconnected stubs | — | 0 |
+
+VERDICT: the new method is strictly more accurate — it reaches both sinks and
+covers all 4 missing-edge semantics using only extraction-time info. It also
+independently CONFIRMS the existing highlights [18,43,158,160] are correct.
+
+### Why the new method works where the walk fails
+
+1. `source_tables` are extraction-time (written when the read is parsed) —
+   they cannot be lost to edge-type bugs, cross-scope SCHEMA contamination (I2),
+   or first-match range anchoring.
+2. Consumption is keyed by canonical NAME (source_tables[0] or own name), so a
+   physical re-read of a known table (sup@223 → rrcdm stmt) joins the closure —
+   the graph can't express this because missing edge #4 never links stmt2.
+3. container_of() gives scope→node identity directly from context; no
+   find_sql_range anchoring, no range merging, no id re-pointing.
+
+### Suggestion (implementation only on order)
+
+- If adopted, the natural home is a new builder that runs BEFORE the edge walk:
+  closure over (variables × context × source_tables) as above, then reuse the
+  existing range finder ONLY for highlight lines (which the prototype confirms
+  correct). The L2 endpoint would return this closure + existing highlights.
+- Caveats before adopting: (a) partition-write rule (STEP 1 tgt_write) assumes
+  the write column's line == container line — verified only for INSERT
+  OVERWRITE PARTITION; (b) cross-statement link relies on same table NAME —
+  alias-of-alias or renamed physical tables need the alias resolution first;
+  (c) this is a closure over CONSUMPTION — pure SELECT-on-select chains
+  (no write in between) need the same name-keyed rule to pass through, which
+  the fixed point already does via source_tables on alias reads.
+- Prototype script: throwaway heredoc, not committed. Re-runnable on request.
+
+### Root cause of the 4 missing edges (code-verified in dependency_graph.py)
+
+| missing edge | where the code drops it |
+|---|---|
+| #1/#2 field→alias-table read | Only two column↔table relations exist: SCHEMA (line 250, table→column OWNERSHIP, I2-contaminated) and FILTER (line 375, column→scope CONTAINER). No phase emits column→own-table; the pairing exists on the vars (qualifier+context+source_tables) but is never materialized as an edge. |
+| #3 output VT→DML target | Phase 1c (line 151) emits DML only from vars with source_columns (the 15 field-level edges); the output VT has none. Phase 1c-extra (line 170) links source aliases DIRECTLY to the target, bypassing the VT. Result: ⟐ output@0 fed but never consumed. |
+| #4 cross-statement write→read | Phase 1a line 117 `if not v.source_tables: continue` — physical reads get zero edges; alias reads link only to their own ctx's VT (line 121). All edges are same-context; no mechanism links a table written in stmt N to the same physical table read in stmt M. stmt2 is an island by construction. |
+
+RECOMMENDATION (analysis only): fix the edges — root repair. Each is a small
+local emission (one read-edge phase for #1/#2; one anchor→target DML edge in
+1c for #3; one cross-statement name-keyed pass for #4). After the fix, ground
+truth §4.4 predicts BOTH old calculations converge to the 10-node/2-sink
+closure; the new method above becomes the regression oracle. Implementation
+only on explicit order.
