@@ -12,6 +12,7 @@ _log = logging.getLogger("sql_visualizer.dataflow")
 
 from app.services.workspace_service import get_workspace_dir
 from app.extractor.adapter import run_full_analysis
+from app.extractor.variable_extractor_v2 import EXTRACTOR_VERSION
 from app.services.graph_service import (
     build_graph_data,
     get_edge_style as _get_edge_style,
@@ -20,10 +21,20 @@ from app.services.graph_service import (
     CATEGORY_MAP,
 )
 from app.extractor.schema_inference import infer_table_schemas
-from app.extractor.lineage import filter_relevant
+from app.extractor.lineage import filter_by_field_flow
 from app.services.sql_range_finder import partition_edge_ranges
 from app.services.sql_range_finder import find_sql_range
 from app.services.cache_keys import GRAPH_CACHE_PREFIX
+
+# v3.3.140: the strict table.field walker's field-like var classes — the
+# vars whose line_start carries the field's own occurrence line (design doc
+# §4 FIELD_LIKE). Members verified against VariableType (models/variable.py):
+# the doc's "computed"/"variable" are not enum members — the actual
+# computed-value members are "case" and "transform".
+FIELD_LIKE_TYPES = frozenset({
+    "column", "cte_column", "literal", "aggregate", "expression",
+    "window", "case", "transform",
+})
 
 # ── L2 helper functions ──────────────────────────────────────────────
 
@@ -44,26 +55,32 @@ def _target_field_sc(sc: str, target_field: str) -> bool:
 
 def _compute_highlight_ranges(graph_data: dict, highlight_ids: set,
                                sql_text: str) -> list:
-    """Compute line ranges to highlight based on node line_map."""
-    # D1: recompute the line map from the graph's own node expressions —
-    # the stored line_map was computed at index/analysis time and may
-    # predate comment-line skipping (stale caches would keep mapping table
-    # variables onto header comment lines). The node sql_expressions are
-    # verbatim copies of the analysis variables', so the result is
-    # identical to a fresh analysis.
-    line_map = _recompute_line_map(
-        [{"id": nd.get("data", nd).get("id", ""),
-          "sql_expression": nd.get("data", nd).get("sql_expression", "")}
-         for nd in graph_data.get("nodes", [])], sql_text)
+    """Compute line ranges to highlight from node-carried single lines.
+
+    v3.3.140: highlights are single line numbers [line, line] taken from
+    the node-carried line_start (computed by the extractor's
+    comment-skipping line mapper) of the closure's field-like vars — the
+    line_map-based computation is gone. Only field-like nodes
+    (FIELD_LIKE_TYPES, or defined_in == "PARTITION") are eligible: the
+    strict table.field closure's field vars are exactly what must light
+    up. graph_data is the FULL graph while highlight_ids come from the
+    filtered graph, so this yields exactly the closure's field lines.
+    """
     ranges = []
-    for nid in highlight_ids:
-        if nid in line_map:
-            start, end = line_map[nid]
-            # D2: (0,0) is the "no line matched" placeholder — highlighting
-            # line 0 would paint the editor's gutter. Never emit it.
-            if start < 1:
-                continue
-            ranges.append([start, end])
+    for n in graph_data.get("nodes", []):
+        nd = n.get("data", n)
+        if nd.get("id", "") not in highlight_ids:
+            continue
+        vt = nd.get("variable_type", "")
+        if vt not in FIELD_LIKE_TYPES and \
+                (nd.get("defined_in") or "").upper() != "PARTITION":
+            continue
+        line = int(nd.get("line_start") or 0)
+        # D2: (0,0) was the "no line matched" placeholder — highlighting
+        # line 0 would paint the editor's gutter. Never emit it.
+        if line < 1:
+            continue
+        ranges.append([line, line])
     if not ranges:
         return []
 
@@ -114,29 +131,36 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
     # middle token is the cache CONTRACT version, bump it only on format change.
     graph_cache_path = cache_dir / f"{GRAPH_CACHE_PREFIX}_{cache_key}.json"
     schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
+    full_graph = None
+    _table_schemas = None
     if graph_cache_path.exists():
-        full_graph = json.loads(graph_cache_path.read_text())
-        # D1: cached graphs carry a line_map computed before comment-line
-        # skipping existed — recompute from the cached node expressions so
-        # stale caches behave like fresh analyses.
-        full_graph["line_map"] = _recompute_line_map(
-            [{"id": n["data"].get("id", ""),
-              "sql_expression": n["data"].get("sql_expression", "")}
-             for n in full_graph.get("nodes", [])], sql_text)
-        # CW7: normalize edge_type on cache read (cache stores "relationship")
-        for _e in full_graph.get("edges", []):
-            _ed = _e.get("data", _e)
-            _ed.setdefault("edge_type", _ed.get("relationship", "REF"))
-        # Item 4: cache format versioning — warn on stale caches
-        if full_graph.get("format_version") != 3:
-            _log.warning("L2 cache %s has format_version=%r (expected 3) — stale graph cache",
-                         graph_cache_path.name, full_graph.get("format_version"))
-        stage_graph(len(full_graph.get('nodes',[])), len(full_graph.get('edges',[])), ws_id=ws_id)
-        # Bug 25: load cached table_schemas on cache hit
-        _table_schemas = None
-        if schemas_cache_path.exists():
-            _table_schemas = json.loads(schemas_cache_path.read_text())
-    else:
+        cached_graph = json.loads(graph_cache_path.read_text())
+        # C9 (v3.3.140): graphs below format_version 4 predate the
+        # node-carried line_start/line_end the strict table.field walker
+        # and its highlights depend on — treat a stale cache as a miss and
+        # rebuild (the build path below overwrites the stale cache).
+        if cached_graph.get("format_version", 0) >= 4:
+            full_graph = cached_graph
+            # D1: cached graphs carry a line_map computed before comment-line
+            # skipping existed — recompute from the cached node expressions so
+            # stale caches behave like fresh analyses.
+            full_graph["line_map"] = _recompute_line_map(
+                [{"id": n["data"].get("id", ""),
+                  "sql_expression": n["data"].get("sql_expression", "")}
+                 for n in full_graph.get("nodes", [])], sql_text)
+            # CW7: normalize edge_type on cache read (cache stores "relationship")
+            for _e in full_graph.get("edges", []):
+                _ed = _e.get("data", _e)
+                _ed.setdefault("edge_type", _ed.get("relationship", "REF"))
+            # Item 4: cache format versioning — warn on stale caches
+            if full_graph.get("format_version") != 4:
+                _log.warning("L2 cache %s has format_version=%r (expected 4) — stale graph cache",
+                             graph_cache_path.name, full_graph.get("format_version"))
+            stage_graph(len(full_graph.get('nodes',[])), len(full_graph.get('edges',[])), ws_id=ws_id)
+            # Bug 25: load cached table_schemas on cache hit
+            if schemas_cache_path.exists():
+                _table_schemas = json.loads(schemas_cache_path.read_text())
+    if full_graph is None:
         # C-2(b): prefer the analysis cache when present — build the graph
         # from the cached analysis dict (same key contract as
         # folder_index_service: md5(script_name + sql_text)[:12]) instead of
@@ -145,18 +169,26 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
         result = None
         if analysis_cache_path.exists():
             result = json.loads(analysis_cache_path.read_text())
-            # D1: analysis caches predate comment-line skipping too — the
-            # stored line_map is stale; recompute before build_graph_data
-            # copies it into the graph.
-            result["line_map"] = _recompute_line_map(
-                result.get("variables", []), sql_text)
+            # C9 (v3.3.140): analysis caches from an older extractor are
+            # stale (extraction-semantics changes — phantom subquery dedup,
+            # PARTITION vars — must never serve old analysis) — ignore the
+            # cache and re-run the full analysis on mismatch.
+            if result.get("extractor_version") != EXTRACTOR_VERSION:
+                result = None
+            else:
+                # D1: analysis caches predate comment-line skipping too — the
+                # stored line_map is stale; recompute before build_graph_data
+                # copies it into the graph.
+                result["line_map"] = _recompute_line_map(
+                    result.get("variables", []), sql_text)
         if result is None:
             result = run_full_analysis(sql_text, script_name, ws_id=ws_id)
         full_graph = build_graph_data(result)
         # Cache for future use
         cache_dir.mkdir(parents=True, exist_ok=True)
         # Item 4: cache format version — bump when graph schema changes
-        full_graph["format_version"] = 3
+        # C9 (v3.3.140): format_version 4 = node-carried line_start/line_end.
+        full_graph["format_version"] = 4
         graph_cache_path.write_text(json.dumps(full_graph, default=str))
         # R18: build table_schemas for lineage seed validation
         _table_schemas = infer_table_schemas(
@@ -169,9 +201,15 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
 def _apply_relevance_filter(full_graph: dict, table: str, field: str,
                             table_schemas: dict | None,
                             relevance_filter: bool = True) -> dict:
-    """Phase 2 (CW4): apply the R18 relevance filter, or return the full graph."""
+    """Phase 2 (CW4): apply the strict table.field flow filter, or return the full graph.
+
+    v3.3.140: filter_by_field_flow() (the strict per-instance table.field
+    walker in lineage.py) replaces filter_relevant() — the requirement
+    changed from table-level flow to exact flow of table.field. Flag
+    semantics unchanged: only applied when filtering is requested.
+    """
     if relevance_filter:
-        return filter_relevant(full_graph, table, field, table_schemas=table_schemas)
+        return filter_by_field_flow(full_graph, table, field, table_schemas=table_schemas)
     return full_graph
 
 
@@ -304,8 +342,11 @@ def _resolve_scope_parent(nd: dict, table_nodes: dict):
     for cut in range(len(segments), 0, -1):
         scope_ctx = "/".join(segments[:cut])
         # 1. nearest-context derived-table / subquery match
+        # C8 (v3.3.140): also match virtual_table — the "⟐ output" class
+        # (SELECT/JOIN result sets) is the same scope-owning class for
+        # fields defined inside it (review item #3 blind spot).
         candidates = [tn for tn in table_nodes.values()
-                      if tn.get("variable_type") == "subquery"]
+                      if tn.get("variable_type") in ("subquery", "virtual_table")]
         best = _pick_scope_candidate(scope_ctx, candidates)
         if best is not None and _scope_distance(scope_ctx, best.get("context", "")) is not None:
             return best["id"]
@@ -339,6 +380,10 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
     # Group field-level nodes by their parent table/CTE
     table_nodes = {}       # id -> table compound node
     table_nodes_by_label = {}  # table label -> keeper compound node (issue a)
+    # C3: (parent_table_id, label, line_start) -> keeper alias compound
+    # node — alias identity is (label, line): a different code line = a
+    # DIFFERENT alias node; the same (label, line) = the same node.
+    alias_nodes_by_key = {}
     fields_by_key = {}     # (parent_id, field label) -> keeper field node (issue a)
     field_nodes = []       # field children
     other_nodes = []       # expression, aggregate, etc. (non-compound)
@@ -435,6 +480,42 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             # sanitized.
             display_label = label[2:] if label.startswith("⟐ ") else label
 
+            if is_alias:
+                # C3 (v3.3.140): alias node identity is (label, line) — the
+                # user directive: a different code line = a DIFFERENT alias
+                # node; the same (label, line) = the same node. Alias
+                # compound nodes merge/dedup by (physical parent, label,
+                # line_start), and the display label carries the line
+                # ("p1@29") so duplicate alias instances are distinguishable
+                # (review item #4). `table_name` keeps the raw label — all
+                # field-parent matching uses table_name, never the display
+                # label. Physical-table compound nodes keep the label-keyed
+                # merge (R22: one compound node per physical table);
+                # ⟐/CTE/output nodes keep their existing keys.
+                alias_line = int(nd.get("line_start") or 0)
+                display_label = f"{display_label}@{alias_line}" if alias_line > 0 else display_label
+                # Resolve the alias's physical parent compound id (its own
+                # source_tables are reliable — design doc §4) for the dedup
+                # key; when the parent is not classified yet the key's
+                # parent slot is None (same-line duplicates still merge).
+                alias_parent_id = None
+                if src_tables and len(src_tables) == 1:
+                    for tn in table_nodes.values():
+                        if tn["table_name"] == src_tables[0]:
+                            alias_parent_id = tn["id"]
+                            break
+                    if alias_parent_id is None:
+                        resolved_alias = alias_map.get(src_tables[0], src_tables[0])
+                        for tn in table_nodes.values():
+                            if tn["table_name"] == resolved_alias:
+                                alias_parent_id = tn["id"]
+                                break
+                alias_key = (alias_parent_id, label, alias_line)
+                dup_alias = alias_nodes_by_key.get(alias_key)
+                if dup_alias is not None:
+                    dup_alias["merged_original_ids"].append(nid)
+                    continue
+
             table_nodes[nid] = {
                 "id": tbl_id,
                 "label": display_label,
@@ -450,6 +531,9 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             if vt in ("table", "view") and not is_alias:
                 table_nodes[nid]["merged_original_ids"] = []
                 table_nodes_by_label[label] = table_nodes[nid]
+            elif is_alias:
+                table_nodes[nid]["merged_original_ids"] = []
+                alias_nodes_by_key[alias_key] = table_nodes[nid]
             continue
 
         # ── Column-like nodes → field children ──
@@ -459,17 +543,28 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             if src_tables and len(src_tables) == 1:
                 # Bug 28: Match source table name directly (aliases are now visible nodes)
                 # Try exact match first, then try canonical name if this is an alias
-                # NOTE: the same-name first-match below is INTENTIONAL —
-                # scope-aware picking here would split same-named fields
-                # across alias instances (each p2 scope re-owning the JOIN
-                # keys), changing field counts the search results pin
-                # (lending_ref 12-field result). Seed placement is handled
-                # by the B3/P1 seed re-parent pass instead.
+                # NOTE: the same-name first-match below is INTENTIONAL when
+                # there is exactly ONE candidate — scope-aware picking would
+                # split same-named fields across alias instances (each p2
+                # scope re-owning the JOIN keys), changing field counts the
+                # search results pin (lending_ref 12-field result). C5
+                # (v3.3.140): when MULTIPLE candidate parents share the name
+                # (the same physical table at different contexts/lines — e.g.
+                # the two p1 alias nodes), prefer the candidate whose context
+                # is the nearest ancestor of the field's context
+                # (_pick_scope_candidate); the single-candidate case keeps
+                # the pinned first-match behavior (no reordering). Seed
+                # placement is handled by the B3/P1 seed re-parent pass
+                # instead.
                 src_name = src_tables[0]
-                for tid, tn in table_nodes.items():
-                    if tn["table_name"] == src_name or tid == src_tables[0]:
-                        parent_table_id = tn["id"]
-                        break
+                candidates = [tn for tid, tn in table_nodes.items()
+                              if tn["table_name"] == src_name or tid == src_tables[0]]
+                if candidates:
+                    if len(candidates) == 1:
+                        parent_table_id = candidates[0]["id"]
+                    else:
+                        best = _pick_scope_candidate(nd.get("context", ""), candidates)
+                        parent_table_id = best["id"] if best else candidates[0]["id"]
                 if not parent_table_id:
                     resolved = alias_map.get(src_tables[0], src_tables[0])
                     for tid, tn in table_nodes.items():
@@ -608,14 +703,15 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 "parent": parent_table_id,
             })
 
-    # B3/P1: seed re-parent — an is_target seed field that landed on an
-    # ALIAS of the searched table moves onto the searched table's own
-    # compound node when that node carries no same-named field yet (moving,
-    # never copying — the alias instance keeps its other fields). Without
-    # this the seed shows on the first same-name alias instance while the
-    # base table node stays field-less. When the keeper already owns the
-    # label (e.g. the alias field duplicates a bare-FROM read), the seed
-    # stays on the alias to avoid duplication.
+    # B3/P1: seed copy — an is_target seed field that landed on an ALIAS of
+    # the searched table is COPIED onto the searched table's own compound
+    # node when that node carries no same-named field yet (copying to the
+    # searched table — the field stays on its original alias parent, e.g.
+    # p1@29, AND appears on the searched table). Without this the seed
+    # shows only on the first same-name alias instance while the base
+    # table node stays field-less. When the keeper already owns the label
+    # (e.g. the alias field duplicates a bare-FROM read), the copy is
+    # skipped to avoid duplication.
     if search_table:
         keeper_tbl_id = None
         for tn in table_nodes.values():
@@ -637,7 +733,14 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                     continue
                 if fn.get("label") in keeper_labels:
                     continue
-                fn["parent"] = keeper_tbl_id
+                # C4 (v3.3.140): COPY — the original fn stays on its alias
+                # parent; a proxy with the same label is added under the
+                # searched table's compound node.
+                proxy = dict(fn)
+                proxy["id"] = f"seed_{fn['id']}_{keeper_tbl_id[:8]}"
+                proxy["parent"] = keeper_tbl_id
+                proxy["field_group"] = "direct"
+                field_nodes.append(proxy)
                 keeper_labels.add(fn.get("label"))
 
     return table_nodes, field_nodes, other_nodes, alias_map
@@ -871,14 +974,26 @@ def _promote_field_edges(new_edges: list, field_nodes: list) -> list:
 
 def _survive_join_edges(new_edges: list, full_graph: dict, id_map: dict,
                         table_nodes: dict, field_nodes: list,
-                        node_labels: dict, sql_text: str) -> list:
+                        node_labels: dict, sql_text: str,
+                        strict: bool = False) -> list:
     """Phase 7 (CW4): Bug 45 (Pattern 2) JOIN edge survival pass.
 
     filter_relevant() removes JOIN edges because JOIN is conditional (both ends
     need a production path). But JOIN edges are semantically valuable — they show
     table relationships even without value flow. After promotion, re-add JOIN
     edges from the full graph that connect tables in the current L2 graph.
+
+    C6 (v3.3.140): gated — when the strict table.field flow filter is active
+    (`strict=True`, the flag comes from _build_l2_graph, which knows whether
+    filtering was requested), this is a no-op: the strict closure already
+    contains the field-relevant JOIN partners (FILTER/JOIN edges are admitted
+    by the walker when a seed zone touches either end), and re-adding JOIN
+    edges from the full graph would break the strict field-flow closure. The
+    survival heuristic (including its name-first-match fallback) runs only on
+    the legacy full-graph path (no filtering requested).
     """
+    if strict:
+        return new_edges
     # Build node_by_id for JOIN survival pass
     node_by_id = {}
     for tn_id, tn in table_nodes.items():
@@ -1139,6 +1254,14 @@ def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
                     break
 
     # Sync 1: alias -> canonical (alias invariant)
+    # C7 (v3.3.140): stmt_idx per original node — the sync exists-checks
+    # below are (parent, label, stmt_idx) aware so cross-statement
+    # same-name fields collapse/expand symmetrically with the field dedup
+    # key (parent, label, stmt_idx) from _classify_compound_nodes.
+    orig_stmt = {}
+    for n in nodes:
+        nd = n.get("data", n)
+        orig_stmt[nd.get("id", "")] = nd.get("stmt_idx")
     full_orig_src = {}
     for n in full_graph.get("nodes", []):
         nd = n.get("data", n)
@@ -1180,8 +1303,10 @@ def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
         if alias_tbl_id in field_by_parent:
             # Copy alias fields to canonical table
             for af in field_by_parent[alias_tbl_id]:
+                af_stmt = orig_stmt.get(af.get("original_id", ""))
                 exists = any(
                     f.get("parent") == canon_tbl_id and f.get("label") == af.get("label")
+                    and orig_stmt.get(f.get("original_id", "")) == af_stmt
                     for f in field_nodes
                 )
                 if not exists:
@@ -1201,8 +1326,10 @@ def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
             # src_fid might be a field ID (pre-promotion path) — try direct match
             src_fields = [fn for fn in field_nodes if fn["id"] == src_fid]
         for fn in src_fields:
+            fn_stmt = orig_stmt.get(fn.get("original_id", ""))
             exists = any(
                 f.get("parent") == tgt_tid and f.get("label") == fn.get("label")
+                and orig_stmt.get(f.get("original_id", "")) == fn_stmt
                 for f in field_nodes
             )
             if not exists:
@@ -1299,8 +1426,12 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     new_edges, node_labels = _build_edge_list(edges, nodes, id_map, sql_text)
     new_edges = _combine_edges(new_edges)
     new_edges = _promote_field_edges(new_edges, field_nodes)
+    # C6 (v3.3.140): under the strict table.field filter the JOIN survival
+    # heuristic is a no-op — the strict closure already carries the
+    # field-relevant join partners (see _survive_join_edges docstring).
     new_edges = _survive_join_edges(new_edges, full_graph, id_map, table_nodes,
-                                    field_nodes, node_labels, sql_text)
+                                    field_nodes, node_labels, sql_text,
+                                    strict=relevance_filter)
     new_edges, dml_pairs = _simplify_dml_edges(new_edges, full_graph, id_map,
                                                table_nodes)
     new_edges = _dedup_edges(new_edges)

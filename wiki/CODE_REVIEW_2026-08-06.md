@@ -1,81 +1,69 @@
-# Code Review — C-series/B-series Implementation (SQL Data Flow Visualizer)
+# Code Review — v3.3.139 (D1/D2 highlight fix + B3/P1/P2 display + C-4/C-5 + join-key pairing)
 
-> **Reviewed:** 2026-08-06 (round 4) | **Version:** v3.3.137, HEAD `03827a0` + **uncommitted working tree** (C-series/B-series implementation, ~820 insertions / 10 files + new `test_c_index_pipeline.py` 541 L)
-> **Subject:** review of the new source code implementing the C-series (P1-1…P3-13) and B-series (L2 field-explosion) solution designs.
-> **Reviewer:** Codex (read-only — no source modified) via 3 parallel sub-agents: Zeno (index pipeline), Wegener (extractor+lineage), Jason (L2+service+deploy). Tests run with `/tmp/r19venv` (fastapi 0.136.3 available).
+> **Reviewed:** 2026-08-06 → 08-07 (round 6) | **Version:** v3.3.139, HEAD `6a19c43`
+> **Scope:** commits `6692805`, `82c2c96`, `fc1cf9d`, `98f5015` (v3.3.139), `6a19c43` vs `7982efe` (`git diff 7982efe HEAD`) — highlight-pipeline fix (D1/D2), display improvements (B3/P1/P2), review-ledger items (C-4/C-5, join-key pairing), doc updates (+187 BUG_ANALYSIS, +100 this wiki, +27 CLAUDE.md).
+> **Reviewer:** Codex (read-only — no source modified) via 3 parallel sub-agents: Sartre (L2+sql_line_mapper), Franklin (extractor+index), Helmholtz (docs).
 
 ## Overall verdict
 
-Implementation is largely faithful and several round-3 warnings were correctly handled (C-9 fixed at the right layer, C-13b via token-index, C-7 nit fixed, B-Phase-2 circularity broken). **However the working tree is currently RED against the repo's own tests (≥5 regressions)** and 3 design items are only partially implemented (C-4 apply-side gate, C-5↔C-3 ordering, C-3 per-cache counters).
+The implementation claims (D1/D2, P1/P2, B3, C-4/C-5, join-key pairing, `_seen`, RELEASE.txt) are **accurate and verified** — the D1/D2/P1/P2 fix set is real, tested, and byte-exact on the highlight list. **5 items remain open/partial** (C-3 cross-run caches is the highest-risk), and the docs contain **3 overstated/unreproducible claims** to correct.
 
 ---
 
-## ✅ Correctly implemented (verified empirically)
+## ✅ Fixed & verified (green tests)
 
-| Item | Evidence |
-|---|---|
-| **C-1** CTAS→script | `classify_sql_text` checks `kind==TABLE and expression is not None` before kind-set (`folder_index_service.py:69-75`); verified on sqlglot 30.8.0 — no false positives (plain CT / LIKE → schema; VIEW untouched) |
-| **C-9** extractor-layer dedup (round-3 top warning) | `_add` key now `(name, type, context)` with `TOP{stmt_idx}` contexts (`variable_extractor_v2.py:419-421,633`); **empirically `SUM(x) AS total; SUM(y) AS total` → 2 vars (was 1)**; `stmt_idx` carried into graph JSON (`graph_service.py:100-117,192-198`) |
-| **C-13(a)** parse-once reuse | mysql parse reused for classification + star detection (`folder_index_service.py:258-280,383-389,402`); SET-preamble DDL semantics preserved (still "script"); tests assert single parse |
-| **C-13(b)** anchor rewrite (round-3 false-sqlglot-premise avoided) | no `expr.start/end` used; **first-token position index** + subsequence fallback (`variable_extractor_v2.py:479-491,568-605`) — exactly the suggested alternative; semantics-preserving (anchor-index == linear-scan test passes) |
-| **C-7** deploy guard nit fixed | reset advice gated `FETCH_OK && BEHIND>0 && AHEAD==0` (`target_deploy.sh:88-101`); missing `RELEASE.txt` → red error + `exit 1` (:63-64); `bash -n` OK |
-| **C-10** second analysis eliminated | graph cache written on miss with `format_version=3` (`dataflow_service.py:359-363`, `l2_builder.py:108-122`); not_in_flow rebuild is now a cache hit; highlight flood correctly left as deliberate (round-3 diagnosis) |
-| **B-Phase 2** join-key expression nodes + circularity broken | expressions materialized (`variable_extractor_v2.py:1019-1103`), `JOIN_KEY` edges (`dependency_graph.py:385-399`), expression JOIN partners admitted unconditionally (`lineage.py:273`); on-sample R 112→65, constants gone, 6 CONCAT key parts kept |
-| **C-2(b)** L2 miss path from S4b-mutated analysis cache | `l2_builder.py:108-122` + `dataflow_service.py:338-362` read `analysis_{key}.json` (S4b-mutated), fall back to `run_full_analysis`, write `format_version=3` |
-
----
-
-## ⚠️ Partial / flawed
-
-| Item | Issue | Evidence |
+| Item | Verdict | Evidence |
 |---|---|---|
-| **C-4** | **Apply-side `n_attributed>0` gate NOT implemented** — persisted `resolved_by["schema"] += 1` still gated only on `field in ul` (M13 context-mismatch still mutates persisted counters). Only revoke side has `n_revoked>0` gate. Becomes load-bearing since C-2(b) makes analysis caches the L2 source | `folder_index_service.py:1099-1106` vs :732-734, :1176 |
-| **C-5** | Star expansion runs **after** C-3 revocation → can resurrect revoked/ambiguous fields into `field_index`; search finds scripts the resolution report marks ambiguous | `folder_index_service.py:748-781` |
-| **C-3** | **Multi-script counter drift**: `field not in ul` guard is global but `resolved_by["schema"]` is per-cache → revoking 2 scripts decrements only the first; cross-run sweep only covers fields absent from current `field_index` (prior-run caches keep stale attribution); cross-run fields never added to `extractor_unresolved` | `folder_index_service.py:1125-1198`, :687-711 |
-| **B3** | Parent fallback `_resolve_scope_parent` works layer-wise (SCHEMA-neighbor confirmed unreachable) and removes all `<NOPARENT>`, but p2 columns land on the **first of 7 same-named "p2" nodes** or the enclosing CTE — "no floating" but wrong/context-unstable parenting; rule-1 (subquery-context match) effectively dead for derived tables | `l2_builder.py:208-240,379-386` |
-| **B5** | `⟐ ` prefix stripped → **`⟐ output` becomes `output`, breaking the pinned renderer contract** (2 integration tests assert `'⟐ output'`); also creates 7 duplicate "p2" table labels; query_output rename-to-target not implemented | `l2_builder.py:330-336` |
-| **C-9 vs B-series conflict** | per-statement dedup re-creates same-name fields (2 `lending_ref` on sample; 4 `total` in a 2-stmt mini-script) — partially reverses B-series field-reduction; no acceptance threshold test | `l2_builder.py:418-419,470-471` |
-| **B-Phase 1** | shipped **global SUBSET exclusion** (`always_bidir: False`, `lineage.py:46`) instead of the designed type-set stopgap — calibrated on one script; any node reachable *only* via SUBSET bridge is silently pruned; residual false-negative: `accu.vlookup_key_value` absent from R; 2/8 sample join expressions got no pair (string-match pairing brittle, `variable_extractor_v2.py:1096-1101`) | `lineage.py:46,79-82,273` |
+| **D1** comment-line skipping | FIXED | `sql_line_mapper.py:47-49` skips `--`/`/*` lines; `test_d1_*` passes |
+| **D2** highlights never 0/comment (L2 path) | FIXED | `l2_builder.py:63-66` drops `start<1`; recompute on stale caches (:54,122,151); response highlights byte-exact `[[16,16],[43,43],[52,52],[118,118],[151,151],[160,160],[204,204]]` |
+| **P1** seed re-parent + scope-distance parenting | FIXED | `l2_builder.py:611-644` (seed on `l2_tbl_d5ff4bbf35`=bdm_acc_loan_info); `_scope_distance` :245 / `_pick_scope_candidate` :264 / `_resolve_scope_parent` :283 |
+| **P2** target-field edges preserved | FIXED | `_promote_field_edges` skips `target_field_ids` (:825-860); seed has 4 incident FILTER edges |
+| **B3** scope-distance replaces first-match (rule 1) | FIXED (partial, see open #3) | `_pick_scope_candidate` :264-281; src_tables/prefix loops stay first-match (:486-496) |
+| **C-4** apply-side `n_attributed>0` gate | FIXED (round-5 #1) | `folder_index_service.py:1110` `if (n_attributed > 0 and isinstance(ul,list) and field in ul)`; M13 mismatch → cache byte-identical; `test_apply_context_mismatch_noop_does_not_touch_counters` passes |
+| **C-5×C-3** star resurrection | FIXED (round-5 #2, by exclusion) | `_star_excluded = extractor_unresolved \| ambiguous_fields` (:755), per-column skip (:765); `test_star_does_not_resurrect_revoked_field` passes |
+| **Join-key expr=expr pairing** | FIXED (round-5 #4, order) | `_pair_join_key_sides` deferred cross-link (`variable_extractor_v2.py:1109-1147`); both sides paired, bidirectional JOIN_KEY; `test_expr_expr_join_key_both_sides_paired` + `test_bdm_sample_join_key_expressions_all_paired` (8/8) pass |
+| **C-3 per-cache guard** | FIXED (round-5 #3a) | `_revoke_s4b_cache_update` loads each cache's own `unresolved`, per-cache gate (:1164) |
+| **`_seen` annotation + dangling `test_b_series_c9.py` ref** | FIXED | `variable_extractor_v2.py:450`; `test_l2_table_dedup.py:133` → `test_b_series_l2.py::test_c9_per_statement_dedup` |
+| **RELEASE.txt regenerated** | FIXED | `docker_image/RELEASE.txt` VERSION=3.3.139, COMMIT=98f5015; matches repo VERSION — deploy guard no longer blocked |
+
+### Test results
+- `test_l1_l2_integration.py` 15 passed · `test_l2_table_dedup.py` 6 passed · `test_b_series_l2.py` + `test_b_series_join_keys.py` 19 passed · `test_b_series_join_keys.py` 9 passed
+- `test_c_index_pipeline.py` 34 collected: **real run hangs** at `TestC5StarExpansion` (`asyncio.to_thread` in `dataflow_service.py:461` — environmental, Python 3.14 sandbox); **34 passed with to_thread stub** — CI must pin Python ≤3.12.
 
 ---
 
-## 🔴 Test regressions (working tree is RED)
+## ⚠️ Still open / partial
 
-| Suite | Result |
-|---|---|
-| `test_l1_l2_integration.py` | **3 failed / 7 passed** (10 passed at HEAD) — B5 `⟐ output` ×2, C-2(a) graph-cache deletion ×1 |
-| `test_s4b_resolution.py` | **2 failed** — `test_m13_cache_attribution_context_scoped` (C-9 `TOP{idx}` context change), `test_a1_ddl_only_sql_is_schema_evidence_not_script` (C-2(a) deletes graph caches) |
-| `test_l2_table_dedup.py` | 6 passed ✅ |
-| extractor/lineage/dependency scope | 106 passed ✅ |
-| new untracked B-series suites (anchor/join_keys/l2) | 21 passed ✅ (but **untracked** — must be committed) |
-| `test_c_index_pipeline.py` (32 new) | hangs in sandbox (env: `asyncio.to_thread` never resolves under Python 3.14/bwrap; `_persist_search_view` await) — **32/32 pass with `to_thread` stubbed**; CI must pin a working Python (e.g. 3.12) |
-
----
-
-## 📌 Other findings
-
-- `test_l2_table_dedup.py:133` references **`test_b_series_c9.py` which does not exist** → C-9 / C-2(b) / C-10 have zero real automated coverage.
-- New B-series test files (`test_b_series_anchor.py`, `test_b_series_join_keys.py`, `test_b_series_l2.py`) are **untracked** — commit with the feature or coverage is lost.
-- Index-time graph precompute is now **dead work** (build → write → delete every index run; `precomputed_count` still reports 1) — `folder_index_service.py:475-486`.
-- Deploy still blocked: repo VERSION 3.3.137 vs `docker_image/RELEASE.txt` 3.3.134 (pre-existing guard exits 1; `release.sh` must regenerate pieces first).
-- Stale annotation `variable_extractor_v2.py:448` (`set[tuple[str,str]]` — keys are now 3-tuples).
-- C-9 context rename `TOP`→`TOP{idx}` changes node identity (2 `⟐ output` VTs per script, per-statement `_seen` scoping); consumers using `context == "TOP"` break — mitigated by `GRAPH_CACHE_PREFIX` bump to `3_2_17` (`cache_keys.py:32`).
-- Anchor silent-0 remains: rendered head not literally in original stream yields `line=0` without loud failure (same as pre-change; docstring overstates).
+| # | Issue | Severity | Evidence |
+|---|---|---|---|
+| 1 | **C-3 cross-run stale caches NOT fixed** — prior-run scripts not re-indexed keep stale `analysis_*.json` attribution when the field IS in current `field_index` (:688-693); the cross-run glob branch (:696-698) never adds to `extractor_unresolved` → report omits the field. L1/L2 consume these caches | **High** | `folder_index_service.py:683-701` (byte-identical to 7982efe) |
+| 2 | **D1/D2 is L2-path-only** — `(0,0)` still *written* at `sql_line_mapper.py:44`; unguarded consumers: `routers/variables.py:34,60`, `sql_highlight_service.py:48`, `export_config_service.py:160,203`, `sql_snippet_service.py:64,122` → stale comment anchors/`(0,0)` still surface there | Medium-High | `sql_line_mapper.py:44` vs `l2_builder.py:63-66` |
+| 3 | **B3 virtual_table blind spot** — rule 1 matches `variable_type == "subquery"` only (:306-308); probe ctx `"TOP0:output"` → parentless; column branch has no first-table fallback (:455-536; expression branch does :554). Latent (0 parentless on sample) | Medium | `l2_builder.py:303-318,455-536` |
+| 4 | **Duplicate display labels persist** — `p2`×7, `output`×2, `a`×5, `p1`×4 (unfiltered graph; `⟐ ` stripped :436). UI keying on `label` collides | Medium (cosmetic → latent) | `l2_builder.py:436` |
+| 5 | **Alias/DML sync stmt_idx-blind** — Sync 1/2 `exists` checks `(parent,label)` only (:1183,1204); cross-statement same-name fields collapse/expand asymmetrically source vs mirror | Medium | `l2_builder.py:1158-1175,1183-1185,1204-1206` |
+| 6 | **Join-key pairing name-brittle** — `by_name.setdefault(v.name, v)` first-var-wins, exact flattened-SQL match; re-render difference silently un-pairs. New data-model side effects: column vars carry expression ids in `source_variables`; expr=expr creates 2-cycles in graph JSON (inert today, unguarded) | Low-Med | `variable_extractor_v2.py:1127` |
+| 7 | **C-5 exclusion case-sensitivity + over-breadth** — revoked field can re-enter under different case variant; genuinely-unresolved fields with real DDL evidence lose star-search visibility (untested behavior change) | Low | `folder_index_service.py:755,765` |
+| 8 | **C-4 in-memory/persisted divergence** — on M13 mismatch, in-memory `field_index` still attributes while persisted cache keeps var unresolved; report vs cache-consumers can disagree | Low (pre-existing M13) | `folder_index_service.py:1096-1122` |
 
 ---
 
-## Priority actions (advice only — no source modified)
+## 📄 Doc accuracy (Helmholtz) — implementation claims all accurate; 3 problems
 
-1. **B5 label collision**: keep the `⟐` marker (or type-scope disambiguation) for output/duplicate labels — unblocks 2 integration tests.
-2. **Re-scope the 2 C-2(a) graph-cache tests** to the analysis-cache path (assert same pairs from the S4b-mutated cache instead of `graph_*.json` presence).
-3. **C-4 apply-side gate**: gate persisted `resolved_by["schema"] += 1` + unresolved-drop on `n_attributed > 0` in `_apply_s4b_cache_update`.
-4. **Order C-5 before C-3 revocation** (or exclude revoked/ambiguous fields from expansion).
-5. **C-3 per-cache counters**: move the membership guard into each script's cache (per-cache `ul`), not a shared set.
-6. **Commit untracked B-series tests**; add real tests for C-9 split, C-2(b) miss path, C-10 single-analysis counter.
-7. Re-measure L2 field count on the **other** `sql_sample_v1` scripts before trusting the ≤35 bar (global SUBSET exclusion is calibrated on one script).
+1. **"Predicate line 18 covered" is false for the response** (BUG_ANALYSIS:3020) — reproduced highlights start at `[16,16]`, never hit 18; line-18 coverage is full-graph-only (`test_l1_l2_integration.py:449-453`).
+2. **"All pass at HEAD: 626/5 … 40/40" overclaimed** (BUG_ANALYSIS:2862,2940) — `test_c_index_pipeline` still hangs at TestC5 under Python 3.14 in this sandbox; "40/40" matches no real count (15+24+34=73 collected).
+3. **Unreproducible counts**: "12 fields preserved" (really 2 `lending_ref`-named of 12 field nodes, BUG_ANALYSIS:3021); "18 raw data_dt nodes" (4 named vars / 30 expr-referencing / 13 field nodes, :2991); "32 tests" (34 collected, wiki:51). Minor line-ref offsets (±5) and internal wording tension (7 predicate reads vs 3 output-side of "10 occurrences", :2985).
+
+---
+
+## 🎯 Priority advice (no source modified)
+
+1. **Fix D1/D2 at the source** — stop writing `(0,0)` in `sql_line_mapper.py:44` and add read-time guard/recompute in the 4 unguarded consumers, not just L2.
+2. **Close the C-3 cross-run gap** — revoke prior-run caches across all scripts for the ambiguous field (not only current run) and add the cross-run field to `extractor_unresolved`.
+3. **Resolve B3 virtual_table blind spot** — add a VT-scope rule + column-branch first-table fallback + warn when all rules miss.
+4. **Make alias/DML sync stmt_idx-aware** and disambiguate display labels (type-scoped or id-based) before any UI keys on labels.
+5. **Docs**: fix the line-18 parenthetical, qualify suite-green claims with the Python version (pin ≤3.12 for CI), re-derive the 3 counts, refresh "32→34 collected".
 
 ## Verification method
 
-- 3 sub-agents in parallel, each verifying the working-tree diff against the C/B-series designs and round-3 advice; empirical probes (C-9 two-statement extract, sqlglot 30.8.0 behavior, B-series R measurement on `samples/sql_sample_v1/BDM_ACC_LOAN_INFO_SUP_M.sql`).
-- Tests: `test_l2_table_dedup` 6✅, `test_l1_l2_integration` 3❌/7✅, `test_s4b_resolution` 2❌, extractor/lineage 106✅, untracked B-series 21✅; `test_c_index_pipeline` 32✅ (stubbed) / env-hang real.
-- Note: `asyncio.to_thread` hangs under this sandbox's Python 3.14 (environmental; minimal repro confirmed) — not a C-series code defect.
+- 3 sub-agents in parallel on disjoint scopes (L2+sql_line_mapper / extractor+index / docs), each verifying `git diff 7982efe HEAD` against code at HEAD `6a19c43` with live probes on `samples/sql_sample_v1/BDM_ACC_LOAN_INFO_SUP_M.sql`.
+- Tests: l1_l2 15 ✅, l2_table_dedup 6 ✅, b_series_l2+join_keys 19 ✅, join_keys 9 ✅; c_index 34 ✅ (stub) / env-hang (Python 3.14 sandbox, `asyncio.to_thread` — environmental, not code).

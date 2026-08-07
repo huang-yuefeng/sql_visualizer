@@ -8,7 +8,7 @@ import sys
 
 from app.models.variable import VariableDefinition, VariableDependency
 # Use v2 extractor (role-based Identifier walking — covers any SQL that sqlglot parses)
-from app.extractor.variable_extractor_v2 import ExtractionResult, extract_variables_from_sql
+from app.extractor.variable_extractor_v2 import EXTRACTOR_VERSION, ExtractionResult, extract_variables_from_sql
 from app.extractor.dependency_graph import build_dependency_graph
 from app.extractor.sql_line_mapper import map_variables_to_lines
 
@@ -137,6 +137,10 @@ def run_full_analysis(sql_text: str, script_name: str, ws_id: str | None = None)
         "total_dependencies": len(dependencies),
         "template_replacements": extract_result.template_replacements,
         "resolution_stats": extract_result.resolution_stats,
+        # v3.3.140: analysis-cache invalidation stamp — analysis caches must
+        # be keyed on this so extraction-semantics changes (e.g. the phantom
+        # subquery dedup / PARTITION vars) never serve stale analysis.
+        "extractor_version": EXTRACTOR_VERSION,
     }
 
 

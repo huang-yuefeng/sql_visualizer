@@ -28,5 +28,10 @@ workspace cache dir after the S4b pass, so this constant only names the
 files index_scripts itself wrote under the new prefix before the
 deletion). The bump still mass-invalidates any graph cache written by
 older builds (3_2_15/3_2_16) that the deletion alone cannot know about.
+
+v3.3.140 (2026-08-07): bumped to 3_2_18 — node data now carries
+line_start/line_end (format_version 4) and the L2 filter switches to the
+strict table.field flow (compute_field_flow). FORMAT bump: the graph JSON
+shape changed, so every cached graph is invalid.
 """
-GRAPH_CACHE_PREFIX = "graph_3_2_17"
+GRAPH_CACHE_PREFIX = "graph_3_2_18"

@@ -13,8 +13,13 @@ from app.services.workspace_service import get_workspace_dir
 from app.extractor.lineage import (
     compute_field_lineage,
     filter_graph_by_lineage,
+    filter_by_field_flow,
+    # Legacy re-export: sql_highlight_service.py imports filter_relevant
+    # from here — the legacy consumers keep calling it unchanged (v3.3.140
+    # only switches the two L2 call sites to filter_by_field_flow).
     filter_relevant,
 )
+from app.extractor.variable_extractor_v2 import EXTRACTOR_VERSION
 
 
 from app.services.l1_builder import _build_l1_graph
@@ -346,6 +351,12 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         result = None
         if analysis_cache_path.exists():
             result = json.loads(analysis_cache_path.read_text())
+            # C10 (v3.3.140): analysis caches from an older extractor are
+            # stale (extraction-semantics changes — phantom subquery dedup,
+            # PARTITION vars — must never serve old analysis) — ignore the
+            # cache and re-run the full analysis on mismatch.
+            if result.get("extractor_version") != EXTRACTOR_VERSION:
+                result = None
         if result is None:
             result = run_full_analysis(sql_text, script_name, ws_id=ws_id)
         graph_data = build_graph_data(result)
@@ -359,12 +370,16 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         # C-10: also write the versioned GRAPH cache so the next request
         # hits the fast path (previously the miss path only wrote schemas,
         # so every on-demand build re-ran the full analysis).
-        graph_data["format_version"] = 3
+        # C10 (v3.3.140): format_version 4 = node-carried line_start/line_end.
+        graph_data["format_version"] = 4
         graph_cache_path.write_text(json.dumps(graph_data, default=str))
 
     # Apply relevance filter (if requested)
+    # v3.3.140: the strict table.field flow filter (filter_by_field_flow)
+    # replaces filter_relevant — the requirement changed from table-level
+    # flow to exact flow of table.field. Flag semantics unchanged.
     if filter_relevant_nodes:
-        filtered = filter_relevant(graph_data, table, field, table_schemas=table_schemas)
+        filtered = filter_by_field_flow(graph_data, table, field, table_schemas=table_schemas)
     else:
         filtered = graph_data
 
@@ -385,10 +400,17 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         filtered = graph_data  # highlights/fallback counts reflect the full graph
 
     # Compute highlight ranges
-    highlight_ids = set()
-    for n in filtered.get("nodes", []):
-        nd = n.get("data", n)
-        highlight_ids.add(nd.get("id", ""))
+    # C10 (v3.3.140): in the not-in-flow case the FULL graph is shown — it
+    # carries foreign field vars (a.data_dt@55, t.data_dt@93) that must NOT
+    # highlight, so the highlight set is empty there; otherwise it is built
+    # from the filtered graph's nodes (the existing loop).
+    if not_in_flow:
+        highlight_ids = set()
+    else:
+        highlight_ids = set()
+        for n in filtered.get("nodes", []):
+            nd = n.get("data", n)
+            highlight_ids.add(nd.get("id", ""))
 
     highlights = _compute_highlight_ranges(graph_data, highlight_ids, sql_text)
 

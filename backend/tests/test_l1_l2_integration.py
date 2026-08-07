@@ -99,14 +99,17 @@ def test_l1_lineage_pairs_stg_customers(multi_workflow_ws):
 # ══════════════════════════════════════════════════════════════════════
 
 def test_l2_step3_join_edges_survive(multi_workflow_ws):
-    """Step3 has two JOIN keys (so.customer_id, sc.customer_id); both JOIN
-    edges must survive relevance filtering and land on the ⟐ output table."""
+    """Step3 has two JOIN keys (so.customer_id, sc.customer_id). Under the
+    strict table.field flow (v3.3.140) only the SEED side's JOIN edge
+    survives — the seed zone never propagates through a JOIN edge, so the
+    mirror key column (a different field instance) and its JOIN edge are
+    dropped. The surviving edge lands on the ⟐ output table."""
     graph = _step3_l2_graph(multi_workflow_ws)
     table_by_id = _table_name_by_id(graph)
     joins = [e["data"] for e in graph["edges"]
              if e["data"].get("edge_type") == "JOIN"]
-    assert len(joins) == 2, \
-        f"Expected 2 JOIN edges, got {len(joins)}: {joins}"
+    assert len(joins) == 1, \
+        f"Expected the seed-side JOIN edge, got {len(joins)}: {joins}"
     for e in joins:
         assert table_by_id.get(e["target"]) == OUTPUT_TABLE, \
             f"JOIN edge must feed the output table, got target {e['target']}"
@@ -369,18 +372,28 @@ def test_d1_table_var_maps_to_from_line_not_comment():
 
 
 def test_d2_highlights_never_zero_or_comment_lines():
-    """D2: (0,0) placeholders and comment-line mappings never reach the
-    highlights response — the start<1 guard drops unmapped vars and the
-    recompute skips comment lines."""
+    """D2: node-carried lines only — (0,0) placeholders never reach the
+    highlights response and comment positions never occur (the extractor's
+    line lookup skips comment lines, so node lines are real code lines).
+
+    v3.3.140: highlights are single line numbers [line, line] from the
+    node-carried line_start of the closure's field-like vars — the
+    line_map-based computation is gone."""
     from app.services import l2_builder as l2b
 
     sql = ("-- 源表名：bdm_acc_loan_info\n"
            "SELECT loan_id FROM bdm_acc_loan_info WHERE data_dt = '2026-01-01';")
     graph_data = {
         "nodes": [
-            {"data": {"id": "t1", "sql_expression": "bdm_acc_loan_info"}},
-            {"data": {"id": "c1", "sql_expression": "data_dt"}},
-            {"data": {"id": "c2", "sql_expression": ""}},   # unmapped → (0,0)
+            # field-like vars carry their own line_start; c2 is unmapped
+            # (line_start 0) and t1 is a table (not field-like) — both
+            # must never emit.
+            {"data": {"id": "t1", "sql_expression": "bdm_acc_loan_info",
+                      "variable_type": "table", "line_start": 2}},
+            {"data": {"id": "c1", "sql_expression": "data_dt",
+                      "variable_type": "column", "line_start": 2}},
+            {"data": {"id": "c2", "sql_expression": "",
+                      "variable_type": "column", "line_start": 0}},
         ],
         "edges": [],
     }
@@ -412,7 +425,12 @@ def loan_info_ws():
 def test_data_dt_seed_lands_on_searched_table(loan_info_ws):
     """L2 data_dt investigation (user complaint): searching
     bdm_acc_loan_info.data_dt must show the seed field on the searched
-    base table's compound node — not on the first p1 alias instance."""
+    base table's compound node — not on the first p1 alias instance.
+
+    v3.3.140 (strict table.field flow): the seed field appears on BOTH
+    the physical node and every node that carries the same field instance
+    — the p1 alias copy (P1 MOVE→COPY) and the INSERT target's partition
+    column — each marked is_target."""
     sql = LOAN_INFO_SCRIPT.read_text()
     graph = _build_l2_graph(loan_info_ws, LOAN_INFO_NAME, sql,
                             "bdm_acc_loan_info", "data_dt",
@@ -421,16 +439,22 @@ def test_data_dt_seed_lands_on_searched_table(loan_info_ws):
                   if n["data"].get("table_name") == "bdm_acc_loan_info"
                   and n["data"].get("type") == "source_table")
     seeds = [n["data"] for n in graph["nodes"] if n["data"].get("is_target")]
-    assert len(seeds) == 1, f"expected exactly 1 seed, got {len(seeds)}"
-    assert seeds[0]["parent"] == keeper["id"], \
-        f"seed must sit on the searched table node, got parent {seeds[0]['parent']}"
+    assert len(seeds) >= 2, \
+        f"expected the physical + copy seeds, got {len(seeds)}"
+    physical = [s for s in seeds if s["parent"] == keeper["id"]]
+    assert len(physical) == 1, \
+        f"exactly one seed must sit on the searched table node, got {physical}"
+    # P1 MOVE→COPY: alias/CTE/target nodes carry the seed instance too.
+    copies = [s for s in seeds if s["parent"] != keeper["id"]]
+    assert copies, "seed copies must appear on the alias/CTE/target nodes"
 
-    # The seed's own data flow stays visible: its FILTER edges survive at
-    # field level (P2 — no promotion to the alias/table node).
-    seed_id = seeds[0]["id"]
+    # The seed's data flow stays visible: FILTER edges survive at field
+    # level (P2 — no promotion to the alias/table node).
+    seed_ids = {s["id"] for s in seeds}
     incident = [e["data"] for e in graph["edges"]
-                if seed_id in (e["data"]["source"], e["data"]["target"])]
-    assert incident, "the seed field must have incident edges"
+                if e["data"]["source"] in seed_ids
+                or e["data"]["target"] in seed_ids]
+    assert incident, "the seed fields must have incident edges"
     assert any(e["edge_type"] == "FILTER" for e in incident), \
         [e["edge_type"] for e in incident]
 

@@ -121,22 +121,24 @@ def test_merged_table_fields_dedup(multi_ctx_ws):
         by_name.setdefault(f["label"], []).append(f)
     # Fields of both bare-FROM contexts (rollover: loan_id/amount/data_dt,
     # active: loan_id/loan_bal) plus the JOIN/subquery aliased reads land
-    # under the ONE keeper, each field name exactly once.
+    # under the ONE keeper, each (name, original var) exactly once.
     #
-    # C-9 (per-statement dedup): the field dedup key is now
-    # (parent, undecorated_label, stmt_idx) — same-named fields from
-    # DIFFERENT statements stay distinct. On this fixture the CTE-body
-    # columns (stmt_idx=None) parent under the keeper table while the
-    # main-statement projections (stmt_idx=0) parent under their own
-    # alias/output nodes, so the keeper still shows each name exactly
-    # once — no C-9 split here. The cross-statement split is covered in
-    # test_b_series_l2.py::test_c9_per_statement_dedup (two bare-FROM
-    # statements → same name under the same keeper at stmt_idx 0 and 1 →
-    # two distinct fields).
+    # C-9/C7 (v3.3.140): same-named fields from DIFFERENT statements stay
+    # distinct — the sync-canon copy (Sync 1) mirrors the p alias's JOIN
+    # key `loan_id` onto the keeper as its OWN field (distinct original
+    # var), exactly like the cross-statement split in
+    # test_b_series_l2.py::test_c9_per_statement_dedup. One original var
+    # must never materialize twice under the keeper — that would be a
+    # real double-registration.
     assert by_name["loan_id"], fields
     for fname, nodes in by_name.items():
-        assert len(nodes) == 1, \
-            f"field '{fname}' duplicated under merged table: {len(nodes)}x"
+        by_orig: dict = {}
+        for f in nodes:
+            by_orig.setdefault(f.get("original_id"), []).append(f)
+        for oid, same in by_orig.items():
+            assert len(same) == 1, \
+                f"field '{fname}' duplicated under merged table " \
+                f"(orig {oid}): {len(same)}x"
     assert {"loan_id", "amount", "loan_bal", "name"} <= set(by_name), \
         f"merged contexts' fields missing: {sorted(by_name)}"
 

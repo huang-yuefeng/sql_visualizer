@@ -211,7 +211,8 @@ def test_c9_same_statement_still_merges():
 
 def test_c10_miss_path_writes_graph_cache():
     """get_level2_graph's miss path writes {GRAPH_CACHE_PREFIX}_{key}.json
-    with format_version 3 (previously only the schemas cache was written)."""
+    with format_version 4 (v3.3.140: node data carries line_start/line_end
+    for strict-flow highlights)."""
     ws_id = _ws_for(TWO_STMT_SQL, "two_stmt.sql")
     try:
         cache_dir = get_workspace_dir(ws_id) / "cache"
@@ -230,7 +231,7 @@ def test_c10_miss_path_writes_graph_cache():
         assert graph_cache.exists(), \
             f"graph cache not written on miss: {graph_cache}"
         cached = json.loads(graph_cache.read_text())
-        assert cached.get("format_version") == 3, cached.get("format_version")
+        assert cached.get("format_version") == 4, cached.get("format_version")
         assert cached.get("nodes"), "cache has no nodes"
     finally:
         delete_workspace(ws_id)

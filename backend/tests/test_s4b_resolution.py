@@ -566,18 +566,16 @@ def test_m13_cache_attribution_context_scoped(monkeypatch):
         fvars = [v for v in qc["variables"]
                  if v.get("variable_type") == "column"
                  and v.get("name") == "f"]
-        # C-9: per-statement contexts — stmt1's f (TOP0), stmt2's subquery f
-        # (TOP1/subq1) and stmt2's outer expression-copy f (TOP1) are now
-        # three DISTINCT vars (the old shared "TOP" collapsed them).
-        assert len(fvars) == 3, fvars  # TOP0 + TOP1/subq1 + TOP1 copies
+        # C-9: per-statement contexts — stmt1's f (TOP0) and stmt2's
+        # subquery f (TOP1/subq1) are two DISTINCT vars (the old shared
+        # "TOP" collapsed them). v3.3.140 phantom dedup: stmt2's outer
+        # expression-copy f (TOP1, a raw-walk re-registration) is gone.
+        assert len(fvars) == 2, fvars  # TOP0 + TOP1/subq1
         top = [v for v in fvars if v.get("context") == "TOP0"]
         subq = [v for v in fvars if v.get("context") == "TOP1/subq1"]
-        outer = [v for v in fvars if v.get("context") == "TOP1"]
         assert top and top[0]["source_tables"] == ["t1"], top
         assert subq and subq[0]["source_tables"] == [], \
             "non-visible (subquery) var must NOT be attributed: %r" % subq
-        assert outer and outer[0]["source_tables"] == [], \
-            "stmt-2 outer copy must NOT be attributed (t1 not visible there): %r" % outer
         # candidate-record removal stays scoped by (field, visible set):
         # only the TOP candidate was resolved — the subquery candidate
         # (different visible set) remains for the report.

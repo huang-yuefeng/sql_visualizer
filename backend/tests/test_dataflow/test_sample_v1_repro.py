@@ -31,9 +31,11 @@ from tests.test_dataflow.conftest import _make_zip  # noqa: E402
 CASE_DIR = REPO_ROOT / "samples" / "sql_sample_v1"
 SCRIPT_NAME = "BDM_ACC_LOAN_INFO_SUP_M.sql"
 
-# Ground truth measured with the v3.3.135 extractor (see folder README).
-EXPECTED_MIN_VARS = 344
-EXPECTED_MIN_DEPS = 1102
+# Ground truth: v3.3.140 extractor (statement-anchored lines, phantom
+# dedup — the raw walk no longer re-registers subquery-interior columns
+# in outer contexts; v3.3.135 measured 344/1102 with the phantoms).
+EXPECTED_MIN_VARS = 253
+EXPECTED_MIN_DEPS = 660
 
 
 @pytest.fixture(scope="module")
@@ -54,13 +56,13 @@ def analysis(script_path):
 
 class TestExtractorInvariants:
     def test_variable_count(self, analysis):
-        """344 variables — regression anchor for extractor stability."""
+        """253 variables — regression anchor for extractor stability."""
         res, _ = analysis
         assert len(res.variables) >= EXPECTED_MIN_VARS, \
             f"Got {len(res.variables)} vars (expected >= {EXPECTED_MIN_VARS})"
 
     def test_dependency_count(self, analysis):
-        """1102 dependencies — regression anchor."""
+        """660 dependencies — regression anchor."""
         _, deps = analysis
         assert len(deps) >= EXPECTED_MIN_DEPS, \
             f"Got {len(deps)} deps (expected >= {EXPECTED_MIN_DEPS})"
@@ -70,11 +72,13 @@ class TestExtractorInvariants:
         res, _ = analysis
         tables = [v for v in res.variables if v.variable_type.name == "TABLE"]
         counts = {t.name: sum(1 for v in tables if v.name == t.name) for t in tables}
-        # bdm_acc_loan_info is read in 4 contexts (no-alias CTE FROM, p1 CTE
-        # join, subquery p1, NOT IN subquery) — must stay >= 4 source-side
-        # evidence so the L2 one-node-per-table merge has real data to merge.
-        assert counts.get("bdm_acc_loan_info", 0) >= 4, \
-            f"Expected >=4 bdm_acc_loan_info contexts, got {counts.get('bdm_acc_loan_info', 0)}"
+        # bdm_acc_loan_info is read in 3 contexts (no-alias CTE FROM, p1 CTE
+        # join, subquery p1) — the 4th (the NOT IN subquery's raw-walk
+        # re-registration) was a phantom duplicate, removed by the v3.3.140
+        # dedup. Must stay >= 3 so the L2 one-node-per-table merge has real
+        # data to merge.
+        assert counts.get("bdm_acc_loan_info", 0) >= 3, \
+            f"Expected >=3 bdm_acc_loan_info contexts, got {counts.get('bdm_acc_loan_info', 0)}"
         # INSERT target exists.
         assert counts.get("bdm_acc_loan_info_sup", 0) >= 1, \
             f"Expected bdm_acc_loan_info_sup (INSERT target), got {counts}"
