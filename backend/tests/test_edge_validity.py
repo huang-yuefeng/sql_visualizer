@@ -125,6 +125,13 @@ class TestSyntheticEdges:
             src = vb.get(e.source_id)
             tgt = vb.get(e.target_id)
             assert src and tgt, "SUBSET edge must have valid endpoints"
+            if e.operation == "READ":
+                # Phase 4d (read attribution): qualified column → its
+                # own-scope alias table — an extraction-time field→table
+                # read edge, not a synthetic bridge. Same pattern as the
+                # canonical SUBSET data_dt@18 → bdm_acc_loan_info@16 on
+                # the ground-truth sample (column → table).
+                continue
             # Source should be a table-like node (bridge uses TABLE as anchor)
             assert src.variable_type.value in (
                 "table", "view", "cte", "virtual_table", "merge_target",

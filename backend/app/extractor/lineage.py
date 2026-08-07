@@ -607,36 +607,91 @@ def compute_field_flow(graph_data, target_table, target_field,
             _zone_memo[nid] = nid in zone
         return _zone_memo[nid]
 
-    # ── Expansion (visited keyed by node id — the only visited key). ──
-    visited = set(seeds)
-    stack = list(seeds)
-    while stack:
-        nid = stack.pop()
-        for (nb, et, fwd) in adjacency.get(nid, []):
-            if nb in visited:
-                continue
-            if et in FIELD_LAND:
-                admit = True
-            elif et == "ALIAS":
-                nb_var = node_map.get(nb)
-                nb_st = (nb_var or {}).get("source_tables") or []
-                admit = bool(nb_st) and nb_st[0] == target_table
-            elif et in ("FILTER", "JOIN"):
-                admit = _seed_zone(nid) or _seed_zone(nb)
-            elif et == "DML":
-                admit = fwd  # forward only (source -> target)
-            else:
-                admit = False  # NEVER types and anything unknown
-            if admit:
-                visited.add(nb)
-                stack.append(nb)
+    # ── Identity helper + chain ──
+    # Physical identity of a var (chain matching key): the attributed
+    # source table, else the declared table_name/label.
+    def _identity(var):
+        st = var.get("source_tables") or []
+        if st:
+            return st[0]
+        return var.get("table_name") or var.get("label") or ""
 
-    # ── Identity admissions over the visited set (repeat until stable — the
-    # closure is small). Not edges: owner-holders, physical tables, CTE
-    # containers. ──
+    # chain: identities of table-like vars admitted into the closure.
+    # TABLE_FLOW is followed FORWARD only from a source whose identity is
+    # already in the chain (Q1 clause a) — no reverse leakage.
+    chain = {target_table}
+    for sid in seeds:
+        var = node_map.get(sid)
+        if var is not None and _table_like(var):
+            ident = _identity(var)
+            if ident:
+                chain.add(ident)
+
+    def _register(nb):
+        """Record a table-like admission's identity into the chain."""
+        var = node_map.get(nb)
+        if var is not None and _table_like(var):
+            ident = _identity(var)
+            if ident:
+                chain.add(ident)
+
+    # ── Joint fixpoint: expansion rounds and identity-admission rounds
+    # alternate until neither grows (monotone — terminates; rounds capped).
+    # Identity admissions used to run ONCE after the BFS, so ALIAS /
+    # TABLE_FLOW / DML edges from nodes that only enter via identity
+    # (owner holders, physical tables, CTE containers) never fired. ──
+    visited = set(seeds)
     changed = True
-    while changed:
+    rounds = 0
+    while changed and rounds < 100:
         changed = False
+        rounds += 1
+        # ── expansion round ──
+        stack = list(visited)
+        while stack:
+            nid = stack.pop()
+            for (nb, et, fwd) in adjacency.get(nid, []):
+                if nb in visited:
+                    continue
+                if et in FIELD_LAND:
+                    admit = True
+                elif et == "ALIAS":
+                    nb_var = node_map.get(nb)
+                    nb_st = (nb_var or {}).get("source_tables") or []
+                    admit = bool(nb_st) and nb_st[0] == target_table
+                elif et in ("FILTER", "JOIN"):
+                    admit = _seed_zone(nid) or _seed_zone(nb)
+                elif et == "DML":
+                    admit = fwd  # forward only (source -> target)
+                elif et == "TABLE_FLOW":
+                    # Q1, forward-only: (a) table-like source whose physical
+                    # identity is in the chain; (b) VT whose context is an
+                    # ancestor-or-equal of a visited field var's context
+                    # with the target field part.
+                    admit = False
+                    if fwd:
+                        src_var = node_map.get(nid)
+                        if src_var and src_var.get("variable_type") == "virtual_table":
+                            sctx = _context_of(src_var)
+                            for fv in node_map.values():
+                                if (fv.get("variable_type") in FIELD_LIKE
+                                        and fv.get("id") in visited
+                                        and _field_part(fv) == target_field):
+                                    fctx = _context_of(fv)
+                                    if fctx == sctx or fctx.startswith(sctx.rstrip("/") + "/"):
+                                        admit = True
+                                        break
+                        elif _table_like(src_var):
+                            admit = _identity(src_var) in chain
+                else:
+                    admit = False  # NEVER types and anything unknown
+                if admit:
+                    visited.add(nb)
+                    changed = True
+                    _register(nb)
+
+        # ── identity-admission round (owner-holders, physical tables, CTE
+        # containers — existing rules unchanged) ──
         for nid in list(visited):
             var = node_map.get(nid)
             if not var:
@@ -646,6 +701,7 @@ def compute_field_flow(graph_data, target_table, target_field,
                 if holder and holder not in visited:
                     visited.add(holder)
                     changed = True
+                    _register(holder)
                 hv = node_map.get(holder) if holder else None
                 if hv:
                     hst = hv.get("source_tables") or []
@@ -654,6 +710,7 @@ def compute_field_flow(graph_data, target_table, target_field,
                         if tv and tv not in visited:
                             visited.add(tv)
                             changed = True
+                            _register(tv)
             # Container rule: context segments "CTE{...}" -> the CTE var
             # labeled X (the scope that contains the reads).
             for seg in _context_of(var).split("/"):
@@ -662,6 +719,7 @@ def compute_field_flow(graph_data, target_table, target_field,
                     if cte_id and cte_id not in visited:
                         visited.add(cte_id)
                         changed = True
+                        _register(cte_id)
     return visited
 
 

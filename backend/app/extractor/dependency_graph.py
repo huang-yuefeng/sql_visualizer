@@ -169,6 +169,126 @@ def build_dependency_graph(
                 continue
             _add_edge(v, tbl_var, "TABLE_FLOW", op_type)
 
+    # 1c-extra2: statement output VT → DML target (the output ⟐ was a
+    # dead end — the statement's query output feeds the write).
+    for tbl_var, op_type in dml_entries:
+        ctx = tbl_var.context or "TOP"
+        out_vts = [a for a in vt_map.get(ctx, [])
+                   if a.variable_type == VariableType.VIRTUAL_TABLE]
+        if len(out_vts) == 1:
+            _add_edge(out_vts[0], tbl_var, "TABLE_FLOW", op_type)
+
+    # 1c-cross: cross-statement write->read. For each DML target (stmt n),
+    # find TABLE/VIEW reads of the same canonical table name in OTHER
+    # statements (context TOP{m}, m != n) and emit target -> (reader
+    # statement's DML target, else the reader) as a write->read edge.
+    # Must run before Phase 7/8 so the union-find sees the cross-statement
+    # connection and the Phase-7 SUBSET bridge is not needed.
+    def _stmt_key(v):
+        ctx = v.context or "TOP"
+        if ctx.startswith("TOP"):
+            return ctx.split("/", 1)[0]
+        return None  # CTE{...} bodies: statement not encoded in context
+
+    def _dml_target_stmt(v):
+        if v.variable_type == VariableType.MERGE_TARGET:
+            return _stmt_key(v)
+        if v.variable_type == VariableType.TABLE:
+            di = (v.defined_in or "").upper()
+            if any(k in di for k in ("INSERT", "UPDATE", "DELETE")):
+                return _stmt_key(v)
+        return None
+
+    dml_by_stmt = defaultdict(list)
+    for v in variables:
+        s = _dml_target_stmt(v)
+        if s is not None:
+            dml_by_stmt[s].append(v)
+
+    for tbl_var, op_type in dml_entries:
+        t_stmt = _stmt_key(tbl_var)
+        if t_stmt is None:
+            continue
+        canon = (tbl_var.source_tables[0] if tbl_var.source_tables
+                 else tbl_var.name)
+        for v in variables:
+            if v.variable_type not in (VariableType.TABLE, VariableType.VIEW):
+                continue
+            if v.id == tbl_var.id:
+                continue
+            r_stmt = _stmt_key(v)
+            if r_stmt is None or r_stmt == t_stmt:
+                continue
+            if not (v.name == canon or
+                    (v.source_tables and v.source_tables[0] == canon)):
+                continue
+            tgt = next((d for d in dml_by_stmt.get(r_stmt, [])
+                        if d.id != tbl_var.id), None)
+            if tgt is None:
+                tgt = v
+            _add_edge(tbl_var, tgt, "DML", "WRITE_READ")
+
+    # 1c-direct: CTE output feeds its readers directly. A reference var
+    # (TABLE/VIEW alias with source_tables[0] == CTE name) inside a CTE
+    # body context CTE{Y} links CTE X -> CTE Y; a statement-level
+    # reference links CTE X -> the statement's DML target. Direct edges
+    # make the canonical endpoint keys (CTE var line -> reader line) pair
+    # up exactly.
+    cte_by_name: dict[str, list[VariableDefinition]] = defaultdict(list)
+    for v in variables:
+        if v.variable_type == VariableType.CTE:
+            cte_by_name[v.name].append(v)
+    for v in variables:
+        if v.variable_type not in (VariableType.TABLE, VariableType.VIEW):
+            continue
+        if not v.source_tables:
+            continue
+        src_ctes = cte_by_name.get(v.source_tables[0])
+        if not src_ctes:
+            continue
+        ctx = v.context or "TOP"
+        if ctx.startswith("CTE{") and "}" in ctx:
+            body_ctes = cte_by_name.get(ctx[4:ctx.index("}")])
+            if not body_ctes:
+                continue
+            for src in src_ctes:
+                for body in body_ctes:
+                    if (src.id != body.id
+                            and (src.context or "TOP") == (body.context or "TOP")):
+                        _add_edge(src, body, "TABLE_FLOW", "REFERENCE")
+        else:
+            stmt = ctx.split("/", 1)[0]
+            for tbl_var, op_type in dml_entries:
+                if (tbl_var.context or "TOP") != stmt:
+                    continue
+                for src in src_ctes:
+                    if src.id != tbl_var.id:
+                        _add_edge(src, tbl_var, "TABLE_FLOW", op_type)
+
+    # 1c-self: the statement's write reads its own target (self-join into
+    # the DML target) when a same-context FROM/JOIN alias of the target
+    # table exists. Expressed as a TABLE_FLOW self-loop on the DML target.
+    # Appended directly (the _add_edge guard forbids self-loops by design;
+    # this one is deliberate and deduped via seen_edges).
+    for tbl_var, op_type in dml_entries:
+        ek = (tbl_var.id, tbl_var.id, "TABLE_FLOW")
+        if ek in seen_edges:
+            continue
+        ctx = tbl_var.context or "TOP"
+        for v in variables:
+            if v.variable_type not in (VariableType.TABLE, VariableType.VIEW):
+                continue
+            if (v.context or "TOP") != ctx or v.id == tbl_var.id:
+                continue
+            if v.source_tables and v.source_tables[0] == tbl_var.name:
+                seen_edges.add(ek)
+                deps.append(VariableDependency(
+                    source_id=tbl_var.id, target_id=tbl_var.id,
+                    relationship="TABLE_FLOW", operation="SELF_JOIN",
+                    sql_context=f"{tbl_var.name} → {tbl_var.name}",
+                ))
+                break
+
     # 1d: UNION branch → parent context VT (or DML target TABLE)
     # SET_OP edges connect UNION / INTERSECT / EXCEPT branches to their
     # output anchor. The anchor is normally a VIRTUAL_TABLE or CTE in the
@@ -284,6 +404,32 @@ def build_dependency_graph(
                                         VariableType.MERGE_TARGET, VariableType.UNION_BRANCH):
                     continue
                 _add_edge(anchor, v, "SCHEMA", "OUTPUT")
+
+    # Phase 4d: READ — qualified column → its own-scope alias table
+    # (the alias the read is attributed to at extraction time, I2).
+    # The canonical field→table read edge. SUBSET is never walked by the
+    # strict walker, so these are inert for closures — they surface in
+    # the filtered L2 output once both endpoints are admitted (the same
+    # pattern as the existing SUBSET bridges data_dt@18 → bdm@16).
+    for v in variables:
+        if v.variable_type != VariableType.COLUMN:
+            continue
+        if "." not in v.name:
+            continue
+        if not v.source_tables:      # I2: attributed at extraction time
+            continue
+        prefix = v.name.split(".", 1)[0]
+        ctx = v.context or "TOP"
+        for t in variables:
+            if t.variable_type not in (VariableType.TABLE, VariableType.VIEW):
+                continue
+            if (t.context or "TOP") != ctx:
+                continue
+            if t.name != prefix or t.id == v.id:
+                continue
+            if t.source_tables and t.source_tables[0] == v.source_tables[0]:
+                _add_edge(v, t, "SUBSET", "READ")
+                break
 
     # ══════════════════════════════════════════════════════════════════
     # Phase 5: INDIRECT — bare column → defined variable (HAVING→SELECT)
