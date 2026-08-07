@@ -18,8 +18,10 @@ stmt2 (L211-225): INSERT INTO rrcdm_job_log_exec_par
                   FROM bdm_acc_loan_info_sup WHERE data_dt='$(load_date)' (L225)
 ```
 
-Global extraction facts: **253 variables, 649 dependencies, 14 ALIAS edges,
-parse_errors = []** (verified twice, deterministic).
+Global extraction facts: **253 variables, 737 dependencies, 14 ALIAS edges,
+parse_errors = []** (verified twice, deterministic; deps count is a SNAPSHOT —
+v3.3.146: 737 = 649 baseline + 89 edge-rule additions − 1 Phase-7 bridge
+removal, see §7.4).
 
 ---
 
@@ -179,7 +181,7 @@ scopes — `p1@29` (rollover's inner alias) owns `p1.data_dt@158`,
 `p1.issue_dt@181`, `p1.internal_key@162` … fields read in other scopes.
 `p1.data_dt@43` has three SCHEMA parents (p1@29, p1@84, p1@198).
 
-### 4.4 The two calculations compared (and why both are wrong)
+### 4.4 The two calculations compared (and why both were wrong)
 
 ```
 Run 1 — filter_by_field_flow (the L2 view):   11 nodes / 5 edges
@@ -197,8 +199,16 @@ the source tables and dead-ends before stmt2.
 NEITHER reaches rrcdm_job_log_exec_par — impossible, because missing
 edge #4 (write→read) disconnects stmt2 entirely.
 
-VERDICT: both wrong (under-connected). Once the 4 missing edge types exist,
-both calculations converge to the 10-node / 2-sink ground truth above.
+VERDICT (then): both wrong (under-connected). Once the 4 missing edge types
+exist, both calculations converge to the 10-node / 2-sink ground truth.
+
+VERDICT (v3.3.146, verified — the prediction came true): the 4 edge types
+were emitted (Phase 4d READ, 1c-extra2, 1c-cross WRITE_READ, 1c-direct,
+1c-self — §7.4) and the L2 walker was fixed (joint fixpoint + forward-only
+TABLE_FLOW in compute_field_flow). The benchmark now reports the exact
+canonical closure: 13 canonical nodes + allowed intermediates, 16/16
+canonical edge pairs, 2/2 sinks, byte-exact highlights [18,43,158,160] and
+propagated [160,202,213].
 ```
 
 ---
@@ -327,8 +337,10 @@ canonical node for comparison purposes.
 
 **Sinks (2):** `bdm_acc_loan_info_sup@160`, `rrcdm_job_log_exec_par@211`.
 
-**Edges (14 semantic — the graph's 10 present + 4 missing; each must be
-covered by at least one system edge linking the canonical endpoints):**
+**Edges (16 canonical endpoint pairs — 12 present-chain + 4 that were
+missing; ALL COVERED as of v3.3.146, verified by the benchmark. Each pair
+must be covered by at least one system edge linking the canonical
+endpoints):**
 
 ```
 present (10):
@@ -346,12 +358,12 @@ present (10):
                                           TABLE_FLOW p3@204 → sup@160)
   SUBSET  data_dt@160           → bdm_acc_loan_info_sup@160
 
-missing (4 — the fix target; proposed system types in brackets):
-  1. p1.data_dt@43  → p1@29        [SUBSET — mirrors the unqualified data_dt@18→bdm@16]
-  2. p1.data_dt@158 → p1@84        [SUBSET]
-  3. ⟐ output@0     → bdm_acc_loan_info_sup@160   [DML or TABLE_FLOW — output VT→target]
+missing (4 — FIXED in v3.3.146 by the loop round 1; emission phases in §7.4):
+  1. p1.data_dt@43  → p1@29        [SUBSET op=READ — Phase 4d, own-scope alias]
+  2. p1.data_dt@158 → p1@84        [SUBSET op=READ — Phase 4d, own-scope alias]
+  3. ⟐ output@0     → bdm_acc_loan_info_sup@160   [TABLE_FLOW op=INSERT — 1c-extra2]
   4. bdm_acc_loan_info_sup@160 → bdm_acc_loan_info_sup@223 → rrcdm_job_log_exec_par@211
-                                    [TABLE_FLOW — cross-statement write→read]
+                                    [DML op=WRITE_READ — 1c-cross, write→read]
 ```
 
 Edge-type tolerance for coverage: any of {TABLE_FLOW, SUBSET, ALIAS, DML,
@@ -386,3 +398,72 @@ propagated bdm_acc_loan_info_sup.data_dt: [160, 202, 213]  (L225 = KNOWN GAP,
 Convergence prediction (§4.4, to verify): once the 4 missing edges exist,
 Trial 1 and Trial 2 both converge to this 13-node / 14-edge / 2-sink spec.
 Trial 3 (source_tables closure) is the oracle that checks them.
+
+## 7.4 Loop round 1 outcome — v3.3.146 (2026-08-07, team iteration + main-session audit)
+
+Verdict of the iteration: **converged**. Benchmark went 3/6 → 5/6 (closure
+semantics 100% canonical); the 6th test's failure was a stale SNAPSHOT pin
+(649 deps), updated to 737 after independent verification → 6/6.
+
+### Solution changes (commit da6e18f — all audited, extraction-time info only)
+
+```
+dependency_graph.py:
+  Phase 4d      SUBSET op=READ — qualified column → ITS OWN-SCOPE alias table
+                (context-equality guard → I2 cross-scope pairs impossible;
+                verified: 83 edges, 0 cross-scope)
+  1c-extra2     TABLE_FLOW op=INSERT — statement output VT → its DML target
+                (per-context, len(out_vts)==1 guard; TOP0→sup@160, TOP1→rrcdm@211)
+  1c-cross      DML op=WRITE_READ — cross-statement write→read by canonical
+                table name (runs BEFORE Phase 7/8 → union-find sees the link)
+  1c-direct     TABLE_FLOW — CTE output → its reader CTE / statement DML target
+                (rollover@9→loan_final@64, loan_final@64→sup@160)
+  1c-self       TABLE_FLOW SELF_JOIN self-loop — DML target read by its own
+                statement (sup@160, from the p2@199 self-join)
+  REMOVED       Phase-7 SUBSET BRIDGE rrcdm@211→bdm_sys_acc_loan_info@204 —
+                superseded by WRITE_READ (it was a compensation for the
+                missing cross-statement link)
+
+lineage.py compute_field_flow:
+  Joint fixpoint — expansion and identity-admission rounds interleave until
+  stable (identity-admitted nodes can now fire ALIAS/TABLE_FLOW/DML edges)
+  TABLE_FLOW clause — forward-only: (a) table-like source whose physical
+  identity is in the chain; (b) VT whose context is ancestor-or-equal of a
+  visited field var's context (admits ⟐subq1@0, ⟐output@0)
+
+test_edge_validity.py: SUBSET op=READ exempted from the "synthetic bridge"
+assertion (Phase 4d read attribution is not a bridge) — narrow, documented.
+```
+
+### Audit record (main session — independent verification of every claim)
+
+All verified by probe (tools/probe_new_edges.py, fresh extraction): deps 737
+= 649 + 89 − 1; 83 READ pairs include both canonical (#1/#2) and ZERO
+cross-scope pairs; the two output-VT edges come from DISTINCT per-statement
+VTs (TOP0/TOP1 — no shared-var collision); exactly one WRITE_READ in the
+correct direction; Phase-7 bridge truly gone; self-loop present; 1c-direct
+edges present. Full suite: 647 passed / 1 failed (only the stale pin) — no
+regression in the other tests.
+
+### Open concerns (not blockers — bug-list §v3.3.146)
+
+```
+1. 1c-cross emits write→read WITHOUT a statement-ORDER check — a table read
+   in an EARLIER statement and written in a LATER one would get a reversed-
+   time edge. Harmless here (2 statements, read is later); refine with a
+   TOP-index comparison when other scripts exercise it.
+2. 1c-self has a vacuous guard (`ek in seen_edges` can never be true —
+   self-loops are forbidden by _add_edge) — dead code, harmless.
+3. Walker clause (b) scans node_map.values() per candidate TABLE_FLOW edge
+   (O(V) per check) — perf risk on very large scripts; memoize visited-field
+   contexts when needed.
+4. 1c-direct duplicates the ALIAS+TABLE_FLOW consumption chains — accepted
+   by design so canonical endpoint keys pair exactly; benign redundancy.
+```
+
+### Benchmark contract update (accepted — main session)
+
+test_global_sanity deps pin 649 → 737 with a snapshot-semantics note
+(deltas are findings to classify, not automatic failures). The count is
+NOT a semantic invariant of the closure spec (§7.2 defines nodes/edges/
+sinks/highlights only).

@@ -3429,3 +3429,29 @@ local emission (one read-edge phase for #1/#2; one anchor→target DML edge in
 truth §4.4 predicts BOTH old calculations converge to the 10-node/2-sink
 closure; the new method above becomes the regression oracle. Implementation
 only on explicit order.
+
+## v3.3.146b — LOOP ROUND 1 CONVERGED; OPEN CONCERNS FROM THE AUDIT (2026-08-07)
+
+Round-1 outcome: benchmark 6/6 (closure 13 nodes / 16 edge pairs / 2 sinks /
+highlights byte-exact; deps snapshot 649→737 updated with evidence). Full
+audit record in GROUND_TRUTH_BDM_ACC_LOAN_INFO_SUP.md §7.4.
+
+Open concerns (non-blocking, from the main-session audit of commit da6e18f):
+
+1. **1c-cross lacks a statement-ORDER check** — write→read is emitted for any
+   other-statement reader of the same canonical name, even if that reader
+   statement comes BEFORE the writer (reversed-time edge). Correct on the
+   benchmark sample (2 stmts, reader is later); refine with a TOP-index
+   comparison (writer idx < reader idx) when other scripts exercise it.
+2. **1c-self vacuous guard** — `if ek in seen_edges: continue` can never be
+   true (self-loops are forbidden by _add_edge) — dead code, harmless.
+3. **Walker clause (b) is O(V) per candidate edge** — compute_field_flow's
+   TABLE_FLOW VT clause scans node_map.values() for every candidate edge
+   (context ancestor check). Fine at 253 vars; memoize visited field-var
+   contexts before large-script scale-up.
+4. **1c-direct redundancy** — direct CTE→reader CTE / CTE→DML-target edges
+   duplicate the ALIAS+TABLE_FLOW consumption chains (rollover→p6→loan_final
+   vs rollover→loan_final). Accepted by design so canonical endpoints pair
+   exactly; benign, but the ALIAS chain edges become unreachable for the
+   walker's closure (the ALIAS rule keys on target_table) — re-visit if the
+   full L2 view should render the alias intermediate.

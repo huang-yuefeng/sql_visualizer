@@ -215,11 +215,21 @@ def test_propagated_field(bdm):
 # ── Verdict ──────────────────────────────────────────────────────────────
 
 def test_global_sanity(bdm):
-    """Extraction invariants the benchmark depends on (v3.3.145 baseline)."""
+    """Extraction invariants the benchmark depends on.
+
+    NOTE: len(deps) is a SNAPSHOT, not a semantic invariant — it legitimately
+    changes when edge rules change. v3.3.146 snapshot: 737 = 649 (v3.3.145
+    baseline) + 89 added (83 SUBSET READ + 3 TABLE_FLOW INSERT + 1
+    TABLE_FLOW REFERENCE + 1 DML WRITE_READ + 1 TABLE_FLOW SELF_JOIN) − 1
+    removed (Phase-7 SUBSET BRIDGE rrcdm@211→bdm_sys_acc_loan_info@204,
+    superseded by the WRITE_READ edge). When the count changes, treat the
+    delta as a finding to classify (solution bug vs snapshot update), not
+    automatically as a failure of the solution.
+    """
     _, result, deps, _, _ = bdm
     assert result.parse_errors == []
     assert len(result.variables) == 253
-    assert len(deps) == 649
+    assert len(deps) == 737
     print("\n── GLOBAL ──")
     print(f"  vars={len(result.variables)} deps={len(deps)} parse_errors={result.parse_errors}")
     print("\nVERDICT: MATCH (empty diff)" if True else "")
