@@ -3053,3 +3053,28 @@ the L2 path (`l2_builder.py:_apply_relevance_filter`). Design: wiki/SOLUTION_DES
 | Highlights contract change | ✅ highlights = **single line numbers** `[line,line]` from node-carried `line_start` of the closure's field-like vars (node data now carries `line_start`/`line_end`, `graph_service.py:201-202`; `format_version` 4; cache prefix `graph_3_2_18`) |
 | Verified on BDM_ACC_LOAN_INFO_SUP_M.sql | ✅ seed `bdm_acc_loan_info.data_dt` → closure 13 nodes; highlights `[[18,18],[43,43],[158,158],[160,160]]` **byte-exact** (E2E probe); L2 shows the seed on the physical table, the p1 alias copy (P1 MOVE→COPY), and the INSERT target's partition column; full suite **635 passed / 5 skipped** |
 | Behavior deltas vs 139 (pinned tests updated) | step3 L2 JOIN edges 2→1 (only the seed-side JOIN survives — the seed zone never propagates through a JOIN edge; the mirror key column is a different field instance); data_dt seeds 1→3 (physical + alias copy + target partition, all is_target); subquery outer phantom copies gone (S3/M13 assertions updated); Sync 1 canonical copy may coexist with a same-name CTE field under the merged keeper (C7, distinct original vars) |
+
+---
+
+## v3.3.141 — DATA-FLOW ANALYSIS FINDINGS (2026-08-08, analysis-only round)
+
+User questions on BDM_ACC_LOAN_INFO_SUP_M.sql (`bdm_acc_loan_info.data_dt` flow):
+(a) "is the target field really used in the data flow" (p1@67 shows no field),
+(b) "rollover_loan_info should have p1 in the dataflow, but there is not — why?".
+Both answered with probe evidence — see below for the two **suggestions** raised
+(analysis-only; no source changes, per diagnostics-not-fix).
+
+**Answers established (not bugs):**
+
+| Question | Answer |
+|---|---|
+| Is data_dt really used? | YES — 4 reads, all in the strict field flow: 18 (rollover WHERE, bare), 43 (rollover derived WHERE via p1@29), 158 (loan_final WHERE via p1@67), 160 (INSERT PARTITION). Highlights `[[18,18],[43,43],[158,158],[160,160]]` byte-exact; closure = 13 nodes incl. both p1 aliases |
+| Why no p1 in rollover's dataflow? | TABLE-level chain exists (`bdm→p1@29→⟐subq→⟐subq1→rollover`, verified edge-by-edge) — but data_dt never appears in the subq's OUTPUT (SELECT DISTINCT lending_ref, loan_maturity_dt), so the SUBSET edges into rollover carry no data_dt and the strict walker (v3.3.140 design decision 21: exact table.field flow) correctly cuts them. The only surviving structural link is the SCHEMA containment edge `rollover→⟐subq` (points OUT of rollover). Proof: searching `lending_ref` restores the full chain (subq output columns `lending_ref@26/22/50` connect into rollover) |
+
+**Suggestions (reported, NOT fixed):**
+
+| Item | Evidence | Suggestion |
+|---|---|---|
+| **S1 — L2 field-attribution gap for qualified columns** | `_register_column` (:1379) registers qualified columns (`p1.data_dt`) with EMPTY `source_tables` (R20 `if table:` branch returns early; S2/S3 is unqualified-only by design). L2 `_classify_compound_nodes` then falls back to the label-prefix `p1` → FIRST matching p1 compound (p1@29, registration order) → the 43 AND 158 reads both attach to p1@29; the `(parent, label, stmt_idx=None)` dedup collapses 158 into 43's field node (`merged_original_ids`). Net: p1@67 renders with ZERO field children; only 3 of the 4 data_dt fields materialize in L2; the 158 occurrence survives only as highlight `[158,158]` + a merged id. C5's scope-picking (`_pick_scope_candidate`) is NOT applied to the prefix branch (only to the src_tables branch) | Extend C5 scope-picking to the label-prefix branch (`label.split(".")[0]` → `_pick_scope_candidate(field_ctx, prefix-candidates)`), or attribute qualified columns in R20 (owner = qualifier label → alias_map). Verify against the pinned lending_ref 12-field count — scope-splitting same-named fields across alias instances is exactly what C5's docstring warns about, so test counts may shift |
+| **S2 — SUBSET BRIDGE artifacts target the first CTE** | Phase 8 of dependency_graph (:458-473, "ensure ≥2 edges for non-table nodes") glues under-connected reads to the first TABLE-type anchor of the main component — `data_dt` vars at L93 (accu subq, loan_final ctx), L160 (PARTITION), L213 (main SELECT output) all got `data_dt→rollover_loan_info` SUBSET edges although none of those reads is inside rollover. Display noise in the L2 view (edges pointing at an unrelated CTE) | Consider scope-aware anchor selection for Phase 8 (prefer same-context / enclosing-context TABLE anchors before the global first-match), or drop BRIDGE edges when the read already has ≥2 real edges |
+| **S3 — p1@67 node label was the alias-line bug (v3.3.140)** | the loan_final p1 alias (def L84) resolved to L67 (first name occurrence — AS-composition bug); L2 alias label `p1@67` and the ALIAS edge range [67,14,67,30] displayed the wrong line | Fix designed (definition-line refactor: keyword-anchored token scan FROM + name [AS] alias → L84; census of all 23 `_add` sites: 20 definition-anchored / 3 occurrence-anchored) — **implementation deferred, waiting for user order** |
