@@ -237,6 +237,10 @@ def build_graph_data(analysis: dict) -> dict:
                 "relationship": rel,
                 "operation": d.get("operation", ""),
                 "color": EDGE_COLORS.get(rel, "#555555"),
+                # I5 (v3.3.145): containment rides the edge data — the
+                # strict walker (lineage._is_containment) keys on the tag,
+                # not the edge type, so it must survive the graph build.
+                "containment": d.get("containment", False),
             }
         })
 

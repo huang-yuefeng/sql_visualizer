@@ -108,6 +108,7 @@ class VariableDefinition(BaseModel):
     source_columns: list[str] = Field(default_factory=list)  # Physical columns this derives from
     source_variables: list[str] = Field(default_factory=list) # IDs of upstream variables
     source_tables: list[str] = Field(default_factory=list)   # Physical tables this traces to
+    alias_of: Optional[str] = None                           # I4: id of the exact source var this alias pairs with (ALIAS edge)
     defined_in: str = ""                                     # "CTE:batch_summary" / "SELECT" / "MERGE"
     line_start: int = 0                                      # Starting line number in SQL
     line_end: int = 0                                        # Ending line number in SQL
@@ -123,3 +124,4 @@ class VariableDependency(BaseModel):
     relationship: str                        # Edge type (SCHEMA, ALIAS, SELECT, JOIN, REF, etc.)
     operation: str = ""                      # Specific SQL operation (SUM, COALESCE, etc.)
     sql_context: str = ""                    # SQL fragment showing the relationship
+    containment: bool = False                # I5: SCHEMA containment edge (container → nested VT anchor)

@@ -141,10 +141,10 @@ class TestC1CtasClassification:
 
 class TestC2GraphCacheInvalidation:
     def test_graph_cache_prefix_bumped(self):
-        """C-2: GRAPH_CACHE_PREFIX is bumped to graph_3_2_18 (v3.3.140) —
-        the bump is the single-constant invalidation; the name/format is
-        unchanged."""
-        assert cache_keys.GRAPH_CACHE_PREFIX == "graph_3_2_18", \
+        """C-2: GRAPH_CACHE_PREFIX is bumped to graph_3_2_19 (v3.3.145) —
+        I2 attributes qualified columns (source_tables) so L2 graph
+        contents change; the bump is the single-constant invalidation."""
+        assert cache_keys.GRAPH_CACHE_PREFIX == "graph_3_2_19", \
             cache_keys.GRAPH_CACHE_PREFIX
         assert fis.GRAPH_CACHE_PREFIX == cache_keys.GRAPH_CACHE_PREFIX
 

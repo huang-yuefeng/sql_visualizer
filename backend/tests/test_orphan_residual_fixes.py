@@ -343,7 +343,9 @@ def test_fix_c_cte_behavior_unchanged():
         "WITH c AS (SELECT SUM(a) AS s FROM t) SELECT s FROM c", "fixc8")
     s = _find_src(r, "s", ["c"])
     assert s.context == "TOP0", s
-    assert r.resolution_stats["resolved_by"]["expr_alias"] == 1, r.resolution_stats
+    # v3.3.145 (B3): the CTE body output (SUM(a) AS s) is attributed to
+    # its own CTE too — expr_alias = body output + downstream ref.
+    assert r.resolution_stats["resolved_by"]["expr_alias"] == 2, r.resolution_stats
     assert r.resolution_stats["unresolved"] == [], r.resolution_stats
 
 
