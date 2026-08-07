@@ -34,8 +34,12 @@ SCRIPT_NAME = "BDM_ACC_LOAN_INFO_SUP_M.sql"
 # Ground truth: v3.3.140 extractor (statement-anchored lines, phantom
 # dedup — the raw walk no longer re-registers subquery-interior columns
 # in outer contexts; v3.3.135 measured 344/1102 with the phantoms).
+# v3.3.145 measured 253/649: I4 removed the ALIAS name-matching
+# cross-product (21 → 14 edges, one exact alias_of edge per alias) and
+# I3 removed the SUBSET global first-match bridge fallback (51 → 47) —
+# all other 12 edge types are byte-identical to the v3.3.140 counts.
 EXPECTED_MIN_VARS = 253
-EXPECTED_MIN_DEPS = 660
+EXPECTED_MIN_DEPS = 649
 
 
 @pytest.fixture(scope="module")
@@ -62,7 +66,7 @@ class TestExtractorInvariants:
             f"Got {len(res.variables)} vars (expected >= {EXPECTED_MIN_VARS})"
 
     def test_dependency_count(self, analysis):
-        """660 dependencies — regression anchor."""
+        """649 dependencies — regression anchor (v3.3.145 I4/I3 reduced)."""
         _, deps = analysis
         assert len(deps) >= EXPECTED_MIN_DEPS, \
             f"Got {len(deps)} deps (expected >= {EXPECTED_MIN_DEPS})"

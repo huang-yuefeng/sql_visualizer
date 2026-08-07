@@ -67,11 +67,14 @@ def test_s1_dotted_qualifier_takes_table_part():
     assert r.resolution_stats["resolved_by"]["plain_alias"] == 1
 
 
-def test_s1_plain_qualified_column_unchanged():
-    """No-alias qualified refs keep the historical prefix behavior."""
+def test_s1_plain_qualified_column_attributed_via_qualifier():
+    """I2 (v3.3.145): no-alias qualified refs attribute through their own
+    qualifier's physical table — sb.total_amount → settlement_batch, not
+    the historical empty prefix behavior (which left p1.x reads
+    unattributed and sent L2 to the first-match label prefix)."""
     r = extract_variables_from_sql(
         "SELECT sb.total_amount FROM settlement_batch sb", "s1b")
-    assert _find(r, "sb.total_amount").source_tables == []
+    assert _find(r, "sb.total_amount").source_tables == ["settlement_batch"]
     assert r.resolution_stats["resolved_by"]["plain_alias"] == 0
 
 
@@ -84,7 +87,10 @@ def test_s2_cte_output_column_resolves_downstream_ref():
     s = _find(r, "s")  # the bare downstream reference in TOP context
     assert s.source_tables == ["c"], s
     assert s.context == "TOP0", s
-    assert r.resolution_stats["resolved_by"]["expr_alias"] == 1, r.resolution_stats
+    # v3.3.145 (B3): the CTE BODY output (SUM(a) AS s, AGGREGATE in
+    # CTE{c}) is also attributed — to its own CTE — so expr_alias counts
+    # the body output AND the downstream ref.
+    assert r.resolution_stats["resolved_by"]["expr_alias"] == 2, r.resolution_stats
     assert r.resolution_stats["unresolved"] == [], r.resolution_stats
 
 

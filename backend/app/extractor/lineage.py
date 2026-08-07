@@ -411,6 +411,19 @@ FIELD_LAND = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED"}
 NEVER = {"TABLE_FLOW", "SUBQUERY", "SET_OP", "CORRELATED", "INDIRECT", "SUBSET", "SCHEMA"}
 
 
+def _is_containment(ed) -> bool:
+    """I5 (v3.3.145): containment-tagged edge — nesting, not value flow.
+
+    A2 tags SCHEMA containment edges (container table/CTE -> nested VT,
+    e.g. rollover_loan_info@9 -> ⟐subq@0) so the strict walker does not
+    treat them as flow. Contract: the edge dict carries key
+    "containment" == True, or the edge object has attribute .containment.
+    """
+    if isinstance(ed, dict):
+        return bool(ed.get("containment"))
+    return bool(getattr(ed, "containment", False))
+
+
 def _field_part(var):
     """Last dotted segment of the label — the field name proper."""
     return str(var.get("label") or "").rsplit(".", 1)[-1]
@@ -545,9 +558,17 @@ def compute_field_flow(graph_data, target_table, target_field,
 
     # adjacency: nid -> [(neighbor, etype, forward)] — forward = nid is the
     # edge's source. etype from edge_type or relationship.
+    # I5 (v3.3.145): containment-tagged edges are excluded from the walk
+    # entirely — they express syntactic nesting (container -> nested VT),
+    # already visible via the nesting structure; they must not look like
+    # value flow. Skipped here so neither the expansion loop nor the
+    # seed-zone BFS ever follows them (type-agnostic: the tag governs, not
+    # the edge type).
     adjacency = {}
     for e in edges:
         ed = e.get("data", e)
+        if _is_containment(ed):
+            continue
         src, tgt = ed.get("source"), ed.get("target")
         etype = ed.get("edge_type") or ed.get("relationship")
         adjacency.setdefault(src, []).append((tgt, etype, True))
@@ -650,8 +671,10 @@ def filter_by_field_flow(graph_data, target_table, target_field,
 
     Returns a dict identical to graph_data except nodes = those whose id is in
     the closure, edges = those with both ends in the closure; all other
-    top-level keys are kept. An empty closure yields 0 nodes — the caller
-    handles the not-in-flow case; this never raises.
+    top-level keys are kept. I5 (v3.3.145): containment-tagged edges are
+    excluded even when both ends are in the closure — nesting is shown by the
+    nesting structure, not as flow arrows. An empty closure yields 0 nodes —
+    the caller handles the not-in-flow case; this never raises.
     """
     if not graph_data:
         return graph_data
@@ -661,7 +684,8 @@ def filter_by_field_flow(graph_data, target_table, target_field,
     filtered_nodes = [n for n in nodes if n.get("data", n).get("id") in closure]
     filtered_edges = [e for e in edges
                       if (e.get("data", e).get("source") in closure and
-                          e.get("data", e).get("target") in closure)]
+                          e.get("data", e).get("target") in closure and
+                          not _is_containment(e.get("data", e)))]
     return {
         **{k: v for k, v in graph_data.items() if k not in ("nodes", "edges")},
         "nodes": filtered_nodes,

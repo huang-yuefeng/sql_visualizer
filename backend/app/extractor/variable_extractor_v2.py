@@ -31,7 +31,7 @@ from app.models.variable import VariableDefinition, VariableType
 
 
 # Bump to invalidate analysis caches when extraction semantics change.
-EXTRACTOR_VERSION = "2026-08-07.2"
+EXTRACTOR_VERSION = "2026-08-08.1"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
@@ -267,6 +267,11 @@ class ExtractionResult:
     variables: list[VariableDefinition] = field(default_factory=list)
     template_replacements: list[str] = field(default_factory=list)
     resolution_stats: dict = field(default_factory=default_resolution_stats)
+    # v3.3.145 (I3/case-3): statements sqlglot could not parse
+    # (ErrorLevel.IGNORE yields None) — {"stmt_idx": int, "detail": str}
+    # per failure, in statement order; empty when everything parsed.
+    # A3 surfaces this on the analysis response.
+    parse_errors: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -423,10 +428,42 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
     for stmt_idx, statement in enumerate(parsed):
         if statement is not None:
             extractor.process_statement(statement, f"TOP{stmt_idx}")
+        else:
+            # I3/case-3: ErrorLevel.IGNORE left a hole in the statement list —
+            # record it (statement index + short text) so the caller can
+            # surface "statement N failed to parse" instead of silently
+            # dropping it. Never a hard failure — extraction continues.
+            result.parse_errors.append({
+                "stmt_idx": stmt_idx,
+                "detail": _failed_stmt_detail(clean_sql, stmt_idx),
+            })
+
+    # B3 (v3.3.145): walk outputs the S1-S3 chains could not attribute land
+    # on their OWN container — extraction-time info, never a guess. L2
+    # parents fields exclusively from source_tables (the context-string
+    # picker is deleted), so an unattributed output column would render
+    # parentless.
+    extractor._attribute_output_containers()
 
     # R20: orphan resolution coverage report
     result.resolution_stats = extractor.build_resolution_stats()
     return result
+
+
+def _failed_stmt_detail(clean_sql: str, stmt_idx: int) -> str:
+    """Short human-readable text of the statement that failed to parse.
+
+    Statements are ';'-delimited in the preprocessed script (SET/config
+    lines already stripped, so the pieces line up with sqlglot's statement
+    list). Truncated to ~60 chars — detail only, never used for matching.
+    """
+    pieces = [p.strip() for p in clean_sql.split(";") if p.strip()]
+    if 0 <= stmt_idx < len(pieces):
+        text = pieces[stmt_idx]
+        if len(text) > 60:
+            return text[:60] + "…"
+        return text
+    return "parse error"
 
 
 def _is_as_keyword(tok) -> bool:
@@ -546,10 +583,15 @@ class _RoleBasedExtractor:
         """1-based line (original file) of `expr`'s FIRST token.
 
         Anchors a statement (Select/Update/Insert/Create/Merge node) by
-        matching the first 4 tokens of its rendered SQL as a token
+        matching the first 6 tokens of its rendered SQL as a token
         subsequence in the pre-tokenized stream. The statement's own text
         is unique enough that the first match is its own occurrence, and
         the match is exact — no text search, no string-literal confusion.
+        (6 tokens, not fewer: 4-token heads collide when a body statement
+        shares its opening tokens with an earlier one — the sample's main
+        `SELECT a.id, a.amt` collides with the mid-body `SELECT a.id, b.val`
+        at token 5, so the shorter head anchors the main select at the mid
+        body's line and last-wins TOP0 reads resolve one statement early.)
         Returns 0 when no match is found (callers fall back conservatively).
         A leading WITH clause renders as a prefix and is stripped before
         matching — the anchor is the statement's OWN first token (the
@@ -593,14 +635,14 @@ class _RoleBasedExtractor:
                 # Skip AS KEYWORD tokens on BOTH sides: sqlglot's render
                 # inserts `AS` before aliases (`MERGE INTO customers tgt`
                 # renders as "MERGE INTO customers AS tgt"), which breaks
-                # the 4-token head match for alias-bearing statement heads.
+                # the 6-token head match for alias-bearing statement heads.
                 # Only the KEYWORD counts — a STRING literal containing
                 # `as` is never the anchor (string skip mirrors
                 # `_find_position`), and dropping it from BOTH sides would
                 # collapse `'as' AS c, a` into `c, a`, letting an earlier
                 # statement masquerade as a later one's head (L16).
                 head = [t.text.lower() for t in rendered
-                        if not _is_as_keyword(t)][:4]
+                        if not _is_as_keyword(t)][:6]
                 # C-13(b): candidate scan via the first-token position index
                 # (built once in __init__). Identical matching semantics to
                 # the linear scan below — the index only skips tokens that
@@ -640,8 +682,16 @@ class _RoleBasedExtractor:
         return line
 
     def _record_stmt_anchor(self, context: str, stmt) -> None:
-        """Record the first-token line of the statement walked under `context`."""
-        if context and self._stmt_anchor_lines.get(context, 0) == 0:
+        """Record the first-token line of the statement walked under `context`.
+
+        LAST-WINS (I1): a context walked more than once — the INSERT walk
+        followed by its source SELECT's walk under the same "TOP{n}" — keeps
+        the LAST walk's anchor. Vars registered between the two (the INSERT
+        target, its alias, PARTITION columns) have already resolved against
+        the INSERT's anchor by then, and the body vars that follow resolve
+        against their own SELECT — each var's own statement, D-series.
+        """
+        if context:
             line = self._statement_anchor(stmt)
             if line > 0:
                 self._stmt_anchor_lines[context] = line
@@ -701,15 +751,100 @@ class _RoleBasedExtractor:
             pass
         return self._find_position(name, sql_expr)
 
+    def _find_def_position(self, runs: list[list[str]], node=None,
+                           stmt_ctx: str = "") -> tuple[int, int]:
+        """1-based (line, line) of a DEFINITION site — token-run matching (I1).
+
+        Replaces the composition text search for definition sites: the runs
+        (each a token text list, e.g. ["bdm_acc_loan_info", "p1"] or [")",
+        "accu"]) are matched as token subsequences, STRING tokens excluded —
+        a string literal equal to a run token is never a definition. Order:
+        (1) the first run that matches, scoped to the enclosing statement
+        ([its anchor, the next non-nested anchor)); (2) whole-stream token
+        run — never a text search, so multi-line pretty renders and
+        'name AS alias' compositions cannot break it. Returns (0, 0) when
+        nothing matches (tokenizer failures degrade gracefully).
+        """
+        try:
+            tokens = self._tokens
+            if not tokens:
+                return (0, 0)
+            anchor = 0
+            if node is not None:
+                anchor = self._statement_anchor(node)
+            if anchor <= 0:
+                anchor = self._stmt_anchor_for(stmt_ctx)
+            if anchor > 0:
+                end = self._next_anchor_after(anchor, stmt_ctx)
+                for run in runs:
+                    line = self._match_token_run(run, tokens, anchor, end)
+                    if line:
+                        return (line, line)
+            for run in runs:
+                line = self._match_token_run(run, tokens, 0, 10**9)
+                if line:
+                    return (line, line)
+            return (0, 0)
+        except Exception:
+            return (0, 0)
+
+    @staticmethod
+    def _match_token_run(run: list[str], tokens, lo_line: int,
+                         hi_line: int) -> int:
+        """First line where `run` occurs as a token run within [lo, hi).
+
+        Each run token must equal a non-STRING token's text (lowercased);
+        the AS KEYWORD may be interleaved between run tokens ('FROM t AS a'
+        tokenizes t, AS, a — the alias run is [t, a]). Returns 0 when the
+        run never occurs in the range.
+        """
+        n = len(tokens)
+        for i in range(n):
+            tok = tokens[i]
+            if tok.line < lo_line:
+                continue
+            if tok.line >= hi_line:
+                break
+            if tok.token_type == TokenType.STRING:
+                continue
+            if tok.text.lower() != run[0]:
+                continue
+            j, k = i + 1, 1
+            while k < len(run):
+                if j >= n:
+                    break
+                t2 = tokens[j]
+                if t2.token_type == TokenType.STRING:
+                    j += 1
+                    continue
+                if t2.text.lower() == run[k]:
+                    k += 1
+                    j += 1
+                    continue
+                if _is_as_keyword(t2):
+                    j += 1
+                    continue
+                break
+            if k == len(run):
+                return tok.line
+        return 0
+
     def _add(self, name: str, var_type: VariableType, sql_expr: str = "",
              defined_in: str = "", context: str = "TOP",
              source_cols: list[str] | None = None,
              source_tables: list[str] | None = None,
-             is_output: bool = False) -> VariableDefinition | None:
+             is_output: bool = False,
+             def_site: tuple | None = None,
+             alias_of: str | None = None) -> VariableDefinition | None:
         """Add a variable, deduplicating by (name, type, context) — one node
         per unique variable per scope (C-9: top-level statements are scoped
         by statement index, so same-named vars in DIFFERENT statements stay
-        distinct nodes)."""
+        distinct nodes).
+
+        `def_site` = (runs, anchor_node, stmt_ctx) for I1 DEFINITION sites —
+        line lookup via token runs instead of the occurrence text search.
+        `alias_of` (I4) = id of the exact source var this alias pairs with.
+        """
         name = _clean(name)
         if not name:
             return None
@@ -731,7 +866,11 @@ class _RoleBasedExtractor:
         self._seen.add(key)
 
         vid = self._next_id(f"{context}:{name}")
-        ls, le = self._find_position_scoped(name, sql_expr, context)
+        if def_site is not None:
+            runs, node, stmt_ctx = def_site
+            ls, le = self._find_def_position(runs, node, stmt_ctx)
+        else:
+            ls, le = self._find_position_scoped(name, sql_expr, context)
         var = VariableDefinition(
             id=vid, name=name, variable_type=var_type,
             sql_expression=sql_expr,
@@ -740,6 +879,7 @@ class _RoleBasedExtractor:
             defined_in=defined_in, context=context,
             line_start=ls, line_end=le,
             is_output=is_output,
+            alias_of=alias_of,
         )
         self.result.variables.append(var)
         # R20: count every column-type variable actually created.
@@ -748,6 +888,53 @@ class _RoleBasedExtractor:
         return var
 
     # ── R20 resolution stats (orphan coverage report) ────────────────
+
+    def _attribute_output_containers(self) -> None:
+        """B3 (v3.3.145): attribute walk outputs to their OWN container.
+
+        The S1-S3 chains run inside the walks; a projection they could not
+        resolve (a CTE body output over no single physical table, or an
+        unaliased expression/bare column inside a subquery/derived body
+        whose scope has no physical table) used to fall to L2's deleted
+        context-string picker. The owner is extraction-time and exact:
+        - a CTE body output column (CTE_COLUMN / case / aggregate …) in a
+          bare "CTE{name}" context belongs to the CTE that defines it;
+        - an is_output var of a subquery/derived-body walk belongs to the
+          VIRTUAL_TABLE the walk itself created in the SAME context
+          (⟐ subq1 / ⟐ accu/subq3 / ⟐ d — line-0 synthetic containers,
+          never in highlights).
+        Statement-level outputs (TOP{n} — no "/" and no ":join:") are
+        untouched: their ambiguity rules are pinned by S3 (never guess).
+        Table-like vars are never touched (they carry their own
+        source_tables semantics). S2 expr_alias counts the attribution —
+        these ARE expression/CTE-output attributions.
+        """
+        table_like = (VariableType.TABLE, VariableType.VIEW,
+                      VariableType.CTE, VariableType.SUBQUERY,
+                      VariableType.VIRTUAL_TABLE, VariableType.UNION_BRANCH,
+                      VariableType.MERGE_TARGET)
+        ctx_to_vt: dict[str, str] = {}
+        for v in self.result.variables:
+            if v.variable_type == VariableType.VIRTUAL_TABLE:
+                ctx_to_vt.setdefault(v.context or "TOP", v.name)
+        for v in self.result.variables:
+            if v.source_tables or v.variable_type in table_like:
+                continue
+            ctx = v.context or "TOP"
+            if (ctx.startswith("CTE{") and "/" not in ctx
+                    and ":join:" not in ctx):
+                # CTE body output → the CTE that defines it
+                end = ctx.find("}")
+                if end > 4:
+                    v.source_tables = [ctx[4:end]]
+                    self._resolution_stats["resolved_by"]["expr_alias"] += 1
+                continue
+            if v.is_output and ("/" in ctx or ":join:" in ctx):
+                # subquery/derived-body walk output → its own ⟐ container
+                container = ctx_to_vt.get(ctx)
+                if container:
+                    v.source_tables = [container]
+                    self._resolution_stats["resolved_by"]["expr_alias"] += 1
 
     def build_resolution_stats(self) -> dict:
         """Final resolution_stats for this script.
@@ -874,10 +1061,14 @@ class _RoleBasedExtractor:
                 continue
             self._cte_names.add(alias)
 
-            # CTE table variable (scoped to the enclosing statement — C-9)
+            # CTE table variable (scoped to the enclosing statement — C-9).
+            # I1 def site: the CTE name token followed by AS then '(' —
+            # self-identifying, so repeated table names elsewhere can never
+            # steal the line ("src_x" at L13 / "mid" at L18).
             self._add(alias, VariableType.CTE,
                       sql_expr=_sql(cte_def),
-                      defined_in=f"CTE{{{alias}}}", context=context)
+                      defined_in=f"CTE{{{alias}}}", context=context,
+                      def_site=([[alias, "as", "("]], None, context))
 
             # Walk the inner query to extract columns
             inner = cte_def.this
@@ -990,9 +1181,12 @@ class _RoleBasedExtractor:
                 sub_alias = _clean(ut.alias or "")
                 if sub_alias:
                     self._derived_aliases.add(sub_alias)
+                    # I1 def site: the alias identifier right after ')'
                     self._add(sub_alias, VariableType.SUBQUERY,
                               sql_expr=_sql(ut.this),
-                              defined_in="USING", context=context)
+                              defined_in="USING", context=context,
+                              def_site=([[")", sub_alias]], scope.owner
+                                        if scope is not None else None, context))
                 if isinstance(ut.this, exp.Select):
                     self._walk_select(ut.this, context, is_cte=False)
 
@@ -1027,9 +1221,13 @@ class _RoleBasedExtractor:
             if isinstance(into_table, exp.Table):
                 into_name = _clean(into_table.name or "")
                 if into_name:
+                    # I1 def site: the name token after the INTO keyword
+                    # (SELECT ... INTO tgt — the target is textually last)
                     self._add(into_name, VariableType.TABLE,
                               sql_expr=f"SELECT INTO {into_name}",
-                              defined_in="SELECT INTO", context=context)
+                              defined_in="SELECT INTO", context=context,
+                              def_site=([["into", into_name], [into_name]],
+                                        select, context))
 
     # ── FROM / JOIN walkers ─────────────────────────────────────────
 
@@ -1046,9 +1244,15 @@ class _RoleBasedExtractor:
             sub_ctx = f"{context}/subq/{sub_alias}" if sub_alias else f"{context}/subq"
             if sub_alias:
                 self._derived_aliases.add(sub_alias)
+                # I1 def site: the alias identifier right after ')'; anchored
+                # on the ENCLOSING statement (scope.owner), never on the
+                # subquery's own head (a duplicate body head can match the
+                # whole-stream anchor scan and pull the line out of range).
                 self._add(sub_alias, VariableType.SUBQUERY,
                           sql_expr=_sql(from_exp.this),
-                          defined_in=f"FROM:{context}", context=sub_ctx)
+                          defined_in=f"FROM:{context}", context=sub_ctx,
+                          def_site=([[")", sub_alias]], scope.owner
+                                    if scope is not None else None, context))
             if isinstance(from_exp.this, exp.Select):
                 self._walk_select(from_exp.this, sub_ctx, is_cte=False,
                                   derived_alias=sub_alias or None)
@@ -1081,9 +1285,15 @@ class _RoleBasedExtractor:
             sub_ctx = f"{context}:join:{sub_alias}" if sub_alias else f"{context}:join_subq"
             if sub_alias:
                 self._derived_aliases.add(sub_alias)
+                # I1 def site: ') alias' — anchored on the enclosing
+                # statement (scope.owner): the loan_final ") p2" must land
+                # on 116, never on the rollover subq's duplicate ") p2" at
+                # 40 (that one anchors inside its own subq body).
                 self._add(sub_alias, VariableType.SUBQUERY,
                           sql_expr=_sql(join_expr.this),
-                          defined_in=f"JOIN:{context}", context=sub_ctx)
+                          defined_in=f"JOIN:{context}", context=sub_ctx,
+                          def_site=([[")", sub_alias]], scope.owner
+                                    if scope is not None else None, context))
             if isinstance(join_expr.this, exp.Select):
                 self._walk_select(join_expr.this, sub_ctx, is_cte=False,
                                   derived_alias=sub_alias or None)
@@ -1256,15 +1466,59 @@ class _RoleBasedExtractor:
         else:
             defined_in = "FROM"
 
-        self._add(name, VariableType.TABLE,
-                  sql_expr=name, defined_in=defined_in, context=context)
+        # I1 def sites: token runs anchored on the enclosing statement —
+        # [name] for the table, [name, alias] for the alias (an AS KEYWORD
+        # between them is tolerated), DML keyword runs for UPDATE/DELETE
+        # targets. Statement scoping disambiguates repeated tables (FROM
+        # bdm_acc_loan_info p1 at L29 and L84 each resolve in their own
+        # statement's range).
+        node = scope.owner if scope is not None else None
+        if dml == "UPDATE":
+            table_runs = [["update", name], [name]]
+        elif dml == "DELETE":
+            table_runs = [["delete", "from", name], [name]]
+        else:
+            table_runs = [[name]]
+        table_var = self._add(name, VariableType.TABLE,
+                              sql_expr=name, defined_in=defined_in,
+                              context=context,
+                              def_site=(table_runs, node, context))
 
         if alias and alias != name:
             self._table_aliases[alias] = name
+            # I4: alias_of = the KEY of the exact source var this alias was
+            # registered with — the table var registered in this same clause
+            # walk, or (when it was skipped/deduped) the known var of the
+            # same name: the CTE's own var for CTE refs, else the
+            # already-registered same-context table var (the INSERT target at
+            # 160 re-referenced as the main select's "FROM
+            # bdm_acc_loan_info_sup p2" → pairs with the TOP0 instance,
+            # never the TOP1 one). Never across statements — contexts differ.
+            alias_of = None
+            if table_var is not None:
+                alias_of = table_var.id
+            else:
+                want = (VariableType.CTE
+                        if name.lower() in {n.lower() for n in self._cte_names}
+                        else VariableType.TABLE)
+                same_ctx = next((v.id for v in self.result.variables
+                                 if v.variable_type == want
+                                 and v.name.lower() == name.lower()
+                                 and v.context == context), None)
+                if same_ctx is not None:
+                    alias_of = same_ctx
+                elif want == VariableType.CTE:
+                    # CTE refs may legitimately point at a CTE var recorded
+                    # in the enclosing statement context (a nested statement
+                    # referencing a TOP0 CTE).
+                    alias_of = next((v.id for v in self.result.variables
+                                     if v.variable_type == VariableType.CTE
+                                     and v.name.lower() == name.lower()), None)
             self._add(alias, VariableType.TABLE,
                       sql_expr=f"{name} AS {alias}",
                       defined_in=defined_in, context=context,
-                      source_tables=[name])
+                      source_tables=[name], alias_of=alias_of,
+                      def_site=([[name, alias]], node, context))
 
         # R20: record into the statement scope for orphan resolution.
         if scope is not None:
@@ -1398,6 +1652,14 @@ class _RoleBasedExtractor:
             if var is not None and _clean(col.db or "").lower() in _SYSTEM_SCHEMAS:
                 var.source_tables = [SYSTEM_TABLE_SENTINEL]
                 self._resolution_stats["resolved_by"]["sys"] += 1
+                return
+            # I2: qualified refs attribute to their OWN qualifier's physical
+            # table (S1 resolution through the statement scope) — p1.data_dt
+            # inside loan_final → bdm_acc_loan_info, never a whole-file
+            # first-match table. System-schema qualifiers stay on the S5
+            # path above; derived-alias qualifiers resolve to themselves.
+            if var is not None:
+                var.source_tables = [self._resolve_alias(table, scope)]
             return
         if var is None:
             return
@@ -1999,9 +2261,11 @@ class _RoleBasedExtractor:
                 sub_alias = _clean(using.alias or "")
                 if sub_alias:
                     self._derived_aliases.add(sub_alias)
+                    # I1 def site: the alias identifier right after ')'
                     self._add(sub_alias, VariableType.SUBQUERY,
                               sql_expr=_sql(using.this),
-                              defined_in="MERGE USING", context=context)
+                              defined_in="MERGE USING", context=context,
+                              def_site=([[")", sub_alias]], merge, context))
                 self._walk_select(using.this, context, is_cte=False)
 
         # ON condition
@@ -2033,9 +2297,11 @@ class _RoleBasedExtractor:
 
     def _walk_insert(self, insert: exp.Insert, context: str):
         """Walk an INSERT statement (INSERT INTO ... SELECT/VALUES)."""
-        # D-series: record BEFORE the into/target and PARTITION registration
-        # — the partition vars must resolve against the INSERT's anchor
-        # (line 160), not the source SELECT's (161), so first-recording wins.
+        # D-series: record BEFORE the into/target and PARTITION registration.
+        # Anchors are last-wins (I1) — the source SELECT's walk later
+        # overwrites "TOP{n}" with its own line — but the target and
+        # PARTITION vars register BEFORE that walk, so they still resolve
+        # against the INSERT's anchor (line 160), not the SELECT's (161).
         self._record_stmt_anchor(context, insert)
         into = insert.args.get("into") or insert.args.get("this")
         if isinstance(into, exp.Schema):
@@ -2057,17 +2323,26 @@ class _RoleBasedExtractor:
         # PARTITION registration never hits a NameError for exotic targets.
         name = ""
         if isinstance(into, exp.Table):
-            # Register target with INSERT marking (not default "FROM")
+            # Register target with INSERT marking (not default "FROM").
+            # I1 def site: the name token after the target keyword — the
+            # INSERT keyword runs cover INTO / INTO TABLE / OVERWRITE TABLE
+            # forms ("INSERT INTO TABLE x" at L211, "INSERT OVERWRITE TABLE
+            # x" at L160), with the bare-name run as the graceful fallback.
             name = _clean(into.name or "")
             alias = _clean(into.alias_or_name or "")
             if name:
                 self._add(name, VariableType.TABLE,
-                          sql_expr=name, defined_in="INSERT", context=context)
+                          sql_expr=name, defined_in="INSERT", context=context,
+                          def_site=([["insert", "into", name],
+                                     ["insert", "into", "table", name],
+                                     ["insert", "overwrite", "table", name],
+                                     [name]], insert, context))
                 if alias and alias != name:
                     self._add(alias, VariableType.TABLE,
                               sql_expr=f"{name} AS {alias}",
                               defined_in="INSERT", context=context,
-                              source_tables=[name])
+                              source_tables=[name],
+                              def_site=([[name, alias]], insert, context))
         # v3.3.140: INSERT-with-partition target columns become column vars
         # (e.g. INSERT OVERWRITE TABLE t PARTITION(data_dt='$(load_date)',
         # CHARGE_DEPARTMENT)) so the write side seeds table.field flow.
@@ -2129,8 +2404,13 @@ class _RoleBasedExtractor:
         if kind == "VIEW":
             # CREATE VIEW / CREATE MATERIALIZED VIEW
             if name:
+                # I1 def site: the name token after the CREATE keyword
+                # (bare-name run covers OR REPLACE / MATERIALIZED forms)
                 self._add(name, VariableType.VIEW,
-                          sql_expr=_sql(create), defined_in="CREATE VIEW", context=context)
+                          sql_expr=_sql(create), defined_in="CREATE VIEW",
+                          context=context,
+                          def_site=([["create", "view", name], [name]],
+                                    create, context))
             # Walk the inner SELECT defining the view
             inner = create.args.get("expression")
             if inner and isinstance(inner, exp.Select):
@@ -2147,8 +2427,12 @@ class _RoleBasedExtractor:
                 canonical = (_clean(table_expr.this.name or "")
                              if isinstance(table_expr.this, exp.Table) else canonical)
             if name:
+                # I1 def site: the name token after the CREATE keyword
                 self._add(name, VariableType.TABLE,
-                          sql_expr=_sql(create), defined_in="CREATE TABLE", context=context)
+                          sql_expr=_sql(create), defined_in="CREATE TABLE",
+                          context=context,
+                          def_site=([["create", "table", name], [name]],
+                                    create, context))
             # S4a source 3: DDL column definitions (CREATE TABLE t (a INT, …))
             # → canonical schema evidence. REPORT-ONLY — no column variables.
             if canonical and isinstance(table_expr, exp.Schema):

@@ -171,4 +171,8 @@ def _dep_to_dict(d: VariableDependency) -> dict:
         "relationship": d.relationship,
         "operation": d.operation,
         "sql_context": d.sql_context,
+        # I5 (v3.3.145): containment survives serialization — the strict
+        # walker consumes the flag on graph edges, so the analysis-cache
+        # path must carry it too (rollover_loan_info -> ⟐subq etc.).
+        "containment": d.containment,
     }

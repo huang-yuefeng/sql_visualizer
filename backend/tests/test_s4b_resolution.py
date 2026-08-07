@@ -574,8 +574,12 @@ def test_m13_cache_attribution_context_scoped(monkeypatch):
         top = [v for v in fvars if v.get("context") == "TOP0"]
         subq = [v for v in fvars if v.get("context") == "TOP1/subq1"]
         assert top and top[0]["source_tables"] == ["t1"], top
-        assert subq and subq[0]["source_tables"] == [], \
-            "non-visible (subquery) var must NOT be attributed: %r" % subq
+        # v3.3.145 (B3): the subquery output now carries its own CONTAINER
+        # attribution (⟐ subq1 — extraction-time, the walk that created
+        # it), NOT the schema attribution: t1 was never visible in
+        # TOP1/subq1 and must stay out of the field_index/schema counts.
+        assert subq and subq[0]["source_tables"] == ["⟐ subq1"], \
+            "non-visible (subquery) var must NOT get schema attribution: %r" % subq
         # candidate-record removal stays scoped by (field, visible set):
         # only the TOP candidate was resolved — the subquery candidate
         # (different visible set) remains for the report.
