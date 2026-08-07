@@ -3201,3 +3201,58 @@ every var: line_start/line_end; statement anchors recorded since v3.3.140):
 Verified expected anchors: data_dt@160 (L160) → bdm_acc_loan_info_sup@160
 (L160∈[160,208]); data_dt@213 → rrcdm@211 (213∈[211,225]);
 ods_hub_lsacmsp@33 → bdm@29 (33∈[29,61]). No context strings anywhere.
+
+---
+
+## v3.3.144 — HIGHLIGHT SOLUTIONS REVIEW + COVERAGE VERIFICATION (2026-08-07, analysis-only round)
+
+### Highlight solutions enumerated (review sample: tools/HIGHLIGHT_REVIEW_SAMPLE.sql)
+| # | Solution | Verdict |
+|---|----------|---------|
+| A | Definition-line extraction (AST positions at registration: alias identifier / CTE name / `)` b / DML target / read occurrence) | **CONFIRMED** — the line solution |
+| B | Statement-scoped text search (current `_find_position_scoped`) | Replaced by A; machinery DELETED (patch layer) |
+| C | Occurrence line for everything | Dropped — wrong on aliases (a(mid)→20, b→21, a(main)→31 vs defs 22/26/33) |
+| D | Span highlight (CTE/derived bodies) | Moved to display-strategy module (future) |
+| E | Label-only (no SQL-panel highlight) | Moved to display-strategy module (future) |
+
+Probe on sample (live extractor, S-B today): a(mid)→20 ✗, b→21 ✗, a(main)→20 ✗✗
+(cross-CTE), CTEs/tables/reads correct. Real script: p1@67/accu@75/branch@72/p2@40/p4@74
+— all first-use lines; A gives p1@84/accu@94/branch@104/p2@116/p4@149 (def lines).
+
+### A's uncovered classes — rulings + evidence
+1. **Virtual nodes (⟐, line 0)** — by design: synthetic names, no SQL text; never in
+   highlights (line<1 guard). Optional extension: ⟐ nodes get their own SELECT keyword
+   line (extraction-time) for clickability — OPEN.
+2. **Unregistered constructs** — probed: `LATERAL VIEW explode(...) x AS c2` parses as
+   `exp.Lateral` at SELECT level (arg `laterals`; extractor only handles exp.Lateral
+   inside JOINs, :1071) → alias `x` NOT registered; `FROM (VALUES ...) v(c1)` → `v` NOT
+   registered; `CROSS JOIN UNNEST(t.arr) AS u(c2)` → `u` NOT registered. Columns always
+   register with correct read lines (x.c2@5, v.c1@2, u.c2@2). Extractor feature gap,
+   not a highlight gap — optional registration in the walk — OPEN.
+3. **Parse failure** — user ruling: report in DIAGNOSTIC panel, human fixes the SQL
+   (today it is silently skipped under ErrorLevel.IGNORE). Include diagnostic entry in
+   the implementation order.
+4. **SQL formatting/preprocessing module** — **REJECTED** by user: dialect-specific
+   constructs can change meaning on transpile round-trip; too dangerous. Census
+   evidence: 85 workspace scripts, 0 minified (max line 374, 7 files >300).
+5. **One-line (minified) SQL** — highlight line 1 is acceptable (raw mode); formatting
+   module dropped, so no granularity workaround.
+
+### Display-strategy module (D/E home — design, not implemented)
+- Extraction (A) is the single source of truth for lines; the display layer consumes
+  node line_start/line_end and renders highlight ranges.
+- New `services/highlight_strategies.py`: registry name → strategy
+  (closure node lines → highlight ranges). `single_line` = current v3.3.140 behavior
+  (default); `label_only` = [] ranges (E); `span` deferred — needs span_start/span_end
+  on CTE/derived vars (extraction-time) + graph cache format bump (v5).
+- Selection: workspace/view config key (`highlight_strategy`), response `highlights`
+  field unchanged; SqlPanel.jsx untouched. single_line/label_only are render-time
+  (no cache impact); span forces format_version 5.
+
+### Open decisions (before implementation order)
+- Display module now (registry + single_line only) vs also label_only? span deferred?
+- Search-highlight semantics: reads-only today ([[18],[43],[158],[160]]) — optionally
+  add closure table/alias def lines (A makes them available) as a strategy.
+- Include ⟐ SELECT lines (case 1) and/or lateral/values/unnest registration (case 2)?
+- I5 (containment subtype) / I7 (literal edge) inclusion in the order.
+- tools/HIGHLIGHT_REVIEW_SAMPLE.sql → pytest fixture (def lines 13/18/22/26/33 + reads).
