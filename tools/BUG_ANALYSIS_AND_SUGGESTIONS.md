@@ -3150,3 +3150,54 @@ findings from the full-flow listing round. Analysis only — no source changes.
 
 ### Fix order proposal (when authorized)
 1. I1 definition-line refactor (unblocks I2's attribution? no — I2 independent) — actually: 1. I2 (field attribution, small: R20 or C5), 2. I4 (scope alias edges), 3. I3 (Phase-8 scope-aware anchor), 4. I1 (definition-line refactor, largest), 5. I5 (containment tag), 6. I7 (literal edge, optional)
+
+---
+
+## v3.3.143 — ESSENTIAL SOLUTIONS FOR I2/I3 (2026-08-07, user directive: no patch solutions)
+
+User directive: never use patch solutions; solutions must come from the essential
+perspective — extraction already has everything; remove scope-context-string
+reliance where it was used to reconstruct what extraction should have recorded.
+
+**Discovery (code-verified): the extractor ALREADY carries the scope alias table.**
+- `_SelectScope` (variable_extractor_v2.py:272-286) is built per SELECT with
+  `aliases: dict` (alias → table name), `tables`, `ctes`, `deriveds`.
+- Walk order verified (:973-1014): FROM → JOIN → USING → SELECT expressions →
+  WHERE/HAVING — i.e. `scope.aliases` is FULLY populated before any qualified
+  column is registered (SELECT list at :1001, WHERE at :1011).
+- `_resolve_alias(qualifier, scope)` (:1517-1531) already resolves a qualifier
+  via `scope.aliases` first (case-insensitive), script-global map second.
+- `_register_column` (:1391-1401) is the ONLY missing piece: for qualified
+  columns it records evidence (REPORT-ONLY) then early-returns WITHOUT
+  attribution.
+
+### I2 — ESSENTIAL solution (replaces the L2 context-string patch)
+1. In `_register_column` (:1391-1401): replace the bare early-return with
+   `var.source_tables = [_resolve_alias(table, scope)]` (system-schema branch
+   unchanged). One call — the scope lookup is already populated and already
+   resolved for evidence.
+2. L2 then attributes fields via the EXISTING src_tables branch; the
+   label-prefix first-match fallback (:582) and the context-string machinery
+   (`_pick_scope_candidate`/`_scope_distance`/`_resolve_scope_parent`,
+   l2_builder.py:283-362) become dead code for attribution — DELETE them
+   (cache/format_version bump; no old-cache fallback needed).
+3. Derived-table qualifiers (accu.x, p2.x): `_resolve_alias` falls back to the
+   qualifier name → `source_tables=[accu]` → existing owner resolution finds
+   the same-context SUBQUERY var. Same path, no context strings.
+Verified by simulation on BDM_ACC_LOAN_INFO_SUP_M.sql: every `p1.x` field
+resolves to its own-scope alias (43→p1@29, 158→p1@67, TOP0→p1@162).
+
+### I3 — ESSENTIAL solution (replaces Phase 7/8 first-match + context equality)
+The bridge phases are line-blind and order-dependent; replace their anchor
+selection with line containment + statement anchor (extraction info already on
+every var: line_start/line_end; statement anchors recorded since v3.3.140):
+- Phase 7 (:436-439): anchor `comp_list[0][0]` (first var registered — the
+  WITH CTE wins, hence rollover) → pick anchor with
+  `anchor.line_start <= v.line_start <= anchor.line_end` in the same statement;
+  skip bridge when the component already connects.
+- Phase 8 (:457-471): replace `(x.context or "TOP") == ctx` equality with
+  line containment + statement-anchor equality; delete the global first-match
+  fallback (:468-471).
+Verified expected anchors: data_dt@160 (L160) → bdm_acc_loan_info_sup@160
+(L160∈[160,208]); data_dt@213 → rrcdm@211 (213∈[211,225]);
+ods_hub_lsacmsp@33 → bdm@29 (33∈[29,61]). No context strings anywhere.
