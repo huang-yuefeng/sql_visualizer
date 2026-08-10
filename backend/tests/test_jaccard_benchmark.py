@@ -17,9 +17,11 @@ Iteration contract (user ruling, 2026-08-10):
      == all canonical rows, A_highlights == B_highlights, every canonical
      node realized. Unmatched rows print below as the improvement backlog;
      rows that the ground truth itself is wrong about are repaired in the
-     doc + fixture with evidence — never in the engine (2026-08-10 repair:
+     doc + fixture with evidence — never in the engine (2026-08-10 repairs:
      rows 10/C4 merged into C2/C3, rows 12/16/17/B1 re-pinned to the
-     DML-routed form, see jaccard_canonical.py point 6).
+     DML-routed form, row 11 REMOVED as a degenerate direct pin, and the
+     X1-X5 canonization of five probe-verified genuine flows — see
+     jaccard_canonical.py points 6/7).
 
 Matching (label + incident-line evidence): served node ids are opaque
 build-specific hashes (l2_tbl_*), so identity is the node LABEL after
@@ -31,7 +33,14 @@ label-only). Edge types are prefix-matched ("TABLE_FLOW" matches
 (used-set, deterministic by edge id).
 
 Invariants enforced in addition to the scores: every L2 edge carries
-highlight_line >= 1; every canonical node must be realized in A.
+highlight_line >= 1; every canonical node must be realized in A; no
+duplicate (parent, label) pairs among Sync-2 DML phantom field nodes
+(id prefix "dml_") — the R11-2 rrcdm duplicate-data_dt regression guard
+(Round 12, 2026-08-10). The phantom scope, not the naive (parent, label)
+over all fields: per-statement source-side fields (C-9 dedup key
+(parent_table_id, label, stmt_idx)) legitimately repeat a label under one
+table — only the target-table column DISPLAY (the dml_ phantom copies)
+must show each column once.
 """
 
 import sys
@@ -57,10 +66,18 @@ FEATURES = ("nodes", "edges", "highlights")
 #    walker-gating / Bug-31 / hl=0 fixes + the evidence-backed DML-routing
 #    doc repair (measured live, jaccard_canonical.py point 6). Baseline
 #    (pre-fix, same day): bdm 0.1345/0.0891/0.2069, sup 0.0818/0.0452/0.1250.
-#    Bump a number as the next fix lands — that bump is the accepted iteration.
+#    Round 12 (2026-08-10, same-day iteration): row 11 removed + X1-X5
+#    canonized (jaccard_canonical.py point 7); every canonical edge now
+#    matched, so all six scores were raised to their measured values —
+#    bdm 1.0000/1.0000/1.0000, sup 0.9000/1.0000/1.0000 (sup nodes stay
+#    0.9 while the rrcdm node carries the extra non-canonical DML phantom
+#    data_dt — the R11-2 duplicate, guarded by the field-uniqueness
+#    invariant; the score moves to 1.0 when the engine lands the R11-2
+#    Sync-2 dedup fix). Bump a number as the next fix lands — that bump
+#    is the accepted iteration.
 FLOORS = {
-    "bdm": {"nodes": 1.0000, "edges": 0.8000, "highlights": 0.9231},
-    "sup": {"nodes": 0.9000, "edges": 0.7333, "highlights": 0.8571},
+    "bdm": {"nodes": 1.0000, "edges": 1.0000, "highlights": 1.0000},
+    "sup": {"nodes": 0.9000, "edges": 1.0000, "highlights": 1.0000},
 }
 
 
@@ -165,6 +182,31 @@ def node_realized(c_label, c_line, nodes, inc):
     return False
 
 
+def dml_phantom_field_dups(nodes):
+    """R11-2 regression guard (Round 12, 2026-08-10): no duplicate
+    (parent, label) pairs among Sync-2 DML phantom field nodes (id prefix
+    "dml_"). The R11-2 defect was two same-label data_dt phantoms under
+    ONE target table (rrcdm_job_log_exec_par), created by the stmt-aware
+    Sync-2 exists-check treating the two source instances as distinct.
+    Scope is the phantom set only: per-statement SOURCE-side fields (C-9
+    dedup key (parent_table_id, label, stmt_idx)) legitimately repeat a
+    label under one table node — only the target table's column display
+    must show each column once."""
+    seen = {}
+    dups = []
+    for nid, nd in sorted(nodes.items()):
+        if nd.get("variable_type") != "field":
+            continue
+        if not nd.get("id", "").startswith("dml_"):
+            continue
+        key = (nd.get("parent"), nd.get("label"))
+        if key in seen:
+            dups.append((key, seen[key], nid))
+        else:
+            seen[key] = nid
+    return dups
+
+
 def compute_seed(seed):
     nodes, edges = build_a(seed)
     inc = defaultdict(set)
@@ -185,10 +227,12 @@ def compute_seed(seed):
     }
     jaccard = {f: ni / (na + nb - ni) for f, (na, nb, ni) in counts.items()}
     return {
+        "nodes": nodes,
         "edges": edges,
         "matched": matched,
         "unmatched": [r for r in rows if r["row"] not in matched],
         "unrealized": [c for c in canon_nodes if c not in realized],
+        "field_dups": dml_phantom_field_dups(nodes),
         "counts": counts,
         "jaccard": jaccard,
     }
@@ -203,6 +247,9 @@ def test_jaccard_benchmark(capsys):
         if r["unrealized"]:
             problems.append(f"{seed}: {len(r['unrealized'])} canonical nodes "
                             f"NOT realized: {r['unrealized']}")
+        if r["field_dups"]:
+            problems.append(f"{seed}: duplicate (parent, label) DML phantom "
+                            f"field pairs (R11-2 defect class): {r['field_dups']}")
         bad = [e for e in r["edges"] if int(e.get("highlight_line") or 0) < 1]
         if bad:
             problems.append(
@@ -220,6 +267,9 @@ def test_jaccard_benchmark(capsys):
                 print(f"{seed:5}{feat:11}{a:6}{b:6}{i:6}{a + b - i:6}{j:9.4f}   {FLOORS[seed][feat]:.4f}{flag}")
         for seed in SEEDS:
             r = results[seed]
+            if r["field_dups"]:
+                print(f"\n{seed} — R11-2 field-dup invariant VIOLATED "
+                      f"(duplicate (parent, label) DML phantom pairs): {r['field_dups']}")
             if r["unmatched"]:
                 print(f"\n{seed} — improvement backlog: {len(r['unmatched'])} canonical edges unmatched: "
                       f"{[x['row'] for x in r['unmatched']]}")

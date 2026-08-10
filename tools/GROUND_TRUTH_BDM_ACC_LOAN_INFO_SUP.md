@@ -717,12 +717,13 @@ the var exists and the edge is live (probe-verified).
 earlier `CANONICAL_EDGE_RANGES` plan are all superseded. The test ground
 truth is **CANONICAL_EDGE_LINES**: the 19 canonical pairs + 4 verified
 extras + 6 SCHEMA/residual-bridge entries + 4 chain-completeness entries
-(§8.3), each with its exact anchor line and closure seed. **Every edge of
-each closure is listed — the table is the closure bijection (nodes/edges/
-highlights), not a subset** (C1–C4 complete the closures — bdm 21 edges +
-sup 12 edges after the 2026-08-10 repair; probe-pinned 2026-08-10).
+(§8.3) + the 5 probe-verified X extras (Round 12, 2026-08-10), each with
+its exact anchor line and closure seed. **Every edge of each closure is
+listed — the table is the closure bijection (nodes/edges/highlights),
+not a subset** (C1–C4 complete the closures — bdm 24 edges + sup 14
+edges after the 2026-08-10 repair; probe-pinned 2026-08-10).
 
-**The complete table — 33 entries, this sample, post-promotion state:**
+**The complete table — 38 entries, this sample, post-promotion state:**
 
 | # | Pair | Kind | Real type (post-promotion) | Seed | Anchor |
 |---|------|------|---------------------------|------|--------|
@@ -736,7 +737,7 @@ sup 12 edges after the 2026-08-10 repair; probe-pinned 2026-08-10).
 | 8 | `bdm@84 → loan_final` | chain | TABLE_FLOW/FROM (2-hop: +ALIAS) | bdm | 84 |
 | 9 | `rollover@9 → loan_final` | chain | TABLE_FLOW/REFERENCE | bdm | 9 |
 | 10 | ~~`loan_final@64 → sup@160`~~ — merged into C2 (2026-08-10) | chain | TABLE_FLOW/INSERT | bdm | 64 |
-| 11 | `sup@160 → sup@160` | chain | TABLE_FLOW/SELF_JOIN | bdm+sup | 160 |
+| 11 | ~~`sup@160 → sup@160`~~ — REMOVED (2026-08-10, degenerate direct pin) | chain | TABLE_FLOW/SELF_JOIN | bdm+sup | 160 |
 | 12 | `data_dt@160 → ⟐output@0` (re-pinned 2026-08-10) | field flow | TABLE_FLOW (value-write) | bdm+sup | 160 |
 | 13 | `p1.data_dt@43 → bdm@29` | READ | read (promoted) | bdm | 29 |
 | 14 | `p1.data_dt@158 → bdm@84` | READ | read (promoted) | bdm | 84 |
@@ -759,6 +760,11 @@ sup 12 edges after the 2026-08-10 repair; probe-pinned 2026-08-10).
 | C2 | `loan_final@64 → ⟐output@0` | chain | TABLE_FLOW/REFERENCE | bdm | 64 |
 | C3 | `p2@199 → ⟐output@0` | chain | TABLE_FLOW/FROM | sup | 199 |
 | C4 | ~~`p2@199 → sup@160`~~ — merged into C3 (2026-08-10) | chain | TABLE_FLOW/INSERT | sup | 199 |
+| X1 | `data_dt@16 → bdm@16` | field flow | REF (promoted) | bdm | 16 |
+| X2 | `data_dt@160 → ⟐output@160` | field flow | REF (promoted) | bdm+sup | 160 |
+| X3 | `⟐output@213 → data_dt@213` | structure | SCHEMA/TABLE_COLUMN | bdm+sup | 213 |
+| X4 | `data_dt@213 → ⟐output@213` | value | TABLE_FLOW (value-write) | bdm | 213 |
+| X5 | `data_dt@225 → sup@225` | field flow | FILTER (promoted) | sup | 225 |
 
 Real-type column = the state AFTER the §8.3 promotions land; today's
 probe shows the promotions are live (rows 1/2/12/13/14/17/19 emitted as
@@ -773,12 +779,13 @@ shared `p1.data_dt` field node (hl=43 in the bdm seed — the 158 instance
 survives only in the sup seed) (Sync 1). C1–C4: the closure's
 remaining chain edges into `⟐output@0` / from p2 (chain kind, rule 5 —
 source def line). Per-seed completeness (probe): bdm = pairs 1–16 +
-E1/E2 + S1–S4 + C1/C2 = **24 entries / 21 closure edges** after the
-2026-08-10 repair (pair 10 merged into C2 — its direct pin would bypass
-the output VT; S2/S4 collapse into S1/S3 — one SCHEMA edge per p1 alias,
-asserted twice); sup = pairs 11, 12, 15, 16, 17, 18(post-fix), 19 + E3/E4
-+ S5 + B1 + C3/C4 = **12 entries = 12 closure edges** (C4 merged into C3,
-same bypass reason; pair 18 live since W2, 2026-08-10).
+E1/E2 + S1/S3 + C1/C2 + X1–X4 = **24 entries / 24 closure edges** after
+the 2026-08-10 repair (pair 10 merged into C2 — its direct pin would
+bypass the output VT; S2/S4 collapse into S1/S3 — one SCHEMA edge per p1
+alias, asserted once; row 11 removed — see Repair); sup = pairs 12, 15,
+16, 17, 18(post-fix), 19 + E3/E4 + S5 + B1 + C3 + X2/X3/X5 = **14
+entries = 14 closure edges** (row 11 removed — see Repair; C4 merged
+into C3, same bypass reason; pair 18 live since W2, 2026-08-10).
 
 **Repair (2026-08-10, DML routing — evidence-backed doc repair, never
 engine work).** The label dump of the post-fix filtered L2 output showed
@@ -797,10 +804,25 @@ row 10 (`loan_final@64 → sup@160`) merges into C2
 to `sup@223 → ⟐output@0` (the residual SUBSET bridge lands on the VT,
 anchor 223); C4 (`p2@199 → sup@160`) merges into C3
 (`p2@199 → ⟐output@0`, anchor 199, emitted). Row 11 (`sup@160 → sup@160`
-self-loop) is LEFT in the canonical set as the remaining backlog: the
-engine never emits a table self-loop and the doc-vs-engine dispute is a
-user decision. The benchmark fixture (`jaccard_canonical.py` point 6)
-mirrors these repairs; the machine B set is 21 bdm + 12 sup = 33 entries.
+self-loop) is REMOVED from the canonical set (2026-08-10, Round 12 —
+degenerate direct pin, Team A evidence): its read endpoint is line 199
+(`sup@160` is read at L199 via the LEFT JOIN), so the row pins a direct
+sup→sup edge that would bypass the ⟐ output VT — the same defect class
+as the DML-routing repair above. The engine never emits a table
+self-loop, and the flow is already fully canonical as the routed cycle
+E3 (`sup@160 → p2@199`) + C3 (`p2@199 → ⟐output@0`) + row 15
+(`⟐output@0 → sup@160`); the self-loop would double-count it. The
+benchmark fixture (`jaccard_canonical.py` point 7) mirrors the removal
+and canonizes five probe-verified genuine flows as rows X1–X5: X1
+(`data_dt@16 → bdm@16` REF — the anchor-16 read companion to row 1),
+X2 (`data_dt@160 → ⟐output@160` REF — the anchor-160 read companion to
+row 12, both seeds), X3 (`⟐output@213 → data_dt@213` SCHEMA — the S1/S3
+kind containment edge on the value-write line, both seeds), X4
+(`data_dt@213 → ⟐output@213` TABLE_FLOW — the value-write edge of the
+sup pair-17 line in the bdm seed), X5 (`data_dt@225 → sup@225` FILTER —
+the FILTER companion to row 18, sup seed). Each X row was matched by the
+live matcher on the current engine before pinning, with no change to any
+existing row's match. The machine B set is 24 bdm + 14 sup = 38 entries.
 
 Probe finding (2026-08-10): in the bdm seed the L43 and L158 `p1.data_dt`
 instances both resolve to the physical `bdm_acc_loan_info` node and merge
@@ -824,15 +846,16 @@ PAIR18_KNOWN_GAP constant is flipped and the KNOWN-GAP branch removed.
 
 **Closure seeds (probe-pinned 2026-08-10): no single L2 search seed
 covers all 19 pairs.** The `bdm_acc_loan_info.data_dt` seed yields pairs
-1–16 + E1/E2 + S1–S4 + C1/C2 (16 nodes / 22 edges); the
-`bdm_acc_loan_info_sup.data_dt` seed yields pairs 11, 12, 15, 16, 17, 19
-+ E3/E4 + S5 + B1 + C3/C4 (9 nodes / 13 edges; pair 18 live since W2 —
-the W2 read-edge expansion and VT creation lines grew the actual closures
-far beyond these canonical counts; the closure-bijection model is under
-review, see the benchmark-model note in the integration report). The
-33-entry spec is the UNION over the two seeds; the Seed column states
-where each entry is asserted. The §7.2 closure spec (13 nodes / 16 edge
-pairs / 2 sinks) is UNCHANGED — only the highlight layer is redefined.
+1–16 + E1/E2 + S1/S3 + C1/C2 + X1–X4 (16 nodes / 24 edges); the
+`bdm_acc_loan_info_sup.data_dt` seed yields pairs 12, 15, 16, 17, 19 +
+E3/E4 + S5 + B1 + C3 + X2/X3/X5 (10 nodes / 14 edges; pair 18 live since
+W2 — the W2 read-edge expansion and VT creation lines grew the actual
+closures far beyond these canonical counts; the closure-bijection model
+is under review, see the benchmark-model note in the integration
+report). The 38-entry spec is the UNION over the two seeds; the Seed
+column states where each entry is asserted. The §7.2 closure spec (13
+nodes / 16 edge pairs / 2 sinks) is UNCHANGED — only the highlight layer
+is redefined.
 
 ### 8.6 Current-system gaps this definition exposes (bug list §v3.3.147)
 

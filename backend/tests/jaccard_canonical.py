@@ -1,20 +1,23 @@
 """Canonical ground truth for the Jaccard benchmark -- BDM_ACC_LOAN_INFO_SUP_M.sql.
 
 Source: tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_SUP.md, section 8.5
-(CANONICAL_EDGE_LINES table, 33 entries; 31 rows canonical after the
-2026-08-10 DML-routing repair -- see point 6) and the closure-seeds block
-("bdm = 16 nodes / 22 edges", "sup = 9 nodes / 13 edges"). Data-only module;
-the matching logic lives in the test that consumes it.
+(CANONICAL_EDGE_LINES table, 38 entries; 35 rows canonical after the
+2026-08-10 DML-routing repair (point 6), the row-11 removal and the X1-X5
+canonization (point 7)) and the closure-seeds block ("bdm = 16 nodes /
+24 edges", "sup = 10 nodes / 14 edges"). Data-only module; the matching
+logic lives in the test that consumes it.
 
 Conventions (drift-free, pinned 2026-08-10 from the doc):
 
 1. CANONICAL_ROWS -- one entry per doc table row:
    (row_id, seed, src_label, src_line, dst_label, dst_line, edge_type, anchor)
-   - row_id: int 1..19 (pairs), str "E1".."E4", "S1".."S5", "B1", "C1".."C4".
-   - seed: "bdm" or "sup". Rows 11, 12, 15, 16 have Seed column "bdm+sup" in
-     the doc (asserted on BOTH seeds); the single-seed schema stores them
-     under "bdm" -- a test reading the sup closure must include them too.
-     S5's Seed column is "sup" (S1-S4 are "bdm").
+   - row_id: int 1..19 (pairs; 10/11 struck in the doc -- merged/removed),
+     str "E1".."E4", "S1".."S5", "B1", "C1".."C4", "X1".."X5" (2026-08-10
+     canonization, point 7).
+   - seed: "bdm" or "sup". Rows 12, 15, 16 and X2/X3 have Seed column
+     "bdm+sup" in the doc (asserted on BOTH seeds); the single-seed schema
+     stores them under "bdm" -- a test reading the sup closure must include
+     them too. S5's Seed column is "sup" (S1-S4 are "bdm").
    - labels are the doc's canonical endpoint names: "data_dt", "bdm",
      "rollover", "p1.data_dt", "loan_final", "sup", "rrcdm", "p2.data_dt",
      "p1", "p2", and the virtual tables "⟐subq", "⟐subq1", "⟐output"
@@ -28,11 +31,11 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
      "TABLE_FLOW" (the emitted type of the routed write -- see point 6).
 
 2. CANONICAL_EDGES -- FLAT list of the per-seed closure edges (B sets),
-   deduped: 22 entries for the bdm closure + 13 for the sup closure = 35
-   (filter by entry["seed"]; rows 11/12/15/16 are dual-seed, one entry per
-   seed). S2/S4 collapse into S1/S3 (doc §8.5: one SCHEMA edge per p1
-   alias -- S1/S2 and S3/S4 are endpoint duplicates, asserted twice). Each
-   entry:
+   deduped: 24 entries for the bdm closure + 14 for the sup closure = 38
+   (filter by entry["seed"]; rows 12/15/16 and X2/X3 are dual-seed, one
+   entry per seed). S2/S4 collapse into S1/S3 (doc §8.5: one SCHEMA edge
+   per p1 alias -- S1/S2 and S3/S4 are endpoint duplicates, asserted
+   twice). Each entry:
      {"row": row_id, "seed": "bdm"|"sup",
       "src": "label@line" endpoint (VT endpoints "@0"),
       "dst": "label@line",
@@ -113,11 +116,43 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
                                            (SUBSET sup -> output@223)
      C4 (p2@199 -> sup@160)                merged into C3 (the routed hop
                                            p2 -> output@199)
-   Row 11 (sup@160 -> sup@160 self-loop) is LEFT in B as the remaining
-   backlog: the engine never emits a table self-loop and the doc-vs-engine
-   dispute is a user decision. Doc §8.5 carries the same annotations, so
-   CANONICAL_EDGES holds 33 entries (21 bdm + 12 sup) and CANONICAL_ROWS
-   31 tuples.
+
+7. ROW-11 REPAIR + X1-X5 CANONIZATION (2026-08-10, Team A probe-verified;
+   doc repair with evidence, never engine work). Row 11 (`sup@160 ->
+   sup@160` self-loop, both seeds) is REMOVED from B -- it is a degenerate
+   direct pin of the same defect class as the point-6 repairs: the direct
+   sup->sup pin bypasses the output VT. The incremental self-read is the
+   LEFT JOIN at L199 (`LEFT JOIN bdm_acc_loan_info_sup p2`), NOT L160 --
+   the read endpoint is p2@199, and the flow is already canonical as the
+   routed cycle E3 (sup@160 -> p2@199, ALIAS@160) + C3 (p2@199 ->
+   output@199) + row 15 (output@160 -> sup@160). The engine never emits a
+   table self-loop; the pin is refuted by the response + design, exactly
+   like rows 10/12/16/17/B1/C4. After the removal, CANONICAL_EDGES holds
+   31 entries (20 bdm + 11 sup) and CANONICAL_ROWS 30 tuples.
+
+   Five GENUINE flows the closure was missing are CANONIZED as new rows
+   X1..X5 (probe-verified against the live filtered L2 output -- each new
+   row matches, no existing row's match changes):
+     X1 (bdm)         REF `data_dt@16 -> bdm@16` (anchor 16) -- the
+                      FROM-line read companion of row 1's FILTER@18
+                      (same flow data_dt -> bdm_acc_loan_info, read vs
+                      filter endpoint).
+     X2 (bdm+sup)     REF `data_dt@160 -> ⟐output@160` (anchor 160) --
+                      the partition-field read (PARTITION(data_dt=...) at
+                      L160) redirected into the output VT by
+                      _simplify_dml_edges step 2.
+     X3 (bdm+sup)     SCHEMA `⟐output@213 -> data_dt@213` (anchor 213) --
+                      the Phase 4c output-membership edge of the TOP1
+                      output VT (same kind as canonical S1/S3).
+     X4 (bdm)         TABLE_FLOW `data_dt@213 -> ⟐output@213` (anchor
+                      213) -- the TOP1 value-write; canonical row 17 pins
+                      the same edge for the sup seed only (doc closure
+                      asymmetry), X4 closes the bdm side.
+     X5 (sup)         FILTER `data_dt@225 -> sup@225` (anchor 225) -- the
+                      TOP1 WHERE read (the doc pins FILTER for the TOP0
+                      read as row 1, REF for the TOP1 read as row 18).
+   Doc §8.5 carries the same annotations. Final counts: CANONICAL_EDGES
+   38 entries (24 bdm + 14 sup), CANONICAL_ROWS 35 tuples.
 """
 
 CANONICAL_ROWS = [
@@ -134,7 +169,11 @@ CANONICAL_ROWS = [
     # Row 10 MERGED into C2 (2026-08-10 DML-routing repair -- direct
     # loan_final@64 -> sup@160 would bypass the output VT; the response
     # realizes it as the routed hop loan_final -> output@64 = C2).
-    (11, "bdm", "sup", 160, "sup", 160, "TABLE_FLOW", 160),
+    # Row 11 REMOVED 2026-08-10 (doc repair with evidence, Team A/E1 --
+    # point 7): the direct sup@160 -> sup@160 pin bypasses the output VT
+    # (same defect class as the point-6 repairs); the incremental self-read
+    # is the LEFT JOIN at L199 (bdm_acc_loan_info_sup p2), NOT L160, and
+    # the flow is already canonical as the routed cycle E3 + C3 + row 15.
     # Row 12 re-pinned 2026-08-10: value-write lands on the output VT
     # (data_dt@160 -> output@160), not on sup directly.
     (12, "bdm", "data_dt", 160, "⟐output", 0, "TABLE_FLOW", 160),
@@ -167,18 +206,30 @@ CANONICAL_ROWS = [
     # C4 MERGED into C3 (2026-08-10 DML-routing repair -- direct
     # p2@199 -> sup@160 would bypass the output VT; the response realizes
     # it as the routed hop p2 -> output@199 = C3).
+    # X rows (2026-08-10 canonization, point 7 -- probe-verified genuine
+    # flows; X2/X3 dual-seed, X1/X4 bdm-only, X5 sup-only).
+    ("X1", "bdm", "data_dt", 16, "bdm", 16, "REF", 16),
+    ("X2", "bdm", "data_dt", 160, "⟐output", 160, "REF", 160),
+    ("X3", "bdm", "⟐output", 213, "data_dt", 213, "SCHEMA", 213),
+    ("X4", "bdm", "data_dt", 213, "⟐output", 213, "TABLE_FLOW", 213),
+    ("X5", "sup", "data_dt", 225, "sup", 225, "FILTER", 225),
 ]
 
-# FLAT per-seed closure edge lists (B sets): 21 bdm + 12 sup = 33 entries
-# (rows 10/C4 merged into C2/C3 by the 2026-08-10 DML-routing repair --
-# docstring point 6; their direct pins are refuted, the routed hops are
-# the canonical realization).
+# FLAT per-seed closure edge lists (B sets): 24 bdm + 14 sup = 38 entries
+# (rows 10/C4 merged into C2/C3 and row 11 REMOVED by the 2026-08-10
+# repairs -- docstring points 6/7; their direct pins are refuted, the
+# routed hops are the canonical realization; X1-X5 added by the same-day
+# canonization, point 7).
 # Filter by entry["seed"]; S2/S4 collapse into S1/S3 (doc §8.5 -- endpoint
-# duplicates, one SCHEMA edge per p1 alias); rows 11/12/15/16 dual-seed.
+# duplicates, one SCHEMA edge per p1 alias); rows 12/15/16 and X2/X3 dual-seed.
 CANONICAL_EDGES = [
-    # ── bdm closure (21): pairs 1-16 (10 merged into C2) + E1/E2 + S1/S3 + C1/C2 ──
+    # ── bdm closure (24): pairs 1-16 (10 merged into C2, 11 removed) + E1/E2
+    #    + S1/S3 + C1/C2 + X1/X2/X3/X4 ──
     {"row": 1, "seed": "bdm", "src": "data_dt@18", "dst": "bdm@16", "type": "FILTER", "anchor": 18, "spec": "anchor_rel_ep"},
     {"row": 2, "seed": "bdm", "src": "bdm@16", "dst": "rollover@9", "type": "TABLE_FLOW", "anchor": 16, "spec": "anchor_rel_ep"},
+    # X1 (2026-08-10 canonization): the FROM-line read companion of row 1's
+    # FILTER@18 -- data_dt@16 -> bdm@16 (REF, read endpoint at the FROM line).
+    {"row": "X1", "seed": "bdm", "src": "data_dt@16", "dst": "bdm@16", "type": "REF", "anchor": 16, "spec": "anchor_rel"},
     {"row": 3, "seed": "bdm", "src": "p1.data_dt@43", "dst": "⟐subq@0", "type": "FILTER", "anchor": 43, "spec": "anchor_rel_ep"},
     {"row": 4, "seed": "bdm", "src": "bdm@29", "dst": "⟐subq@0", "type": "TABLE_FLOW", "anchor": 29, "spec": "two_hop"},
     {"row": 5, "seed": "bdm", "src": "⟐subq@0", "dst": "⟐subq1@0", "type": "TABLE_FLOW", "anchor": 26, "spec": "anchor_rel_ep"},
@@ -186,27 +237,41 @@ CANONICAL_EDGES = [
     {"row": 7, "seed": "bdm", "src": "p1.data_dt@158", "dst": "loan_final@64", "type": "FILTER", "anchor": 158, "spec": "anchor_rel_ep"},
     {"row": 8, "seed": "bdm", "src": "bdm@84", "dst": "loan_final@64", "type": "TABLE_FLOW", "anchor": 84, "spec": "two_hop"},
     {"row": 9, "seed": "bdm", "src": "rollover@9", "dst": "loan_final@64", "type": "TABLE_FLOW", "anchor": 9, "spec": "anchor_rel_ep"},
-    # row 10 MERGED into C2 (2026-08-10 DML-routing repair)
-    {"row": 11, "seed": "bdm", "src": "sup@160", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
+    # row 10 MERGED into C2 / row 11 REMOVED (2026-08-10 repairs, point 6/7)
     {"row": 12, "seed": "bdm", "src": "data_dt@160", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
+    # X2 (2026-08-10 canonization): the partition-field read redirected into
+    # the output VT by _simplify_dml_edges step 2 (data_dt@160 -> output@160).
+    {"row": "X2", "seed": "bdm", "src": "data_dt@160", "dst": "⟐output@160", "type": "REF", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": 13, "seed": "bdm", "src": "p1.data_dt@43", "dst": "bdm@29", "type": "REF", "anchor": 29, "spec": "ref_alias"},
     {"row": 14, "seed": "bdm", "src": "p1.data_dt@158", "dst": "bdm@84", "type": "REF", "anchor": 84, "spec": "ref_alias"},
     {"row": 15, "seed": "bdm", "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": 16, "seed": "bdm", "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
+    # X3 (2026-08-10 canonization): the TOP1 output VT's Phase 4c
+    # output-membership SCHEMA edge (output@213 -> data_dt@213, S1/S3 kind).
+    {"row": "X3", "seed": "bdm", "src": "⟐output@213", "dst": "data_dt@213", "type": "SCHEMA", "anchor": 213, "spec": "anchor_rel"},
+    # X4 (2026-08-10 canonization): the TOP1 value-write data_dt@213 ->
+    # output@213 -- row 17 pins the same edge for the sup seed only; X4
+    # closes the bdm side (doc closure asymmetry).
+    {"row": "X4", "seed": "bdm", "src": "data_dt@213", "dst": "⟐output@213", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep"},
     {"row": "E1", "seed": "bdm", "src": "bdm@29", "dst": "p1@29", "type": "ALIAS", "anchor": 29, "spec": "anchor_rel_ep"},
     {"row": "E2", "seed": "bdm", "src": "bdm@84", "dst": "p1@84", "type": "ALIAS", "anchor": 84, "spec": "anchor_rel_ep"},
     {"row": "S1", "seed": "bdm", "src": "p1@29", "dst": "p1.data_dt@43", "type": "SCHEMA", "anchor": 43, "spec": "anchor_rel"},
     {"row": "S3", "seed": "bdm", "src": "p1@84", "dst": "p1.data_dt@43", "type": "SCHEMA", "anchor": 43, "spec": "anchor_rel"},
     {"row": "C1", "seed": "bdm", "src": "rollover@9", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 9, "spec": "anchor_rel_ep"},
     {"row": "C2", "seed": "bdm", "src": "loan_final@64", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 64, "spec": "anchor_rel_ep"},
-    # ── sup closure (12): pairs 11,12,15,16,17,18,19 + E3/E4 + S5 + B1 + C3 ──
-    #    (C4 merged into C3 -- 2026-08-10 DML-routing repair)
-    {"row": 11, "seed": "sup", "src": "sup@160", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
+    # ── sup closure (14): pairs 12,15,16,17,18,19 + E3/E4 + S5 + B1 + C3
+    #    + X2/X3/X5 (C4 merged into C3, row 11 removed -- 2026-08-10 repairs)
     {"row": 12, "seed": "sup", "src": "data_dt@160", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
+    {"row": "X2", "seed": "sup", "src": "data_dt@160", "dst": "⟐output@160", "type": "REF", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": 15, "seed": "sup", "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": 16, "seed": "sup", "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
     {"row": 17, "seed": "sup", "src": "data_dt@213", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep"},
+    {"row": "X3", "seed": "sup", "src": "⟐output@213", "dst": "data_dt@213", "type": "SCHEMA", "anchor": 213, "spec": "anchor_rel"},
     {"row": 18, "seed": "sup", "src": "data_dt@225", "dst": "sup@223", "type": "REF", "anchor": 223, "spec": "anchor_rel_ep"},
+    # X5 (2026-08-10 canonization): the TOP1 WHERE read -- the doc pins
+    # FILTER for the TOP0 read (row 1) and REF for the TOP1 read (row 18);
+    # the FILTER companion at 225 completes the pair.
+    {"row": "X5", "seed": "sup", "src": "data_dt@225", "dst": "sup@225", "type": "FILTER", "anchor": 225, "spec": "anchor_rel_ep"},
     {"row": 19, "seed": "sup", "src": "p2.data_dt@202", "dst": "p2@199", "type": "REF", "anchor": 199, "spec": "anchor_rel_ep"},
     {"row": "E3", "seed": "sup", "src": "sup@160", "dst": "p2@199", "type": "ALIAS", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": "E4", "seed": "sup", "src": "p2.data_dt@202", "dst": "⟐output@0", "type": "JOIN", "anchor": 202, "spec": "anchor_rel_ep"},
