@@ -812,31 +812,45 @@ Per-pair real-type map (probe-pinned; the 19 pairs as they exist today):
 | 18 | `data_dt@225 → sup@223` | **missing (Defect-5)** | Defect-5 fix → read (post-fix SUBSET/READ → promote) |
 | 19 | `p2.data_dt@202 → p2@199` | SUBSET/READ | promote → join-key read (FILTER/JOIN) |
 
-### 8.8 L2 display of flow kind + edge type (R25, requirement — design pending user approval)
+### 8.8 L2 display of flow kind — design RULED (2026-08-10, user)
 
-**Requirement (user, 2026-08-10):** "the reason of highlight should be in
-L2 for simplicity. Before user clicking, he should know the data flow type."
-The L2 graph must communicate, **before any click**: (a) the edge type (the
-16-type taxonomy — already encoded by color/line style + legend) and (b) the
-**flow kind** — the reason the edge is a highlighted flow (field flow /
-chain / READ / value / write / synthetic — §8.7) — plus its anchor line.
+**User ruling (2026-08-10):** "Please label flow-kind to the edges in L2
+ignoring edge type, sql, and so on. When clicking the sql is highlighted,
+and the reason should be explained below the sql panel (maybe we need a
+new panel). Also the reason should include the string format data flow."
 
-**Suggested design (no code yet — pending approval):**
-1. **Payload** — every L2 edge carries, from extraction time: `highlight_line`
-   (int, the anchor), `flow_kind` (the semantic kind), `reason` (short
-   human string, e.g. "READ — p1.data_dt read via alias p1 @ L29").
-   `sql_range`/`sql_ranges`/`highlights`/`propagated` are removed (§8.6).
-2. **Hover tooltip (before click — primary surface)** — extend the existing
-   `edge-tooltip`: edge type (already shown) + flow-kind badge + "→ SQL
-   L{anchor}" + the reason string. Hover requires no click and no graph
-   clutter.
-3. **Legend** — group the 16 types by flow kind with ✅/❌ marks (counts vs
-   excluded: SCHEMA/SUBSET-bridge) so the user learns *which* types
-   highlight and *why* at a glance.
-4. **Click** — SQL panel scrolls to `highlight_line`, highlights that one
-   line, and echoes the reason as a small tag on the line.
-5. **Optional** — toggleable edge-midpoint labels showing `flow_kind` on
-   highlighted edges only (default off — graph clutter).
+**The display contract (R25, ruled):**
+1. **Edge labels — flow kind only, always visible.** Every L2 edge displays
+   its flow-kind label at the edge midpoint. The label carries the flow
+   kind ONLY — never the edge type, never SQL text. Kind names are the
+   §8.7 canonical set: `chain`, `field flow`, `read`, `write`, `filter`,
+   `structure`, `bridge`. Highlighted edges render the label in the edge's
+   category color; excluded edges render `structure` (SCHEMA) / `bridge`
+   (SUBSET) in gray. No toggle — labels always on.
+2. **Click → SQL highlight + reason panel.** Clicking an edge (a) scrolls
+   the SQL panel to `highlight_line` and highlights exactly that one line
+   (existing single-line behavior; AND/OR continuation lights only the
+   anchor — CONFIRMED 2026-08-10), and (b) shows the reason in a NEW panel
+   below the SQL panel: flow kind + anchor line + the reason string.
+3. **Reason string includes the data flow in string form.** Format:
+   `<flow kind> — <flow string>`. The flow string is the walkable chain
+   carrying this edge — from the closure entry (the searched seed's field)
+   to this edge's target — rendered as `{label}@L{line}` joined by
+   ` → `. Example (pair 4, bdm seed): `chain —
+   bdm_acc_loan_info.data_dt@L18 → bdm.data_dt@L16 → p1.data_dt@L29 →
+   ⟐subq@L0`. Leaf edges (field flow / read / write / filter) show the
+   path segment through this edge (source → target). The flow string is
+   built at L2 build time from the closure walk (extraction-time info —
+   never reconstructed at render; never-patch rule). Per-pair strings are
+   pinned during the W1 probe round / benchmark verification.
+4. **Secondary surfaces (unchanged):** hover tooltip keeps edge type + kind
+   + anchor + reason; the legend groups the 16 types by flow kind with
+   ✅/❌ marks.
+
+Open micro-decisions (listed for the user; defaults above pending
+confirmation): flow-string scope (entry→target full path vs. edge
+endpoints only), excluded-edge labels (gray `structure`/`bridge` vs.
+no label on excluded edges).
 
 ### 8.9 Verification plan — the four types absent from the canonical sample (user ruling: verify-first)
 
@@ -857,8 +871,11 @@ mini-samples to the benchmark if they remain canonical.
 
 ### 8.10 Open confirmations (2026-08-10) — everything else is ruled
 
-1. **L2 display design** (§8.8) — approve the suggested surface (hover
-   tooltip + legend + click tag; optional edge labels).
+1. **L2 display design — RULED (2026-08-10)** (§8.8): flow-kind labels on
+   the edges (kind only, always visible; gray `structure`/`bridge` for
+   excluded); click → SQL anchor highlight + NEW reason panel below the
+   SQL panel; reason includes the string-format data flow. Open
+   micro-decisions: flow-string scope, excluded-edge labels (§8.8).
 2. **Extras counting — RESOLVED (2026-08-10): counted per the boundary
    rule** (option 1); the 4 verified extras (E1–E4) are pinned in the
    benchmark (§8.5) with exact anchors. The exclusion alternative

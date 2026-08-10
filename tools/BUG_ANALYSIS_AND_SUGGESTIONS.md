@@ -3648,8 +3648,9 @@ token, the duplicate dissolves, pair 18 is unblocked.
    source code: GROUND_TRUTH §8.7 (16-row real-type → flow-kind →
    highlighted? map + per-pair real-type table), REQUIREMENTS R25, this
    addendum. **Plus a new L2 display requirement**: the reason of highlight
-   (flow kind) must be visible in L2 before clicking — design suggested in
-   §8.8 (hover tooltip + legend grouping + click echo), pending approval.
+   (flow kind) must be visible in L2 before clicking — RULED 2026-08-10:
+   flow-kind labels on the edges + reason panel below the SQL panel
+   (second-round rulings below).
 3. **Verify-first approved (option b)**: probe real-SQL anchors for
    INDIRECT/WINDOW/CORRELATED/SET_OP before implementation — candidates
    pinned (§8.9): `snowflake_qualify.sql` (WINDOW), `tpcds_qualified/86.sql`
@@ -3688,6 +3689,20 @@ findings), §8.5 (two-seed benchmark), §8.7 (mapping), §8.8 (L2 display),
 addenda 2–4 amended (stale promotion list, pending marks, sql_range
 quality item).
 
+**Second-round rulings (2026-08-10 — L2 display, user):**
+1. **Flow-kind labels on the edges** — every L2 edge shows its flow-kind
+   label at the edge midpoint; label = flow kind ONLY (never edge type,
+   never SQL text). Kind names per §8.7 (`chain` / `field flow` / `read` /
+   `write` / `filter` / `structure` / `bridge`); excluded edges render
+   `structure`/`bridge` gray. Always visible, no toggle.
+2. **Click → SQL highlight + NEW reason panel BELOW the SQL panel** — the
+   panel shows flow kind + anchor + reason.
+3. **Reason includes the string-format data flow** — `<flow kind> —
+   <flow string>`, the walkable chain `{label}@L{line} → …` from the
+   closure entry to the edge's target, built at L2 build time (never
+   reconstructed at render). Worked example in §8.8.3 (pair 4).
+W5/W7 updated below; GROUND_TRUTH §8.8 rewritten RULED; R25 amended.
+
 **THE WORK LIST (implementation order — NO SOURCE CODE before user
 approval of this list and of §8.10's confirmations):**
 
@@ -3697,12 +3712,13 @@ approval of this list and of §8.10's confirmations):**
 | W2 | Defect-5 fix: token-run matching extended to reads (L225 registers, duplicate `data_dt@213` dissolves) | — | pair 18 present, anchor 223 |
 | W3 | Type promotions at extraction: pairs 1, 2, 12, 13, 14, 17, 19 → honest types | W2 (pair 18) | per-pair map §8.7 |
 | W4 | Line-resolution collapse 3→1: delete `_find_position`/`_find_position_scoped`; `_find_def_position` for every add; no stale-cache repair (`map_variables_to_lines` fallback gone) | — | probe: no text-search paths left |
-| W5 | Per-edge payload: edge `highlight_line` (+ `flow_kind` + `reason`); remove `sql_range`/`sql_ranges`/`highlights`/`propagated`; remove `sql_range_finder` + dead import | W2–W4 | payload shape test |
+| W5 | Per-edge payload: edge `highlight_line` (+ `flow_kind` + `reason`, where `reason` includes the string-format data flow — closure walk `{label}@L{line} → …`, §8.8.3); remove `sql_range`/`sql_ranges`/`highlights`/`propagated`; remove `sql_range_finder` + dead import | W2–W4 | payload shape test |
 | W6 | VTs carry creation lines (pairs 5/6/15: 26/22/160) | — | anchors 26/22/160 |
-| W7 | Frontend (R25): click → `highlight_line`; hover tooltip shows edge type + flow kind + anchor; legend grouped by kind; reason tag on click | W5 + §8.8 approval | live check |
+| W7 | Frontend (R25, ruled 2026-08-10): edge flow-kind labels at edge midpoint (kind only; gray `structure`/`bridge`); click → `highlight_line` + NEW reason panel below the SQL panel (kind + anchor + reason incl. string-format flow); hover tooltip + legend stay secondary | W5 + §8.8 (ruled) | live check |
 | W8 | Benchmark rework: `CANONICAL_EDGE_LINES` 19 pairs + 4 verified extras (E1–E4) × two seeds; `test_edge_lines` (exists + exact anchor + ≥1) | W2–W6 | pytest green |
 | W9 | Docs closed out (benchmark contract update), version bump, deploy per target_deploy.sh | W7–W8 | live check on 192.168.0.66:8000 |
 
-Gates: G1 = user approves §8.10 (display design, extras counting,
-two-seed benchmark); G2 = user approves this work list; G3 = per-item
-verification. Docs-only until G1+G2.
+Gates: G1 = §8.10 confirmations — extras counting + two-seed benchmark
+RESOLVED; display design RULED (2026-08-10); open micro-decisions in §8.8
+(flow-string scope, excluded-edge labels); G2 = user approves this work
+list; G3 = per-item verification. Docs-only until G1+G2.

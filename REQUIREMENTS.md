@@ -1301,11 +1301,20 @@ range-expansion layer (`sql_range_finder`).
    never highlight; the seven probe-pinned canonical pairs typed SUBSET
    (1, 2, 12, 13, 14, 17, 19) are promoted at extraction time to their
    honest types.
-5. **Reason of highlight visible in L2 before click.** The L2 graph
-   communicates edge type (color/line style + legend) AND flow kind (field
-   flow / chain / READ / value / write / synthetic) — hover tooltip +
-   legend grouping + click echo (design §8.8, pending approval).
-6. **Counting invariant:** 19 canonical pairs ⇒ 19 anchor lines
+5. **Flow kind labeled on the edges (ruled 2026-08-10).** Every L2 edge
+   displays its flow-kind label at the edge midpoint — the flow kind ONLY
+   (never the edge type, never SQL text). Highlighted edges render the
+   kind in the edge's category color; excluded edges render `structure`
+   (SCHEMA) / `bridge` (SUBSET) in gray. Always visible — no toggle.
+6. **Reason panel below the SQL panel (ruled 2026-08-10).** Clicking an
+   edge highlights its anchor line in the SQL panel (existing behavior)
+   AND shows the reason in a NEW panel below the SQL panel: flow kind +
+   anchor line + reason string. The reason MUST include the data flow in
+   string form — the walkable chain `{label}@L{line} → …` from the
+   closure entry to the edge's target (design §8.8, RULED). Flow string
+   built at L2 build time from the closure walk — never reconstructed at
+   render.
+7. **Counting invariant:** 19 canonical pairs ⇒ 19 anchor lines
    (CANONICAL_EDGE_LINES benchmark, asserted across the two closure seeds
    bdm/sup per §8.5).
 
@@ -1316,12 +1325,15 @@ range-expansion layer (`sql_range_finder`).
       exact anchors on the bdm_acc_loan_info_sup seed
 - [ ] L2 edge payload carries `highlight_line`/`flow_kind`/`reason`; no
       `sql_range`/`sql_ranges`/`highlights`/`propagated`
-- [ ] Clicking an edge highlights exactly its anchor line in the SQL panel;
-      multi-line conditions light only the anchor line (AND/OR continuation
+- [ ] Clicking an edge highlights exactly its anchor line in the SQL panel
+      AND shows the reason in the panel below the SQL panel (flow kind +
+      anchor + reason incl. the string-format data flow); multi-line
+      conditions light only the anchor line (AND/OR continuation
       regression CONFIRMED acceptable, 2026-08-10)
-- [ ] Hovering an edge (before click) shows edge type + flow kind + anchor
-      line; the legend groups the 16 types by flow kind with count/not
-      marks
+- [ ] All L2 edges carry a visible flow-kind label at the edge midpoint:
+      label = flow kind only (no edge type, no SQL text); `structure` /
+      `bridge` in gray for SCHEMA / SUBSET-bridge; hover tooltip + legend
+      stay as secondary surfaces (edge type, counts)
 - [ ] The 7 SUBSET promotions land at extraction time (pairs 1, 2, 12,
       13, 14, 17, 19) — no render-time re-typing
 - [ ] Defect-5 fixed: L225's `data_dt` registers (token-run extended to
