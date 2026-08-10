@@ -3529,3 +3529,41 @@ Implementation consequence for the next iteration's fix list (target 2):
   ⟐ subq → L26, ⟐ output (TOP0) → L160, ⟐ output (TOP1) → L211.
   Canonical VT-sourced edges' expected spans: `⟐ subq@0 → ⟐ subq1@0` =
   L26 (source creation line), `⟐ output@0 → sup@160` = L160.
+
+### v3.3.147 addendum 2 (2026-08-10) — line-resolution collapse (3→1) + no stale-cache repair (user rulings)
+
+**Ruling A — no stale-cache repair, ever.** Caches are empty in every new
+deployment. A cache whose variables lack carried lines is a cache MISS —
+rebuild from extraction — never repaired on read.
+- Removed (on implementation order): `map_variables_to_lines` text-search
+  fallback + D1 comment skip; any `_recompute_line_map`-style read-side
+  repair; `line_start <= 0` fallbacks that search text.
+- Carried lines are the single source of truth; the mapper either becomes
+  a pure passthrough or is deleted (callers read var-carried lines
+  directly).
+
+**Ruling B — collapse the 3 line-resolution mechanisms to 1** ("remove
+what we have decided to remove"):
+- Removed: `_find_position` (whole-stream text search — was fallback-only),
+  `_find_position_scoped` (v3.3.140 statement-scoped text search — the
+  pre-collapse default, and the Defect-5 source), and the `def_site`
+  branch in `_add`.
+- Kept and extended: `_find_def_position` token-run matching (v3.3.145 I1)
+  becomes the ONLY mechanism, used for every add — reads included. L225's
+  WHERE column then matches its own token (225), not the first `data_dt`
+  text (213): Defect 5 dissolves, and the duplicate `data_dt@213`
+  (literal + column sharing one stamp) splits into alias-def@213 +
+  read@225.
+- Statement scoping stays: `_stmt_anchor_for`/`_next_anchor_after` are
+  SCOPE, not a resolution mechanism — the token search runs inside
+  `[stmt_anchor, next_anchor)` as today.
+
+**Consequence for the working layers** (target 2, implementation order
+only): extraction is the sole source of lines; L2 computes per-edge
+highlight entries from var-carried lines + alias-def info; display
+strategies and the payload/frontend are unchanged in shape (see the
+working-layers walkthrough in the conversation). Remaining quality item
+still on the fix list: `sql_range_finder` span quality — its render-time
+text reconstruction is a patch layer; direction per the never-patch
+ruling is extraction-time token extents (inverted `[94,32,94,19]`, coarse
+FROM spans, ALIAS mis-anchors are the known live defects).
