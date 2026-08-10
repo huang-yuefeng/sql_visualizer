@@ -1077,11 +1077,21 @@ def _dedup_edges(new_edges: list) -> list:
 def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
                                alias_map: dict, dml_pairs: set,
                                full_graph: dict, nodes: list) -> None:
-    """Phase 10 (CW4): Bug 28 alias field sync + DML phantom fields + Bug 31.
+    """Phase 10 (CW4): Bug 28 alias field sync + DML phantom fields.
 
     Per formal definition: when alias exists, its field set MUST mirror
     the original table. And DML edges show fields flowing into targets.
     Mutates field_nodes in place.
+
+    Bug-31 (fixed): the SCHEMA-edge output-table-field pass that used to
+    live here is gone. It bulk-copied virtual-table fields from the FULL
+    unfiltered graph into the filtered graph with no closure check — every
+    field it materialized was a disconnected duplicate: the column's own
+    field node already exists in the filtered graph (classification parents
+    it by its source_tables), and surviving SCHEMA edges are re-pointed by
+    id_map to that node, never to the copy (which therefore had zero
+    incident edges). The syncs below only mirror fields already present in
+    the filtered graph (survivors) or copies of survivors.
     """
     # Build field index: parent_table_id -> list of field dicts
     field_by_parent = {}
@@ -1090,48 +1100,7 @@ def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
         if pid:
             field_by_parent.setdefault(pid, []).append(fn)
 
-    # ── Bug 31: Output table fields from SCHEMA edges ──
-    # Per formal definition: output table fields = {columns with SCHEMA edge
-    # FROM this output table}. Read from full_graph (before lineage filtering)
-    # because filter_relevant() may remove SCHEMA edges if the output table
-    # is not in the lineage set (TABLE_FLOW not followed by BFS).
-    existing_vt_ids = {tn["original_id"] for tn in table_nodes.values()
-                       if tn.get("variable_type") == "virtual_table"}
-    full_edges = full_graph.get("edges", [])
-    for e in full_edges:
-        ed = e.get("data", e)
-        etype = ed.get("edge_type") or ed.get("relationship", "")
-        if etype == "SCHEMA" and ed.get("source") in existing_vt_ids:
-            # Find the column node that this SCHEMA edge points to
-            for n in nodes:
-                nd = n.get("data", n)
-                if nd.get("id") == ed.get("target"):
-                    label = nd.get("label", "")
-                    # Extract field name from label (e.g., "c.customer_id" → "customer_id")
-                    fn = label.rsplit(".", 1)[-1] if "." in label else label
-                    tn_name = nd.get("table_name", "") or label.rsplit(".", 1)[0] if "." in label else ""
-                    # Get the output table's compound node id
-                    vt_id = table_nodes[ed["source"]]["id"] if ed["source"] in table_nodes else None
-                    if vt_id and fn:
-                        already = any(
-                            f.get("parent") == vt_id and f.get("label") == fn
-                            for f in field_nodes
-                        )
-                        if not already:
-                            field_nodes.append({
-                                "id": f"fld_{hashlib.md5((vt_id + fn).encode()).hexdigest()[:10]}",
-                                "label": fn,
-                                "type": "field",
-                                "variable_type": "field",
-                                "field_group": "direct",
-                                "table_name": tn_name,
-                                "field_name": fn,
-                                "parent": vt_id,
-                                "original_id": nd.get("id"),
-                            })
-                    break
-
-    # Sync 1: alias -> canonical (alias invariant)
+    # ── Sync 1: alias -> canonical (alias invariant) ──
     # C7 (v3.3.140): stmt_idx per original node — the sync exists-checks
     # below are (parent, label, stmt_idx) aware so cross-statement
     # same-name fields collapse/expand symmetrically with the field dedup
