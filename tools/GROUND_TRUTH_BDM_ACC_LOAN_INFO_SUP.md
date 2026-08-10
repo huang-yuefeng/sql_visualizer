@@ -524,10 +524,24 @@ SQL panel. Field lines survive only as *fallback candidates* for edge spans
    one line, obtained by **field-name text matching** of the flow's field
    inside the flow's owning statement — deliberate simplicity, by design.
    The field line sets of §5 are the known-good candidates for this.
-3. **Synthetic-flow exception:** a flow whose source node is synthetic
-   (e.g. `⟐ output@0`, `⟐ subq@0` — line 0, no script presence of their own)
-   uses the span of the statement they serve (e.g. the DML statement the
-   output VT feeds), so the ≥1-line guarantee still holds.
+3. **Synthetic-flow rule — the creation line (2026-08-10 refinement):**
+   a flow whose SOURCE node is synthetic (`⟐ output@0`, `⟐ subq@0`, … — no
+   script presence of their own) uses the synthetic node's **creation line**:
+   the first-token line of the statement/subquery that creates it, taken at
+   extraction time (the `_stmt_anchor_lines` machinery). Concretely, on this
+   sample (probe-verified): subquery VTs anchor at their own SELECT line
+   (`⟐ subq` → L26, `⟐ subq1` → L22); statement-level output VTs anchor at
+   the statement's **DML-clause line** (INSERT/MERGE keyword), NOT the
+   whole-statement anchor — TOP0's raw anchor is L9 (`WITH …`) while the
+   flow lives at L160 (`INSERT OVERWRITE …`), so the DML-clause line is the
+   rule. The ≥1-line guarantee then holds by construction.
+   Flows whose TARGET is synthetic do NOT use the creation line — they keep
+   the exact-range-first contract (the feeding var's own def line, e.g.
+   `p1@29 → ⟐subq@0` anchors at L29, the subquery's FROM). Using the
+   creation line there would collapse hub edges (`rollover@9 → ⟐output`,
+   `loan_final@64 → ⟐output`, `⟐output → sup@160` → all L160) and lose
+   per-flow granularity (§8.1) — a creation line never overrides an
+   available exact line.
 
 **Guarantee:** every edge's highlight contains **at least one script line**
 (`line_start ≥ 1`, `line_end ≥ line_start`). A span with inverted or
@@ -565,8 +579,9 @@ clauses exist only for:
 - `test_highlights` / `test_propagated_field` are reworked into per-edge
   span assertions (rename: `test_edge_ranges`), asserting:
   (a) every closure edge has ≥1 line (`line_start ≥ 1`, not inverted);
-  (b) **exact spans for all 16 canonical edges** — a canonical edge that
-      falls back (§8.3.2/§8.3.3) FAILS the test as a solution defect;
+  (b) **exact spans for all 16 canonical edges** — §8.3.3 creation lines are
+      exact expectations (VT-sourced edges); a canonical edge resorting to
+      the §8.3.2 field-name fallback FAILS the test as a solution defect;
   (c) fallback-only edges (non-canonical, e.g. JOIN edges on unanchored
       CONCAT keys) report their fallback line for classification, but are
       not canonical failures.

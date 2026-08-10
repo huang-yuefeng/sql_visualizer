@@ -3509,3 +3509,23 @@ checklist for the next iteration round.
 - Defect 5 (L225 no var) stays a known gap; under the new model it surfaces
   as a possible missing edge/span for stmt2's WHERE read, with §8.3.2
   field-name match as the documented fallback path to still show L225.
+
+### v3.3.147 addendum (2026-08-10) — synthetic-flow anchors refined to creation lines
+
+§8.3.3 refined (user proposal, accepted): VT-sourced edges highlight the
+VT's **creation line** — subquery VTs = their own SELECT line; statement
+output VTs = the statement's DML-clause line (INSERT/MERGE keyword), NOT
+the whole-statement anchor (TOP0 raw anchor is L9 `WITH` while the flow is
+at L160 — probe-verified). VT-targeted edges keep the feeding var's exact
+def line (no hub collapse; creation line never overrides an exact line).
+
+Implementation consequence for the next iteration's fix list (target 2):
+- VTs must carry their creation line at extraction time (currently all
+  line 0): `line_start` = context statement anchor at VT creation
+  (`_stmt_anchor_for(context)`); statement-level VTs need the DML-clause
+  line refinement (scan the statement for INSERT/MERGE keyword token —
+  extraction-time info, no reconstruction).
+- Expected creation lines on the canonical sample: ⟐ subq1 → L22,
+  ⟐ subq → L26, ⟐ output (TOP0) → L160, ⟐ output (TOP1) → L211.
+  Canonical VT-sourced edges' expected spans: `⟐ subq@0 → ⟐ subq1@0` =
+  L26 (source creation line), `⟐ output@0 → sup@160` = L160.
