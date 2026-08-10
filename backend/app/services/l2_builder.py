@@ -85,7 +85,12 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
         # node-carried line_start/line_end the strict table.field walker
         # and its highlights depend on — treat a stale cache as a miss and
         # rebuild (the build path below overwrites the stale cache).
-        if cached_graph.get("format_version", 0) >= 4:
+        # Round 12 (2026-08-10): extraction-semantics changes (E3a fix 3 —
+        # DML-target attribution) must never serve stale graphs — mirror
+        # the analysis-cache extractor_version check (contamination root
+        # cause found by Team E2's cold-cache matrix).
+        if (cached_graph.get("format_version", 0) >= 4
+                and cached_graph.get("extractor_version") == EXTRACTOR_VERSION):
             full_graph = cached_graph
             # D1: cached graphs carry a line_map computed before comment-line
             # skipping existed — recompute from the cached node expressions so
@@ -135,6 +140,9 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
         # Item 4: cache format version — bump when graph schema changes
         # C9 (v3.3.140): format_version 4 = node-carried line_start/line_end.
         full_graph["format_version"] = 4
+        # Round 12: stamp the extractor version so extraction-semantics
+        # changes invalidate graph caches (mirror of the analysis cache).
+        full_graph["extractor_version"] = EXTRACTOR_VERSION
         # v3.3.145: A1 records statement-level parse diagnostics on the
         # analysis result — ride them on the graph cache so the fast path
         # (and _build_l2_graph's response) serves the same data. Stale

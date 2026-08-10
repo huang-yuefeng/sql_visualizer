@@ -762,7 +762,7 @@ edges after the 2026-08-10 repair; probe-pinned 2026-08-10).
 | C4 | ~~`p2@199 → sup@160`~~ — merged into C3 (2026-08-10) | chain | TABLE_FLOW/INSERT | sup | 199 |
 | X1 | `data_dt@16 → bdm@16` | field flow | REF (promoted) | bdm | 16 |
 | X2 | `data_dt@160 → ⟐output@160` | field flow | REF (promoted) | bdm+sup | 160 |
-| X3 | `⟐output@213 → data_dt@213` | structure | SCHEMA/TABLE_COLUMN | bdm+sup | 213 |
+| X3 | ~~`⟐output@213 → data_dt@213`~~ — REMOVED (2026-08-10, Round 12 point 8) | structure | SCHEMA/TABLE_COLUMN | bdm+sup | 213 |
 | X4 | `data_dt@213 → ⟐output@213` | value | TABLE_FLOW (value-write) | bdm | 213 |
 | X5 | `data_dt@225 → sup@225` | field flow | FILTER (promoted) | sup | 225 |
 
@@ -779,12 +779,13 @@ shared `p1.data_dt` field node (hl=43 in the bdm seed — the 158 instance
 survives only in the sup seed) (Sync 1). C1–C4: the closure's
 remaining chain edges into `⟐output@0` / from p2 (chain kind, rule 5 —
 source def line). Per-seed completeness (probe): bdm = pairs 1–16 +
-E1/E2 + S1/S3 + C1/C2 + X1–X4 = **24 entries / 24 closure edges** after
+E1/E2 + S1/S3 + C1/C2 + X1/X2/X4 = **23 entries / 23 closure edges** after
 the 2026-08-10 repair (pair 10 merged into C2 — its direct pin would
 bypass the output VT; S2/S4 collapse into S1/S3 — one SCHEMA edge per p1
-alias, asserted once; row 11 removed — see Repair); sup = pairs 12, 15,
-16, 17, 18(post-fix), 19 + E3/E4 + S5 + B1 + C3 + X2/X3/X5 = **14
-entries = 14 closure edges** (row 11 removed — see Repair; C4 merged
+alias, asserted once; row 11 removed — see Repair; X3 removed — point 8);
+sup = pairs 12, 15,
+16, 17, 18(post-fix), 19 + E3/E4 + S5 + B1 + C3 + X2/X5 = **13
+entries = 13 closure edges** (row 11 removed — see Repair; C4 merged
 into C3, same bypass reason; pair 18 live since W2, 2026-08-10).
 
 **Repair (2026-08-10, DML routing — evidence-backed doc repair, never
@@ -817,12 +818,21 @@ and canonizes five probe-verified genuine flows as rows X1–X5: X1
 (`data_dt@16 → bdm@16` REF — the anchor-16 read companion to row 1),
 X2 (`data_dt@160 → ⟐output@160` REF — the anchor-160 read companion to
 row 12, both seeds), X3 (`⟐output@213 → data_dt@213` SCHEMA — the S1/S3
-kind containment edge on the value-write line, both seeds), X4
+kind containment edge on the value-write line, both seeds — **REMOVED
+2026-08-10, Round 12 point 8**: E3a fix 3 (INSERT-target columns
+attribute to the DML target table) reparents `data_dt@213` under
+`rrcdm_job_log_exec_par`, so the TOP1 output VT no longer holds a
+data_dt member and there is no post-fix SCHEMA@213 edge; X3 pinned the
+pre-fix (buggy) output-VT membership. Evidence: E3a's cold-cache matrix
+M1–M4 — X3 was the sole unmatched row pre-repair, and the only
+gate-breaker was fix 3. The fixture removes X3 from both seeds; the
+canonical write edge `data_dt@213 → ⟐output@213` (X4/row 17) is
+unchanged), X4
 (`data_dt@213 → ⟐output@213` TABLE_FLOW — the value-write edge of the
 sup pair-17 line in the bdm seed), X5 (`data_dt@225 → sup@225` FILTER —
 the FILTER companion to row 18, sup seed). Each X row was matched by the
 live matcher on the current engine before pinning, with no change to any
-existing row's match. The machine B set is 24 bdm + 14 sup = 38 entries.
+existing row's match. The machine B set is 23 bdm + 13 sup = 36 entries.
 
 Probe finding (2026-08-10): in the bdm seed the L43 and L158 `p1.data_dt`
 instances both resolve to the physical `bdm_acc_loan_info` node and merge
@@ -846,13 +856,13 @@ PAIR18_KNOWN_GAP constant is flipped and the KNOWN-GAP branch removed.
 
 **Closure seeds (probe-pinned 2026-08-10): no single L2 search seed
 covers all 19 pairs.** The `bdm_acc_loan_info.data_dt` seed yields pairs
-1–16 + E1/E2 + S1/S3 + C1/C2 + X1–X4 (16 nodes / 24 edges); the
+1–16 + E1/E2 + S1/S3 + C1/C2 + X1/X2/X4 (16 nodes / 23 edges); the
 `bdm_acc_loan_info_sup.data_dt` seed yields pairs 12, 15, 16, 17, 19 +
-E3/E4 + S5 + B1 + C3 + X2/X3/X5 (10 nodes / 14 edges; pair 18 live since
+E3/E4 + S5 + B1 + C3 + X2/X5 (10 nodes / 13 edges; pair 18 live since
 W2 — the W2 read-edge expansion and VT creation lines grew the actual
 closures far beyond these canonical counts; the closure-bijection model
 is under review, see the benchmark-model note in the integration
-report). The 38-entry spec is the UNION over the two seeds; the Seed
+report). The 36-entry spec is the UNION over the two seeds; the Seed
 column states where each entry is asserted. The §7.2 closure spec (13
 nodes / 16 edge pairs / 2 sinks) is UNCHANGED — only the highlight layer
 is redefined.
