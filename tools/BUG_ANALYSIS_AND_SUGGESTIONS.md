@@ -3567,3 +3567,40 @@ still on the fix list: `sql_range_finder` span quality — its render-time
 text reconstruction is a patch layer; direction per the never-patch
 ruling is extraction-time token extents (inverted `[94,32,94,19]`, coarse
 FROM spans, ALIAS mis-anchors are the known live defects).
+
+### v3.3.147 addendum 3 (2026-08-10) — self-join read ruled IN; the 19-pair spec (user ruling)
+
+**Ruling (user, verbatim intent):** "It should be included… It is also a
+type of data flow" — the L202 self-join key read
+(`LEFT JOIN bdm_acc_loan_info_sup p2 … AND p2.data_dt =
+DATEADD(DATE'$(load_date)',-1,'DD')`) is a genuine flow: the script joins
+the table to itself, and the join-key read is a data flow like any other.
+**Edge D confirmed → the spec is 19 pairs** (16 canonical + B + C + D).
+Written into GROUND_TRUTH §8.3 (per-edge anchor table) / §8.4 / §8.5.
+
+**Amendments to the implementation targets above:**
+- Target 3 becomes `CANONICAL_EDGE_LINES` with **19 pairs** (not 16
+  `CANONICAL_EDGE_RANGES`); `test_edge_lines` asserts the exact anchor line
+  per pair; the three extras are canonical (existence + exact line + ≥1).
+- Target 2 becomes: **remove `sql_range_finder` entirely** (user: "we only
+  highlight a line instead of a range") — the payload carries edge
+  `highlight_line`; the frontend click highlights that one line; the
+  range-expansion behaviors die with the module, including the Bug-4
+  AND/OR continuation extension (v3.3.66) — intentional regression, pending
+  the user's explicit confirmation of that specific item.
+- New target: **type promotions** so the Flaw-5 boundary rule (pending
+  ruling) admits the confirmed flows — pair 17: SUBSET/BRIDGE → value-write
+  type (REF/DML semantics); pair 19: SUBSET/READ → honest join-key read
+  (FILTER/JOIN semantics); VTs carry creation lines (pairs 5/6/15).
+- Edge-D anchor: L199 (p2's alias-definition line) — the READ rule applies.
+
+**Defect-5 root cause (recorded, probe-verified 2026-08-10):** the WHERE
+walk DOES register L225's `data_dt` (new COLUMN var, TOP1 context), but
+`_find_position_scoped` (v3.3.140) stamps it 213: the anchor is 212 (the
+SELECT keyword line — `_walk_insert` records 211 first, the source SELECT's
+walk overwrites it; anchors are last-wins), and the statement-scoped search
+finds the first "data_dt" TEXT in [212, ∞) = L213 (`'$(load_date)' AS
+data_dt`). Hence no var carries line 225, and the duplicate `data_dt@213`
+(literal + column sharing one stamp) is the same root cause. Fix (ruled,
+addendum 2): token-run matching extended to reads — L225 matches its own
+token, the duplicate dissolves, pair 18 is unblocked.
