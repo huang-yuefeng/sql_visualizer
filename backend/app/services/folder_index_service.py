@@ -753,6 +753,11 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     # pass runs AFTER S4b, so a star over the owning table would otherwise
     # resurrect a revoked field into field_index/pair_index.
     _star_excluded = extractor_unresolved | ambiguous_fields
+    # C-5 (case-insensitive): the revoked/unresolved sets are recorded in
+    # original case while star evidence can arrive in any case — a
+    # mixed-case field would otherwise resurrect via star. Lowered set
+    # computed once, outside the loop.
+    _star_excluded_lower = {x.lower() for x in _star_excluded}
     for _rel, _stmts in parse_by_script.items():
         if not _stmts:
             continue  # unparsable script — nothing to detect
@@ -762,7 +767,7 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                 if not _cols:
                     continue  # no schema evidence → skip silently
                 for _c in _cols:
-                    if _c in _star_excluded:
+                    if _c.lower() in _star_excluded_lower:
                         continue  # revoked/unresolved — never resurrect
                     if (_rel, _t, _c) in _star_seen:
                         continue

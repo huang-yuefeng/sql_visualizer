@@ -1173,10 +1173,14 @@ def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
             # src_fid might be a field ID (pre-promotion path) — try direct match
             src_fields = [fn for fn in field_nodes if fn["id"] == src_fid]
         for fn in src_fields:
-            fn_stmt = orig_stmt.get(fn.get("original_id", ""))
+            # R11-2: the exists-check dedups by (target, label) ONLY — the
+            # old orig_stmt term let the same (parent, label) pair exist
+            # twice when the source field instances came from different
+            # statements (e.g. the rrcdm_job_log_exec_par data_dt phantoms
+            # from the '$(load_date)' AS data_dt value at L213 in both the
+            # bdm and sup seeds). One DML target gets ONE field per label.
             exists = any(
                 f.get("parent") == tgt_tid and f.get("label") == fn.get("label")
-                and orig_stmt.get(f.get("original_id", "")) == fn_stmt
                 for f in field_nodes
             )
             if not exists:
@@ -1259,14 +1263,198 @@ def _closure_walk(e: dict, entries: list, adjacency: dict,
     return hops
 
 
-def _attach_flow_payload(new_edges: list, field_nodes: list) -> None:
+# ── R11-3: def-site anchors vs reference sites (code-evidence mech) ──
+# The mechanism payload rides the per-edge payload phase (R25-consistent):
+# every mech field is an extraction-time fact (I1 def lines, I2
+# source_tables attribution, defined_in) — never reconstructed at render.
+
+_REF_SITE_TABLE_TYPES = ("table", "view", "merge_target")
+
+
+def _field_part(label: str) -> str:
+    """The field part of a label ('p6.lending_ref' -> 'lending_ref')."""
+    return (label or "").rsplit(".", 1)[-1]
+
+
+def _stmt_anchor_lines_from_nodes(ndata: list) -> dict:
+    """Derive per-statement first-token anchors from the pre-filter node
+    index. The extractor's own _stmt_anchor_lines is extractor-internal
+    (not serialized), so the anchors are re-derived here: a write
+    statement's first token is its DML target var's def line (INSERT at
+    L160/L211 in the flagship); for reads, the minimum non-CTE var line
+    approximates it. CTE DEF vars are excluded — their lines sit at the
+    statement head but the compound's consumption window must start at
+    the statement's actual first token. Returns {TOP{idx}: line}."""
+    anchors: dict = {}
+    for nd in ndata:
+        ctx = nd.get("context") or ""
+        if not ctx.startswith("TOP") or nd.get("variable_type") == "cte":
+            continue
+        line = int(nd.get("line_start") or 0)
+        if line <= 0:
+            continue
+        stmt = ctx.split("/", 1)[0]
+        anchors[stmt] = min(anchors.get(stmt, 10 ** 9), line)
+    return anchors
+
+
+def _next_anchor_after(line: int, anchor_list: list) -> int:
+    """The next statement anchor strictly after `line` (0 = none)."""
+    for a in anchor_list:
+        if a > line:
+            return a
+    return 0
+
+
+def _carry_node_lines(table_nodes: dict, full_graph: dict) -> dict:
+    """R11-3 — compound table nodes gain line_start/line_end/defined_in
+    from their keeper vars (the full-graph node the compound merged
+    around; per-var dicts carry the lines but the compound merge dropped
+    them). line_end = the next statement's first-token line − 1 (I1 vars
+    are single-line [L,L]; the compound's span is the consumption window
+    ref sites are scanned in). Returns the derived statement anchors."""
+    full_nodes = full_graph.get("nodes", [])
+    ndata = [n.get("data", n) for n in full_nodes]
+    anchors = _stmt_anchor_lines_from_nodes(ndata)
+    max_line = max((int(d.get("line_start") or 0) for d in ndata), default=0)
+    by_id = {d.get("id", ""): d for d in ndata}
+    anchor_list = sorted(anchors.values())
+    for tn in table_nodes.values():
+        var = by_id.get(tn.get("original_id", ""))
+        if var is None:
+            continue
+        ls = int(var.get("line_start") or 0)
+        tn["line_start"] = ls
+        tn["defined_in"] = var.get("defined_in", "")
+        le = int(var.get("line_end") or 0)
+        if ls > 0 and le <= ls:
+            nxt = _next_anchor_after(ls, anchor_list)
+            le = (nxt - 1) if nxt else max_line
+        tn["line_end"] = max(le, ls)
+    return anchors
+
+
+def _ref_site_vars(src_label: str, dst_range: tuple, node_index: list) -> list:
+    """R11-3 — scan the PRE-FILTER var index for reference sites: vars
+    inside the dst compound's def-range whose source_tables contain
+    src_label (the I2 attribution is an extraction-time fact)."""
+    lo, hi = dst_range
+    out = []
+    for nd in node_index:
+        st = nd.get("source_tables") or []
+        if src_label in st:
+            line = int(nd.get("line_start") or 0)
+            if lo <= line <= hi:
+                out.append(nd)
+    return out
+
+
+def _mech_fallback_clause(edge: dict) -> str:
+    """R11-3 — fallback clause from the edge origin: write edges anchor
+    at the DML statement (INSERT), chain/def-only edges at the FROM
+    consumption site."""
+    op = (edge.get("_op") or "").upper()
+    if (edge.get("_dml_origin") or edge.get("edge_type") == "DML"
+            or any(k in op for k in ("INSERT", "UPDATE", "DELETE", "MERGE"))):
+        return "INSERT" if "INSERT" in op else (op or "INSERT")
+    if edge.get("edge_type") in ("TABLE_FLOW", "SUBSET"):
+        return "FROM"
+    if edge.get("edge_type") == "ALIAS":
+        return "ALIAS"
+    return edge.get("edge_type") or ""
+
+
+def _mech_sentence(clause: str, src_label: str, src_line: int,
+                   dst_label: str, dst_line: int, ref_line: int,
+                   alias: str, use_lines: list, chosen: dict,
+                   dst_col: str) -> str:
+    """R11-3 — the code-evidence sentence templates per clause (formal
+    spec R11-3, 2026-08-10). JOIN/SELECT-family sentences carry the flow
+    prefix; the rest are standalone."""
+    prefix = f"{dst_label} (L{dst_line}) reads {src_label} (L{src_line})"
+    if clause in ("JOIN", "JOIN ON"):
+        suffix = f"via LEFT JOIN at L{ref_line}"
+        if alias:
+            suffix += f" (alias {alias})"
+        return f"{prefix} {suffix}"
+    if clause in ("SELECT", "FROM"):
+        return f"{prefix} in its FROM clause at L{ref_line}"
+    if clause in ("INSERT", "DML", "UPDATE", "DELETE", "MERGE"):
+        return (f"statement at L{ref_line} writes into {dst_label} "
+                f"({clause}, routed via ⟐ output)")
+    if clause == "WHERE":
+        col = _field_part(chosen.get("label", ""))
+        return f"{src_label}.{col} is filtered at L{ref_line} inside {dst_label}"
+    if clause == "COMPUTED":
+        col = _field_part(chosen.get("label", ""))
+        use = min(use_lines) if use_lines else ref_line
+        return (f"value: {src_label}.{col} → {dst_label}.{dst_col} "
+                f"via expression at L{use}")
+    if clause == "ALIAS":
+        return f"{alias or _field_part(chosen.get('label', ''))} is the alias of {src_label} (defined at L{ref_line})"
+    return (f"structural: {dst_label} ({dst_line}) references "
+            f"{src_label} ({src_line}) — see {dst_label}'s definition")
+
+
+def _build_mechanism(edge: dict, src_node: dict, dst_node: dict,
+                     node_index: list) -> dict | None:
+    """R11-3 — per-edge mechanism payload: the reference site where the
+    source is consumed inside the dst compound's def-range. All fields
+    are extraction-time facts; None when nothing is found (the frontend
+    falls back to R25 rendering)."""
+    src = src_node or {}
+    dst = dst_node or {}
+    src_label = src.get("table_name") or src.get("label", "")
+    dst_label = dst.get("table_name") or dst.get("label", "")
+    src_line = int(src.get("line_start") or 0)
+    dst_line = int(dst.get("line_start") or 0)
+    dst_hi = int(dst.get("line_end") or 0)
+    ref_vars = (_ref_site_vars(src_label, (dst_line, dst_hi), node_index)
+                if src_label and dst_hi > 0 else [])
+    chosen = None
+    if ref_vars:
+        tables = [v for v in ref_vars
+                  if v.get("variable_type") in _REF_SITE_TABLE_TYPES]
+        pool = tables or ref_vars
+        chosen = min(pool, key=lambda v: int(v.get("line_start") or 0))
+    if chosen is None:
+        clause = _mech_fallback_clause(edge)
+        ref_line = int(edge.get("highlight_line") or 0)
+        alias = ""
+        use_lines = []
+    else:
+        clause = (chosen.get("defined_in") or "").strip().upper()
+        ref_line = int(chosen.get("line_start") or 0)
+        alias = (chosen.get("label", "")
+                 if chosen.get("variable_type") in _REF_SITE_TABLE_TYPES else "")
+        use_lines = sorted({int(v.get("line_start") or 0) for v in ref_vars
+                            if int(v.get("line_start") or 0) != ref_line})
+    if ref_line <= 0:
+        return None
+    dst_col = _field_part(edge.get("_tgt_label") or dst_label)
+    sentence = _mech_sentence(clause, src_label, src_line, dst_label, dst_line,
+                              ref_line, alias, use_lines, chosen or {}, dst_col)
+    mech = {"clause": clause, "ref_line": ref_line}
+    if alias:
+        mech["alias"] = alias
+    if use_lines:
+        mech["use_lines"] = use_lines
+    if sentence:
+        mech["sentence"] = sentence
+    return mech
+
+
+def _attach_flow_payload(new_edges: list, field_nodes: list,
+                         table_nodes: dict | None = None,
+                         node_index: list | None = None) -> None:
     """W5/R25 — the per-edge payload phase: every final L2 edge carries
     highlight_line / flow_kind / reason (highlight_strategies.single_line),
     computed from the edge's carried extraction-time info + the closure
     walk from the searched seed's field. Never reconstructed at render.
 
     Mutates new_edges in place (attaches _path_hops, highlight_line,
-    flow_kind, reason; the _-prefixed carriers are stripped at assembly).
+    flow_kind, reason and, when the R11-3 evidence exists, mech; the
+    _-prefixed carriers are stripped at assembly).
     """
     if not new_edges:
         return
@@ -1283,6 +1471,40 @@ def _attach_flow_payload(new_edges: list, field_nodes: list) -> None:
         e["highlight_line"] = payload["highlight_line"]
         e["flow_kind"] = payload["flow_kind"]
         e["reason"] = payload["reason"]
+
+    # R11-3: per-edge mechanism (reference site + clause + sentence).
+    # Attached here so it rides the same build-time payload phase; the
+    # compound endpoints resolve via table_nodes/field_nodes (the edge
+    # ids are the FINAL compound/field ids — resolve through both the
+    # compound id and the keeper original_id, and re-parent fields onto
+    # their compound). No mech when no endpoint/evidence resolves —
+    # frontend EdgeReasonPanel falls back to R25 rendering.
+    if table_nodes is not None and node_index:
+        by_cid = {tn["id"]: tn for tn in table_nodes.values()}
+        by_nid = {tn.get("original_id", ""): tn for tn in table_nodes.values()}
+        field_by_id = {fn.get("id", ""): fn for fn in field_nodes}
+
+        def _resolve_compound(node_id: str) -> dict | None:
+            tn = by_cid.get(node_id)
+            if tn is not None:
+                return tn
+            tn = by_nid.get(node_id)
+            if tn is not None:
+                return tn
+            fn = field_by_id.get(node_id)
+            if fn is not None:
+                pid = fn.get("parent", "")
+                return by_cid.get(pid) or by_nid.get(pid)
+            return None
+
+        for e in new_edges:
+            src_node = _resolve_compound(e.get("source"))
+            dst_node = _resolve_compound(e.get("target"))
+            if src_node is None or dst_node is None:
+                continue
+            mech = _build_mechanism(e, src_node, dst_node, node_index)
+            if mech:
+                e["mech"] = mech
 
 
 def _assemble_output(table_nodes: dict, field_nodes: list, new_edges: list,
@@ -1365,6 +1587,9 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     target_node_ids, direct_ids = _compute_target_and_direct_ids(nodes, edges, table, field)
     table_nodes, field_nodes, other_nodes, alias_map = _classify_compound_nodes(
         nodes, full_graph, script_name, target_node_ids, direct_ids, table)
+    # R11-3: compound nodes gain line_start/line_end/defined_in from their
+    # keeper vars (def-site anchors; line_end = next stmt anchor − 1).
+    _carry_node_lines(table_nodes, full_graph)
     id_map = _build_id_map(table_nodes, field_nodes, other_nodes)
     # Issue a: resolve search-target/direct ids to the merged keepers so
     # highlighting lands on the single table node / deduped field node,
@@ -1386,7 +1611,12 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     new_edges = _dedup_edges(new_edges)
     # W5/R25: per-edge payload — highlight_line/flow_kind/reason from the
     # carried extraction-time info + the closure walk (never at render).
-    _attach_flow_payload(new_edges, field_nodes)
+    # R11-3: the mech (reference-site) payload rides the same phase — it
+    # scans the PRE-FILTER node index (full_graph nodes) for vars inside
+    # the dst compound's def-range that consume the source.
+    _attach_flow_payload(new_edges, field_nodes, table_nodes=table_nodes,
+                         node_index=[n.get("data", n)
+                                     for n in full_graph.get("nodes", [])])
 
     _sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map, dml_pairs,
                                full_graph, nodes)

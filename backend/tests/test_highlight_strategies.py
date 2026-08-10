@@ -204,3 +204,21 @@ def test_single_line_payload_reason_single_hop_walk():
     e = _edge(edge_type="TABLE_FLOW", _path_hops=[("sup", 160), ("rrcdm", 211)])
     assert _single_line_payload(e)["reason"] == (
         "chain — ‖sup@L160 → rrcdm@L211‖")
+
+
+def test_safe_int_non_numeric_carried_lines():
+    """N11: a non-numeric carried line must degrade to 0, never crash the
+    payload builder (malformed cache / exotic carrier)."""
+    from app.services.highlight_strategies import _safe_int, _anchor_line
+    assert _safe_int("abc") == 0
+    assert _safe_int(None) == 0
+    assert _safe_int("") == 0
+    assert _safe_int("12") == 12
+    assert _safe_int(7) == 7
+    e = _edge(_src_line="abc", _tgt_line=None)
+    # rule 1 (field flow) anchors at the source appearance line — degrades
+    # to 0, and the payload keeps flowing
+    assert _anchor_line(e, "field flow") == 0
+    payload = _single_line_payload(e)
+    assert payload["highlight_line"] == 0
+    assert payload["flow_kind"] == "chain"

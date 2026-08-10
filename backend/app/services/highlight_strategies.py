@@ -77,6 +77,16 @@ def _flow_kind(e: dict) -> str:
     return "field flow"
 
 
+def _safe_int(value, default: int = 0) -> int:
+    """N11: carried line fields must never crash the payload builder — a
+    non-numeric value (malformed cache, exotic carrier) degrades to the
+    default instead of raising."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _anchor_line(e: dict, kind: str) -> int:
     """§8.3 — exactly ONE script line per edge, in rule priority order:
     1 field flow → source appearance line; 2 READ → alias-def/FROM line of
@@ -88,8 +98,8 @@ def _anchor_line(e: dict, kind: str) -> int:
     line. Line < 1 is a defect (line 0 = "no line matched" — the W6 VT
     creation lines and the Defect-5 read land here until their extraction
     fixes; never hardcoded)."""
-    src_line = int(e.get("_src_line") or 0)
-    tgt_line = int(e.get("_tgt_line") or 0)
+    src_line = _safe_int(e.get("_src_line"))
+    tgt_line = _safe_int(e.get("_tgt_line"))
     if kind == "read":
         return tgt_line            # rule 2 — the alias-def/FROM line
     if kind == "write":
@@ -123,8 +133,8 @@ def _build_reason(e: dict, kind: str) -> str:
     """
     hops = e.get("_path_hops") or []
     if len(hops) < 2:
-        hops = [(e.get("_src_label") or "?", int(e.get("_src_line") or 0)),
-                (e.get("_tgt_label") or "?", int(e.get("_tgt_line") or 0))]
+        hops = [(e.get("_src_label") or "?", _safe_int(e.get("_src_line"))),
+                (e.get("_tgt_label") or "?", _safe_int(e.get("_tgt_line")))]
     flow = ""
     for i, (label, line) in enumerate(hops):
         seg = f"{label}@L{line}"

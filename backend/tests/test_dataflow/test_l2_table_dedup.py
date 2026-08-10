@@ -96,15 +96,19 @@ def test_same_table_4_contexts_single_node(multi_ctx_ws):
 
     keeper_id = keepers[0]["id"]
     # Statement edges of ALL contexts land on the keeper: the two bare-FROM
-    # contexts feed the rollover/active CTEs (SUBSET) and the aliased
-    # contexts (ALIAS) — every edge endpoint must exist.
+    # contexts feed the rollover/active CTEs as TABLE_FLOW chain edges and
+    # the aliased contexts (JOIN p / subquery s) as ALIAS edges — every edge
+    # endpoint must exist. (Verified against the full HEAD stack 7f7e660:
+    # the feeds are TABLE_FLOW, not SUBSET — SUBSET stopped carrying these
+    # context feeds in the v3.3.140-era engine; the graph has 0 SUBSET
+    # edges in either state.)
     assert not _dangling_edges(graph), \
         f"dangling edge endpoints: {_dangling_edges(graph)[:5]}"
     touching = [e["data"] for e in graph["edges"]
                 if keeper_id in (e["data"]["source"], e["data"]["target"])]
     assert len(touching) >= 3, f"context edges to keeper missing: {touching}"
     etypes = {e["edge_type"] for e in touching}
-    assert "ALIAS" in etypes and "SUBSET" in etypes, etypes
+    assert "ALIAS" in etypes and "TABLE_FLOW" in etypes, etypes
 
 
 def test_merged_table_fields_dedup(multi_ctx_ws):

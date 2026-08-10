@@ -182,7 +182,16 @@ def test_full_http_journey(journey_ws):
     assert "field" in l2_types, l2_types
     assert l2_types & {"source_table", "intermediate_table", "alias_table"}, l2_types
     assert l2["total_edges"] == len(graph["edges"]), l2
-    assert isinstance(l2["highlights"], list) and l2["highlights"], l2
+    # W5/R25: the response-level `highlights` list is GONE — every edge
+    # carries its own payload (highlight_line / flow_kind / reason), and the
+    # level2 response adds statement-level parse_errors diagnostics.
+    assert "highlights" not in l2, l2
+    assert isinstance(l2.get("parse_errors"), list), l2
+    for e in graph["edges"]:
+        d = e["data"]
+        assert d.get("highlight_line", 0) >= 1, d
+        assert d.get("flow_kind"), d
+        assert d.get("reason"), d
 
     # ── Step 6: teardown — workspace really deleted ────────────────────
     r = client.delete(f"/api/workspace/{ws_id}")

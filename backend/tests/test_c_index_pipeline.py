@@ -141,11 +141,11 @@ class TestC1CtasClassification:
 
 class TestC2GraphCacheInvalidation:
     def test_graph_cache_prefix_bumped(self):
-        """C-2: GRAPH_CACHE_PREFIX is bumped to graph_3_2_20 (v3.3.148) —
-        the hl=0 def_site fix changes L2 graph contents (JOIN-ON CONCAT
-        variables now carry def positions); the bump is the single-constant
-        invalidation."""
-        assert cache_keys.GRAPH_CACHE_PREFIX == "graph_3_2_20", \
+        """C-2: GRAPH_CACHE_PREFIX is bumped to graph_3_2_21 (R11-3) —
+        the per-edge `mech` payload + compound-node line_start/line_end/
+        defined_in change the L2 response format; the bump is the
+        single-constant invalidation."""
+        assert cache_keys.GRAPH_CACHE_PREFIX == "graph_3_2_21", \
             cache_keys.GRAPH_CACHE_PREFIX
         assert fis.GRAPH_CACHE_PREFIX == cache_keys.GRAPH_CACHE_PREFIX
 

@@ -39,5 +39,11 @@ the scope-context parent machinery removal (B3/C5 pickers deleted; L2
 attribution is extraction-time source_tables only, I2) and the new
 parse_errors key on the graph cache (def-line changes invalidate old
 graphs). Graph JSON format_version stays 4.
+
+R11-3 (2026-08-10): bumped to 3_2_21 — the L2 response format changed:
+per-edge `mech` payload (ref_line/clause/alias/use_lines/sentence) and
+compound-node line_start/line_end/defined_in. Old graphs (no mech) would
+serve forever without the bump; format_version stays 4 (the walker/
+filter inputs are unchanged).
 """
-GRAPH_CACHE_PREFIX = "graph_3_2_20"
+GRAPH_CACHE_PREFIX = "graph_3_2_21"
