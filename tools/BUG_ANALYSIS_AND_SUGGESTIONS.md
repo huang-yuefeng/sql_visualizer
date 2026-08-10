@@ -3742,3 +3742,79 @@ RESOLVED; display design RULED (2026-08-10); all micro-decisions RESOLVED
 (flow-string scope: both; excluded edges: every edge highlights, no
 excluded category). G1 is fully cleared. G2 = user approves this work
 list; G3 = per-item verification. Docs-only until G2.
+
+---
+
+## Round 11 — User reports 2026-08-10 (analyzed + recorded, NO source changes)
+
+### R11-1 · No flow reason in the panel below the script panel (L2)
+
+**User report:** the panel below the script panel shows no reason; besides the
+path (the SQL anchor highlight) there should be a reason explaining why the
+edge is a valid data flow.
+
+**Analysis (verified end-to-end, no code defect found in the chain):**
+- Backend: every served L2 edge carries `reason` + `flow_kind` — live-verified
+  24/24 edges on the bdm view (e.g. `chain — data_dt@L18 → bdm@L16 → ‖rollover@L9 → ⟐ output@L160‖`).
+  The reason IS the full flow path + the clicked edge's ‖…‖-wrapped segment
+  (§8.8.3, built at L2 build time). Not a backend gap.
+- Frontend source: `EdgeReasonPanel` is rendered BELOW `SqlPanel`
+  (DataFlowApp.jsx:660-664); edge tap → `onEdgeClick(e.target.data())`
+  (DataFlowGraph.jsx:24-29); hook binds `cy.on('tap','edge',…)`
+  (useCytoscapeGraph.js:109) with background-tap guard (`e.target === cy`,
+  :111-114); CSS present (styles/app.css:347-383); vitest 5/5 pass
+  (EdgeReasonPanel.test.jsx: empty state + kind/anchor/reason + ‖‖ emphasis).
+- Served bundle: built 2026-08-10 20:21:58 from the same tree committed
+  20:23:06 (28d8210, v3.3.147) — panel strings + CSS confirmed in the live
+  bundle (`index-Dq68Ow1O.js`, `index-Bq4l-YRX.css`).
+- L1 on this workspace has no edges (R24 single-script), so L2 is the context.
+
+**Root-cause candidates (in likelihood order):**
+1. **Stale browser cache** — any session that loaded the page before
+   2026-08-10 ~20:22 holds the pre-R25 bundle (no panel at all). Hard
+   refresh (Ctrl/Cmd+Shift+R) fixes it.
+2. **Click-to-reveal empty state (UX gap)** — the panel intentionally shows
+   "Click an edge to see its flow reason" until an edge is clicked. A user
+   who expects the reason to be visible without interaction reads this as
+   "no reason". Matches "besides the path, there should be the reason".
+3. No reproducible code path for "clicked an edge → still nothing" — would
+   need a browser console capture.
+
+**Suggested solution (later, after user approval):** make the reason visible
+without interaction — (a) auto-select the seed-zone edge on L2 load so the
+panel is never empty; (b) render the FULL closure path by default (the
+per-edge `reason` strings already contain it) with the clicked edge
+emphasized; (c) strengthen the empty-state hint ("Click an edge — e.g. the
+green flow edge — to see why this data flow is valid"). No code now.
+
+### R11-2 · Duplicate fields under the rrcdm_job_log_exec_par table node
+
+**User report:** the rrcdm_job_log_exec_par table node shows two identical
+`data_dt` fields (both filtered L2 views, bdm + sup).
+
+**Analysis (code-verified root cause):**
+- Served sup view: rrcdm node `l2_tbl_ffdb91ce89` has exactly two children,
+  both `data_dt`: `dml_fld_cd6b13c9fb_l2_tbl_f` and `dml_fld_41923d6d37_l2_tbl_f`
+  (DML phantom fields, `dml_` prefix = Sync 2 copies). bdm view: same
+  duplicate (`data_dt` × 2).
+- Mechanism: `_sync_alias_and_dml_fields` Sync 2 (l2_builder.py:1166-1187)
+  creates one phantom per (DML pair × source-field instance). Two data_dt
+  instances flow into rrcdm — the sup output column (`fld_e2b38f37a7`,
+  parent sup) and the output-VT column (`fld_faa927ddff`, parent output) —
+  each sources a phantom under the target. The exists-check
+  (l2_builder.py:1177-1181) is **stmt-aware** (`orig_stmt` of the source's
+  `original_id`): two instances from different statements are treated as
+  distinct (C-9 per-statement design) and both pass → duplicate same-label
+  fields under ONE target table node.
+- Pre-existing behavior (Sync 2 untouched by the v3.3.148 fixes); the flood
+  previously hid it; the clean closure now exposes it.
+- The Jaccard benchmark's B pins rrcdm as a node WITHOUT field children —
+  the benchmark is blind to field-level duplicates (no field-uniqueness
+  invariant yet).
+
+**Suggested solution (later, after user approval):** the phantom
+exists-check should dedup by **(target, label)** — stmt-awareness is
+meaningful for source-side fields (C-9) but not for a target table's column
+display (a table node shows each column once). E.g. drop the
+`orig_stmt` term in the Sync 2 exists-check. Optionally add a benchmark
+invariant: no duplicate (parent, label) field pairs in A. No code now.
