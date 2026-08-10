@@ -581,6 +581,32 @@ joins the table to itself (`LEFT JOIN bdm_acc_loan_info_sup p2 …
 AND p2.data_dt = DATEADD(DATE'$(load_date)',-1,'DD')`); the join-key read at
 L202 is a genuine data flow and belongs in the spec — pair 19.
 
+**The boundary rule — what counts as a flow (Flaw-5, ruled 2026-08-10).**
+An edge counts as a flow iff:
+1. its anchor line is one of the three real anchor kinds (field appearance /
+   alias-definition/FROM / VT-creation) — this covers every value-carrying
+   edge (REF, AGGREGATE, TRANSFORM, WINDOW, COMPUTED, FILTER, JOIN,
+   CORRELATED, SET_OP) and every read; OR
+2. it is a walkable chain edge (TABLE_FLOW / ALIAS / DML) — the row-set
+   carrier between field appearances; anchor = the flow's entry line (the
+   source table's def line, or the VT's creation line). **Chain edges
+   count** (user ruling, 2026-08-10: "I think this is better: chain edges
+   count") — the trace stays continuous between field appearances (e.g.
+   L18 → sup at L160 via rollover_loan_info@9 / loan_final@64); the field
+   is *inside* the flow, not printed on the carrier's lines (a chain
+   anchor may carry no field token — that is what makes the chain clause a
+   separate kind).
+Excluded, peremptorily:
+- **SUBSET/BRIDGE never counts** — not even as a tie-breaker
+  (`sup@223 → rrcdm@211` stays out; the `data_dt@213 → rrcdm@211` bridge
+  variants stay out as bridges — they are replaced by the promoted pair 17).
+- **SCHEMA containment never counts** (I5 — structure, not a value flow).
+- **INDIRECT** counts iff the field's token sits at an endpoint.
+Prerequisite (accepted with the rule): the machinery must promote the
+mislabeled real flows out of SUBSET — pair 17 (SUBSET/BRIDGE → value-write
+type), pair 19 (SUBSET/READ → join-key read type) — otherwise the
+peremptory exclusion would wrongly drop flows already ruled in.
+
 **Scope note — robustness, NOT the contract.** Every canonical edge must
 have its exact anchor line per the rules above; a canonical edge without one
 is a solution defect (bug to fix), never a "hard case". Edge 18's anchor
