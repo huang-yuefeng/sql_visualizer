@@ -1311,9 +1311,11 @@ range-expansion layer (`sql_range_finder`).
    AND shows the reason in a NEW panel below the SQL panel: flow kind +
    anchor line + reason string. The reason MUST include the data flow in
    string form — the walkable chain `{label}@L{line} → …` from the
-   closure entry to the edge's target (design §8.8, RULED). Flow string
-   built at L2 build time from the closure walk — never reconstructed at
-   render.
+   closure entry to the edge's target, with the clicked edge's own
+   segment emphasized as the current edge location (full path for
+   overview + current edge for orientation; design §8.8, RULED). Flow
+   string built at L2 build time from the closure walk — never
+   reconstructed at render.
 7. **Counting invariant:** 19 canonical pairs ⇒ 19 anchor lines
    (CANONICAL_EDGE_LINES benchmark, asserted across the two closure seeds
    bdm/sup per §8.5).

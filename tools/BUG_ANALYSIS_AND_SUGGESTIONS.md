@@ -3697,10 +3697,19 @@ quality item).
    `structure`/`bridge` gray. Always visible, no toggle.
 2. **Click → SQL highlight + NEW reason panel BELOW the SQL panel** — the
    panel shows flow kind + anchor + reason.
-3. **Reason includes the string-format data flow** — `<flow kind> —
-   <flow string>`, the walkable chain `{label}@L{line} → …` from the
-   closure entry to the edge's target, built at L2 build time (never
+3. **Reason includes the string-format data flow — full path + current
+   edge location (both, ruled)** — `<flow kind> — <flow string>`: the
+   walkable chain `{label}@L{line} → …` from the closure entry to the
+   edge's target (overview), with the clicked edge's own segment
+   emphasized (current edge location). Built at L2 build time (never
    reconstructed at render). Worked example in §8.8.3 (pair 4).
+4. **User question on excluded edges (2026-08-10, pending ruling)** —
+   "there should not be an edge that cannot be highlighted, because every
+   edge is a unit of data flow." Explanation given in chat: SCHEMA =
+   containment membership (no value travels; field lines already covered
+   by the field's flow edges), residual SUBSET = column-list bookkeeping
+   (value edges highlighted as pairs 16/17; bridge lines already covered).
+   Awaiting user's decision on labeling/highlighting them.
 W5/W7 updated below; GROUND_TRUTH §8.8 rewritten RULED; R25 amended.
 
 **THE WORK LIST (implementation order — NO SOURCE CODE before user
@@ -3712,7 +3721,7 @@ approval of this list and of §8.10's confirmations):**
 | W2 | Defect-5 fix: token-run matching extended to reads (L225 registers, duplicate `data_dt@213` dissolves) | — | pair 18 present, anchor 223 |
 | W3 | Type promotions at extraction: pairs 1, 2, 12, 13, 14, 17, 19 → honest types | W2 (pair 18) | per-pair map §8.7 |
 | W4 | Line-resolution collapse 3→1: delete `_find_position`/`_find_position_scoped`; `_find_def_position` for every add; no stale-cache repair (`map_variables_to_lines` fallback gone) | — | probe: no text-search paths left |
-| W5 | Per-edge payload: edge `highlight_line` (+ `flow_kind` + `reason`, where `reason` includes the string-format data flow — closure walk `{label}@L{line} → …`, §8.8.3); remove `sql_range`/`sql_ranges`/`highlights`/`propagated`; remove `sql_range_finder` + dead import | W2–W4 | payload shape test |
+| W5 | Per-edge payload: edge `highlight_line` (+ `flow_kind` + `reason`, where `reason` includes the string-format data flow — full path + current edge segment, closure walk `{label}@L{line} → …`, §8.8.3); remove `sql_range`/`sql_ranges`/`highlights`/`propagated`; remove `sql_range_finder` + dead import | W2–W4 | payload shape test |
 | W6 | VTs carry creation lines (pairs 5/6/15: 26/22/160) | — | anchors 26/22/160 |
 | W7 | Frontend (R25, ruled 2026-08-10): edge flow-kind labels at edge midpoint (kind only; gray `structure`/`bridge`); click → `highlight_line` + NEW reason panel below the SQL panel (kind + anchor + reason incl. string-format flow); hover tooltip + legend stay secondary | W5 + §8.8 (ruled) | live check |
 | W8 | Benchmark rework: `CANONICAL_EDGE_LINES` 19 pairs + 4 verified extras (E1–E4) × two seeds; `test_edge_lines` (exists + exact anchor + ≥1) | W2–W6 | pytest green |

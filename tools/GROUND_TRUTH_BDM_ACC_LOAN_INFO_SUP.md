@@ -832,25 +832,31 @@ new panel). Also the reason should include the string format data flow."
    (existing single-line behavior; AND/OR continuation lights only the
    anchor — CONFIRMED 2026-08-10), and (b) shows the reason in a NEW panel
    below the SQL panel: flow kind + anchor line + the reason string.
-3. **Reason string includes the data flow in string form.** Format:
-   `<flow kind> — <flow string>`. The flow string is the walkable chain
-   carrying this edge — from the closure entry (the searched seed's field)
-   to this edge's target — rendered as `{label}@L{line}` joined by
-   ` → `. Example (pair 4, bdm seed): `chain —
-   bdm_acc_loan_info.data_dt@L18 → bdm.data_dt@L16 → p1.data_dt@L29 →
-   ⟐subq@L0`. Leaf edges (field flow / read / write / filter) show the
-   path segment through this edge (source → target). The flow string is
-   built at L2 build time from the closure walk (extraction-time info —
-   never reconstructed at render; never-patch rule). Per-pair strings are
-   pinned during the W1 probe round / benchmark verification.
+3. **Reason string = full path + current edge location (ruled 2026-08-10).**
+   Format: `<flow kind> — <flow string>`. The reason panel shows BOTH:
+   - **Full path (overview)** — the walkable chain from the closure entry
+     (the searched seed's field) to this edge's target, rendered as
+     `{label}@L{line}` joined by ` → ` (e.g. pair 4, bdm seed: `chain —
+     bdm_acc_loan_info.data_dt@L18 → bdm.data_dt@L16 → p1.data_dt@L29 →
+     ⟐subq@L0`).
+   - **Current edge location (orientation)** — the clicked edge's own
+     segment (`source@L{line} → target@L{line}`) is emphasized within the
+     path (bold, edge category color) so the user sees exactly where the
+     clicked edge sits in the flow.
+   The flow string is built at L2 build time from the closure walk
+   (extraction-time info — never reconstructed at render; never-patch
+   rule). Per-pair strings are pinned during the W1 probe round /
+   benchmark verification. The anchor (rule 5 chain entry) may differ
+   from the string's start — the panel shows `anchor: L{line}`
+   separately.
 4. **Secondary surfaces (unchanged):** hover tooltip keeps edge type + kind
    + anchor + reason; the legend groups the 16 types by flow kind with
    ✅/❌ marks.
 
-Open micro-decisions (listed for the user; defaults above pending
-confirmation): flow-string scope (entry→target full path vs. edge
-endpoints only), excluded-edge labels (gray `structure`/`bridge` vs.
-no label on excluded edges).
+Open micro-decision — flow-string scope: **RESOLVED (both, item 3)**.
+Excluded-edge labels: user question (2026-08-10) — "there should not be
+an edge that cannot be highlighted, because every edge is a unit of data
+flow" — explanation given in chat; ruling pending.
 
 ### 8.9 Verification plan — the four types absent from the canonical sample (user ruling: verify-first)
 
@@ -874,8 +880,9 @@ mini-samples to the benchmark if they remain canonical.
 1. **L2 display design — RULED (2026-08-10)** (§8.8): flow-kind labels on
    the edges (kind only, always visible; gray `structure`/`bridge` for
    excluded); click → SQL anchor highlight + NEW reason panel below the
-   SQL panel; reason includes the string-format data flow. Open
-   micro-decisions: flow-string scope, excluded-edge labels (§8.8).
+   SQL panel; reason includes the string-format data flow — full path +
+   current edge location (both, ruled). Open micro-decision: excluded-edge
+   labels (user question pending ruling, §8.8).
 2. **Extras counting — RESOLVED (2026-08-10): counted per the boundary
    rule** (option 1); the 4 verified extras (E1–E4) are pinned in the
    benchmark (§8.5) with exact anchors. The exclusion alternative
