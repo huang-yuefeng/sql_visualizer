@@ -137,6 +137,10 @@ def run_full_analysis(sql_text: str, script_name: str, ws_id: str | None = None)
         "total_dependencies": len(dependencies),
         "template_replacements": extract_result.template_replacements,
         "resolution_stats": extract_result.resolution_stats,
+        # N8: statement-level parse diagnostics ride the analysis result
+        # (empty when the script parsed cleanly) — the graph-cache stamp in
+        # l2_builder reads it via result.get("parse_errors", []).
+        "parse_errors": [dict(e) for e in extract_result.parse_errors],
         # v3.3.140: analysis-cache invalidation stamp — analysis caches must
         # be keyed on this so extraction-semantics changes (e.g. the phantom
         # subquery dedup / PARTITION vars) never serve stale analysis.
@@ -160,6 +164,10 @@ def _var_to_dict(v: VariableDefinition) -> dict:
         "data_type": v.data_type,
         "context": v.context,
         "is_output": v.is_output,
+        # I4: the exact source var id this alias pairs with (None when not
+        # an alias) — rides the serialized var so Phase-2 ALIAS edges can
+        # be re-derived without re-extraction.
+        "alias_of": v.alias_of,
     }
 
 

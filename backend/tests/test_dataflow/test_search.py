@@ -112,12 +112,21 @@ class TestLevel2Graph:
         workspace_client.delete(ws_id)
 
     def test_l2_graph_highlights(self, workspace_client, d1_zip):
+        """W5/R25: the response-level `highlights` list is GONE — every L2
+        edge carries its own payload (highlight_line / flow_kind / reason),
+        and the level2 response adds statement-level parse_errors."""
         ws_id = workspace_client.create(d1_zip)
         workspace_client.index(ws_id)
         sr = workspace_client.search(ws_id, "orders", "amount")
         from app.services.dataflow_service import get_level2_graph
         result = get_level2_graph(ws_id, sr["view_id"], "step2_report.sql", "orders", "amount")
-        assert "highlights" in result
+        assert "highlights" not in result, result
+        assert isinstance(result.get("parse_errors"), list), result
+        for e in result["graph"]["edges"]:
+            d = e["data"]
+            assert d.get("highlight_line", 0) >= 1, d
+            assert d.get("flow_kind"), d
+            assert d.get("reason"), d
         workspace_client.delete(ws_id)
 
 

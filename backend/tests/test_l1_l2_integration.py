@@ -175,6 +175,9 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
         nodes, edges, TARGET_TABLE, TARGET_FIELD)
     table_nodes, field_nodes, other_nodes, alias_map = l2b._classify_compound_nodes(
         nodes, full_graph, STEP3, target_node_ids, direct_ids, TARGET_TABLE)
+    # R11-3: the orchestrator carries compound-node lines right after
+    # classification (line_start/line_end/defined_in from keeper vars).
+    l2b._carry_node_lines(table_nodes, full_graph)
     id_map = l2b._build_id_map(table_nodes, field_nodes, other_nodes)
     target_mapped, direct_mapped = l2b._map_search_target_ids(
         field_nodes, table_nodes, target_node_ids, direct_ids, id_map)
@@ -187,6 +190,11 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
     new_edges, dml_pairs = l2b._simplify_dml_edges(new_edges, full_graph,
                                                    id_map, table_nodes)
     new_edges = l2b._dedup_edges(new_edges)
+    # R11-3: the mech payload rides the W5 phase — pass table_nodes + the
+    # PRE-FILTER node index exactly like the orchestrator.
+    l2b._attach_flow_payload(new_edges, field_nodes, table_nodes=table_nodes,
+                             node_index=[n.get("data", n)
+                                         for n in full_graph.get("nodes", [])])
     l2b._sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map,
                                    dml_pairs, full_graph, nodes)
     phased = l2b._assemble_output(table_nodes, field_nodes, new_edges, nodes,
@@ -356,34 +364,38 @@ def test_d1_table_var_maps_to_from_line_not_comment():
 
 def test_d2_highlights_never_zero_or_comment_lines():
     """D2: node-carried lines only — (0,0) placeholders never reach the
-    highlights response and comment positions never occur (the extractor's
-    line lookup skips comment lines, so node lines are real code lines).
+    payload and comment positions never occur (the extractor's line lookup
+    skips comment lines, so node lines are real code lines).
 
-    v3.3.140: highlights are single line numbers [line, line] from the
-    node-carried line_start of the closure's field-like vars — the
-    line_map-based computation is gone."""
-    from app.services import l2_builder as l2b
-
+    R25: highlights are per-edge single lines (highlight_line), derived at
+    L2 build time — the response-level highlights list and the
+    line_map-based _compute_highlight_ranges are gone. Every final edge
+    carries highlight_line/flow_kind/reason; highlight_line is a real code
+    line (>= 1, never the header comment line 1)."""
     sql = ("-- 源表名：bdm_acc_loan_info\n"
            "SELECT loan_id FROM bdm_acc_loan_info WHERE data_dt = '2026-01-01';")
-    graph_data = {
-        "nodes": [
-            # field-like vars carry their own line_start; c2 is unmapped
-            # (line_start 0) and t1 is a table (not field-like) — both
-            # must never emit.
-            {"data": {"id": "t1", "sql_expression": "bdm_acc_loan_info",
-                      "variable_type": "table", "line_start": 2}},
-            {"data": {"id": "c1", "sql_expression": "data_dt",
-                      "variable_type": "column", "line_start": 2}},
-            {"data": {"id": "c2", "sql_expression": "",
-                      "variable_type": "column", "line_start": 0}},
-        ],
-        "edges": [],
-    }
-    ranges = l2b._compute_highlight_ranges(graph_data, {"t1", "c1", "c2"}, sql)
-    assert all(r[0] >= 1 for r in ranges), ranges
-    assert not any(r[0] <= 1 <= r[1] for r in ranges), ranges  # comment line
-    assert any(r[0] == 2 and r[1] == 2 for r in ranges), ranges  # FROM line
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("d2_min.sql", sql)
+    ws_id = create_workspace(buf.getvalue())
+    try:
+        graph = _build_l2_graph(ws_id, "d2_min.sql", sql,
+                                "bdm_acc_loan_info", "data_dt",
+                                relevance_filter=True)
+        edges = [e["data"] for e in graph["edges"]]
+        assert edges, "the D2 script must produce edges"
+        for e in edges:
+            assert isinstance(e.get("highlight_line"), int) \
+                and e["highlight_line"] >= 1, e
+            assert e.get("flow_kind"), e
+            assert e.get("reason"), e
+            assert e["highlight_line"] != 1, e  # comment line 1
+        # the predicate line 2 (WHERE data_dt = ...) is covered by the
+        # field-flow payload
+        assert any(e["highlight_line"] == 2 for e in edges), \
+            [e["highlight_line"] for e in edges]
+    finally:
+        delete_workspace(ws_id)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -443,33 +455,30 @@ def test_data_dt_seed_lands_on_searched_table(loan_info_ws):
 
 
 def test_data_dt_highlights_cover_predicate_line(loan_info_ws):
-    """L2 data_dt investigation (complaint 1): the highlights response must
+    """L2 data_dt investigation (complaint 1): the per-edge payload must
     cover the real predicate line 18 and never cover the header comment
-    line 3 or the (0,0) placeholder — in the full graph and through the
-    real get_level2_graph response path."""
-    from app.services import l2_builder as l2b
+    line 3 or line 0 — through the real get_level2_graph response path.
+
+    R25: highlights are per-edge single lines (highlight_line), derived at
+    L2 build time — the response-level `highlights` list is gone; every
+    edge carries highlight_line/flow_kind/reason instead."""
     from app.services.dataflow_service import get_level2_graph
 
-    sql = LOAN_INFO_SCRIPT.read_text()
-
-    # Full graph: line 18 (WHERE data_dt = '$(load_date)') must be covered.
-    full_graph, _ = l2b._load_or_build_graph(loan_info_ws, LOAN_INFO_NAME, sql)
-    all_ids = {n["data"]["id"] for n in full_graph.get("nodes", [])}
-    ranges = l2b._compute_highlight_ranges(full_graph, all_ids, sql)
-    assert any(r[0] <= 18 <= r[1] for r in ranges), \
-        f"predicate line 18 must be highlighted, got {ranges}"
-    assert not any(r[0] <= 3 <= r[1] for r in ranges), \
-        f"comment line 3 must never be highlighted, got {ranges}"
-    assert all(r[0] >= 1 for r in ranges), \
-        f"(0,0) placeholders must not leak, got {ranges}"
-
-    # Real response path (relevance-filtered): no [0,0], no comment lines.
+    # Real response path (relevance-filtered): no line 0, no comment
+    # lines, predicate line 18 (WHERE data_dt = '$(load_date)') covered.
     out = get_level2_graph(loan_info_ws, loan_info_ws, LOAN_INFO_NAME,
                            "bdm_acc_loan_info", "data_dt")
     assert "error" not in out, out
-    hs = out["highlights"]
-    assert all(r[0] >= 1 for r in hs), hs
-    assert not any(r[0] <= 3 <= r[1] for r in hs), hs
+    edges = [e["data"] for e in out["graph"]["edges"]]
+    assert edges, "the flagship must produce edges"
+    for e in edges:
+        assert isinstance(e.get("highlight_line"), int) \
+            and e["highlight_line"] >= 1, e
+        assert e.get("flow_kind"), e
+        assert e.get("reason"), e
+        assert e["highlight_line"] != 3, e  # header comment line
+    assert any(e["highlight_line"] == 18 for e in edges), \
+        [e["highlight_line"] for e in edges]
 
 
 def test_d1_line_map_recomputed_from_stale_cache(loan_info_ws):

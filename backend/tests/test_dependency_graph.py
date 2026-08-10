@@ -93,3 +93,70 @@ class TestDependencyIntegration:
         graph = build_dependency_graph(result, sql)
 
         assert len(result.variables) >= 5
+
+
+class TestOneCCrossStatementGates:
+    """E1/E2 (2026-08-10): the 1c-cross / 1c-direct cross-statement
+    machinery must never emit edges that contradict statement order or
+    CTE scope."""
+
+    def test_e2_reader_before_writer_skipped(self):
+        """1c-cross order guard: a same-name table read BEFORE the write
+        statement cannot consume the write — no WRITE_READ edge may target
+        the pre-write reader."""
+        sql = ("SELECT * FROM audit_log;\n"
+               "INSERT INTO audit_log SELECT * FROM src_tbl;")
+        result = extract_variables_from_sql(sql, "test")
+        graph = build_dependency_graph(result, sql)
+        readers = [v for v in result.variables
+                   if v.name == "audit_log" and (v.context or "").startswith("TOP0")]
+        assert readers, "the pre-write reader must be extracted"
+        bad = [d for d in graph if d.relationship == "DML"
+               and d.operation == "WRITE_READ"
+               and d.target_id in {v.id for v in readers}]
+        assert not bad, \
+            f"write-after-read edge targeting a PRE-write reader: {bad}"
+
+    def test_e2_writer_before_reader_keeps_edge(self):
+        """Positive control: when the writer precedes the reader, the
+        1c-cross WRITE_READ edge is legitimate and must survive."""
+        sql = ("INSERT INTO audit_log SELECT * FROM src_tbl;\n"
+               "SELECT * FROM audit_log;")
+        result = extract_variables_from_sql(sql, "test")
+        graph = build_dependency_graph(result, sql)
+        readers = [v for v in result.variables
+                   if v.name == "audit_log" and (v.context or "").startswith("TOP1")]
+        assert readers, "the post-write reader must be extracted"
+        ok = [d for d in graph if d.relationship == "DML"
+              and d.operation == "WRITE_READ"
+              and d.target_id in {v.id for v in readers}]
+        assert ok, "the legitimate cross-statement write→read must exist"
+
+    def test_e1_cte_reader_pairs_only_same_statement_def(self):
+        """1c-direct cross-statement gate: CTEs are statement-scoped — the
+        stmt-1 reader of CTE `t` links to stmt-1's def only, never to
+        stmt-0's def of the same name."""
+        sql = ("WITH t AS (SELECT a FROM s1) "
+               "INSERT INTO tgt1 SELECT * FROM t;\n"
+               "WITH t AS (SELECT b FROM s2) "
+               "INSERT INTO tgt2 SELECT * FROM t;")
+        result = extract_variables_from_sql(sql, "test")
+        graph = build_dependency_graph(result, sql)
+        defs = [v for v in result.variables
+                if v.variable_type == VariableType.CTE and v.name == "t"]
+        assert len(defs) == 2, \
+            [(v.id, v.context, v.line_start) for v in defs]
+        by_ctx = {v.context: v for v in defs}
+        tgt2_ids = {v.id for v in result.variables if v.name == "tgt2"}
+        assert tgt2_ids, "stmt-1's DML target must be extracted"
+        top0_def = by_ctx.get("TOP0")
+        assert top0_def is not None
+        cross = [d for d in graph if d.source_id == top0_def.id
+                 and d.target_id in tgt2_ids]
+        assert not cross, \
+            f"stmt-0's CTE def must not feed stmt-1's INSERT: {cross}"
+        top1_def = by_ctx.get("TOP1")
+        assert top1_def is not None
+        same = [d for d in graph if d.source_id == top1_def.id
+                and d.target_id in tgt2_ids]
+        assert same, "stmt-1's own CTE def must feed stmt-1's INSERT"

@@ -219,6 +219,13 @@ def build_dependency_graph(
             r_stmt = _stmt_key(v)
             if r_stmt is None or r_stmt == t_stmt:
                 continue
+            # E2 (1c-cross order guard): the reader appears BEFORE the
+            # writer — a same-name table occurrence in an earlier statement
+            # cannot be consuming THIS statement's write (the old code
+            # emitted reversed write-after-read edges).
+            if (int(tbl_var.line_start or 0) > 0 and int(v.line_start or 0) > 0
+                    and tbl_var.line_start > v.line_start):
+                continue
             if not (v.name == canon or
                     (v.source_tables and v.source_tables[0] == canon)):
                 continue
@@ -262,6 +269,14 @@ def build_dependency_graph(
                 if (tbl_var.context or "TOP") != stmt:
                     continue
                 for src in src_ctes:
+                    if (src.context or "TOP") != stmt:
+                        # E1 (1c-direct cross-statement gate): a CTE
+                        # defined in ANOTHER statement is not the reader's
+                        # source — CTEs are statement-scoped, so the
+                        # reader links only to same-statement defs (the old
+                        # code paired the reader with any same-name CTE,
+                        # emitting spurious cross-statement edges).
+                        continue
                     if src.id != tbl_var.id:
                         _add_edge(src, tbl_var, "TABLE_FLOW", op_type)
 
