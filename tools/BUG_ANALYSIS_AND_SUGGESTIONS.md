@@ -3863,3 +3863,41 @@ approval):**
    bump required for the payload format. Worked examples (A rollover→
    loan_final, B data_dt@L18→bdm@L16, C →rrcdm@L211) presented to the user
    2026-08-10; pending evaluation. No code now.
+
+**Formal spec (2026-08-10, user asked for the formal format + new data/functions):**
+
+Payload — new per-edge `mech` object (existing keys id/source/target/
+edge_type/category/highlight_line/flow_kind/reason unchanged):
+```jsonc
+"mech": {
+  "clause": "JOIN",            // consuming var's defined_in (JOIN|JOIN ON|WHERE|SELECT|INSERT|PARTITION|...)
+  "ref_line": 155,             // first line where src is consumed inside dst's def range
+  "alias": "p6",               // TABLE-typed ref var name ("" when none)
+  "use_lines": [82, 156],      // other consumption lines, sorted
+  "sentence": "loan_final (L64) reads rollover_loan_info (L9) via LEFT JOIN at L155 (alias p6)"
+}
+```
+Derivation: `ref_vars = {v : src_label in v.source_tables and dst.line_start <= v.line_start <= dst.line_end}`;
+ref_line = min line among TABLE-typed ref_vars else min overall; alias = that var; clause =
+its defined_in; use_lines = rest; fallback (no ref_vars: write-side/def-only/alias-hop) =
+clause from edge origin (DML=INSERT anchor, chain=src def line rule 5), ref_line=highlight_line.
+Sentence templates per clause (JOIN/JOIN ON, SELECT/FROM, INSERT/DML via ⟐ output,
+WHERE-filter, COMPUTED value, ALIAS, structural fallback) — see chat 2026-08-10.
+
+NEW DATA (only 3 items): (1) compound node `line_start`/`line_end`/`defined_in` —
+currently absent (l2_builder.py:392-400 dict has id/label/type/table_name/
+variable_type/original_id/context only; per-var dicts in graph_service.py:202-203
+have the lines but the compound merge drops them); keeper var supplies them
+(`loan_final` CTE var L64, `bdm_acc_loan_info_sup` TABLE var L160), line_end =
+next stmt anchor − 1 (`_stmt_anchor_lines` exists). (2) per-edge `mech` — only
+`_src_line`/`_tgt_line` carriers exist today (l2_builder.py:659-660) and are
+stripped at assembly (:1329). (3) script text — already both sides (backend file,
+frontend sqlText).
+
+NEW FUNCTIONS: `_carry_node_lines` (~10L), `_ref_site_vars` (~15L),
+`_build_mechanism` + template renderer (~40L) — all build-time in l2_builder
+(payload phase `_attach_flow_payload`, R25-consistent), `GRAPH_CACHE_PREFIX`
+bump; frontend `EdgeReasonPanel` code-evidence block (~40L) + `SqlPanel.
+scrollToLine`/`onJumpToLine` (~15L). Tests: 1 backend ground-truth invariant
+(`mech.ref_line==155`, clause JOIN, alias p6 for bdm rollover→loan_final) + 1
+vitest render test. Graph semantics/ids/reason string/Jaccard unchanged.
