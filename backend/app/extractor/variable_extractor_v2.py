@@ -469,11 +469,67 @@ def _failed_stmt_detail(clean_sql: str, stmt_idx: int) -> str:
 def _is_as_keyword(tok) -> bool:
     """The statement-anchor `as`: the AS KEYWORD only (a non-STRING token
     with text "as") — never a string literal containing `as`. String
-    literals are skipped when scanning for the anchor, mirroring
-    `_find_position`'s string-skip semantics (L16): `'as' AS c, a` must
-    not collapse to `c, a` and steal a later statement's anchor line.
+    literals are skipped when scanning for the anchor (token-run matching
+    semantics, L16): `'as' AS c, a` must not collapse to `c, a` and steal
+    a later statement's anchor line.
     """
     return tok.text.lower() == "as" and tok.token_type != TokenType.STRING
+
+
+def _statement_head_run(expr) -> list[str]:
+    """First ~6 non-STRING token texts of `expr`'s WITH-stripped render —
+    the statement-head token run (W6 VT definition sites).
+
+    A leading WITH clause renders as a prefix and is stripped first, so the
+    run is the statement's OWN head (INSERT/SELECT/… keyword line), never
+    the WITH line; AS KEYWORD tokens are dropped from the run (sqlglot
+    inserts `AS` before aliases in renders). STRING tokens are filtered —
+    a string literal equal to a head token is never a definition.
+    """
+    try:
+        stmt_sql = expr.sql(dialect="mysql")
+    except Exception:
+        # benign: render failure → empty run (callers fall back).
+        return []
+    if stmt_sql and (expr.args.get("with") is not None
+                     or expr.args.get("with_") is not None):
+        try:
+            stripped = expr.copy()
+            stripped.args.pop("with", None)
+            stripped.args.pop("with_", None)
+            stmt_sql = stripped.sql(dialect="mysql")
+        except Exception:
+            # benign: strip failure → keep the with-prefixed render.
+            pass
+    try:
+        rendered = list(sqlglot.Tokenizer().tokenize(stmt_sql))
+    except Exception:
+        return []
+    return [t.text.lower() for t in rendered
+            if t.token_type != TokenType.STRING and not _is_as_keyword(t)][:6]
+
+
+def _name_token_run(name: str) -> list[str]:
+    """Token texts of `name` for token-run line resolution (W4).
+
+    The I1 replacement for the deleted `_find_position_scoped` text search:
+    a variable NAME (possibly dotted, e.g. "p1.data_dt", or parenthesized,
+    e.g. "(subq)") becomes the token run matched against the stream — a
+    non-STRING, spacing-insensitive, exact-token subsequence, so a name
+    that also occurs inside a string literal never matches. STRING tokens
+    are filtered (a quoted identifier's text would re-introduce the
+    string-literal false positive at the run level). A name that does not
+    tokenize at all (a truncated display fragment cut inside a string
+    literal, e.g. `CONCAT'price=',_p.price,_',st`) yields an empty run —
+    the var then resolves to (0, 0) like any unmatched name, and the
+    tokenizer error never escapes the extractor for valid SQL.
+    """
+    try:
+        toks = sqlglot.Tokenizer().tokenize(name)
+    except Exception:
+        return []
+    return [t.text.lower() for t in toks
+            if t.token_type != TokenType.STRING]
 
 
 class _RoleBasedExtractor:
@@ -521,11 +577,11 @@ class _RoleBasedExtractor:
         # (original file), computed by token-subsequence matching. This
         # sqlglot version has no parse_position_marks, so the anchor comes
         # from the token stream, never from a token TEXT search (the q76
-        # string-literal caveat — `_find_position` returns the FIRST token
-        # equal to the name, which a string literal on an earlier line beats).
+        # string-literal caveat — a STRING token equal to a run token on an
+        # earlier line would beat the real name token).
         self._anchor_cache: dict[int, int] = {}
         # Context-prefix → statement first-token line: recorded at each
-        # statement-walk entry so `_find_position_scoped` can scope line
+        # statement-walk entry so `_find_def_position` can scope line
         # lookups to the variable's own statement (D-series).
         self._stmt_anchor_lines: dict[str, int] = {}
         # C-13(b): AS-filtered token stream + first-token position index,
@@ -543,41 +599,6 @@ class _RoleBasedExtractor:
     def _next_id(self, key: str) -> str:
         self._counter[key] = self._counter.get(key, 0) + 1
         return _make_id(self.script_name, key, self._counter[key])
-
-    def _find_position(self, name: str, sql_expr: str = "",
-                       skip_strings: bool = False) -> tuple[int, int]:
-        """Find line_start, line_end for a variable using sqlglot tokenizer.
-
-        Uses sqlglot's Tokenizer which provides accurate line/col per token.
-        Falls back to string search if tokenizer fails.
-        Returns (line_start, line_end) — 1-based line numbers.
-
-        `skip_strings=True` ignores STRING tokens: the tokenizer strips the
-        quotes from string-literal tokens (q76: `'ws_ship_hdemo_sk' col_name`
-        tokenizes to a STRING token equal to the column name), so a bare-name
-        search must not treat string literals as real occurrences.
-        """
-        if not self.sql_text or not name:
-            return (0, 0)
-
-        # Strategy 1: sqlglot tokenizer for accurate positions
-        try:
-            search = name.lower()
-            for tok in self._tokens:
-                if (tok.text.lower() == search
-                        and (not skip_strings or tok.token_type != TokenType.STRING)):
-                    return (tok.line, tok.line)
-        except Exception:
-            # benign: token scan failure → fall through to the
-            # string-search fallback (Strategy 2) below.
-            pass
-
-        # Strategy 2: string-based fallback
-        lines = self.sql_text.split("\n")
-        for i, line in enumerate(lines):
-            if name.lower() in line.lower():
-                return (i + 1, i + 1)
-        return (0, 0)
 
     def _statement_anchor(self, expr) -> int:
         """1-based line (original file) of `expr`'s FIRST token.
@@ -637,10 +658,10 @@ class _RoleBasedExtractor:
                 # renders as "MERGE INTO customers AS tgt"), which breaks
                 # the 6-token head match for alias-bearing statement heads.
                 # Only the KEYWORD counts — a STRING literal containing
-                # `as` is never the anchor (string skip mirrors
-                # `_find_position`), and dropping it from BOTH sides would
-                # collapse `'as' AS c, a` into `c, a`, letting an earlier
-                # statement masquerade as a later one's head (L16).
+                # `as` is never the anchor (token-run string-skip), and
+                # dropping it from BOTH sides would collapse `'as' AS c, a`
+                # into `c, a`, letting an earlier statement masquerade as a
+                # later one's head (L16).
                 head = [t.text.lower() for t in rendered
                         if not _is_as_keyword(t)][:6]
                 # C-13(b): candidate scan via the first-token position index
@@ -721,38 +742,10 @@ class _RoleBasedExtractor:
         return min((a for c, a in self._stmt_anchor_lines.items()
                     if a > line and not _nested(c)), default=10**9)
 
-    def _find_position_scoped(self, name: str, sql_expr: str, context: str) -> tuple[int, int]:
-        """Statement-scoped line lookup within [stmt_anchor, next_anchor).
-
-        Whole-stream first-occurrence scans map repeated names/expressions to
-        the WRONG statement (e.g. the loan_final-body `p1.data_dt` read at line
-        158 → first 'p1.data_dt' text is line 43; the L84 alias
-        'bdm_acc_loan_info p1' → line 29). Scoping to the var's statement fixes
-        them. Order: (1) text search of sql_expr[:40] in the line range;
-        (2) token scan for the bare name in the same range; (3) fallback to
-        the whole-stream _find_position (old behavior — anchor not recorded).
-        """
-        anchor = self._stmt_anchor_for(context)
-        if anchor <= 0:
-            return self._find_position(name, sql_expr)
-        end = self._next_anchor_after(anchor, context)
-        search_key = (sql_expr or "").strip()[:40]
-        if search_key:
-            lines = self.sql_text.split("\n")
-            for i in range(anchor - 1, min(end, len(lines))):
-                if search_key in lines[i]:
-                    return (i + 1, i + 1)
-        try:
-            search = name.lower()
-            for tok in self._tokens:
-                if anchor <= tok.line < end and tok.text.lower() == search:
-                    return (tok.line, tok.line)
-        except Exception:
-            pass
-        return self._find_position(name, sql_expr)
-
     def _find_def_position(self, runs: list[list[str]], node=None,
-                           stmt_ctx: str = "") -> tuple[int, int]:
+                           stmt_ctx: str = "",
+                           ret_last: bool = False,
+                           loose_first: bool = False) -> tuple[int, int]:
         """1-based (line, line) of a DEFINITION site — token-run matching (I1).
 
         Replaces the composition text search for definition sites: the runs
@@ -764,6 +757,19 @@ class _RoleBasedExtractor:
         run — never a text search, so multi-line pretty renders and
         'name AS alias' compositions cannot break it. Returns (0, 0) when
         nothing matches (tokenizer failures degrade gracefully).
+
+        `ret_last=True` returns the line of the run's LAST matched token
+        instead of its first — clause-keyword runs like ["where", "data_dt"]
+        (W2, Defect 5) anchor the occurrence on the clause keyword but must
+        report the COLUMN's line, not the keyword's.
+
+        `loose_first=True` relaxes adjacency for the FIRST run only (the
+        clause-keyword run): "where" followed by the NEXT occurrence of the
+        column anywhere in the statement (STRING tokens still skipped) —
+        `WHERE a = 1 AND data_dt = …` has no "where data_dt" adjacency, and
+        the scoped range may legitimately extend past nested bodies, so the
+        keyword-then-next-name match is the honest reading of "the name in
+        this clause". The fallback bare-name run stays strict.
         """
         try:
             tokens = self._tokens
@@ -776,12 +782,24 @@ class _RoleBasedExtractor:
                 anchor = self._stmt_anchor_for(stmt_ctx)
             if anchor > 0:
                 end = self._next_anchor_after(anchor, stmt_ctx)
-                for run in runs:
-                    line = self._match_token_run(run, tokens, anchor, end)
+                for idx, run in enumerate(runs):
+                    if not run:
+                        continue
+                    line = self._match_token_run(run, tokens, anchor, end,
+                                                 ret_last=ret_last,
+                                                 loose=(loose_first and idx == 0))
                     if line:
                         return (line, line)
-            for run in runs:
-                line = self._match_token_run(run, tokens, 0, 10**9)
+            # Whole-stream fallback: ONLY the last run (the bare-name run).
+            # Clause-keyword runs (["where", name], ["update", name], …) are
+            # meaningful only inside the owning statement — a whole-stream
+            # match would anchor on a DIFFERENT statement's clause keyword
+            # (W2: the L90 WHERE's data_dt must not jump to the L224 one).
+            for run in runs[-1:]:
+                if not run:
+                    continue
+                line = self._match_token_run(run, tokens, 0, 10**9,
+                                             ret_last=ret_last)
                 if line:
                     return (line, line)
             return (0, 0)
@@ -790,15 +808,21 @@ class _RoleBasedExtractor:
 
     @staticmethod
     def _match_token_run(run: list[str], tokens, lo_line: int,
-                         hi_line: int) -> int:
+                         hi_line: int, ret_last: bool = False,
+                         loose: bool = False) -> int:
         """First line where `run` occurs as a token run within [lo, hi).
 
         Each run token must equal a non-STRING token's text (lowercased);
         the AS KEYWORD may be interleaved between run tokens ('FROM t AS a'
         tokenizes t, AS, a — the alias run is [t, a]). Returns 0 when the
-        run never occurs in the range.
+        run never occurs in the range. `ret_last=True` reports the LAST
+        matched token's line instead of the first's (clause-keyword runs).
+        `loose=True` drops the adjacency requirement: each later run token
+        is the next at-or-after occurrence (STRING tokens still skipped) —
+        clause-keyword runs ("where" … column) never require adjacency.
         """
         n = len(tokens)
+        r0 = run[0].lower()
         for i in range(n):
             tok = tokens[i]
             if tok.line < lo_line:
@@ -807,26 +831,42 @@ class _RoleBasedExtractor:
                 break
             if tok.token_type == TokenType.STRING:
                 continue
-            if tok.text.lower() != run[0]:
+            if tok.text.lower() != r0:
                 continue
             j, k = i + 1, 1
-            while k < len(run):
-                if j >= n:
-                    break
-                t2 = tokens[j]
-                if t2.token_type == TokenType.STRING:
-                    j += 1
-                    continue
-                if t2.text.lower() == run[k]:
+            if loose:
+                while k < len(run):
+                    rk = run[k].lower()
+                    found = False
+                    while j < n and tokens[j].line < hi_line:
+                        t2 = tokens[j]
+                        if t2.token_type != TokenType.STRING \
+                                and t2.text.lower() == rk:
+                            found = True
+                            break
+                        j += 1
+                    if not found:
+                        break
                     k += 1
                     j += 1
-                    continue
-                if _is_as_keyword(t2):
-                    j += 1
-                    continue
-                break
+            else:
+                while k < len(run):
+                    if j >= n:
+                        break
+                    t2 = tokens[j]
+                    if t2.token_type == TokenType.STRING:
+                        j += 1
+                        continue
+                    if t2.text.lower() == run[k].lower():
+                        k += 1
+                        j += 1
+                        continue
+                    if _is_as_keyword(t2):
+                        j += 1
+                        continue
+                    break
             if k == len(run):
-                return tok.line
+                return tokens[j - 1].line if ret_last else tok.line
         return 0
 
     def _add(self, name: str, var_type: VariableType, sql_expr: str = "",
@@ -841,8 +881,10 @@ class _RoleBasedExtractor:
         by statement index, so same-named vars in DIFFERENT statements stay
         distinct nodes).
 
-        `def_site` = (runs, anchor_node, stmt_ctx) for I1 DEFINITION sites —
-        line lookup via token runs instead of the occurrence text search.
+        `def_site` = (runs, anchor_node, stmt_ctx) — or 4-tuple (runs,
+        anchor_node, stmt_ctx, ret_last) or 5-tuple (runs, anchor_node,
+        stmt_ctx, ret_last, loose_first) — for I1 DEFINITION sites: line
+        lookup via token runs instead of the occurrence text search.
         `alias_of` (I4) = id of the exact source var this alias pairs with.
         """
         name = _clean(name)
@@ -867,10 +909,21 @@ class _RoleBasedExtractor:
 
         vid = self._next_id(f"{context}:{name}")
         if def_site is not None:
-            runs, node, stmt_ctx = def_site
-            ls, le = self._find_def_position(runs, node, stmt_ctx)
+            if len(def_site) >= 5:
+                runs, node, stmt_ctx, ret_last, loose_first = def_site
+                ls, le = self._find_def_position(runs, node, stmt_ctx,
+                                                 ret_last=ret_last,
+                                                 loose_first=loose_first)
+            elif len(def_site) >= 4:
+                runs, node, stmt_ctx, ret_last = def_site
+                ls, le = self._find_def_position(runs, node, stmt_ctx,
+                                                 ret_last=ret_last)
+            else:
+                runs, node, stmt_ctx = def_site
+                ls, le = self._find_def_position(runs, node, stmt_ctx)
         else:
-            ls, le = self._find_position_scoped(name, sql_expr, context)
+            ls, le = self._find_def_position(
+                [_name_token_run(name)], None, context)
         var = VariableDefinition(
             id=vid, name=name, variable_type=var_type,
             sql_expression=sql_expr,
@@ -1127,9 +1180,46 @@ class _RoleBasedExtractor:
             else:
                 label = "output"
             vt_name = f"⟐ {label}"
+            # W6: the synthetic-source VT carries its CREATION line. The
+            # name ("⟐ output") never occurs in the source, so the plain
+            # name-run resolution could never match — the def_site run
+            # comes from the statement itself:
+            #  - statement-level (TOP contexts): the statement HEAD run of
+            #    the DML-clause node (INSERT OVERWRITE … at 160 — never
+            #    the WITH or the SELECT body), anchored on that node;
+            #  - subquery/derived-body: the body's own FIRST output token
+            #    (first projection rendered, e.g. lending_ref@22/26),
+            #    fallback the body's SELECT head — the creation line is
+            #    where the body's output begins, not the SELECT keyword.
+            p = select.parent
+            if "/" not in context and ":join:" not in context \
+                    and isinstance(p, (exp.Insert, exp.Create, exp.Merge,
+                                       exp.Update, exp.Delete)):
+                node = p
+                head_run = _statement_head_run(p)
+                # Second run: the DML keyword pair only (head_run[:2]) as
+                # the whole-stream fallback — renders drop keywords the
+                # source keeps ("INSERT INTO TABLE t" renders "insert into
+                # t", so the full head never matches the stream and the
+                # statement anchor degrades to the SELECT's line, pushing
+                # the DML keyword line 211 out of scope).
+                runs = [head_run, head_run[:2]]
+            elif "/" not in context and ":join:" not in context:
+                node = select
+                head_run = _statement_head_run(select)
+                runs = [head_run, head_run[:2]]
+            else:
+                node = select
+                head_run = _statement_head_run(select)
+                proj_run = []
+                exprs = select.expressions or []
+                if exprs:
+                    proj_run = _statement_head_run(exprs[0])
+                runs = ([proj_run, head_run] if proj_run else [head_run])
             self._add(vt_name, VariableType.VIRTUAL_TABLE,
                       sql_expr=_sql(select),
-                      defined_in=context, context=context)
+                      defined_in=context, context=context,
+                      def_site=(runs, node, context))
             output_container = vt_name
         else:
             if cte_name is None:
@@ -1630,9 +1720,28 @@ class _RoleBasedExtractor:
                     VariableType.EXPRESSION, VariableType.CTE_COLUMN)):
                     return  # already defined in this context
         full = f"{table}.{col_name}" if table else col_name
+        def_site = None
+        if not table:
+            # W2 (Defect 5): a BARE column in a filter clause (WHERE data_dt
+            # = '$(load_date)' at L225) resolves to its OWN occurrence, not
+            # the clause's first name token — a later WHERE in the same
+            # statement used to steal the earlier projection's line (213).
+            # The clause-keyword run ["where", data_dt] (ret_last) anchors
+            # the scan on the clause keyword and reports the COLUMN's line;
+            # the bare [name] fallback keeps first-in-scope resolution for
+            # second+ columns of the same clause (WHERE a=1 AND b=2).
+            kw = {"WHERE": "where", "HAVING": "having",
+                  "JOIN ON": "on", "MERGE ON": "on"}.get(
+                      (defined_in or "").strip().upper())
+            if kw:
+                # loose_first: "where" … next data_dt in the statement —
+                # never require adjacency (WHERE a=1 AND data_dt=…).
+                def_site = ([[kw, col_name], [col_name]], None,
+                            context, True, True)
         var = self._add(full, VariableType.COLUMN,
                         sql_expr=_sql(col),
-                        defined_in=defined_in or "condition", context=context)
+                        defined_in=defined_in or "condition", context=context,
+                        def_site=def_site)
         if var is None:
             # Already created via another path (e.g. the SELECT-expression
             # alias var for a bare column) — pick it up for attribution.
@@ -1846,13 +1955,13 @@ class _RoleBasedExtractor:
         set gets its own candidate.
 
         `loc` is anchored to the STATEMENT containing the scope (the
-        statement's first-token line via `_statement_anchor`) — NOT a token
-        text search: `_find_position` returns the first token equal to the
-        name, which a string literal on an earlier line (q76:
-        `'ws_ship_hdemo_sk' col_name`) or another statement's use would
-        beat. The statement anchor is conservative in every case: when the
-        field only appears inside string literals, and when it appears
-        nowhere, the anchor still points at the enclosing statement.
+        statement's first-token line via `_statement_anchor`) — the token
+        stream, never a text search: a STRING token equal to the name on an
+        earlier line (q76: `'ws_ship_hdemo_sk' col_name`) or another
+        statement's use would beat the real name token. The statement anchor
+        is conservative in every case: when the field only appears inside
+        string literals, and when it appears nowhere, the anchor still
+        points at the enclosing statement.
         """
         visible = [name for _db, name in distinct]
         key = (col_name, tuple(visible))
@@ -2363,12 +2472,13 @@ class _RoleBasedExtractor:
                 if col is not None:
                     pname = _clean(col.name or "")
                     if pname:
-                        # sql_expr is the COLUMN, not the whole EQ: the text
-                        # search in _find_position_scoped is a spacing-
-                        # sensitive raw-substring match, and the rendered
-                        # "data_dt = '$(load_date)'" never occurs verbatim in
-                        # the source ("PARTITION(data_dt='$(load_date)', …)").
-                        # The bare column text does — same convention as
+                        # sql_expr is the COLUMN, not the whole EQ: line
+                        # resolution is the bare column-name token run in
+                        # the INSERT's own scope — the rendered
+                        # "data_dt = '$(load_date)'" EQ never occurs
+                        # verbatim in the source
+                        # ("PARTITION(data_dt='$(load_date)', …)"), but the
+                        # bare column token does — same convention as
                         # _register_column.
                         self._add(pname, VariableType.COLUMN, sql_expr=_sql(col),
                                   defined_in="PARTITION", context=context,
@@ -2379,9 +2489,12 @@ class _RoleBasedExtractor:
             self.process_statement(expr, context)
         else:
             # VALUES-based INSERT — create a minimal VT anchor so the target
-            # table isn't isolated (the DML phase can connect VT → target)
+            # table isn't isolated (the DML phase can connect VT → target).
+            # W6: creation line = the INSERT statement's head (keyword line).
             self._add("⟐ insert", VariableType.VIRTUAL_TABLE,
-                      sql_expr="INSERT VALUES", defined_in="INSERT", context=context)
+                      sql_expr="INSERT VALUES", defined_in="INSERT",
+                      context=context,
+                      def_site=([_statement_head_run(insert)], insert, context))
             # Also extract target columns if present in Schema
             if isinstance(into, exp.Schema):
                 for col_expr in (into.expressions or []):

@@ -10,7 +10,8 @@ import { FIT_PADDING } from '../config/layout';
 export default function DataFlowGraph(props) {
   const {
     graphData, level, layoutMode, onOpenL2,
-    onToggleFilter, l2Filtered, onEdgeClick, onToggleLayout, selectedEdgeId
+    onToggleFilter, l2Filtered, onEdgeClick, onToggleLayout, selectedEdgeId,
+    onCanvasTap
   } = props;
 
   const containerRef = useRef(null);
@@ -21,26 +22,25 @@ export default function DataFlowGraph(props) {
     layoutMode: layoutMode || 'snake',
     showRoleBadges: true,
     onEdgeTap: (e) => {
-      const data = e.target.data();
-      // Bug 42: Preserve both sql_range (array) and sql_ranges (dict) from edge data.
-      // Cytoscape may serialize these, so explicitly ensure they survive.
-      const sqlRange = Array.isArray(data.sql_range) && data.sql_range.length >= 3 ? data.sql_range : null;
-      onEdgeClick?.({
-        id: e.target.id(),
-        ...data,
-        sql_range: sqlRange,
-        sql_ranges: data.sql_ranges || null,
-      });
+      // R25/§8.8: the per-edge payload (highlight_line / flow_kind /
+      // reason) is the single source of truth — pass the full edge data
+      // through; no range fields exist anymore.
+      onEdgeClick?.(e.target.data());
     },
     onEdgeHover: (e) => {
       if (e.target.isEdge?.()) {
+        const d = e.target.data();
         setEdgeHover({
-          type: e.target.data().edge_type || 'edge',
-          desc: e.target.data().category || '',
-          color: e.target.data().color || '#5DADE2'
+          type: d.edge_type || 'edge',
+          kind: d.flow_kind || null,
+          line: (Number.isInteger(d.highlight_line) && d.highlight_line >= 1) ? d.highlight_line : null,
+          reason: d.reason || '',
+          color: d.color || '#5DADE2'
         });
       }
     },
+    onBgTap: () => onCanvasTap?.(),
+
     onDblTap: (e) => {
       if (level === 'L1' && e.target.data().type === 'script_node') {
         const sn = e.target.data().script_name || (e.target.data('label') || '').replace(/\n.*$/, '').trim();
@@ -156,10 +156,16 @@ export default function DataFlowGraph(props) {
           position: 'absolute', bottom: 60, left: '50%', transform: 'translateX(-50%)',
           background: 'rgba(0,0,0,0.9)', border: `2px solid ${edgeHover.color}`,
           borderRadius: 6, padding: '6px 14px', zIndex: 10, color: '#fff',
-          fontSize: '0.8rem', pointerEvents: 'none'
+          fontSize: '0.8rem', pointerEvents: 'none', maxWidth: 420
         }}>
           <span style={{ color: edgeHover.color, fontWeight: 'bold' }}>{edgeHover.type}</span>
-          {edgeHover.desc && <span style={{ color: '#aaa', marginLeft: 8 }}>{edgeHover.desc}</span>}
+          {edgeHover.kind && <span style={{ color: '#fff', marginLeft: 8 }}>kind: {edgeHover.kind}</span>}
+          {edgeHover.line && <span style={{ color: '#aaa', marginLeft: 8 }}>anchor: L{edgeHover.line}</span>}
+          {edgeHover.reason && (
+            <div style={{ color: '#aaa', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {edgeHover.reason}
+            </div>
+          )}
         </div>
       )}
     </div>

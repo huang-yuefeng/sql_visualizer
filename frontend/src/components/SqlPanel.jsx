@@ -25,7 +25,7 @@ const CONFIG_LABELS = {
   target_only: 'Target variable only (no context)',
 };
 
-export default function SqlPanel({ sqlText, highlights, scriptName, wsId, table, field, l2Result, selectedEdge, sqlHighlightRange, onClearEdge }) {
+export default function SqlPanel({ sqlText, sqlHighlightLine, scriptName, wsId, table, field }) {
   const containerRef = useRef(null);
   const configRef = useRef(null);
   const [showConfig, setShowConfig] = useState(false);
@@ -44,46 +44,35 @@ export default function SqlPanel({ sqlText, highlights, scriptName, wsId, table,
     }).catch(() => setConfigLoaded(true));
   }, [wsId]);
 
-  const highlightSet = new Set();
-  if (highlights) {
-    highlights.forEach(([start, end]) => {
-      for (let i = start; i <= end; i++) highlightSet.add(i);
-    });
-  }
-
-  // Add edge-click highlight from sqlHighlightRange
+  // R25/§8.8: the clicked edge's anchor is exactly ONE line — the
+  // per-edge `highlight_line` is the single source of truth (the old
+  // response-level `highlights` and per-edge range fields are gone).
   const edgeHighlightSet = new Set();
-  if (sqlHighlightRange && Array.isArray(sqlHighlightRange) && sqlHighlightRange.length >= 3) {
-    const [edgeStart, , edgeEnd] = sqlHighlightRange;
-    for (let i = edgeStart; i <= edgeEnd; i++) edgeHighlightSet.add(i);
+  if (Number.isInteger(sqlHighlightLine) && sqlHighlightLine >= 1) {
+    edgeHighlightSet.add(sqlHighlightLine);
   }
 
   const lines = sqlText ? sqlText.split('\n') : [];
-  const firstHighlighted = (highlights && highlights.length > 0) ? highlights[0][0] 
-    : (sqlHighlightRange && sqlHighlightRange.length >= 1) ? sqlHighlightRange[0] : 1;
 
-  // Auto-scroll to edge-highlighted line when sqlHighlightRange changes
+  // Auto-scroll to the edge's anchor line when the selection changes
   useEffect(() => {
-    if (!containerRef.current || !sqlHighlightRange || !sqlHighlightRange[0]) return;
-    const targetLine = sqlHighlightRange[0];
-    const el = containerRef.current.querySelector(`[data-line="${targetLine}"]`);
+    if (!containerRef.current || !Number.isInteger(sqlHighlightLine) || sqlHighlightLine < 1) return;
+    const el = containerRef.current.querySelector(`[data-line="${sqlHighlightLine}"]`);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-  }, [sqlHighlightRange]);
-
-  useEffect(() => {
-    if (firstHighlighted > 1 && containerRef.current) {
-      const lineEl = containerRef.current.querySelector(`[data-line="${firstHighlighted}"]`);
-      if (lineEl) lineEl.scrollIntoView({ block: 'center' });
-    }
-  }, [sqlText, firstHighlighted]);
+  }, [sqlHighlightLine]);
 
   // ── Enhanced Export ──
   const handleExport = useCallback(() => {
     const allLines = lines;
-    const hls = highlights || [];
     const ctx = config.context_lines || 3;
+
+    // R25: the selected edge's anchor line is the only line source now —
+    // export its context; without a selection, export the whole script.
+    const anchor = (Number.isInteger(sqlHighlightLine) && sqlHighlightLine >= 1)
+      ? sqlHighlightLine : null;
+    const hls = anchor ? [[anchor, anchor]] : [[1, allLines.length]];
 
     const ranges = [];
     for (const h of hls) {
@@ -132,7 +121,7 @@ export default function SqlPanel({ sqlText, highlights, scriptName, wsId, table,
     a.href = url; a.download = (scriptName || 'export') + '_relevant.sql';
     a.click();
     URL.revokeObjectURL(url);
-  }, [sqlText, highlights, lines, scriptName, config, table, field]);
+  }, [sqlText, sqlHighlightLine, lines, scriptName, config, table, field]);
 
   // ── Config handlers ──
   const saveCfg = (newConfig) => {
@@ -311,15 +300,13 @@ export default function SqlPanel({ sqlText, highlights, scriptName, wsId, table,
       <div className="sql-content" ref={containerRef}>
         {lines.map((line, i) => {
           const lineNum = i + 1;
-          const isHighlighted = highlightSet.has(lineNum);
           const isEdgeHighlighted = edgeHighlightSet.has(lineNum);
           const className = [
             'sql-line',
-            isHighlighted ? 'highlighted' : '',
             isEdgeHighlighted ? 'edge-highlighted' : ''
           ].filter(Boolean).join(' ');
           return (
-            <div key={`${scriptName || "sql"}-${lineNum}-${sqlHighlightRange?.join("-") || "none"}`} data-line={lineNum}
+            <div key={`${scriptName || "sql"}-${lineNum}`} data-line={lineNum}
               className={className}>
               <span className="line-num">{lineNum}</span>
               <span className="line-text">{line || ' '}</span>

@@ -18,10 +18,11 @@ stmt2 (L211-225): INSERT INTO rrcdm_job_log_exec_par
                   FROM bdm_acc_loan_info_sup WHERE data_dt='$(load_date)' (L225)
 ```
 
-Global extraction facts: **253 variables, 737 dependencies, 14 ALIAS edges,
+Global extraction facts: **253 variables, 781 dependencies, 14 ALIAS edges,
 parse_errors = []** (verified twice, deterministic; deps count is a SNAPSHOT —
-v3.3.146: 737 = 649 baseline + 89 edge-rule additions − 1 Phase-7 bridge
-removal, see §7.4).
+v3.3.147: 781 = 737 + 44 (the W-iteration REF/READ expansion — bare-column
+reads and the pair-18 L225 read; the pair-2 chain bridge is re-typed, not
+added).
 
 ---
 
@@ -239,7 +240,8 @@ L55   a.data_dt    → bdm_evt_loan_trans    (other table)
 L93   data_dt/t.data_dt → bdm_gdc_label_fin (other table)
 L202  p2.data_dt   → bdm_acc_loan_info_sup (propagated field, target's own)
 L213  data_dt      → literal output column (propagated field, target's own)
-L225  data_dt      → bdm_acc_loan_info_sup (propagated field, target's own)
+L225  (removed from this list 2026-08-10 — the stmt2 WHERE read now
+       highlights: pair 18, REF/read @223 + FILTER @225, §8.5)
 ```
 
 ### 5.2 The propagated field (lineage view) — the gap
@@ -251,15 +253,16 @@ occurrences (verified via `bdm_acc_loan_info_sup.data_dt` closure — 6 nodes /
 ```
 L202  p2.data_dt = DATEADD(...)   read of the propagated field (self-join)   ✓ has a var
 L213  '$(load_date)' AS data_dt   stmt2 output column                        ✓ has a var
-L225  data_dt = '$(load_date)'    stmt2 WHERE read                        ✗ NO VAR AT ALL
+L225  data_dt = '$(load_date)'    stmt2 WHERE read                        ✓ has a var (W2, pair 18)
 ```
 
-**Defect 5:** the L225 read is not extracted — no variable exists at line 225
-(the stmt2 WHERE read of `bdm_acc_loan_info_sup.data_dt` is lost; only the
-SELECT literal at L213 is extracted). A complete lineage highlight would be
-`[18, 43, 158, 160, 202, 213, 225]`; the tool can currently express
-`[18, 43, 158, 160]` (bdm_acc_loan_info) and `[160, 202, 213]`
-(bdm_acc_loan_info_sup) but can never show 225.
+**Defect 5 — RESOLVED (W2, token-run extension, bug list §v3.3.147 addendum 2;
+probe-verified 2026-08-10):** the L225 read IS extracted — a var exists at
+line 225 (the stmt2 WHERE read of `bdm_acc_loan_info_sup.data_dt`). The
+complete lineage highlight is `[18, 43, 158, 160, 202, 213, 225]`:
+`[18, 43, 158, 160]` (bdm_acc_loan_info) and `[160, 202, 213, 225]`
+(bdm_acc_loan_info_sup) — pair 18 (REF/read, anchor 223) plus its FILTER
+companion at 225, §8.5.
 
 ### 5.3 Highlight semantics (what the ground truth means)
 
@@ -285,12 +288,13 @@ SELECT literal at L213 is extracted). A complete lineage highlight would be
 5. THE GROUND TRUTH: 10 semantic nodes, 2 sinks (bdm_acc_loan_info_sup,
    rrcdm_job_log_exec_par), 14 edges = 10 present + 4 MISSING (documented in 4.3)
 6. highlights [[18,18],[43,43],[158,158],[160,160]] (byte-exact)
-7. propagated field: sup.data_dt lines [160, 202, 213]; L225 has no var
-   (Defect 5) — pin this as a known gap until fixed
+7. propagated field: sup.data_dt lines [160, 202, 213, 225] (W2: L225 now
+   has a var — pair 18, REF/read anchor 223, §8.5)
 ```
 
-Status: analysis only — no source changes. The 4 missing edge types (4.3) and
-Defect 5 (5.2) are the known defects future work must address.
+Status: analysis only — no source changes. The 4 missing edge types (4.3)
+remain the known defect future work must address; Defect 5 (5.2) is RESOLVED
+(W2, 2026-08-10).
 
 ---
 
@@ -324,7 +328,7 @@ Trial 3 — source_tables-driven closure (no edges):    13 nodes / 14 edges / 2 
 
 **Where all three agree (the stable core — must never change without evidence):**
 touch lines [18, 43, 158, 160]; highlight lines; the closure's TABLE SET; the
-4 missing-edge semantics; Defect 5 (L225 has no var).
+4 missing-edge semantics; Defect 5 RESOLVED (W2): L225 now has a var (pair 18, §8.5).
 
 ## 7.2 THE canonical spec (the benchmark target)
 
@@ -386,9 +390,9 @@ reports actual types so type mismatches are visible, but does not fail on them
 
 ```
 field bdm_acc_loan_info.data_dt:  [[18,18],[43,43],[158,158],[160,160]]  (byte-exact)
-propagated bdm_acc_loan_info_sup.data_dt: [160, 202, 213]  (L225 = KNOWN GAP,
-    Defect 5 — extractor never creates a var at L225; benchmark marks it
-    "known gap", not a fail, until the extractor is fixed)
+propagated bdm_acc_loan_info_sup.data_dt: [160, 202, 213, 225]  (W2: the
+    extractor fix — bug list §v3.3.147 addendum 2 — creates the var at L225;
+    the KNOWN GAP marker is removed; pair 18 is live, §8.5)
 ```
 
 ## 7.3 Benchmark protocol (the loop)
@@ -401,7 +405,8 @@ propagated bdm_acc_loan_info_sup.data_dt: [160, 202, 213]  (L225 = KNOWN GAP,
      no patch solutions / no reconstruction from rendered output);
    - (b) ground-truth wrong → update THIS spec, with evidence (which trial
      proved it, why the old entry was wrong);
-   - (c) known gap → keep the marker until its root cause is fixed.
+   - (c) known gap → keep the marker until its root cause is fixed (pair 18's
+     marker removed 2026-08-10 — Defect 5 fixed by W2).
 3. Re-run the benchmark. Repeat until MATCH (empty diff).
 4. The benchmark is the regression gate: every solution update re-runs it.
    Ground truth and solution converge by alternating these two loops.
@@ -551,7 +556,7 @@ SQL panel. Field lines survive only as *fallback candidates* for edge spans
    the table/VT", ruled in 2026-08-10): anchor = the **member node's
    appearance line** (the field's var-carried `line_start`; a VT member
    anchors at its creation line). Canonical: `p1@29 → p1.data_dt@43` → 43,
-   `p1@84 → p1.data_dt@158` → 158, `p2@199 → p2.data_dt@202` → 202 —
+   `p1@84 → p1.data_dt@158` → 158 (sup seed), `p2@199 → p2.data_dt@202` → 202 —
    all lines already anchored by the member field's flow edges (pairs
    3/7/E4); shared lines with multiplicity, accepted.
 7. **SUBSET flow** (bridge — column-set membership: "this statement's
@@ -641,9 +646,10 @@ list was incomplete):
   value-write);
 - SUBSET/READ → honest read: pair 13 (`p1.data_dt@43 --SUBSET/READ-->
   p1@29`), pair 14 (`p1.data_dt@158 --SUBSET/READ--> p1@84`), pair 19
-  (`p2.data_dt@202 --SUBSET/READ--> p2@199` — join-key read, FILTER/JOIN
-  semantics); pair 18 joins this list once Defect-5 is fixed (L225's
-  `data_dt` then registers and its read edge must also come out of SUBSET).
+  (`p2.data_dt@202 --SUBSET/READ--> p2@199` — read, REF/read
+  semantics); pair 18 joined this list with the Defect-5 fix (W2): L225's
+  `data_dt` registers and its read edge is emitted REF/read (no SUBSET
+  escape — pair 18, anchor 223, §8.5).
 Without the promotions, the peremptory exclusion would wrongly drop flows
 already ruled in.
 
@@ -669,18 +675,20 @@ already ruled in.
   alternative (exclude them, payload = exactly 19) was offered and
   declined: it would need an exclusion rule contradicting "chain edges
   count", and clicking the JOIN edge would highlight nothing at L202.
-- The SCHEMA containment edges (`p1@29→p1.data_dt@43/158`,
-  `p1@84→p1.data_dt@43/158`, `p2@199→p2.data_dt@202`) and the residual
+- The SCHEMA containment edges (`p1@29→p1.data_dt@43`,
+  `p1@84→p1.data_dt@43/158` — 43 bdm seed, 158 sup seed,
+  `p2@199→p2.data_dt@202`) and the residual
   bridge (`sup@223→rrcdm@211`) are now **highlighted too** (ruling
   2026-08-10, every edge is a data flow unit) — pinned as S1–S5 and B1 in
-  the benchmark (§8.5), anchors = rule 6/7 (43, 158, 202, 223 — all
+  the benchmark (§8.5), anchors = rule 6/7 (43, 202, 223 — all
   already-lit lines).
 
 **Scope note — robustness, NOT the contract.** Every canonical edge must
 have its exact anchor line per the rules above; a canonical edge without one
 is a solution defect (bug to fix), never a "hard case". Edge 18's anchor
-(223) depends on L225 being extracted — the Defect-5 gap — resolved by the
-token-run extension (bug list §v3.3.147 addendum 2).
+(223) depended on L225 being extracted — the Defect-5 gap, resolved by the
+token-run extension (bug list §v3.3.147 addendum 2, W2 landed 2026-08-10):
+the var exists and the edge is live (probe-verified).
 
 ### 8.4 Counting invariant
 
@@ -691,7 +699,7 @@ token-run extension (bug list §v3.3.147 addendum 2).
   (S1–S5, B1) + 4 chain-completeness entries (C1–C4) = 33 highlight
   entries → 16 distinct lines** (L160 = 5 entries [pairs 11/12/15 + E3],
   L29 = 3 [pairs 4/13 + E1], L84 = 3 [pairs 8/14 + E2]; S/B/C anchors at
-  43/158/202/223/9/64/199 — all already covered). Every closure edge is
+  43/202/223/9/64/199 — all already covered). Every closure edge is
   pinned (§8.5) so the payload count is deterministic, not open-ended.
 - Multiple edges may share one line — shared anchors are accepted (L160:
   pairs 11/12/15 + E3; L29: pairs 4/13 + E1; L84: pairs 8/14 + E2; L43's
@@ -711,7 +719,7 @@ truth is **CANONICAL_EDGE_LINES**: the 19 canonical pairs + 4 verified
 extras + 6 SCHEMA/residual-bridge entries + 4 chain-completeness entries
 (§8.3), each with its exact anchor line and closure seed. **Every edge of
 each closure is listed — the table is the closure bijection (nodes/edges/
-highlights), not a subset** (C1–C4 complete the bdm 24 edges and sup 12
+highlights), not a subset** (C1–C4 complete the bdm 22 edges and sup 12
 edges; probe-pinned 2026-08-10).
 
 **The complete table — 33 entries, this sample, post-promotion state:**
@@ -733,18 +741,18 @@ edges; probe-pinned 2026-08-10).
 | 13 | `p1.data_dt@43 → bdm@29` | READ | read (promoted) | bdm | 29 |
 | 14 | `p1.data_dt@158 → bdm@84` | READ | read (promoted) | bdm | 84 |
 | 15 | `⟐output@0 → sup@160` | synthetic | TABLE_FLOW/INSERT | bdm+sup | 160 |
-| 16 | `sup@160 → rrcdm@211` | write | DML/WRITE_READ | bdm+sup | 211 |
+| 16 | `sup@160 → rrcdm@211` | write | TABLE_FLOW/WRITE_READ (DML-routed) | bdm+sup | 211 |
 | 17 | `data_dt@213 → rrcdm@211` | value | value-write (promoted) | sup | 213 |
 | 18 | `data_dt@225 → sup@223` | READ | read (post-fix, promoted) | sup | 223 |
-| 19 | `p2.data_dt@202 → p2@199` | READ | join-key read (promoted) | sup | 199 |
+| 19 | `p2.data_dt@202 → p2@199` | READ | read (REF, promoted) | sup | 199 |
 | E1 | `bdm@29 → p1@29` | ALIAS hop | ALIAS | bdm | 29 |
 | E2 | `bdm@84 → p1@84` | ALIAS hop | ALIAS | bdm | 84 |
 | E3 | `sup@160 → p2@199` | ALIAS hop | ALIAS | sup | 160 |
 | E4 | `p2.data_dt@202 → ⟐output@0` | JOIN cond | JOIN/JOIN_CONDITION | sup | 202 |
 | S1 | `p1@29 → p1.data_dt@43` | structure | SCHEMA/TABLE_COLUMN | bdm | 43 |
-| S2 | `p1@29 → p1.data_dt@158` | structure | SCHEMA/TABLE_COLUMN | bdm | 158 |
+| S2 | `p1@29 → p1.data_dt@43` | structure | SCHEMA/TABLE_COLUMN | bdm | 43 |
 | S3 | `p1@84 → p1.data_dt@43` | structure | SCHEMA/TABLE_COLUMN | bdm | 43 |
-| S4 | `p1@84 → p1.data_dt@158` | structure | SCHEMA/TABLE_COLUMN | bdm | 158 |
+| S4 | `p1@84 → p1.data_dt@43` | structure | SCHEMA/TABLE_COLUMN | bdm | 43 |
 | S5 | `p2@199 → p2.data_dt@202` | structure | SCHEMA/TABLE_COLUMN | sup | 202 |
 | B1 | `sup@223 → rrcdm@211` | bridge | SUBSET (residual) | sup | 223 |
 | C1 | `rollover@9 → ⟐output@0` | chain | TABLE_FLOW/REFERENCE | bdm | 9 |
@@ -753,18 +761,30 @@ edges; probe-pinned 2026-08-10).
 | C4 | `p2@199 → sup@160` | chain | TABLE_FLOW/INSERT | sup | 199 |
 
 Real-type column = the state AFTER the §8.3 promotions land; today's
-probe shows rows 1, 2, 12, 13, 14, 17, 19 as SUBSET and row 18 missing
-(Defect-5). Pair names use canonical endpoints; pairs 4/8 and E1–E3 are
+probe shows the promotions are live (rows 1/2/12/13/14/17/19 emitted as
+FILTER/TABLE_FLOW/REF/…, §8.3) and row 18 = REF/read (W2 — Defect-5
+fixed; FILTER companion anchored 225). Pair names use canonical endpoints;
+pairs 4/8 and E1–E3 are
 matched with `_canon_key` alias normalization. S1–S5/B1 (probe-pinned
 2026-08-10): the SCHEMA containment edges and the single residual SUBSET
 bridge in the two closures — every edge in the L2 graph highlights
 (ruling 2026-08-10); S3/S4 confirm both p1 alias instances sync to the
-shared `p1.data_dt@43/158` field nodes (Sync 1). C1–C4: the closure's
+shared `p1.data_dt` field node (hl=43 in the bdm seed — the 158 instance
+survives only in the sup seed) (Sync 1). C1–C4: the closure's
 remaining chain edges into `⟐output@0` / from p2 (chain kind, rule 5 —
 source def line). Per-seed completeness (probe): bdm = pairs 1–16 +
-E1/E2 + S1–S4 + C1/C2 = **24 entries = 24 closure edges**; sup = pairs
+E1/E2 + S1–S4 + C1/C2 = **24 entries / 22 closure edges** (S2/S4 collapse
+into S1/S3 — one SCHEMA edge per p1 alias, asserted twice); sup = pairs
 11, 12, 15, 16, 17, 18(post-fix), 19 + E3/E4 + S5 + B1 + C3/C4 = **13
-entries = 12 closure edges (+ pair 18 post-fix)**.
+entries = 13 closure edges (pair 18 live since W2, 2026-08-10)**.
+
+Probe finding (2026-08-10): in the bdm seed the L43 and L158 `p1.data_dt`
+instances both resolve to the physical `bdm_acc_loan_info` node and merge
+into ONE field node (dedup key (parent_table_id, undecorated_label,
+stmt_idx) — both are stmt-0 CTE-zone instances, by design), so S2/S4
+collapse into S1/S3 (one SCHEMA edge per p1 alias, hl=43) while the sup
+seed keeps distinct instances and its hl=158 SCHEMA edges (p1@84→158,
+p1@198→158).
 
 **Assertion spec — `test_edge_lines`** (per entry, on its seed):
 (a) the edge EXISTS in the closure (canonical normalization);
@@ -774,15 +794,18 @@ entries = 12 closure edges (+ pair 18 post-fix)**.
 Canonical pairs (1–19): existence + exact anchor. Verified extras
 (E1–E4) and the SCHEMA/bridge entries (S1–S5, B1): existence + exact
 anchor (pinned so the payload count is deterministic). Pair 18 is
-asserted only AFTER the Defect-5 fix (work list W2); until then the test
-asserts the KNOWN GAP (pair 18 absent, `data_dt@225` not extracted)
-instead of failing.
+asserted present (W2 landed 2026-08-10): REF/read with the exact anchor
+223 (the FILTER companion at 225 is pinned as an extra); the test's
+PAIR18_KNOWN_GAP constant is flipped and the KNOWN-GAP branch removed.
 
 **Closure seeds (probe-pinned 2026-08-10): no single L2 search seed
 covers all 19 pairs.** The `bdm_acc_loan_info.data_dt` seed yields pairs
-1–16 + E1/E2 + S1–S4 + C1/C2 (16 nodes / 24 edges); the
+1–16 + E1/E2 + S1–S4 + C1/C2 (16 nodes / 22 edges); the
 `bdm_acc_loan_info_sup.data_dt` seed yields pairs 11, 12, 15, 16, 17, 19
-+ E3/E4 + S5 + B1 + C3/C4 (8 nodes / 12 edges; + pair 18 post-fix). The
++ E3/E4 + S5 + B1 + C3/C4 (9 nodes / 13 edges; pair 18 live since W2 —
+the W2 read-edge expansion and VT creation lines grew the actual closures
+far beyond these canonical counts; the closure-bijection model is under
+review, see the benchmark-model note in the integration report). The
 33-entry spec is the UNION over the two seeds; the Seed column states
 where each entry is asserted. The §7.2 closure spec (13 nodes / 16 edge
 pairs / 2 sinks) is UNCHANGED — only the highlight layer is redefined.
@@ -803,11 +826,11 @@ pairs / 2 sinks) is UNCHANGED — only the highlight layer is redefined.
    and efficient. Just use it."** — accepted, not a regression to repair.
 3. Line-resolution collapse 3→1 + no stale-cache repair (recorded rulings,
    bug list §v3.3.147 addendum 2) — the Defect-5 fix and the duplicate
-   `data_dt@213` split land here.
+   `data_dt@213` split landed here (W2, 2026-08-10).
 4. Type promotions at extraction time — **three** pairs, all probe-pinned
    2026-08-10: pair 12 (`data_dt@160 --SUBSET/BRIDGE--> bdm_acc_loan_info_sup@160`
    — the partition write must promote to field-flow/value-write), pair 17
-   (SUBSET/BRIDGE → value-write), pair 19 (SUBSET/READ → join-key read);
+   (SUBSET/BRIDGE → value-write), pair 19 (SUBSET/READ → read, REF);
    VTs carry creation lines (pairs 5/6/15). Without the promotions, the
    Flaw-5 boundary rule (ruled 2026-08-10) would wrongly exclude flows
    already ruled in.
@@ -827,19 +850,19 @@ pairs / 2 sinks) is UNCHANGED — only the highlight layer is redefined.
 |---|-----------|-----------|-------------|-------------|------------------------------------------------|
 | 1 | TABLE_FLOW | chain | ✅ | 5 — entry line (source def) or VT creation | pairs 2 (post-promotion), 4 & 8 (FROM hop), 5 & 6 (SUBSELECT), 9 (REFERENCE), 10 (INSERT), 11 (SELF_JOIN), 15 (INSERT) |
 | 2 | ALIAS | chain | ✅ | 5 — entry line | hops `bdm@29→p1@29`, `bdm@84→p1@84`, `sup@160→p2@199` (extras, §8.10) |
-| 3 | DML | write | ✅ | 3 — write line | pair 16 (WRITE_READ @211) |
-| 4 | REF | field flow / READ | ✅ | 1 — appearance; 2 — alias-def (READ variant) | promotion target for pairs 13/14; pair 18 post-fix |
+| 3 | DML | write | ✅ | 3 — write line | pair 16 (WRITE_READ @211 — payload TABLE_FLOW, DML-routed) |
+| 4 | REF | field flow / READ | ✅ | 1 — appearance; 2 — alias-def (READ variant) | promotion target for pairs 13/14; pair 18 (W2, 2026-08-10 — read variant, anchor 223) |
 | 5 | AGGREGATE | field flow | ✅ | 1 | no instance in the canonical sample |
 | 6 | TRANSFORM | field flow | ✅ | 1 | no instance in the canonical sample |
 | 7 | WINDOW | field flow | ✅ | 1 | verification sample: `snowflake_qualify.sql` (2 edges, e.g. `order_date@4 --WINDOW--> rn@6` → anchor 4) |
 | 8 | COMPUTED | field flow | ✅ | 1 | no instance in the canonical sample |
 | 9 | FILTER | field flow | ✅ | 1 | pairs 3, 7 (CONDITION); pair 1 post-promotion |
-| 10 | JOIN | field flow | ✅ | 1 — appearance | pair 19 post-promotion (join-key read); extra `p2.data_dt@202 --JOIN/JOIN_CONDITION--> ⟐output@0` (anchor 202) |
+| 10 | JOIN | field flow | ✅ | 1 — appearance | pair 19 post-promotion (read, REF); extra `p2.data_dt@202 --JOIN/JOIN_CONDITION--> ⟐output@0` (anchor 202) |
 | 11 | CORRELATED | — (config-only) | — | — | **never emitted as a `relationship`** — correlated subqueries are emitted as INDIRECT with operation `CORRELATED`/`CORRELATED_OUT` (probe, dependency_graph.py:487/495); style/range config only |
-| 12 | SET_OP | field flow | ✅ | 1 | verification sample: `tpcds_qualified/86.sql` (`union_result@0 --SET_OP--> results_rollup@14`) |
+| 12 | SET_OP | field flow | ✅ | 1/4 — **15** (probe-pinned) | verification sample: `tpcds_qualified/86.sql` (`union_result@0 --SET_OP--> results_rollup@14` → anchor 15: rule 4 creation line — the set-op body's first token at L15, NOT the CTE header L14) |
 | 13 | SUBQUERY | field flow / chain | ✅ | 1 / 5 | not observed on the canonical sample; VT chains there are TABLE_FLOW/SUBSELECT |
 | 14 | INDIRECT | filter (correlated) | ✅ iff the field's token sits at an endpoint | endpoint-decided | verification sample: `spider_complex/046_pets_1_s6.sql` (15 edges, e.g. `T1.stuid@3 --INDIRECT/CORRELATED--> T1.stuid@3` → anchor 3) |
-| 15 | SCHEMA | structure | ✅ (ruled 2026-08-10) | 6 — member's appearance line | `p1@29→p1.data_dt@43/158`, `p1@84→p1.data_dt@43/158`, `p2@199→p2.data_dt@202` (S1–S5) |
+| 15 | SCHEMA | structure | ✅ (ruled 2026-08-10) | 6 — member's appearance line | `p1@29→p1.data_dt@43`, `p1@84→p1.data_dt@43/158` (43 bdm seed, 158 sup seed), `p2@199→p2.data_dt@202` (S1–S5) |
 | 16 | SUBSET | bridge | ✅ (ruled 2026-08-10) — the seven promoted pairs (1, 2, 12, 13, 14, 17, 19) stop being SUBSET at extraction; the residual bridge takes rule 7 | 7 — source's def line | residual `sup@223→rrcdm@211` (B1); `data_dt@213→rrcdm@211` is pair 17 (promoted) |
 
 Per-pair real-type map (probe-pinned; the 19 pairs as they exist today):
@@ -861,10 +884,10 @@ Per-pair real-type map (probe-pinned; the 19 pairs as they exist today):
 | 13 | `p1.data_dt@43 → bdm@29` | SUBSET/READ | promote → read (REF) |
 | 14 | `p1.data_dt@158 → bdm@84` | SUBSET/READ | promote → read (REF) |
 | 15 | `⟐output@0 → sup@160` | TABLE_FLOW/INSERT | none |
-| 16 | `sup@160 → rrcdm@211` | DML/WRITE_READ | none |
+| 16 | `sup@160 → rrcdm@211` | TABLE_FLOW/WRITE_READ (DML-routed) | none |
 | 17 | `data_dt@213 → rrcdm@211` | SUBSET/BRIDGE | promote → value-write |
-| 18 | `data_dt@225 → sup@223` | **missing (Defect-5)** | Defect-5 fix → read (post-fix SUBSET/READ → promote) |
-| 19 | `p2.data_dt@202 → p2@199` | SUBSET/READ | promote → join-key read (FILTER/JOIN) |
+| 18 | `data_dt@225 → sup@223` | REF (read, W2) | promoted → read (anchor 223; FILTER companion at 225) |
+| 19 | `p2.data_dt@202 → p2@199` | SUBSET/READ | promote → read (REF) |
 
 ### 8.8 L2 display of flow kind — design RULED (2026-08-10, user)
 
@@ -921,14 +944,39 @@ implementation. Corpus scan (2026-08-10, 256 files + full tpcds_qualified):
 
 | Type | Candidate script | Lines | Evidence | Expected anchor |
 |------|------------------|-------|----------|-----------------|
-| WINDOW | `dialect_test/snowflake_qualify.sql` | 9 | 2 WINDOW edges (`order_date@4 --WINDOW--> rn@6`, `customer_id@3 --WINDOW--> rn@6`) | rule 1 — source field's appearance line (4 / 3) |
-| SET_OP | `tpcds_qualified/86.sql` | 32 | 1 SET_OP (`union_result@0 --SET_OP--> results_rollup@14`) + 4 WINDOW in the same script | rule 1/4 — to be pinned by the probe round (VT-sourced: creation line) |
-| INDIRECT | `spider_complex/046_pets_1_s6.sql` | 3 | 15 INDIRECT (`T1.stuid@3 --INDIRECT/CORRELATED--> T1.stuid@3`, 5 CORRELATED + 10 CORRELATED_OUT) | endpoint-decided — token at both endpoints → anchor 3 |
+| WINDOW | `dialect_test/snowflake_qualify.sql` | 9 | 2 WINDOW edges (`order_date@4 --WINDOW--> rn@6`, `customer_id@3 --WINDOW--> rn@6`) | rule 1 — source field's appearance line (**4 / 3 — probe-CONFIRMED**) |
+| SET_OP | `tpcds_qualified/86.sql` | 32 | 1 SET_OP (`union_result@0 --SET_OP--> results_rollup@14`) + 4 WINDOW in the same script | rule 4 — synthetic-source creation line: **15 (probe-pinned)** — the set-op body's first token at L15; L14 is the `results_rollup` CTE header (the target's line — no anchor rule is target-based for value-carrying edges) |
+| INDIRECT | `spider_complex/046_pets_1_s6.sql` | 3 | 15 INDIRECT (`T1.stuid@3 --INDIRECT/CORRELATED--> T1.stuid@3`, 5 CORRELATED + 10 CORRELATED_OUT) | endpoint-decided — token at both endpoints → anchor **3 (probe-CONFIRMED, all 15 edges)** |
 | CORRELATED | **no script produces a `CORRELATED` relationship** | — | emitted as INDIRECT/CORRELATED (dependency_graph.py:487/495) | n/a — the taxonomy row is config-only; INDIRECT's rule covers correlated subqueries |
 
-Probe round (next step, part of the work list): run the L2 pipeline on the
-three candidate scripts, pin each type's anchor expectation, and add
-mini-samples to the benchmark if they remain canonical.
+Probe round (DONE 2026-08-10, work list W1): anchors pinned on all three
+scripts — WINDOW 4/3 ✓, INDIRECT 3 (all 15 edges) ✓, SET_OP **15**
+(corrected: the rule-4 creation line of the synthetic `union_result` VT is
+the set-op body's first token at L15, not the CTE header L14). Benchmark
+rows for the three samples (`test_verification_samples.py`):
+
+| Sample | Edge | rel/op | Anchor | Surfaces in closure(s) of |
+|--------|------|--------|--------|---------------------------|
+| snowflake_qualify.sql | `order_date@4 → rn@6` | WINDOW/REFERENCE | 4 | `orders/order_date`, `orders/customer_id`, `⟐ output/rn` |
+| snowflake_qualify.sql | `customer_id@3 → rn@6` | WINDOW/REFERENCE | 3 | same 3 seeds |
+| 86.sql | `total_sum@15 → rank_within_parent@25` | WINDOW/REFERENCE | 15 | `results_rollup/{total_sum,g_class,i_category,lochierarchy}`, `⟐ output/rank_within_parent`, `⟐ union1/total_sum` |
+| 86.sql | `g_class@15 → rank_within_parent@25` | WINDOW/REFERENCE | 15 | same 6 seeds |
+| 86.sql | `i_category@15 → rank_within_parent@25` | WINDOW/REFERENCE | 15 | same 6 seeds |
+| 86.sql | `lochierarchy@15 → rank_within_parent@25` | WINDOW/REFERENCE | 15 | same 6 seeds |
+| 86.sql | `union_result@0 → results_rollup@14` | SET_OP/SET | 15 | **none — full-graph only** |
+| 046_pets_1_s6.sql | `T1.stuid@3 → T1.stuid@3` | INDIRECT/CORRELATED | 3 | `student/stuid` |
+| 046_pets_1_s6.sql | `T2.stuid@3 → T2.stuid@3` | INDIRECT/CORRELATED | 3 | `has_pet/stuid` |
+| 046_pets_1_s6.sql | `T2.petid@3 → T2.petid@3` | INDIRECT/CORRELATED | 3 | `has_pet/petid` |
+| 046_pets_1_s6.sql | `T3.petid@3 → T3.petid@3` | INDIRECT/CORRELATED | 3 | `pets/petid` |
+| 046_pets_1_s6.sql | `T3.pettype@3 → T3.pettype@3` | INDIRECT/CORRELATED | 3 | `pets/pettype` |
+| 046_pets_1_s6.sql | 10 CORRELATED_OUT edges (subquery columns → `T1.fname@3`/`T1.age@3`) | INDIRECT/CORRELATED_OUT | 3 | **none — full-graph only** |
+
+The SET_OP and CORRELATED_OUT rows cannot be asserted through seeded L2
+closures (their VTs are reachable only via SET_OP/SUBSET bridges, which
+the field closure walk never crosses) — they are asserted on the
+unfiltered graph. CORRELATED confirmed never emitted as a `relationship`
+(always INDIRECT with operations `CORRELATED`/`CORRELATED_OUT`,
+dependency_graph.py:487/495).
 
 ### 8.10 Open confirmations (2026-08-10) — everything else is ruled
 

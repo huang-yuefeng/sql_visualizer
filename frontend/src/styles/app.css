@@ -321,18 +321,66 @@
   color: #999; white-space: nowrap;
 }
 .legend-item span:first-child { font-size: 0.9em; line-height: 1; }
+/* R25/§8.8: L2 legend regrouped by flow kind (kind header + per-kind
+   edge-type chips; edge-type info stays available but secondary) */
+.legend-kind-group {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 8px; border-left: 1px solid #2a2a4a;
+}
+.legend-kind-group:first-of-type { border-left: none; padding-left: 0; }
+.legend-kind-name { color: #ddd; font-weight: bold; }
+.legend-title { color: #888; font-weight: bold; text-transform: uppercase; font-size: 0.62rem; }
 
 /* SQL Panel */
 .sql-panel h3 { font-size: 0.85rem; color: #888; margin: 0 0 4px 0; text-transform: uppercase; }
 .sql-content { font-family: monospace; font-size: 0.75rem; overflow-y: auto; max-height: calc(100vh - 120px); }
 .sql-line { display: flex; padding: 0; }
-.sql-line.highlighted { background: rgba(46, 204, 113, 0.15); }
+/* R25: single-line edge highlight (the old field-level layer is gone) */
 .sql-line.edge-highlighted { background: rgba(243, 156, 18, 0.25); border-left: 3px solid #F39C12; }
 .line-num {
   width: 36px; text-align: right; padding-right: 8px;
   color: #555; user-select: none; flex-shrink: 0;
 }
 .line-text { white-space: pre; }
+
+/* ── Edge Reason Panel (R25/§8.8 — below the SQL panel) ───────────── */
+.edge-reason-panel {
+  flex-shrink: 0;
+  height: 92px;
+  overflow-y: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 6px 10px;
+  background: #141428;
+  border-top: 1px solid #2a2a4a;
+  font-size: 0.72rem;
+}
+.edge-reason-panel.edge-reason-empty { align-content: center; color: #666; }
+.edge-reason-title {
+  font-size: 0.7rem; color: #888; text-transform: uppercase; font-weight: bold;
+}
+.edge-reason-kind {
+  font-weight: bold;
+  padding: 1px 8px;
+  border: 1px solid;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  background: rgba(0, 0, 0, 0.35);
+}
+.edge-reason-anchor { color: #aaa; }
+.edge-reason-hint { color: #666; }
+.edge-reason-text {
+  width: 100%;
+  color: #ccc;
+  line-height: 1.5;
+  font-family: monospace;
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.edge-reason-segment { font-weight: bold; }
 
 /* Buttons */
 .btn { padding: 6px 12px; border: none; border-radius: 3px; cursor: pointer; font-size: 0.78rem; }

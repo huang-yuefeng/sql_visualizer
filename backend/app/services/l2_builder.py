@@ -22,10 +22,8 @@ from app.services.graph_service import (
 )
 from app.extractor.schema_inference import infer_table_schemas
 from app.extractor.lineage import filter_by_field_flow
-from app.services.sql_range_finder import partition_edge_ranges
-from app.services.sql_range_finder import find_sql_range
 from app.services.cache_keys import GRAPH_CACHE_PREFIX
-from app.services.highlight_strategies import get_strategy
+from app.services.highlight_strategies import get_strategy, FIELD_LIKE_TYPES
 
 # ── L2 helper functions ──────────────────────────────────────────────
 
@@ -42,18 +40,6 @@ def _target_field_sc(sc: str, target_field: str) -> bool:
     "item.i_brand", mis-attributing the table name as the field).
     """
     return sc.rsplit(".", 1)[-1] == target_field
-
-
-def _compute_highlight_ranges(graph_data: dict, highlight_ids: set,
-                               sql_text: str) -> list:
-    """Compute line ranges to highlight — the 'single_line' display strategy.
-
-    v3.3.145: the computation moved to the display-strategy module
-    (highlight_strategies.py); this wrapper keeps the name importable for
-    call sites that predate the registry (dataflow_service resolves via
-    get_strategy() so the level2 `highlight_strategy` param flows).
-    """
-    return get_strategy("single_line")(graph_data, highlight_ids, sql_text)
 
 
 def _recompute_line_map(var_likes: list, sql_text: str) -> dict:
@@ -194,7 +180,11 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
         name = nd.get("label", "")
         vt = nd.get("variable_type", "")
         if vt in ("column", "cte_column", "expression", "aggregate",
-                   "window", "case", "transform"):
+                   "window", "case", "transform", "literal"):
+            # W-iteration (v3.3.147): "literal" included — the searched
+            # field's literal VALUE appearance ('$(load_date)' AS
+            # data_dt@213 → rrcdm, P17 §8.5) must be a target node so its
+            # write-side DML edge survives at field level (value edge).
             # Match: exact full name, exact field name, or suffix after "."
             matched = False
             if name == target_full or name == field:
@@ -642,25 +632,67 @@ def _build_id_map(table_nodes: dict, field_nodes: list, other_nodes: list) -> di
     return id_map
 
 
+def _carry_edge_info(src_nd: dict, tgt_nd: dict, raw_edge: dict) -> dict:
+    """Extraction-time info carried on every L2 edge (W5/R25).
+
+    The payload phase (highlight_strategies.single_line) derives
+    highlight_line/flow_kind/reason from these fields ONLY — never from
+    text search at render (never-patch rule). All lines are the raw
+    var-carried line_start values: merged compound nodes' line_start would
+    collapse per-appearance anchors (p1.data_dt@43 vs. the data_dt keeper
+    @160), so the per-edge raw lines ride the edge through the pipeline.
+    """
+    src_vt = src_nd.get("variable_type", "")
+    tgt_vt = tgt_nd.get("variable_type", "")
+    src_tables = src_nd.get("source_tables") or []
+    tgt_tables = tgt_nd.get("source_tables") or []
+    src_label = src_nd.get("label", "")
+    tgt_label = tgt_nd.get("label", "")
+
+    def _owner(tables, label):
+        return tables[0] if tables else (label.rsplit(".", 1)[0] if "." in label else "")
+
+    def _canon(tables, label):
+        return tables[0] if tables else (label.rsplit(".", 1)[0] if "." in label else label)
+
+    return {
+        "_src_line": int(src_nd.get("line_start") or 0),
+        "_tgt_line": int(tgt_nd.get("line_start") or 0),
+        "_src_label": src_label,
+        "_tgt_label": tgt_label,
+        "_src_vt": src_vt,
+        "_tgt_vt": tgt_vt,
+        "_src_tables": list(src_tables),
+        "_tgt_tables": list(tgt_tables),
+        "_op": raw_edge.get("operation", ""),
+        "_src_field_like": (src_vt in FIELD_LIKE_TYPES
+                            or (src_nd.get("defined_in") or "").upper() == "PARTITION"),
+        "_src_is_vt": src_vt in ("virtual_table", "subquery", "union_branch"),
+        "_tgt_is_vt": tgt_vt in ("virtual_table", "subquery", "union_branch"),
+        "_src_owner": _owner(src_tables, src_label),
+        "_tgt_canon": _canon(tgt_tables, tgt_label),
+    }
+
+
 def _build_edge_list(edges: list, nodes: list, id_map: dict,
                      sql_text: str) -> tuple:
-    """Phase 4 (CW4): build the raw edge list with categories and sql_range.
+    """Phase 4 (CW4): build the raw edge list with categories and the
+    carried extraction-time info the payload derives from (W5/R25).
 
-    Range enrichment happens inline here because it is interleaved with
-    construction: compound edge types are split per-type (Bug 3) with their
-    own range, and the combine pass below selects the shortest range. A
-    separate post-pass would reorder that processing.
+    Compound edge types are split per-type (Bug 3); each split edge carries
+    the same extraction-time info as its parent raw edge. The old
+    sql_range enrichment (find_sql_range) is gone with sql_range_finder —
+    the payload phase replaces it with per-edge highlight_line.
 
     Returns (new_edges, node_labels).
     """
     new_edges = []
-    lines = sql_text.split("\n") if sql_text else []
 
-    # Build label lookup from nodes for richer edge metadata
-    node_labels = {}
+    # Raw node lookup: id → data (label/line_start/variable_type/…)
+    node_info = {}
     for n in nodes:
         nd = n.get("data", n)
-        node_labels[nd.get("id", "")] = nd.get("label", "")
+        node_info[nd.get("id", "")] = nd
 
     for e in edges:
         ed = e.get("data", e)
@@ -678,77 +710,46 @@ def _build_edge_list(edges: list, nodes: list, id_map: dict,
         category = _get_category(edge_type)
         style = _get_edge_style(edge_type)
 
-        # Enrich with source/target labels for better SQL matching
-        src_label = node_labels.get(src_orig, "")
-        tgt_label = node_labels.get(tgt_orig, "")
-        enriched = dict(ed)
-        enriched["source_label"] = src_label
-        enriched["target_label"] = tgt_label
-        enriched["edge_type"] = edge_type   # 🔧 Bug 4 fix: edge_type was missing from enriched
+        carried = _carry_edge_info(node_info.get(src_orig, {}),
+                                   node_info.get(tgt_orig, {}), ed)
 
-        # P1: Try to find a line number for the target label in SQL
-        # line_num propagation: only for edge types that benefit from label search
-        # Keyword-matching types (FILTER, JOIN, DML, etc.) find lines via KeywordLocator
-        # not label search, so skip override to avoid corrupting their line detection.
-        keyword_match_types = {'FILTER', 'WHERE', 'HAVING', 'JOIN', 'GROUP_BY', 'ORDER_BY',
-                              'DML', 'CTE', 'CREATE', 'ALTER', 'DROP', 'SCHEMA', 'AGGREGATE',
-                              'WINDOW', 'TRANSFORM', 'CASE', 'COMPUTED', 'SUBQUERY',
-                              'SUBSET', 'ALIAS', 'INDIRECT', 'REF', 'CORRELATED', 'TABLE_FLOW'}
-        if tgt_label and lines and edge_type not in keyword_match_types:
-            tgt_clean = tgt_label.split('.')[-1].strip().lower()
-            if len(tgt_clean) > 2 and tgt_clean not in ('select','from','where','insert','into','values','join','table'):
-                for i, line in enumerate(lines):
-                    if tgt_clean in line.lower():
-                        enriched["line_num"] = i + 1  # 1-based
-                        break
-
-        # Bug 3 fix: split compound edge types, each gets own sql_range
+        # Bug 3 fix: split compound edge types, each keeps its own carried
+        # extraction-time info (the payload derives per-type anchors).
         etypes = [t.strip() for t in edge_type.split(",")] if "," in edge_type else [edge_type]
-        # For compound types: emit one edge per individual type, each with own range/style
-        if len(etypes) > 1:
-            for et in etypes:
-                enriched_copy = dict(enriched)
-                enriched_copy["edge_type"] = et
-                # CW8: never propagate a None sql_range — default to whole-script range
-                r = (find_sql_range(enriched_copy, sql_text) or
-                     find_sql_range(enriched, sql_text) or
-                     [1, 1, 1, 1])
+        for et in etypes:
+            if len(etypes) > 1:
                 et_style = EDGE_TYPE_STYLE.get(et, EDGE_TYPE_STYLE["SUBSET"])
                 et_category = CATEGORY_MAP.get(et, "structure")
-                new_edges.append({
-                    "id": f"l2e_{hashlib.md5(f'{src_new}{tgt_new}{et}'.encode()).hexdigest()[:12]}",
-                    "source": src_new,
-                    "target": tgt_new,
-                    "edge_type": et,
-                    "category": et_category,
-                    "color": et_style["color"],
-                    "label": et,
-                    "line_style": et_style["line"],
-                    "width": et_style["width"],
-                    "desc": et_style["desc"],
-                    "sql_range": r,
-                })
-        else:
-            # CW8: never propagate a None sql_range — default to whole-script range
-            sql_range = find_sql_range(enriched, sql_text) or [1, 1, 1, 1]
+                color = et_style["color"]
+                line_style = et_style["line"]
+                width = et_style["width"]
+                desc = et_style["desc"]
+            else:
+                color = style["color"]
+                line_style = style["line"]
+                width = style["width"]
+                desc = style["desc"]
             new_edges.append({
-                "id": f"l2e_{hashlib.md5(f'{src_new}{tgt_new}{edge_type}'.encode()).hexdigest()[:12]}",
+                "id": f"l2e_{hashlib.md5(f'{src_new}{tgt_new}{et}'.encode()).hexdigest()[:12]}",
                 "source": src_new,
                 "target": tgt_new,
-                "edge_type": edge_type,
-                "category": category,
-                "color": style["color"],
-                "label": edge_type,
-                "line_style": style["line"],
-                "width": style["width"],
-                "desc": style["desc"],
-                "sql_range": sql_range,
+                "edge_type": et,
+                "category": et_category if len(etypes) > 1 else category,
+                "color": color,
+                "label": et,
+                "line_style": line_style,
+                "width": width,
+                "desc": desc,
+                **carried,
             })
-    return new_edges, node_labels
+    return new_edges, {i: nd.get("label", "") for i, nd in node_info.items()}
 
 
 def _combine_edges(new_edges: list) -> list:
-    """Phase 5 (CW4): same (source,target,edge_type) → combine labels/sql_ranges."""
+    """Phase 5 (CW4): same (source,target,edge_type) → combine labels.
+
+    The first occurrence keeps its carried extraction-time info (the
+    payload anchor is per-edge, derived later from that carried info)."""
     combined_edges = {}
     for e in new_edges:
         key = (e["source"], e["target"], e["edge_type"])
@@ -758,17 +759,6 @@ def _combine_edges(new_edges: list) -> list:
             existing_labels = set(existing.get("label", "").split(", "))
             existing_labels.add(e.get("label", ""))
             existing["label"] = ", ".join(sorted(existing_labels))
-            # Keep shortest non-zero sql_range (most specific)
-            if e.get("sql_range") and not existing.get("sql_range"):
-                existing["sql_range"] = e["sql_range"]
-            elif e.get("sql_range") and existing.get("sql_range"):
-                er = existing["sql_range"]
-                nr = e["sql_range"]
-                if len(er) >= 4 and len(nr) >= 4:
-                    elen = max(1, er[2] - er[0]) if er[2] > er[0] else 999
-                    nlen = max(1, nr[2] - nr[0]) if nr[2] > nr[0] else 999
-                    if nlen < elen:
-                        existing["sql_range"] = nr
         else:
             combined_edges[key] = e
     return list(combined_edges.values())
@@ -777,9 +767,12 @@ def _combine_edges(new_edges: list) -> list:
 def _promote_field_edges(new_edges: list, field_nodes: list) -> list:
     """Phase 6 (CW4): promote field-level edges to their parent tables.
 
-    SCHEMA edges (table→field ownership) are removed since ownership is
-    implicit in the compound node structure. Each edge type keeps its own
-    edge with its own sql_range (V3.3.65).
+    SCHEMA edges (table→field ownership) are KEPT as-is — the user ruling
+    (2026-08-10): every L2 edge is a data flow and highlights; the SCHEMA
+    edge included ("the scheme edge is also included"). Their source is a
+    table node already and their target must stay the field node, so they
+    are appended unchanged (no promotion of either endpoint). Each edge
+    type keeps its own edge with its own carried extraction-time info (W5).
 
     P2: edges incident on a search-target seed field stay at field level —
     promoting them hid the seed's own data flow (e.g. its FILTER edges
@@ -795,7 +788,8 @@ def _promote_field_edges(new_edges: list, field_nodes: list) -> list:
             target_field_ids.add(fn["id"])
 
     # V3.3.65: Promote fields→tables, keep edges separate per type.
-    # Each edge type gets its own edge with its own sql_range.
+    # Each edge type gets its own edge with its own carried extraction-time
+    # info (the W5 payload derives per-type anchors from it).
     # No compound merging — clicking different edge types shows different SQL.
     promoted = []
     for e in new_edges:
@@ -804,6 +798,9 @@ def _promote_field_edges(new_edges: list, field_nodes: list) -> list:
         etype = e["edge_type"]
 
         if etype == "SCHEMA":
+            # Ownership is implicit in the compound node structure, but the
+            # edge itself stays visible (structure kind, §8.7 rule 6).
+            promoted.append(e)
             continue
         if src in field_parents and src not in target_field_ids:
             src = field_parents[src]
@@ -814,8 +811,6 @@ def _promote_field_edges(new_edges: list, field_nodes: list) -> list:
 
         e["source"] = src
         e["target"] = tgt
-        if e.get("sql_range"):
-            e["sql_ranges"] = {etype: e["sql_range"]}
         promoted.append(e)
 
     return promoted
@@ -905,19 +900,11 @@ def _survive_join_edges(new_edges: list, full_graph: dict, id_map: dict,
         tgt_obj = node_by_id.get(tgt_new, {})
         if src_obj.get("type") in ("field",) or tgt_obj.get("type") in ("field",):
             continue
-        # CW8: enriched edge with labels so find_sql_range can locate the
-        # JOIN clause (raw cache edges carry relationship, not edge_type,
-        # and no source_label/target_label).
-        fed_enriched = dict(fed)
-        fed_enriched.setdefault("edge_type", fetype)
-        fed_enriched.setdefault(
-            "source_label",
-            node_labels.get(src_orig, "") or
-            full_node_by_id.get(src_orig, {}).get("label", ""))
-        fed_enriched.setdefault(
-            "target_label",
-            node_labels.get(tgt_orig, "") or
-            full_node_by_id.get(tgt_orig, {}).get("label", ""))
+        # W5: carry the raw full-graph nodes' extraction-time info so the
+        # payload phase anchors this survival edge like any other (raw
+        # cache edges carry relationship, not edge_type).
+        src_raw = full_node_by_id.get(src_orig, {})
+        tgt_raw = full_node_by_id.get(tgt_orig, {})
         new_edges.append({
             "id": f"l2e_join_survive_{src_new}_{tgt_new}",
             "source": src_new,
@@ -929,18 +916,23 @@ def _survive_join_edges(new_edges: list, full_graph: dict, id_map: dict,
             "line_style": "dashed",
             "width": 2,
             "desc": "JOIN key (table relationship)",
-            # CW8: never propagate a None sql_range — compute it, else whole-script default
-            "sql_range": find_sql_range(fed_enriched, sql_text) or [1, 1, 1, 1],
+            **_carry_edge_info(src_raw, tgt_raw, fed),
         })
     return new_edges
 
 
 def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
-                        table_nodes: dict) -> tuple:
+                        table_nodes: dict, field_nodes: list = None) -> tuple:
     """Phase 8 (CW4): DML edges route through the ⟐ output (intermediate_table).
 
     Returns (new_edges, dml_pairs).
     """
+    # P17 (§8.5): search-target seed fields keep field-level edges — the
+    # value-edge retention below only fires for them.
+    target_field_ids = set()
+    for fn in field_nodes or []:
+        if fn.get("is_target"):
+            target_field_ids.add(fn["id"])
     # ── Simplification 1: DML edges route through ⟐ output (intermediate_table) ──
     # Instead of creating synthetic qo_ nodes, use the existing intermediate_table
     # ("⟐ output") node that already represents the SELECT result set.
@@ -951,9 +943,18 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
     #
     # All intermediate operations (TRANSFORM, AGGREGATE, FILTER, JOIN, etc.) connect to ⟐ output,
     # not directly to the DML target. The output node is the trunk of the data flow.
+    # W5: the intermediate MUST be the "⟐ output" node — the first
+    # intermediate_table in iteration order can be a subquery VT (⟐ subq1),
+    # routing DML targets through the wrong trunk (bogus subq1→target
+    # edges). Prefer table_name "⟐ output", fall back to the first
+    # intermediate_table for graphs without a query-output node.
     intermediate_id = None
     for tn in table_nodes.values():
-        if isinstance(tn, dict) and tn.get("type") == "intermediate_table":
+        if isinstance(tn, dict) and tn.get("type") != "intermediate_table":
+            continue
+        if intermediate_id is None:
+            intermediate_id = tn.get("id")
+        if (tn.get("table_name") or "").startswith("⟐ output"):
             intermediate_id = tn.get("id")
             break
 
@@ -1004,11 +1005,27 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
             output_edge["source"] = intermediate_id
             output_edge["edge_type"] = "TABLE_FLOW"
             output_edge["label"] = "TABLE_FLOW"
-            if output_edge.get("sql_ranges"):
-                tf_range = output_edge["sql_ranges"].get("TABLE_FLOW", output_edge.get("sql_range"))
-                output_edge["sql_ranges"] = {"TABLE_FLOW": tf_range}
-                output_edge["sql_range"] = tf_range
+            # W5: the rewrite keeps the raw edge's carried extraction-time
+            # info; _dml_origin marks the write kind (§8.7 row 3) and its
+            # anchor = the write line (rule 3 — the DML target's line).
+            output_edge["_dml_origin"] = True
             new_dml_edges.append(output_edge)
+            # W-iteration (P17, §8.5): a search-target seed field's VALUE
+            # edge (its DML write of the searched field's value column —
+            # '$(load_date)' AS data_dt@213 → rrcdm) keeps its source→⟐
+            # half: the value appearance stays traceable (the write-group
+            # ruling: write line 211 / value line 213 / read line 223).
+            # _value_edge marks it so the write anchor uses the VALUE's
+            # own line (the source's), not the write line.
+            if src in target_field_ids and src != intermediate_id:
+                value_edge = dict(e)
+                value_edge["id"] = f"{e['id']}_value"
+                value_edge["target"] = intermediate_id
+                value_edge["edge_type"] = "TABLE_FLOW"
+                value_edge["label"] = "TABLE_FLOW"
+                value_edge["_dml_origin"] = True
+                value_edge["_value_edge"] = True
+                new_dml_edges.append(value_edge)
         else:
             new_dml_edges.append(e)
     new_edges = new_dml_edges
@@ -1016,31 +1033,43 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
     # Bug 46 (Pattern 2): Redirect TABLE_FLOW edges that bypass ⟐ output.
     # After DML simplification, any surviving TABLE_FLOW edge into a DML target
     # that doesn't go through intermediate_id should be redirected.
+    #
+    # W5: when the bypass source already has a TABLE_FLOW edge into the
+    # intermediate (its qo/FROM edge), the redirect would collide with it in
+    # dedup — and the bypass edge can come FIRST, so its carried info (the
+    # m1 source's own line) would corrupt the qo edge's payload (sup seed:
+    # the p2→sup m1 redirect would overwrite pair 15's qo carried info,
+    # anchoring 199 instead of the output node's creation line). Drop the
+    # redundant bypass instead: its flow is already represented by
+    # src→intermediate + intermediate→target.
     if intermediate_id:
+        to_intermediate = {(e["source"], e["target"]) for e in new_edges
+                           if e.get("target") == intermediate_id
+                           and e.get("edge_type") == "TABLE_FLOW"}
+        kept = []
         for e in new_edges:
             src = e.get("source", "")
             tgt = e.get("target", "")
             etype = e.get("edge_type", "")
             if tgt in dml_targets and src != intermediate_id and etype == "TABLE_FLOW":
+                if (src, intermediate_id) in to_intermediate:
+                    continue  # redundant bypass — src already flows via the intermediate
                 e["source"] = intermediate_id
+            kept.append(e)
+        new_edges = kept
 
     return new_edges, dml_pairs
 
 
 def _dedup_edges(new_edges: list) -> list:
-    """Phase 9 (CW4): merge edges with the same (source,target,type)."""
+    """Phase 9 (CW4): merge edges with the same (source,target,type).
+
+    The first occurrence keeps its carried extraction-time info (the
+    payload anchor is derived from it later)."""
     deduped = {}
     for e in new_edges:
         key = (e.get("source"), e.get("target"), e.get("edge_type"))
-        if key in deduped:
-            ex = deduped[key]
-            er = ex.get("sql_range"); nr = e.get("sql_range")
-            if nr and (not er or (len(er)>=4 and len(nr)>=4 and (nr[2]-nr[0])<(er[2]-er[0]))):
-                ex["sql_range"] = nr
-            sr = ex.get("sql_ranges", {})
-            sr.update(e.get("sql_ranges", {}))
-            ex["sql_ranges"] = sr
-        else:
+        if key not in deduped:
             deduped[key] = e
     return list(deduped.values())
 
@@ -1189,10 +1218,108 @@ def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
                 field_nodes.append(proxy)
 
 
+def _closure_walk(e: dict, entries: list, adjacency: dict,
+                  reverse: dict) -> list:
+    """The §8.8.3 flow string's walk: from the closure entry (the searched
+    seed's field) to this edge's target, rendered as {label}@L{line} hops.
+
+    The walk is a shortest BFS over the FINAL L2 edges (directed first,
+    undirected as a fallback — the closure walk is connectivity-based);
+    the edge's own segment is appended as the final pair. Leaf edges
+    (unreachable from any entry) and SCHEMA/SUBSET edges (rules 6/7 —
+    structure/bridge display their own endpoints only) return just the
+    own segment [(src_label, src_line), (tgt_label, tgt_line)].
+
+    Returns a list of (label, line) hops ending with the edge's own
+    segment (the strategy wraps the final pair in ‖…‖).
+    """
+    def _own_segment():
+        return [(e.get("_src_label") or "?", int(e.get("_src_line") or 0)),
+                (e.get("_tgt_label") or "?", int(e.get("_tgt_line") or 0))]
+
+    if e.get("edge_type") in ("SCHEMA", "SUBSET") or not entries:
+        return _own_segment()
+
+    def _bfs(start_ids, out_adj):
+        """Shortest path (list of edges) from any start_id to target."""
+        target = e["source"]
+        prev = {sid: None for sid in start_ids}
+        queue = list(start_ids)
+        seen = set(start_ids)
+        while queue:
+            node = queue.pop(0)
+            if node == target:
+                break
+            for oe in out_adj.get(node, []):
+                nxt = oe["target"]
+                if nxt not in seen:
+                    seen.add(nxt)
+                    prev[nxt] = (node, oe)
+                    queue.append(nxt)
+        if target not in seen:
+            return None
+        path = []
+        node = target
+        while prev.get(node) is not None:
+            parent, oe = prev[node]
+            path.append(oe)
+            node = parent
+        return list(reversed(path))
+
+    path = _bfs(entries, adjacency)
+    if path is None:
+        # Undirected fallback: traverse reverse edges as forward ones.
+        undirected = {}
+        for node, oes in list(adjacency.items()) + list(reverse.items()):
+            undirected.setdefault(node, []).extend(oes)
+        path = _bfs(entries, undirected)
+    if not path:
+        # No path (leaf), or the edge's source IS the closure entry — the
+        # full path from the entry to the edge's target is the edge itself.
+        return _own_segment()
+
+    hops = []
+    for pe in path:
+        hops.append((pe.get("_src_label") or "?", int(pe.get("_src_line") or 0)))
+    hops.append((path[-1].get("_tgt_label") or "?", int(path[-1].get("_tgt_line") or 0)))
+    # Append the edge's own segment, deduping the shared junction hop.
+    if hops and hops[-1] == (e.get("_src_label"), int(e.get("_src_line") or 0)):
+        hops = hops[:-1]
+    hops.append((e.get("_src_label") or "?", int(e.get("_src_line") or 0)))
+    hops.append((e.get("_tgt_label") or "?", int(e.get("_tgt_line") or 0)))
+    return hops
+
+
+def _attach_flow_payload(new_edges: list, field_nodes: list) -> None:
+    """W5/R25 — the per-edge payload phase: every final L2 edge carries
+    highlight_line / flow_kind / reason (highlight_strategies.single_line),
+    computed from the edge's carried extraction-time info + the closure
+    walk from the searched seed's field. Never reconstructed at render.
+
+    Mutates new_edges in place (attaches _path_hops, highlight_line,
+    flow_kind, reason; the _-prefixed carriers are stripped at assembly).
+    """
+    if not new_edges:
+        return
+    strategy = get_strategy("single_line")
+    entries = [fn["id"] for fn in field_nodes if fn.get("is_target")]
+    adjacency = {}
+    reverse = {}
+    for e in new_edges:
+        adjacency.setdefault(e["source"], []).append(e)
+        reverse.setdefault(e["target"], []).append(e)
+    for e in new_edges:
+        e["_path_hops"] = _closure_walk(e, entries, adjacency, reverse)
+        payload = strategy(e)
+        e["highlight_line"] = payload["highlight_line"]
+        e["flow_kind"] = payload["flow_kind"]
+        e["reason"] = payload["reason"]
+
+
 def _assemble_output(table_nodes: dict, field_nodes: list, new_edges: list,
                      nodes: list, sql_text: str, script_name: str,
                      target_full: str) -> dict:
-    """Phase 11 (CW4): assemble the output graph and run the range partition pass."""
+    """Phase 11 (CW4): assemble the output graph."""
     # ── Assemble output (only table+field compound nodes) ──
     # Issue a: merged_original_ids is builder-internal bookkeeping (the
     # dedup merge record) — it must never leak into the API response.
@@ -1204,11 +1331,10 @@ def _assemble_output(table_nodes: dict, field_nodes: list, new_edges: list,
         [{"data": _clean(fn)} for fn in field_nodes]
     )
 
-    # Partition pass: reduce edge range overlap so edges form a near-partition
-    if new_edges:
-        edge_dicts = [e for e in new_edges]  # new_edges are plain dicts
-        partition_edge_ranges(edge_dicts, len(sql_text.split('\n')))
-        new_edges = edge_dicts
+    # W5: strip the builder-internal carriers (_src_line/_path_hops/_dml_
+    # origin/…) — the API edge payload is highlight_line/flow_kind/reason.
+    new_edges = [{k: v for k, v in e.items() if not k.startswith("_")}
+                 for e in new_edges]
 
     total_edges = len(new_edges)
     return {
@@ -1230,7 +1356,8 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     Returns:
       {
         "nodes": [{"data": {id, label, type, parent?, field_group?, is_target?, ...}}],
-        "edges": [{"data": {id, source, target, edge_type, category, sql_range?, ...}}],
+        "edges": [{"data": {id, source, target, edge_type, category,
+                            highlight_line, flow_kind, reason, ...}}],
         "script_name": str,
         "total_nodes": int,           # nodes before filtering
         "filtered_nodes": int,        # nodes after filtering
@@ -1249,10 +1376,14 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
       - cte_table (CTE definition, L2 only)
       - expression, aggregate, window, transform, case, literal (existing V2 types)
 
-    Edge metadata per formal definition §10:
+    Edge metadata per formal definition §10 + R25 (W5):
       - edge_type: formal type (REF, JOIN, FILTER, etc.)
       - category: visual group (copy, filter, aggregate, compute, combine, write, structure)
-      - sql_range: [start_line, start_col, end_line, end_col] for SQL highlighting
+      - highlight_line: exactly ONE script line per edge (§8.3 anchor rules)
+      - flow_kind: the §8.7 canonical kind (chain / field flow / read /
+        write / filter / structure / bridge)
+      - reason: `<kind> — <flow string>` (§8.8.3, ‖…‖-wrapped current edge)
+    The old sql_range/sql_ranges and response-level highlights are gone.
     """
     # CW4: orchestration only — every stage is a named phase function above,
     # with shared state passed explicitly between phases.
@@ -1282,8 +1413,11 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                                     field_nodes, node_labels, sql_text,
                                     strict=relevance_filter)
     new_edges, dml_pairs = _simplify_dml_edges(new_edges, full_graph, id_map,
-                                               table_nodes)
+                                               table_nodes, field_nodes)
     new_edges = _dedup_edges(new_edges)
+    # W5/R25: per-edge payload — highlight_line/flow_kind/reason from the
+    # carried extraction-time info + the closure walk (never at render).
+    _attach_flow_payload(new_edges, field_nodes)
 
     _sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map, dml_pairs,
                                full_graph, nodes)

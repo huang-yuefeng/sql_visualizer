@@ -667,6 +667,30 @@ export const CATEGORY_EDGE_STYLES = [
       'text-halign': 'center',
     },
   },
+  // ── R25/§8.8: flow-kind labels on L2 edges ─────────────────────────
+  // Every L2 edge carries flow_kind (chain / field flow / read / write /
+  // filter / structure / bridge — SCHEMA and residual SUBSET included,
+  // no excluded category). The label shows the kind ONLY — never the
+  // edge type, never SQL text — always visible at the edge midpoint,
+  // colored with the edge's own category color (data(color) drives the
+  // line color elsewhere; the label inherits the same value).
+  {
+    selector: 'edge[flow_kind]',
+    style: {
+      'label': 'data(flow_kind)',
+      'font-size': 10,
+      'color': 'data(color)',
+      'text-outline-color': '#0a0a1a',
+      'text-outline-width': 2,
+      'text-background-color': '#0a0a1a',
+      'text-background-opacity': 0.85,
+      'text-background-shape': 'round-rectangle',
+      'text-background-padding': 2,
+      'text-rotation': 'autorotate',
+      'text-valign': 'center',
+      'text-halign': 'center',
+    },
+  },
 ];
 
 // V3.3: Turn Edge Styles (snake wrapping)
