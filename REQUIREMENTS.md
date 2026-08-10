@@ -1318,11 +1318,12 @@ range-expansion layer (`sql_range_finder`).
    overview + current edge for orientation; design §8.8, RULED). Flow
    string built at L2 build time from the closure walk — never
    reconstructed at render.
-7. **Counting invariant:** 29 highlight entries on this sample — 19
-   canonical pairs + 4 extras + 6 SCHEMA/residual-bridge (S1–S5, B1) ⇒
-   16 distinct lines (all S/B anchors are already-lit lines; §8.4).
-   (CANONICAL_EDGE_LINES benchmark, asserted across the two closure seeds
-   bdm/sup per §8.5.)
+7. **Counting invariant:** 33 highlight entries on this sample — 19
+   canonical pairs + 4 extras + 6 SCHEMA/residual-bridge (S1–S5, B1) +
+   4 chain-completeness (C1–C4) ⇒ 16 distinct lines (all S/B/C anchors
+   are already-lit lines; §8.4). The benchmark asserts the closure
+   bijection — every closure node, edge, and highlight line — across the
+   two closure seeds bdm/sup per §8.5.
 
 ### Acceptance criteria
 

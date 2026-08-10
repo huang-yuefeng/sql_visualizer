@@ -3683,9 +3683,12 @@ token, the duplicate dissolves, pair 18 is unblocked.
   edges (p1@29→p1.data_dt@43/158, p1@84→p1.data_dt@43/158,
   p2@199→p2.data_dt@202) and the residual bridge (sup@223→rrcdm@211)
   are highlighted too: S1–S5 + B1 in the benchmark (anchors 43/158/202/
-  223 — all already-lit lines). 23 → 29 entries, still 16 distinct
-  lines. The seven promotions stand (type honesty); only B1 remains
-  SUBSET after promotion. Peremptory exclusions superseded.
+  223 — all already-lit lines). Plus the chain-completeness rows C1–C4
+  (rollover@9→⟐output, loan_final@64→⟐output, p2@199→⟐output, p2@199→
+  sup@160; anchors 9/64/199) — the closure bijection is complete:
+  23 → 33 entries, still 16 distinct lines. The seven promotions stand
+  (type honesty); only B1 remains SUBSET after promotion. Peremptory
+  exclusions superseded.
 
 **Docs updated this round:** GROUND_TRUTH §8.3 (prerequisite + probe
 findings), §8.5 (two-seed benchmark), §8.7 (mapping), §8.8 (L2 display),
@@ -3715,7 +3718,8 @@ quality item).
    residual SUBSET (bridge, rule 7: source's def line) are highlighted
    like any flow. No excluded category; the former peremptory exclusions
    are superseded (kept as history in §8.3). New benchmark rows S1–S5 +
-   B1 (probe-pinned) — 29 entries, 16 distinct lines.
+   B1 + C1–C4 (probe-pinned; closure bijection) — 33 entries, 16
+   distinct lines.
 W5/W7 updated below; GROUND_TRUTH §8.8 rewritten RULED; R25 amended.
 
 **THE WORK LIST (implementation order — NO SOURCE CODE before user

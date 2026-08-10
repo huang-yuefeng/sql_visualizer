@@ -688,12 +688,11 @@ token-run extension (bug list §v3.3.147 addendum 2).
   count. **Every edge in the L2 graph highlights** (ruling 2026-08-10) —
   there is no excluded category. Canonical contract on this sample: **19
   canonical pairs + 4 verified extras + 6 SCHEMA/residual-bridge entries
-  (S1–S5, B1) = 29 highlight entries → 16 distinct lines** (L160 = 5
-  entries [pairs 11/12/15 + E3], L29 = 3 [pairs 4/13 + E1], L84 = 3
-  [pairs 8/14 + E2]; S1–S5/B1 anchor at 43/158/202/223 — all already
-  covered). The canonical 19 are the benchmark contract; every other
-  entry is pinned too (§8.5) so the payload count is deterministic, not
-  open-ended.
+  (S1–S5, B1) + 4 chain-completeness entries (C1–C4) = 33 highlight
+  entries → 16 distinct lines** (L160 = 5 entries [pairs 11/12/15 + E3],
+  L29 = 3 [pairs 4/13 + E1], L84 = 3 [pairs 8/14 + E2]; S/B/C anchors at
+  43/158/202/223/9/64/199 — all already covered). Every closure edge is
+  pinned (§8.5) so the payload count is deterministic, not open-ended.
 - Multiple edges may share one line — shared anchors are accepted (L160:
   pairs 11/12/15 + E3; L29: pairs 4/13 + E1; L84: pairs 8/14 + E2; L43's
   FILTER and READ flows now anchor apart — 43 and 29 — per the READ rule).
@@ -709,10 +708,13 @@ token-run extension (bug list §v3.3.147 addendum 2).
 `CANONICAL_HIGHLIGHTS` (field lines), `CANONICAL_PROPAGATED`, and the
 earlier `CANONICAL_EDGE_RANGES` plan are all superseded. The test ground
 truth is **CANONICAL_EDGE_LINES**: the 19 canonical pairs + 4 verified
-extras + 6 SCHEMA/residual-bridge entries (§8.3), each with its exact
-anchor line and closure seed.
+extras + 6 SCHEMA/residual-bridge entries + 4 chain-completeness entries
+(§8.3), each with its exact anchor line and closure seed. **Every edge of
+each closure is listed — the table is the closure bijection (nodes/edges/
+highlights), not a subset** (C1–C4 complete the bdm 24 edges and sup 12
+edges; probe-pinned 2026-08-10).
 
-**The complete table — 29 entries, this sample, post-promotion state:**
+**The complete table — 33 entries, this sample, post-promotion state:**
 
 | # | Pair | Kind | Real type (post-promotion) | Seed | Anchor |
 |---|------|------|---------------------------|------|--------|
@@ -745,6 +747,10 @@ anchor line and closure seed.
 | S4 | `p1@84 → p1.data_dt@158` | structure | SCHEMA/TABLE_COLUMN | bdm | 158 |
 | S5 | `p2@199 → p2.data_dt@202` | structure | SCHEMA/TABLE_COLUMN | sup | 202 |
 | B1 | `sup@223 → rrcdm@211` | bridge | SUBSET (residual) | sup | 223 |
+| C1 | `rollover@9 → ⟐output@0` | chain | TABLE_FLOW/REFERENCE | bdm | 9 |
+| C2 | `loan_final@64 → ⟐output@0` | chain | TABLE_FLOW/REFERENCE | bdm | 64 |
+| C3 | `p2@199 → ⟐output@0` | chain | TABLE_FLOW/FROM | sup | 199 |
+| C4 | `p2@199 → sup@160` | chain | TABLE_FLOW/INSERT | sup | 199 |
 
 Real-type column = the state AFTER the §8.3 promotions land; today's
 probe shows rows 1, 2, 12, 13, 14, 17, 19 as SUBSET and row 18 missing
@@ -753,7 +759,12 @@ matched with `_canon_key` alias normalization. S1–S5/B1 (probe-pinned
 2026-08-10): the SCHEMA containment edges and the single residual SUBSET
 bridge in the two closures — every edge in the L2 graph highlights
 (ruling 2026-08-10); S3/S4 confirm both p1 alias instances sync to the
-shared `p1.data_dt@43/158` field nodes (Sync 1).
+shared `p1.data_dt@43/158` field nodes (Sync 1). C1–C4: the closure's
+remaining chain edges into `⟐output@0` / from p2 (chain kind, rule 5 —
+source def line). Per-seed completeness (probe): bdm = pairs 1–16 +
+E1/E2 + S1–S4 + C1/C2 = **24 entries = 24 closure edges**; sup = pairs
+11, 12, 15, 16, 17, 18(post-fix), 19 + E3/E4 + S5 + B1 + C3/C4 = **13
+entries = 12 closure edges (+ pair 18 post-fix)**.
 
 **Assertion spec — `test_edge_lines`** (per entry, on its seed):
 (a) the edge EXISTS in the closure (canonical normalization);
@@ -769,12 +780,12 @@ instead of failing.
 
 **Closure seeds (probe-pinned 2026-08-10): no single L2 search seed
 covers all 19 pairs.** The `bdm_acc_loan_info.data_dt` seed yields pairs
-1–16 + E1/E2 + S1–S4 (16 nodes / 24 edges); the
+1–16 + E1/E2 + S1–S4 + C1/C2 (16 nodes / 24 edges); the
 `bdm_acc_loan_info_sup.data_dt` seed yields pairs 11, 12, 15, 16, 17, 19
-+ E3/E4 + S5 + B1 (8 nodes / 12 edges). The 29-entry spec is the UNION
-over the two seeds; the Seed column states where each entry is asserted.
-The §7.2 closure spec (13 nodes / 16 edge pairs / 2 sinks) is UNCHANGED —
-only the highlight layer is redefined.
++ E3/E4 + S5 + B1 + C3/C4 (8 nodes / 12 edges; + pair 18 post-fix). The
+33-entry spec is the UNION over the two seeds; the Seed column states
+where each entry is asserted. The §7.2 closure spec (13 nodes / 16 edge
+pairs / 2 sinks) is UNCHANGED — only the highlight layer is redefined.
 
 ### 8.6 Current-system gaps this definition exposes (bug list §v3.3.147)
 
