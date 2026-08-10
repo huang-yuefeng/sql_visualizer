@@ -4001,3 +4001,55 @@ bdm_acc_loan_info at extraction — I2 exact source_tables), and the
 rollover CTE's `loan_maturity_dt` parents under the bdm_acc_loan_info
 compound. Scope-existence asserts kept; docstring notes the 2026-08-10
 pin update.
+
+### J12-6 · X3 removed from the canonical set (E3a fix-3 DML-target attribution)
+
+E3a fix 3 (INSERT-target columns attribute to the DML target table,
+`rrcdm_job_log_exec_par`, instead of the synthetic ⟐output VT) reparented
+`data_dt@213` — the TOP1 output VT no longer holds a data_dt member, so
+canonical X3 (`⟐output@213 → data_dt@213`, SCHEMA, the S1/S3-kind
+output-membership edge pinned 2026-08-10) has NO post-fix counterpart.
+Evidence (E3a cold-cache matrix M1–M4, `rm graph_*` + rebuild per matrix
+cell): X3 was the sole unmatched row pre-repair and the only gate-breaker
+was fix 3 — the versionless graph cache had contaminated the earlier
+"stale canonization" reading (E2's conclusion, exonerated). Repaired in
+the DOC (§8.5 strike-through) + fixture (`jaccard_canonical.py` point 8,
+X3 removed both seeds) — never the engine; the canonical write edge
+`data_dt@213 → ⟐output@213` (X4 / row 17) is unchanged. Final B set:
+23 bdm + 13 sup = 36 entries; gate GREEN at bdm E=1.0000 / sup E=1.0000;
+full suite 702 passed / 0 failed. Also landed with the repair: the
+l2_builder graph cache is stamped `extractor_version` (build-time stamp +
+load-time mismatch → miss, mirror of the analysis-cache check) so
+extraction-semantics changes can never serve stale graphs again
+(commits 2a45709 E3a, 9566140 repair).
+
+### J12-7 · Round 12 engine-side records (teams E2/E3a/E4)
+
+- **E2 (b793336)**: R11-2 Sync-2 phantom exists-check dedup by
+  (target, label) — dropped the `orig_stmt` term; R11-3 mech payload
+  (per-edge `mech = {clause, ref_line, alias, use_lines, sentence}`,
+  compound-node lines, `_ref_site_vars` derivation); adapter
+  parse_errors + `alias_of`; E1 1c gates (src.context direct + cross
+  writer-vs-reader order guard); N8 `_safe_int`; C-5 case-insensitive
+  star exclusion; `test_mech_payload.py` invariant.
+- **E3a (2a45709)**: 6 walker/lineage gaps from the case sweep —
+  `_walk_update` (UPDATE SET targets as fields), `_split_hive_multi_inserts`
+  (FROM-led multi-insert arms), INSERT-target attribution (fix 3, see
+  J12-6), comma-join CTE attribution guard, `_walk_merge`
+  (`merge_target` in `_table_like`), PARTITION seed scoping
+  (`source_tables[0] == target_table`); also carried E2's uncommitted
+  lineage changes (L1 REF/READ gate + D1 cap log) per its report.
+- **E4 (72e9e25)**: probe-verified path traversal on level2 `script`
+  (arbitrary file read + cross-tenant) closed by resolve_script +
+  `is_file()` containment; async handlers running the sync pipeline
+  froze the event loop (~40 min stuck service) — handlers moved to
+  threadpool `def`; autocomplete `type` whitelist (cross-workspace
+  read); /highlight 404; dataflow graph cache stamped extractor_version;
+  view-persist `_views_lock` + `_atomic_write_text`; `_load_views`
+  corrupt → []; logger stderr backpressure env-gated.
+- **Backlog (deferred, recorded)**: hl=0 clamp (highlight_strategies),
+  substring seed match (l2_builder.py:202), MERGE_TARGET keeper merge
+  (l2_builder #7), floating fields/parenting (#8/#9), dml_dml_ proxy
+  chaining (#12), L1 cache perf, 3 frontend nits (Show-All cached-branch
+  banner staleness, parentViewIdRef phantom parent after view delete,
+  window.__cy/__cy1 globals).
