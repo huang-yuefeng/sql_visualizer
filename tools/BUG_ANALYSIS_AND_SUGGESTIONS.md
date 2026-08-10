@@ -3818,3 +3818,48 @@ meaningful for source-side fields (C-9) but not for a target table's column
 display (a table node shows each column once). E.g. drop the
 `orig_stmt` term in the Sync 2 exists-check. Optionally add a benchmark
 invariant: no duplicate (parent, label) field pairs in A. No code now.
+
+### R11-3 · Data flow is hard to understand — def-site anchors vs reference sites
+
+**User report:** "It is hard to understand the data flow. For example: there
+are two edges of rollover_loan_info@L9 → loan_final@L64. And we can see the
+script. But it is difficult to understand why the script segments mean data
+flow. Do you have any good method please?"
+
+**Analysis (probe-verified, sample BDM_ACC_LOAN_INFO_SUP_M.sql):**
+- **Anchors are def-sites, not reference-sites.** The chain edge's hl=9 is
+  rollover's CTE def line (`WITH rollover_loan_info AS (`, rule 5: chain
+  anchors to the SOURCE's def line). The actual consumption site is L155
+  `LEFT JOIN rollover_loan_info p6` — 146 lines away inside loan_final's
+  body (L64..159). The user cannot connect the highlighted L9 to loan_final.
+- **One node pair, several distinct flows.** Full graph rollover→loan_final:
+  TABLE_FLOW@9 (chain), COMPUTED@82 (value: `p6.lending_ref` → `reserved_field8`),
+  JOIN@82 (key: `p6.lending_ref = p1.lending_ref` @L156). "Two edges" = the
+  COMPUTED+JOIN pair sharing anchor 82. Unlabeled arrows conflate structure,
+  value, and join-key flows.
+- **Reason strings show the path, not the mechanism.** No clause/alias/line
+  of reference; "why valid" is not answerable from the panel.
+- **Extraction-time evidence exists** (probe `_probe_ref.py`, 253 vars):
+  `p6` (TABLE, line=155, `defined_in='JOIN'`, context=`CTE{loan_final}`,
+  `source_tables=['rollover_loan_info']`) — the reference site is already a
+  per-var extraction fact (I1 def-lines + I2 source_tables + defined_in
+  variable.py:112). Script lines confirmed: L82 CASE, L155 JOIN, L156 ON,
+  L160 INSERT OVERWRITE sup, L211 INSERT INTO rrcdm.
+
+**Suggested solution (the "code evidence" method — later, after user
+approval):**
+1. Per-edge payload extension at L2 build time: `ref_line` (var in dst's
+   def-range whose source_tables contains src) + `mech` (that var's
+   `defined_in` clause). Build-time + cache-versioned (never-patch
+   compliant; no render-time reconstruction).
+2. Reason panel shows four blocks: flow sentence ("loan_final (L64) reads
+   rollover_loan_info (L9) via LEFT JOIN at L155 (alias p6)"), the actual
+   SQL lines (src def / dst def / reference site + ON line / value-use
+   line) clickable → SQL panel scroll, value path for value edges, and the
+   edge-type legend.
+3. Graph disambiguation: same-pair edges get mechanism chips
+   (`chain@9` / `computed@82` / `join@155`).
+4. No graph-semantics change → Jaccard benchmark untouched; cache-prefix
+   bump required for the payload format. Worked examples (A rollover→
+   loan_final, B data_dt@L18→bdm@L16, C →rrcdm@L211) presented to the user
+   2026-08-10; pending evaluation. No code now.
