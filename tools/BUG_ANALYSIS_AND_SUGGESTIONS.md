@@ -3901,3 +3901,103 @@ bump; frontend `EdgeReasonPanel` code-evidence block (~40L) + `SqlPanel.
 scrollToLine`/`onJumpToLine` (~15L). Tests: 1 backend ground-truth invariant
 (`mech.ref_line==155`, clause JOIN, alias p6 for bdm rollover→loan_final) + 1
 vitest render test. Graph semantics/ids/reason string/Jaccard unchanged.
+
+**Implementation status (2026-08-10, user approved → "implement all new
+requirements"):**
+- **Frontend — DONE (commit f2fa2f8, 96/96 vitest, build green):**
+  `EdgeReasonPanel` renders the code-evidence block (mech.sentence +
+  clickable SQL-line rows: reference site · clause, join key / value use,
+  def of source; text from sqlText display-only, out-of-range →
+  "(line not available)"; byte-identical fallback when `mech` absent);
+  `SqlPanel` → `forwardRef` + `scrollToLine`; auto-show (R11-1) via pure
+  `pickAutoEdge` util (seed zone → chain → first edge; falls back
+  gracefully until backend ships compound-node line_start/line_end);
+  `DataFlowApp` wiring (sqlText + onJumpToLine). Contract consumed exactly
+  as specified: mech.clause/ref_line/alias/use_lines/sentence.
+- **Backend — IN FLIGHT (Team E2):** `_carry_node_lines` (compound nodes
+  gain line_start/line_end/defined_in from keeper vars),
+  `_ref_site_vars` (pre-filter index scan: src_label ∈ v.source_tables ∧
+  dst range ∋ v.line_start), `_build_mechanism` + sentence templates,
+  attached in the R25 payload phase (`_attach_flow_payload`),
+  `GRAPH_CACHE_PREFIX` bump, invariant test (mech.ref_line==155 /
+  clause==JOIN / alias==p6 for bdm rollover→loan_final).
+- Follow-up doc update pending E2/E3 completion (final payload shape +
+  test evidence).
+
+---
+
+## Round 12 — Jaccard end-state iteration (2026-08-10, Team E1; doc + fixtures only, no source changes)
+
+### J12-1 · Row 11 (`sup@160 → sup@160` self-loop) removed from the canonical set — degenerate direct pin
+
+**Evidence (Team A probe + live matcher, 2026-08-10):** the row-11 pin
+(`bdm+sup`, anchor 160) was the only canonical row unmatched in both seeds
+(bdm E=0.8000/H=0.9231, sup E=0.7333/H=0.8571 pre-repair). The self-loop's
+read endpoint is **L199** — the incremental self-read is the `LEFT JOIN
+bdm_acc_loan_info_sup p2` (p2@199), not L160 — so the pin describes a
+direct sup→sup edge that bypasses the ⟐ output VT: the same defect class
+as the DML-routing repairs of rows 10/12/16/17/B1/C4 (no-bypass rule). The
+engine never emits a table self-loop; the flow is already fully canonical
+as the routed cycle E3 (`sup@160 → p2@199`) + C3 (`p2@199 → ⟐output@0`) +
+row 15 (`⟐output@0 → sup@160`) — the self-loop would double-count it.
+
+**Repair (doc + fixture, never engine):** row 11 struck in
+`tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_SUP.md` §8.5 with the Repair note;
+both seed entries removed from `backend/tests/jaccard_canonical.py`
+(CANONICAL_EDGES / CANONICAL_ROWS); the "remaining backlog" paragraph in
+§8.5 deleted; Round-12 header counts updated (38 entries = 24 bdm + 14
+sup). Backlog entry closed — the benchmark is now end-state on rows.
+
+### J12-2 · X1–X5 canonization — five probe-verified genuine flows added
+
+**Evidence (live filtered L2 output, both seeds, 2026-08-10):** five
+response edges were genuine closure members the canonical set missed.
+Each was matched by the live matcher BEFORE pinning, with no existing
+row's match changing (candidate sets disjoint — different type prefixes
+at the shared anchors 16/160/213):
+
+| Row | Seed | Edge | Type | Anchor | Rationale |
+|-----|------|------|------|--------|-----------|
+| X1 | bdm | `data_dt@16 → bdm@16` | REF | 16 | FROM-line read companion of row 1's FILTER@18 |
+| X2 | bdm+sup | `data_dt@160 → ⟐output@160` | REF | 160 | partition-field read redirected into the output VT (`_simplify_dml_edges` step 2) |
+| X3 | bdm+sup | `⟐output@213 → data_dt@213` | SCHEMA | 213 | TOP1 output-VT membership edge (S1/S3 kind) |
+| X4 | bdm | `data_dt@213 → ⟐output@213` | TABLE_FLOW | 213 | TOP1 value-write — closes the bdm side of row 17 (sup-only pin, doc closure asymmetry) |
+| X5 | sup | `data_dt@225 → sup@225` | FILTER | 225 | TOP1 WHERE read companion of row 18's REF@223 |
+
+**Result:** 38/38 canonical edges matched, 0 unmatched, all canonical
+nodes realized (verified live; `_jaccard_selfverify.py`).
+
+### J12-3 · FLOORS raised to the measured end-state values
+
+Benchmark scores after J12-1/J12-2 (measured live, exact): **bdm
+1.0000/1.0000/1.0000** (nodes/edges/highlights), **sup 0.9000/1.0000/
+1.0000**. `FLOORS` in `backend/tests/test_jaccard_benchmark.py` raised to
+these values. The sup nodes score stays 0.9 while the rrcdm node carries
+the extra non-canonical DML phantom `data_dt` — the R11-2 duplicate — and
+moves to 1.0 when the engine lands the R11-2 Sync-2 dedup fix (R11-2
+above; Team E2/E3 in flight). The three existing invariants (hl ≥ 1, all
+canonical nodes realized, summary print) are kept.
+
+### J12-4 · Field-uniqueness invariant added (R11-2 regression guard)
+
+The naive (parent, label) uniqueness over ALL fields is impossible: the
+sup seed legitimately repeats `(sup, data_dt)` twice (C-9 per-statement
+dedup key `(parent_table_id, label, stmt_idx)` — source-side fields may
+repeat across statements). The new invariant scopes to the Sync-2 DML
+phantom set only (id prefix `dml_`): no duplicate (parent, label) pairs
+— a target table's column display must show each column once. Currently
+FAILING on both seeds (the rrcdm `data_dt` × 2) — by design, until the
+engine R11-2 fix lands; it is the single remaining benchmark failure and
+the R11-2 acceptance check.
+
+### J12-5 · b3 pin rewritten to extraction-attributed ownership
+
+`test_b3_subquery_scope_field_parents_under_its_subquery` (test_b_series_l2.py)
+pinned the old Bug-31 bulk-SCHEMA behavior (every subquery node carries
+fields). Probe-verified actual ownership (2026-08-10): ⟐ subq1 →
+{lending_ref}, ⟐ accu/subq3 → {data_dt}, ⟐ branch/subq4 → {MAXp_dt}, ⟐
+subq / ⟐ subq2 / ⟐ p2 → no fields (their outputs resolve to the physical
+bdm_acc_loan_info at extraction — I2 exact source_tables), and the
+rollover CTE's `loan_maturity_dt` parents under the bdm_acc_loan_info
+compound. Scope-existence asserts kept; docstring notes the 2026-08-10
+pin update.

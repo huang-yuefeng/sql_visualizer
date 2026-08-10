@@ -139,25 +139,67 @@ def test_b3_cte_output_columns_parent_under_cte(sample_ws):
 
 
 def test_b3_subquery_scope_field_parents_under_its_subquery(sample_ws):
-    """The rollover subquery's output columns (loan_maturity_dt in the
-    subq1/subq3 scopes) parent under the matching subquery compound
-    nodes — the scope owning their context."""
+    """Extraction-attributed field ownership under the subquery VTs
+    (unfiltered L2, seed bdm_acc_loan_info/lending_ref). Pin updated
+    2026-08-10 per extraction-attributed ownership (Team A probe): the
+    old assertion (every subquery node carries fields) only passed via the
+    deleted Bug-31 SCHEMA bulk injection. Actual ownership:
+      - ⟐ subq1 -> {lending_ref} (its SELECT output column)
+      - ⟐ accu/subq3 -> {data_dt}, ⟐ branch/subq4 -> {MAXp_dt}
+        (the nested WHERE-subquery outputs)
+      - ⟐ subq / ⟐ subq2 / ⟐ p2 -> no fields: their outputs resolved to
+        the physical bdm_acc_loan_info at extraction (I2 exact
+        source_tables), so the derived-table columns parent under the
+        physical compound, not under the VT
+      - the rollover CTE's loan_maturity_dt parents under the
+        bdm_acc_loan_info compound node."""
     ws_id, sql = sample_ws
     graph = _build_l2_graph(ws_id, "BDM_ACC_LOAN_INFO_SUP_M.sql", sql,
                             TABLE, "lending_ref", relevance_filter=False)
-    by_id = {n["data"]["id"]: n["data"] for n in graph["nodes"]}
-    # the subquery output containers are VIRTUAL_TABLE / SUBQUERY compound
-    # nodes carrying their scope context
-    sq = [n["data"] for n in graph["nodes"]
-          if n["data"].get("variable_type") in ("subquery", "virtual_table")]
+    nodes = [n["data"] for n in graph["nodes"]]
+
+    def kids_of(nid):
+        return {n["label"] for n in nodes if n.get("parent") == nid}
+
+    sq = [n for n in nodes
+          if n.get("variable_type") in ("subquery", "virtual_table")]
     ctx_to_id = {n.get("context"): n["id"] for n in sq if n.get("context")}
     # the /subq1/subq and /subq3 scopes exist as scope-bearing compound nodes
     assert any(c and c.endswith("/subq1/subq") for c in ctx_to_id), ctx_to_id
     assert any(c and c.endswith("/subq3") for c in ctx_to_id), ctx_to_id
-    for c, nid in ctx_to_id.items():
-        kids = {n["data"]["label"] for n in graph["nodes"]
-                if n["data"].get("parent") == nid}
-        assert kids, f"subquery node {c} has no fields"
+
+    def vt(label, ctx_suffix):
+        hits = [n for n in sq
+                if n.get("variable_type") == "virtual_table"
+                and n.get("label") == label
+                and (n.get("context") or "").endswith(ctx_suffix)]
+        assert len(hits) == 1, \
+            f"expected exactly one VT {label!r} ctx *{ctx_suffix}: {hits}"
+        return hits[0]
+
+    # exact extraction-attributed ownership (Team A probe, 2026-08-10)
+    assert kids_of(vt("subq1", "/subq1")["id"]) == {"lending_ref"}, \
+        kids_of(vt("subq1", "/subq1")["id"])
+    assert kids_of(vt("accu/subq3", ":join:accu/subq3")["id"]) == {"data_dt"}, \
+        kids_of(vt("accu/subq3", ":join:accu/subq3")["id"])
+    assert kids_of(vt("branch/subq4", ":join:branch/subq4")["id"]) == {"MAXp_dt"}, \
+        kids_of(vt("branch/subq4", ":join:branch/subq4")["id"])
+    # subq / subq2 / the p2 VTs carry NO fields (their outputs resolved to
+    # the physical bdm_acc_loan_info at extraction -- I2 source_tables)
+    for label, suffix in (("subq", "/subq1/subq"), ("subq2", "/subq/subq2"),
+                          ("p2", ":join:p2")):
+        for v in [n for n in sq
+                  if n.get("variable_type") == "virtual_table"
+                  and n.get("label") == label
+                  and (n.get("context") or "").endswith(suffix)]:
+            assert not kids_of(v["id"]), \
+                f"VT {v['label']!r} ({v.get('context')}) should carry no fields: {kids_of(v['id'])}"
+    # the rollover CTE's loan_maturity_dt parents under the physical table
+    bdm = [n for n in nodes if n.get("variable_type") == "table"
+           and n.get("label") == "bdm_acc_loan_info"]
+    assert len(bdm) == 1, bdm
+    assert "loan_maturity_dt" in kids_of(bdm[0]["id"]), \
+        f"loan_maturity_dt not under bdm_acc_loan_info: {kids_of(bdm[0]['id'])}"
 
 
 # ── C-9: per-statement dedup ────────────────────────────────────────────
