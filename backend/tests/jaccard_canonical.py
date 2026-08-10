@@ -1,7 +1,8 @@
 """Canonical ground truth for the Jaccard benchmark -- BDM_ACC_LOAN_INFO_SUP_M.sql.
 
 Source: tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_SUP.md, section 8.5
-(CANONICAL_EDGE_LINES table, 33 entries) and the closure-seeds block
+(CANONICAL_EDGE_LINES table, 33 entries; 31 rows canonical after the
+2026-08-10 DML-routing repair -- see point 6) and the closure-seeds block
 ("bdm = 16 nodes / 22 edges", "sup = 9 nodes / 13 edges"). Data-only module;
 the matching logic lives in the test that consumes it.
 
@@ -20,10 +21,11 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
      (line 0). Served L2 labels differ: VT labels drop the ⟐ ("subq",
      "subq1", "output") and alias-table nodes embed the line ("p1@29").
    - edge_type: post-promotion real type where it is a taxonomy string
-     (doc real-type column); rows 12/17 are "value-write (promoted)" with no
-     taxonomy string, recorded as their extraction-time type "SUBSET"
-     (doc 8.7 per-pair map: SUBSET/BRIDGE -> promote -> value-write).
-     Rows 13/14/18/19 are the promoted reads, recorded as "REF".
+     (doc real-type column); rows 13/14/18/19 are the promoted reads,
+     recorded as "REF". Rows 12/17 were "value-write (promoted)" with no
+     taxonomy string (doc 8.7 per-pair map: SUBSET/BRIDGE -> promote ->
+     value-write); the 2026-08-10 DML-routing repair re-pinned them as
+     "TABLE_FLOW" (the emitted type of the routed write -- see point 6).
 
 2. CANONICAL_EDGES -- FLAT list of the per-seed closure edges (B sets),
    deduped: 22 entries for the bdm closure + 13 for the sup closure = 35
@@ -88,6 +90,34 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
    this baseline -- the live post-fix match report is produced separately
    by the live-check harness, and FLOORS in the consumer test ratchet up
    as fixes land. B stays fixed.
+
+6. REPAIRS (2026-08-10, DML routing -- evidence-backed doc repair, never
+   engine work). The label dump of the post-fix filtered L2 output showed
+   every INSERT/UPDATE write edge routed through the "output" virtual
+   table (the DML-routing design: write edges land on the output VT, which
+   then connects to the target table), while rows 10/12/16/17/B1/C4 pinned
+   DIRECT table edges that would bypass the output VT -- forbidden by the
+   no-bypass integration rule. The response realizes them as routed hops;
+   the direct pins are refuted by the response + design:
+     row 10 (loan_final@64 -> sup@160)     merged into C2 (the routed hop
+                                           loan_final -> output@64)
+     row 12 (data_dt@160 -> sup@160)       re-pinned dst -> "output"@0,
+                                           type -> TABLE_FLOW (the write
+                                           edge data_dt -> output@160)
+     row 16 (sup@160 -> rrcdm@211)         re-pinned src -> "output"@0
+                                           (the write output -> rrcdm@211)
+     row 17 (data_dt@213 -> rrcdm@211)     re-pinned dst -> "output"@0,
+                                           type -> TABLE_FLOW (the write
+                                           edge data_dt -> output@213)
+     B1 (sup@223 -> rrcdm@211, SUBSET)     re-pinned dst -> "output"@0
+                                           (SUBSET sup -> output@223)
+     C4 (p2@199 -> sup@160)                merged into C3 (the routed hop
+                                           p2 -> output@199)
+   Row 11 (sup@160 -> sup@160 self-loop) is LEFT in B as the remaining
+   backlog: the engine never emits a table self-loop and the doc-vs-engine
+   dispute is a user decision. Doc §8.5 carries the same annotations, so
+   CANONICAL_EDGES holds 33 entries (21 bdm + 12 sup) and CANONICAL_ROWS
+   31 tuples.
 """
 
 CANONICAL_ROWS = [
@@ -101,14 +131,22 @@ CANONICAL_ROWS = [
     (7, "bdm", "p1.data_dt", 158, "loan_final", 64, "FILTER", 158),
     (8, "bdm", "bdm", 84, "loan_final", 64, "TABLE_FLOW", 84),
     (9, "bdm", "rollover", 9, "loan_final", 64, "TABLE_FLOW", 9),
-    (10, "bdm", "loan_final", 64, "sup", 160, "TABLE_FLOW", 64),
+    # Row 10 MERGED into C2 (2026-08-10 DML-routing repair -- direct
+    # loan_final@64 -> sup@160 would bypass the output VT; the response
+    # realizes it as the routed hop loan_final -> output@64 = C2).
     (11, "bdm", "sup", 160, "sup", 160, "TABLE_FLOW", 160),
-    (12, "bdm", "data_dt", 160, "sup", 160, "SUBSET", 160),
+    # Row 12 re-pinned 2026-08-10: value-write lands on the output VT
+    # (data_dt@160 -> output@160), not on sup directly.
+    (12, "bdm", "data_dt", 160, "⟐output", 0, "TABLE_FLOW", 160),
     (13, "bdm", "p1.data_dt", 43, "bdm", 29, "REF", 29),
     (14, "bdm", "p1.data_dt", 158, "bdm", 84, "REF", 84),
     (15, "bdm", "⟐output", 0, "sup", 160, "TABLE_FLOW", 160),
-    (16, "bdm", "sup", 160, "rrcdm", 211, "TABLE_FLOW", 211),
-    (17, "sup", "data_dt", 213, "rrcdm", 211, "SUBSET", 213),
+    # Row 16 re-pinned 2026-08-10: the write src is the output VT
+    # (output -> rrcdm@211), not sup directly.
+    (16, "bdm", "⟐output", 0, "rrcdm", 211, "TABLE_FLOW", 211),
+    # Row 17 re-pinned 2026-08-10: data_dt@213 value-write lands on the
+    # output VT (data_dt@213 -> output@213), not on rrcdm directly.
+    (17, "sup", "data_dt", 213, "⟐output", 0, "TABLE_FLOW", 213),
     (18, "sup", "data_dt", 225, "sup", 223, "REF", 223),
     (19, "sup", "p2.data_dt", 202, "p2", 199, "REF", 199),
     ("E1", "bdm", "bdm", 29, "p1", 29, "ALIAS", 29),
@@ -120,18 +158,25 @@ CANONICAL_ROWS = [
     ("S3", "bdm", "p1", 84, "p1.data_dt", 43, "SCHEMA", 43),
     ("S4", "bdm", "p1", 84, "p1.data_dt", 43, "SCHEMA", 43),
     ("S5", "sup", "p2", 199, "p2.data_dt", 202, "SCHEMA", 202),
-    ("B1", "sup", "sup", 223, "rrcdm", 211, "SUBSET", 223),
+    # B1 re-pinned 2026-08-10: the SUBSET bridge lands on the output VT
+    # (sup@223 -> output@223), not on rrcdm directly.
+    ("B1", "sup", "sup", 223, "⟐output", 0, "SUBSET", 223),
     ("C1", "bdm", "rollover", 9, "⟐output", 0, "TABLE_FLOW", 9),
     ("C2", "bdm", "loan_final", 64, "⟐output", 0, "TABLE_FLOW", 64),
     ("C3", "sup", "p2", 199, "⟐output", 0, "TABLE_FLOW", 199),
-    ("C4", "sup", "p2", 199, "sup", 160, "TABLE_FLOW", 199),
+    # C4 MERGED into C3 (2026-08-10 DML-routing repair -- direct
+    # p2@199 -> sup@160 would bypass the output VT; the response realizes
+    # it as the routed hop p2 -> output@199 = C3).
 ]
 
-# FLAT per-seed closure edge lists (B sets): 22 bdm + 13 sup = 35 entries.
+# FLAT per-seed closure edge lists (B sets): 21 bdm + 12 sup = 33 entries
+# (rows 10/C4 merged into C2/C3 by the 2026-08-10 DML-routing repair --
+# docstring point 6; their direct pins are refuted, the routed hops are
+# the canonical realization).
 # Filter by entry["seed"]; S2/S4 collapse into S1/S3 (doc §8.5 -- endpoint
 # duplicates, one SCHEMA edge per p1 alias); rows 11/12/15/16 dual-seed.
 CANONICAL_EDGES = [
-    # ── bdm closure (22): pairs 1-16 + E1/E2 + S1/S3 + C1/C2 ──
+    # ── bdm closure (21): pairs 1-16 (10 merged into C2) + E1/E2 + S1/S3 + C1/C2 ──
     {"row": 1, "seed": "bdm", "src": "data_dt@18", "dst": "bdm@16", "type": "FILTER", "anchor": 18, "spec": "anchor_rel_ep"},
     {"row": 2, "seed": "bdm", "src": "bdm@16", "dst": "rollover@9", "type": "TABLE_FLOW", "anchor": 16, "spec": "anchor_rel_ep"},
     {"row": 3, "seed": "bdm", "src": "p1.data_dt@43", "dst": "⟐subq@0", "type": "FILTER", "anchor": 43, "spec": "anchor_rel_ep"},
@@ -141,33 +186,33 @@ CANONICAL_EDGES = [
     {"row": 7, "seed": "bdm", "src": "p1.data_dt@158", "dst": "loan_final@64", "type": "FILTER", "anchor": 158, "spec": "anchor_rel_ep"},
     {"row": 8, "seed": "bdm", "src": "bdm@84", "dst": "loan_final@64", "type": "TABLE_FLOW", "anchor": 84, "spec": "two_hop"},
     {"row": 9, "seed": "bdm", "src": "rollover@9", "dst": "loan_final@64", "type": "TABLE_FLOW", "anchor": 9, "spec": "anchor_rel_ep"},
-    {"row": 10, "seed": "bdm", "src": "loan_final@64", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 64, "spec": "anchor_rel_ep"},
+    # row 10 MERGED into C2 (2026-08-10 DML-routing repair)
     {"row": 11, "seed": "bdm", "src": "sup@160", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
-    {"row": 12, "seed": "bdm", "src": "data_dt@160", "dst": "sup@160", "type": "SUBSET", "anchor": 160, "spec": "anchor_rel_ep"},
+    {"row": 12, "seed": "bdm", "src": "data_dt@160", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": 13, "seed": "bdm", "src": "p1.data_dt@43", "dst": "bdm@29", "type": "REF", "anchor": 29, "spec": "ref_alias"},
     {"row": 14, "seed": "bdm", "src": "p1.data_dt@158", "dst": "bdm@84", "type": "REF", "anchor": 84, "spec": "ref_alias"},
     {"row": 15, "seed": "bdm", "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
-    {"row": 16, "seed": "bdm", "src": "sup@160", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
+    {"row": 16, "seed": "bdm", "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
     {"row": "E1", "seed": "bdm", "src": "bdm@29", "dst": "p1@29", "type": "ALIAS", "anchor": 29, "spec": "anchor_rel_ep"},
     {"row": "E2", "seed": "bdm", "src": "bdm@84", "dst": "p1@84", "type": "ALIAS", "anchor": 84, "spec": "anchor_rel_ep"},
     {"row": "S1", "seed": "bdm", "src": "p1@29", "dst": "p1.data_dt@43", "type": "SCHEMA", "anchor": 43, "spec": "anchor_rel"},
     {"row": "S3", "seed": "bdm", "src": "p1@84", "dst": "p1.data_dt@43", "type": "SCHEMA", "anchor": 43, "spec": "anchor_rel"},
     {"row": "C1", "seed": "bdm", "src": "rollover@9", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 9, "spec": "anchor_rel_ep"},
     {"row": "C2", "seed": "bdm", "src": "loan_final@64", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 64, "spec": "anchor_rel_ep"},
-    # ── sup closure (13): pairs 11,12,15,16,17,18,19 + E3/E4 + S5 + B1 + C3/C4 ──
+    # ── sup closure (12): pairs 11,12,15,16,17,18,19 + E3/E4 + S5 + B1 + C3 ──
+    #    (C4 merged into C3 -- 2026-08-10 DML-routing repair)
     {"row": 11, "seed": "sup", "src": "sup@160", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
-    {"row": 12, "seed": "sup", "src": "data_dt@160", "dst": "sup@160", "type": "SUBSET", "anchor": 160, "spec": "anchor_rel_ep"},
+    {"row": 12, "seed": "sup", "src": "data_dt@160", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": 15, "seed": "sup", "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
-    {"row": 16, "seed": "sup", "src": "sup@160", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
-    {"row": 17, "seed": "sup", "src": "data_dt@213", "dst": "rrcdm@211", "type": "SUBSET", "anchor": 213, "spec": "anchor_rel_ep"},
+    {"row": 16, "seed": "sup", "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
+    {"row": 17, "seed": "sup", "src": "data_dt@213", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep"},
     {"row": 18, "seed": "sup", "src": "data_dt@225", "dst": "sup@223", "type": "REF", "anchor": 223, "spec": "anchor_rel_ep"},
     {"row": 19, "seed": "sup", "src": "p2.data_dt@202", "dst": "p2@199", "type": "REF", "anchor": 199, "spec": "anchor_rel_ep"},
     {"row": "E3", "seed": "sup", "src": "sup@160", "dst": "p2@199", "type": "ALIAS", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": "E4", "seed": "sup", "src": "p2.data_dt@202", "dst": "⟐output@0", "type": "JOIN", "anchor": 202, "spec": "anchor_rel_ep"},
     {"row": "S5", "seed": "sup", "src": "p2@199", "dst": "p2.data_dt@202", "type": "SCHEMA", "anchor": 202, "spec": "anchor_rel"},
-    {"row": "B1", "seed": "sup", "src": "sup@223", "dst": "rrcdm@211", "type": "SUBSET", "anchor": 223, "spec": "anchor_rel_ep"},
+    {"row": "B1", "seed": "sup", "src": "sup@223", "dst": "⟐output@0", "type": "SUBSET", "anchor": 223, "spec": "anchor_rel_ep"},
     {"row": "C3", "seed": "sup", "src": "p2@199", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 199, "spec": "anchor_rel_ep"},
-    {"row": "C4", "seed": "sup", "src": "p2@199", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 199, "spec": "anchor_rel_ep"},
 ]
 
 # Response-node-LABEL -> canonical-label alignment (served node ids are

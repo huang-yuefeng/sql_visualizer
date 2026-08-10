@@ -719,8 +719,8 @@ truth is **CANONICAL_EDGE_LINES**: the 19 canonical pairs + 4 verified
 extras + 6 SCHEMA/residual-bridge entries + 4 chain-completeness entries
 (§8.3), each with its exact anchor line and closure seed. **Every edge of
 each closure is listed — the table is the closure bijection (nodes/edges/
-highlights), not a subset** (C1–C4 complete the bdm 22 edges and sup 12
-edges; probe-pinned 2026-08-10).
+highlights), not a subset** (C1–C4 complete the closures — bdm 21 edges +
+sup 12 edges after the 2026-08-10 repair; probe-pinned 2026-08-10).
 
 **The complete table — 33 entries, this sample, post-promotion state:**
 
@@ -735,14 +735,14 @@ edges; probe-pinned 2026-08-10).
 | 7 | `p1.data_dt@158 → loan_final` | field flow | FILTER/CONDITION | bdm | 158 |
 | 8 | `bdm@84 → loan_final` | chain | TABLE_FLOW/FROM (2-hop: +ALIAS) | bdm | 84 |
 | 9 | `rollover@9 → loan_final` | chain | TABLE_FLOW/REFERENCE | bdm | 9 |
-| 10 | `loan_final@64 → sup@160` | chain | TABLE_FLOW/INSERT | bdm | 64 |
+| 10 | ~~`loan_final@64 → sup@160`~~ — merged into C2 (2026-08-10) | chain | TABLE_FLOW/INSERT | bdm | 64 |
 | 11 | `sup@160 → sup@160` | chain | TABLE_FLOW/SELF_JOIN | bdm+sup | 160 |
-| 12 | `data_dt@160 → sup@160` | field flow | value-write (promoted) | bdm+sup | 160 |
+| 12 | `data_dt@160 → ⟐output@0` (re-pinned 2026-08-10) | field flow | TABLE_FLOW (value-write) | bdm+sup | 160 |
 | 13 | `p1.data_dt@43 → bdm@29` | READ | read (promoted) | bdm | 29 |
 | 14 | `p1.data_dt@158 → bdm@84` | READ | read (promoted) | bdm | 84 |
 | 15 | `⟐output@0 → sup@160` | synthetic | TABLE_FLOW/INSERT | bdm+sup | 160 |
-| 16 | `sup@160 → rrcdm@211` | write | TABLE_FLOW/WRITE_READ (DML-routed) | bdm+sup | 211 |
-| 17 | `data_dt@213 → rrcdm@211` | value | value-write (promoted) | sup | 213 |
+| 16 | `⟐output@0 → rrcdm@211` (re-pinned 2026-08-10) | write | TABLE_FLOW/WRITE_READ (DML-routed) | bdm+sup | 211 |
+| 17 | `data_dt@213 → ⟐output@0` (re-pinned 2026-08-10) | value | TABLE_FLOW (value-write) | sup | 213 |
 | 18 | `data_dt@225 → sup@223` | READ | read (post-fix, promoted) | sup | 223 |
 | 19 | `p2.data_dt@202 → p2@199` | READ | read (REF, promoted) | sup | 199 |
 | E1 | `bdm@29 → p1@29` | ALIAS hop | ALIAS | bdm | 29 |
@@ -754,11 +754,11 @@ edges; probe-pinned 2026-08-10).
 | S3 | `p1@84 → p1.data_dt@43` | structure | SCHEMA/TABLE_COLUMN | bdm | 43 |
 | S4 | `p1@84 → p1.data_dt@43` | structure | SCHEMA/TABLE_COLUMN | bdm | 43 |
 | S5 | `p2@199 → p2.data_dt@202` | structure | SCHEMA/TABLE_COLUMN | sup | 202 |
-| B1 | `sup@223 → rrcdm@211` | bridge | SUBSET (residual) | sup | 223 |
+| B1 | `sup@223 → ⟐output@0` (re-pinned 2026-08-10) | bridge | SUBSET (residual) | sup | 223 |
 | C1 | `rollover@9 → ⟐output@0` | chain | TABLE_FLOW/REFERENCE | bdm | 9 |
 | C2 | `loan_final@64 → ⟐output@0` | chain | TABLE_FLOW/REFERENCE | bdm | 64 |
 | C3 | `p2@199 → ⟐output@0` | chain | TABLE_FLOW/FROM | sup | 199 |
-| C4 | `p2@199 → sup@160` | chain | TABLE_FLOW/INSERT | sup | 199 |
+| C4 | ~~`p2@199 → sup@160`~~ — merged into C3 (2026-08-10) | chain | TABLE_FLOW/INSERT | sup | 199 |
 
 Real-type column = the state AFTER the §8.3 promotions land; today's
 probe shows the promotions are live (rows 1/2/12/13/14/17/19 emitted as
@@ -773,10 +773,34 @@ shared `p1.data_dt` field node (hl=43 in the bdm seed — the 158 instance
 survives only in the sup seed) (Sync 1). C1–C4: the closure's
 remaining chain edges into `⟐output@0` / from p2 (chain kind, rule 5 —
 source def line). Per-seed completeness (probe): bdm = pairs 1–16 +
-E1/E2 + S1–S4 + C1/C2 = **24 entries / 22 closure edges** (S2/S4 collapse
-into S1/S3 — one SCHEMA edge per p1 alias, asserted twice); sup = pairs
-11, 12, 15, 16, 17, 18(post-fix), 19 + E3/E4 + S5 + B1 + C3/C4 = **13
-entries = 13 closure edges (pair 18 live since W2, 2026-08-10)**.
+E1/E2 + S1–S4 + C1/C2 = **24 entries / 21 closure edges** after the
+2026-08-10 repair (pair 10 merged into C2 — its direct pin would bypass
+the output VT; S2/S4 collapse into S1/S3 — one SCHEMA edge per p1 alias,
+asserted twice); sup = pairs 11, 12, 15, 16, 17, 18(post-fix), 19 + E3/E4
++ S5 + B1 + C3/C4 = **12 entries = 12 closure edges** (C4 merged into C3,
+same bypass reason; pair 18 live since W2, 2026-08-10).
+
+**Repair (2026-08-10, DML routing — evidence-backed doc repair, never
+engine work).** The label dump of the post-fix filtered L2 output showed
+every INSERT/UPDATE write edge routed through the `output` virtual table
+(the DML-routing design: write edges land on the output VT, which then
+connects to the target table), while rows 10/12/16/17/B1/C4 pinned DIRECT
+table edges that would bypass the output VT — forbidden by the no-bypass
+integration rule ("no TABLE_FLOW edge connects two table nodes where
+neither endpoint is the ⟐ output table"). The response realizes them as
+routed hops; the direct pins are refuted by the response + design:
+row 10 (`loan_final@64 → sup@160`) merges into C2
+(`loan_final@64 → ⟐output@0`, anchor 64, emitted); row 12 re-pins to
+`data_dt@160 → ⟐output@0` (the write edge, anchor 160); row 16 re-pins to
+`⟐output@0 → rrcdm@211` (the write edge, anchor 211); row 17 re-pins to
+`data_dt@213 → ⟐output@0` (the value-write edge, anchor 213); B1 re-pins
+to `sup@223 → ⟐output@0` (the residual SUBSET bridge lands on the VT,
+anchor 223); C4 (`p2@199 → sup@160`) merges into C3
+(`p2@199 → ⟐output@0`, anchor 199, emitted). Row 11 (`sup@160 → sup@160`
+self-loop) is LEFT in the canonical set as the remaining backlog: the
+engine never emits a table self-loop and the doc-vs-engine dispute is a
+user decision. The benchmark fixture (`jaccard_canonical.py` point 6)
+mirrors these repairs; the machine B set is 21 bdm + 12 sup = 33 entries.
 
 Probe finding (2026-08-10): in the bdm seed the L43 and L158 `p1.data_dt`
 instances both resolve to the physical `bdm_acc_loan_info` node and merge

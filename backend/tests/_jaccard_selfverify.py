@@ -141,8 +141,9 @@ def run(seed):
 
 
 def main():
-    print("MODULE WRITTEN -- jaccard_canonical.py (35 CANONICAL_EDGES entries: "
-          "22 bdm + 13 sup; CANONICAL_NODES 16+9; NORMALIZE_MAP 13 entries)")
+    print("MODULE WRITTEN -- jaccard_canonical.py (33 CANONICAL_EDGES entries: "
+          "21 bdm + 12 sup after the 2026-08-10 DML-routing repair; "
+          "CANONICAL_NODES 16+9; NORMALIZE_MAP 13 entries)")
     print("BASELINE_JACCARD (pre-fix date-stamp 2026-08-10):")
     for seed in ("bdm", "sup"):
         print(f"  {seed}: {BASELINE_JACCARD[seed]}")

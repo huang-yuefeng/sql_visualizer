@@ -31,7 +31,7 @@ from app.models.variable import VariableDefinition, VariableType
 
 
 # Bump to invalidate analysis caches when extraction semantics change.
-EXTRACTOR_VERSION = "2026-08-08.1"
+EXTRACTOR_VERSION = "2026-08-10.1"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
@@ -1494,13 +1494,33 @@ class _RoleBasedExtractor:
                 p = sc.split(".", 1)[0]
                 if p not in src_tables:
                     src_tables.append(p)
+        # I1 (hl=0 fix): the synthesized name is the RENDERED expression
+        # ("CONCAT(...)") — `||` renders as CONCAT, so the name never
+        # matches the token stream and the default name-run lookup yields
+        # (0, 0). Anchor the def line on the operand columns' OWN tokens —
+        # W2's clause-keyword idiom from `_register_column`: a qualified
+        # first operand matches the strict `alias . col` run (ret_last
+        # reports the COLUMN's line, not the alias's); a bare one the
+        # loose `on col` run (the JOIN ON keyword, scoped to the
+        # statement), bare [col] as the whole-stream fallback.
+        def_site = None
+        first = sorted(src_cols)[0]
+        parts = first.split(".")
+        if len(parts) >= 2:
+            run: list[str] = [parts[0]]
+            for part in parts[1:]:
+                run += [".", part]
+            def_site = ([run], None, context, True)
+        else:
+            def_site = ([["on", first], [first]], None, context, True, True)
         return self._add(name, VariableType.EXPRESSION,
                          sql_expr=name,
                          defined_in="JOIN ON",
                          context=context,
                          source_cols=src_cols,
                          source_tables=src_tables,
-                         is_output=False)
+                         is_output=False,
+                         def_site=def_site)
 
     def _pair_join_key_sides(self, pairs: list[tuple[str, str]], context: str):
         """Cross-link both sides of every JOIN-key comparison — symmetric
@@ -2271,11 +2291,23 @@ class _RoleBasedExtractor:
 
         defined_in = context
 
+        def_site = None
+        if var_type == VariableType.AGGREGATE and not explicit_alias:
+            # I1 (hl=0 fix): an unaliased aggregate projection auto-names
+            # to a sanitized fragment ("MAXt.data_dt") that never matches
+            # the token stream — anchor the def line on the raw
+            # expression's OWN tokens (MAX ( t . data_dt )), which appear
+            # verbatim in the stream.
+            run = _name_token_run(sql_expr)
+            if run:
+                def_site = ([run], None, context)
+
         var = self._add(alias, var_type,
                         sql_expr=sql_expr,
                         defined_in=defined_in, context=context,
                         source_cols=src_cols, source_tables=apply_tables,
-                        is_output=(not is_cte))
+                        is_output=(not is_cte),
+                        def_site=def_site)
         if var is not None and attr_strategy is not None and not src_tables:
             self._resolution_stats["resolved_by"][attr_strategy] += 1
 

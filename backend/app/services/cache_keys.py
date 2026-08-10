@@ -40,4 +40,4 @@ attribution is extraction-time source_tables only, I2) and the new
 parse_errors key on the graph cache (def-line changes invalidate old
 graphs). Graph JSON format_version stays 4.
 """
-GRAPH_CACHE_PREFIX = "graph_3_2_19"
+GRAPH_CACHE_PREFIX = "graph_3_2_20"

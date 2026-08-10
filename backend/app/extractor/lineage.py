@@ -402,7 +402,11 @@ def filter_relevant(graph_data: dict, target_table: str,
 # window, so those are the members used here.
 FIELD_LIKE = {"column", "cte_column", "literal", "aggregate", "expression",
               "case", "transform", "window"}
-# Field-identity edges: the field itself flows through these (both directions).
+# Field-identity edges: the field itself flows through these. Directionality
+# is per-edge: the REF/READ edges (field → its owning table, dependency_graph
+# Phase 4d/8 — commit 28d8210 retyped them from SUBSET to REF) are walked
+# ONLY field → holder; value-copy REF and the other types here are
+# bidirectional (the walker reads the edge's `read` flag from the adjacency).
 FIELD_LAND = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED"}
 # Never walked by the strict walker. TABLE_FLOW/SCHEMA are replaced by
 # identity resolution (SCHEMA's label-keyed targets are last-writer-wins and
@@ -571,8 +575,16 @@ def compute_field_flow(graph_data, target_table, target_field,
             continue
         src, tgt = ed.get("source"), ed.get("target")
         etype = ed.get("edge_type") or ed.get("relationship")
-        adjacency.setdefault(src, []).append((tgt, etype, True))
-        adjacency.setdefault(tgt, []).append((src, etype, False))
+        # `read` flag: REF edges with operation == "READ" are field→table
+        # reads — walkable ONLY from the field node to its holder (forward),
+        # never from the table back out into sibling fields (the L2
+        # field-flood defect). Value-copy REF (operation != READ) and all
+        # other FIELD_LAND types keep both directions. The flag rides the
+        # adjacency entries so the seed-zone BFS and the expansion loop
+        # apply the same rule.
+        read = bool(etype == "REF" and (ed.get("operation") or "") == "READ")
+        adjacency.setdefault(src, []).append((tgt, etype, True, read))
+        adjacency.setdefault(tgt, []).append((src, etype, False, read))
 
     idx = _owner_index(nodes)
 
@@ -601,8 +613,11 @@ def compute_field_flow(graph_data, target_table, target_field,
                 if cur in zone:
                     continue
                 zone.add(cur)
-                for (nb, et, _fwd) in adjacency.get(cur, []):
-                    if et in FIELD_LAND and nb not in zone:
+                for (nb, et, fwd, read) in adjacency.get(cur, []):
+                    # read edges traverse field → holder only (same rule as
+                    # the expansion loop).
+                    if (et in FIELD_LAND and nb not in zone
+                            and not (read and not fwd)):
                         stack.append(nb)
             _zone_memo[nid] = nid in zone
         return _zone_memo[nid]
@@ -650,11 +665,16 @@ def compute_field_flow(graph_data, target_table, target_field,
         stack = list(visited)
         while stack:
             nid = stack.pop()
-            for (nb, et, fwd) in adjacency.get(nid, []):
+            for (nb, et, fwd, read) in adjacency.get(nid, []):
                 if nb in visited:
                     continue
                 if et in FIELD_LAND:
-                    admit = True
+                    # REF/READ (field → its owning table) admits only in the
+                    # forward direction; the reverse traversal (table →
+                    # sibling fields) is what flooded the L2 closure.
+                    # Value-copy REF and the other FIELD_LAND types remain
+                    # bidirectional.
+                    admit = fwd if read else True
                 elif et == "ALIAS":
                     nb_var = node_map.get(nb)
                     nb_st = (nb_var or {}).get("source_tables") or []

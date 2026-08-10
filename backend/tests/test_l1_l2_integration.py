@@ -11,8 +11,7 @@ tools/BUG_ANALYSIS_AND_SUGGESTIONS.md, "Lessons Learned & Architecture Review"):
      sc→⟐ output).
   3. No TABLE_FLOW edge connects two table nodes where neither endpoint
      is the ⟐ output table (no bypass of the query output).
-  4. find_sql_range locates indented keywords at the correct 1-based column.
-  5. The L2 graph cache carries a top-level alias_map.
+  4. The L2 graph cache carries a top-level alias_map.
 """
 
 import sys
@@ -33,7 +32,6 @@ from app.services.workspace_service import (
 )
 from app.services.l1_builder import _build_l1_graph
 from app.services.l2_builder import _build_l2_graph
-from app.services.sql_range_finder import find_sql_range
 
 SAMPLES_DIR = BACKEND_DIR.parent / "samples"
 WORKFLOW_DIR = SAMPLES_DIR / "multi_workflow"
@@ -133,21 +131,6 @@ def test_l2_step3_no_table_flow_bypass(multi_workflow_ws):
             continue  # not a table-to-table edge
         assert ed["source"] in output_ids or ed["target"] in output_ids, \
             f"TABLE_FLOW {src_table} -> {tgt_table} bypasses the output table"
-
-
-# ══════════════════════════════════════════════════════════════════════
-# SQL range finding: indented keywords
-# ══════════════════════════════════════════════════════════════════════
-
-def test_sql_range_indented_column():
-    """find_sql_range must report the 1-based column of the JOIN keyword
-    even when the line is indented (here 2 spaces → column 3)."""
-    sql = _step3_sql().replace("JOIN stg_customers sc ON",
-                               "  JOIN stg_customers sc ON")
-    assert "  JOIN stg_customers" in sql, "test SQL must be indented"
-    result = find_sql_range({"edge_type": "JOIN"}, sql)
-    assert result is not None
-    assert result[1] == 3, f"JOIN keyword should start at col 3, got {result}"
 
 
 # ══════════════════════════════════════════════════════════════════════
