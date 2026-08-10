@@ -215,6 +215,12 @@ propagated [160,202,213].
 
 ## 5. Highlight ground truth
 
+> **⚠️ SUPERSEDED (2026-08-10, user ruling):** §5 (field-occurrence
+> highlight lines) and the §7.2 "Highlights" block are superseded by the
+> formal definition in **§8 — Highlight is per-edge (edge = one data flow),
+> there is no field highlight**. The line sets here remain useful only as
+> fallback candidates for edge spans (§8.3.2). Kept for the audit trail.
+
 ### 5.1 The field's own lines — current tool output is CORRECT
 
 Verified byte-exact (live API, 2026-08-06): `[[18,18],[43,43],[158,158],[160,160]]`
@@ -373,6 +379,11 @@ reports actual types so type mismatches are visible, but does not fail on them
 
 **Highlights:**
 
+> **⚠️ SUPERSEDED (2026-08-10, user ruling):** the field-occurrence
+> highlight is removed by the formal definition in §8 (edge-driven
+> highlights only). These line sets are kept as fallback candidates
+> (§8.3.2) and as the audit trail of what was once asserted.
+
 ```
 field bdm_acc_loan_info.data_dt:  [[18,18],[43,43],[158,158],[160,160]]  (byte-exact)
 propagated bdm_acc_loan_info_sup.data_dt: [160, 202, 213]  (L225 = KNOWN GAP,
@@ -467,3 +478,98 @@ test_global_sanity deps pin 649 → 737 with a snapshot-semantics note
 (deltas are findings to classify, not automatic failures). The count is
 NOT a semantic invariant of the closure spec (§7.2 defines nodes/edges/
 sinks/highlights only).
+
+---
+
+## 8. Highlight — formal definition (v3.3.147, user ruling 2026-08-10)
+
+> This section is the AUTHORITATIVE definition of the highlight feature.
+> It supersedes §5 and the §7.2 "Highlights" block (marked ⚠️ there).
+> No implementation happened when this was written — the definition is
+> the contract for the next iteration round.
+
+### 8.1 Feature definition
+
+The highlight feature visualizes, **for each data flow (L2 edge)**, the SQL
+script lines where that flow is expressed. Selecting an edge in the L2 graph
+highlights its script span in the SQL panel; the closure-level highlight set
+is the union of the per-edge spans over the filtered edges.
+
+**Edge = one data flow.** Every L2 edge represents exactly one data flow
+between its endpoints. If multiple distinct flows exist between the same two
+nodes, they are emitted as **multiple edges** — flows are never merged into
+one edge. (Consequence: edge count == data-flow count. This matches the
+benchmark's per-endpoint-pair coverage model in §7.2 — each of the 16
+canonical pairs is one flow.)
+
+### 8.2 What is NOT part of the feature
+
+**There is no field highlight.** Highlighting script lines solely because a
+field variable occurs there (the old `highlights` = lines of the closure's
+field-like vars, e.g. `[[18,18],[43,43],[158,158],[160,160]]`) is not wanted.
+The field-occurrence display layer must be removed from the L2 response /
+SQL panel. Field lines survive only as *fallback candidates* for edge spans
+(§8.3.2) — they are not a display layer by themselves.
+
+### 8.3 Edge-highlight contract (per edge e, in priority order)
+
+1. **Exact range (first choice):** the script span expressing the flow,
+   derived from extraction-time info — the flow's def line (`line_start`,
+   I1 def-site semantics) expanded to a range by the designated module
+   `sql_range_finder` (`find_sql_range`, `partition_edge_ranges`). This is
+   the module the user calls out as already built for exactly this purpose:
+   one line from the SQL parser → a range. No reconstruction from rendered
+   output (existing rule — build on extraction-time info only).
+2. **Fallback single line (when the exact range is difficult):** at least
+   one line, obtained by **field-name text matching** of the flow's field
+   inside the flow's owning statement — deliberate simplicity, by design.
+   The field line sets of §5 are the known-good candidates for this.
+3. **Synthetic-flow exception:** a flow whose source node is synthetic
+   (e.g. `⟐ output@0`, `⟐ subq@0` — line 0, no script presence of their own)
+   uses the span of the statement they serve (e.g. the DML statement the
+   output VT feeds), so the ≥1-line guarantee still holds.
+
+**Guarantee:** every edge's highlight contains **at least one script line**
+(`line_start ≥ 1`, `line_end ≥ line_start`). A span with inverted or
+out-of-bounds columns is a defect, not a valid highlight.
+
+### 8.4 Counting invariant
+
+- Per edge: exactly **one primary span** ⇒ per-edge highlight count == edge
+  count. For the canonical spec: 16 canonical edges ⇒ 16 highlight spans.
+- Multiple edges may share one span (e.g. two flows emanating from the same
+  predicate line, L43: FILTER `p1.data_dt@43 → ⟐subq@0` AND READ
+  `p1.data_dt@43 → p1@29`). Deduping shared lines for display is a
+  *rendering* decision, not a semantic one; the edge→span mapping is
+  one-to-one and the benchmark asserts it **per edge**.
+
+### 8.5 Benchmark impact (next iteration round)
+
+- `CANONICAL_HIGHLIGHTS` (field lines) and `CANONICAL_PROPAGATED` are
+  superseded. Replaced by **CANONICAL_EDGE_RANGES**: for each of the 16
+  canonical edges, the expected span — exact where determinable (§8.3.1),
+  else the guaranteed single line via §8.3.2/§8.3.3.
+- `test_highlights` / `test_propagated_field` are reworked into per-edge
+  span assertions (rename: `test_edge_ranges`), asserting:
+  (a) every closure edge has ≥1 line (`line_start ≥ 1`, not inverted);
+  (b) each canonical edge's span matches its expected entry.
+- Defect 5 (L225): the extractor still creates no var at L225. Under the new
+  definition its impact is no longer "missing field line" but "the flow of
+  stmt2's WHERE read may lack an edge or an exact span" — the §8.3.2
+  field-name match is the documented path that can still surface L225 as a
+  fallback line. Kept as a known-gap marker until the extractor is fixed.
+- The closure spec (§7.2 nodes/edges/sinks) is UNCHANGED by this ruling —
+  only the highlight layer is redefined.
+
+### 8.6 Current-system gaps this definition exposes (bug list §v3.3.147)
+
+1. The field-highlight layer still exists (level2 `highlights` from field
+   vars + `highlight_strategies` `single_line`) — must be removed.
+2. Edge `sql_range` quality is broken on the live sample (verified 2026-08-10):
+   inverted SUBSET ranges `[94,32,94,19]` (start col > end col, out of
+   bounds → empty highlight), ALIAS edges anchored at the alias's first
+   column use (`[66,14,69,30]`) instead of the alias-def line, coarse
+   table-read spans (`[15,5,15,32]` = just `FROM`). These are the concrete
+   fix targets of the next iteration, judged by §8.3/§8.4.
+3. The old invariant "highlight count == edge count" was 4 vs 16 under the
+   field model; under §8.4 it holds by construction (16 edges ⇒ 16 spans).

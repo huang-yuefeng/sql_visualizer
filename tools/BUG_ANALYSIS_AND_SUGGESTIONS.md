@@ -3455,3 +3455,57 @@ Open concerns (non-blocking, from the main-session audit of commit da6e18f):
    exactly; benign, but the ALIAS chain edges become unreachable for the
    walker's closure (the ALIAS rule keys on target_table) — re-visit if the
    full L2 view should render the alias intermediate.
+
+## v3.3.147 — HIGHLIGHT REDEFINITION: edge-driven, no field highlight (2026-08-10, user ruling — definition only, NOT implemented)
+
+### The ruling (user, verbatim intent)
+
+- The highlight feature visualizes the corresponding SQL script lines for
+  **the data flow of a certain edge**.
+- Initial assumption: **every edge corresponds to one data flow**.
+  1. In L2, every edge corresponds to one data flow; multiple data flows
+     between nodes ⇒ multiple edges (no merging).
+  2. **There is no field highlight** — visualizing script lines for fields
+     is not what we want.
+  3. The highlight must contain **at least one script line**; when the
+     exact range is difficult, fall back to a single line via **field-name
+     text matching** of the flow's field (simplicity, by design). The
+     module that expands one parser-extracted line to a range
+     (`sql_range_finder`) is exactly the mechanism for this.
+
+Formal definition written into GROUND_TRUTH_BDM_ACC_LOAN_INFO_SUP.md §8
+(edge contract §8.3, counting invariant §8.4, benchmark impact §8.5).
+§5 / §7.2-Highlights marked SUPERSEDED. This entry is the implementation
+checklist for the next iteration round.
+
+### Implementation targets (on explicit order only)
+
+1. **Remove the field-highlight layer.** Level2 response `highlights` must
+   no longer be derived from field-like closure vars; `highlight_strategies`
+   `single_line`/`label_only` concept is obsolete for L2 search. The
+   closure-level highlight set = union of per-edge spans (edge `sql_range`).
+2. **Fix edge `sql_range` quality** (live-verified defects, workspace
+   73044295bb66, 2026-08-10):
+   - SUBSET edges (incl. the v3.3.146 Phase-4d READ edges): inverted
+     `[94,32,94,19]` — start col 32 > end col 19, L94 (`) accu`) is 15 chars
+     → empty fragment. Must be ≥1 real line per §8.3.
+   - ALIAS edges: anchored at the alias's first column use
+     (`[66,14,69,30]` → `p1.lending_ref` in the SELECT list) instead of the
+     alias-def line (L29). Re-anchor to the def site.
+   - Coarse table-read spans `[15,5,15,32]` (just `FROM`) — acceptable
+     fallback only if the exact range is genuinely hard (§8.3.2 field-name
+     match would give the field's line instead; prefer the more specific).
+3. **Rework the benchmark to edge-range ground truth.** Replace
+   `CANONICAL_HIGHLIGHTS`/`CANONICAL_PROPAGATED` with
+   `CANONICAL_EDGE_RANGES` (16 canonical edges → expected span, exact or
+   fallback single line). `test_highlights`/`test_propagated_field` →
+   `test_edge_ranges` asserting per-edge: ≥1 line, not inverted, and each
+   canonical edge's span matches. Old invariant "highlight count == edge
+   count" holds by construction (16 edges ⇒ 16 spans, §8.4).
+
+### Unchanged by this ruling
+
+- §7.2 closure spec (13 nodes / 16 edge pairs / 2 sinks) — untouched.
+- Defect 5 (L225 no var) stays a known gap; under the new model it surfaces
+  as a possible missing edge/span for stmt2's WHERE read, with §8.3.2
+  field-name match as the documented fallback path to still show L225.
