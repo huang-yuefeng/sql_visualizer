@@ -3594,6 +3594,33 @@ Written into GROUND_TRUTH §8.3 (per-edge anchor table) / §8.4 / §8.5.
   (FILTER/JOIN semantics); VTs carry creation lines (pairs 5/6/15).
 - Edge-D anchor: L199 (p2's alias-definition line) — the READ rule applies.
 
+### v3.3.147 addendum 4 (2026-08-10) — Flaw-5 boundary rule RULED: chain edges count
+
+**Ruling (user):** "I think this is better: chain edges count." The Flaw-5
+boundary rule is ACCEPTED as proposed:
+- **Counts**: a real anchor line (field appearance / alias-definition-FROM /
+  VT-creation) OR a walkable chain edge (TABLE_FLOW / ALIAS / DML) — the
+  row-set carriers between field appearances, anchored at the flow's entry
+  line (source def / VT creation). The 19-pair spec stands, including the
+  8 chain pairs (2/4/5/6/8/9/10/11) anchored on lines without field tokens —
+  the trace stays continuous between L18 and L160 (the field is inside the
+  flow, not printed on the carrier's lines).
+- **Never**: SUBSET/BRIDGE — peremptory, not even a tie-breaker
+  (`sup@223 → rrcdm@211` out; the `data_dt@213 → rrcdm@211` bridge variants
+  out as bridges); SCHEMA containment (I5); INDIRECT endpoint-decided.
+- **Prerequisite accepted**: type promotions — pair 17 (SUBSET/BRIDGE →
+  value-write type), pair 19 (SUBSET/READ → join-key read type); without
+  them the peremptory exclusion would drop flows already ruled in.
+- **Rejected alternative**: field-appearance-only (11 pairs, gaps between
+  field appearances).
+Written into GROUND_TRUTH §8.3 (boundary-rule block). The formal definition
+is now complete: §8.1 line-only model, §8.3 five anchor rules + 19-pair
+table + boundary rule, §8.4 counting 19 ⇒ 19, §8.5 CANONICAL_EDGE_LINES,
+§8.6 gaps.
+**Still open before implementation**: (a) the AND/OR continuation
+regression confirmation (sql_range_finder removal — a multi-line WHERE
+lights only the anchor line); (b) the implementation order itself.
+
 **Defect-5 root cause (recorded, probe-verified 2026-08-10):** the WHERE
 walk DOES register L225's `data_dt` (new COLUMN var, TOP1 context), but
 `_find_position_scoped` (v3.3.140) stamps it 213: the anchor is 212 (the
