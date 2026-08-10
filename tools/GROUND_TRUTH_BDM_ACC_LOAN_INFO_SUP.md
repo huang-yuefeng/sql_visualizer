@@ -602,10 +602,44 @@ Excluded, peremptorily:
   variants stay out as bridges — they are replaced by the promoted pair 17).
 - **SCHEMA containment never counts** (I5 — structure, not a value flow).
 - **INDIRECT** counts iff the field's token sits at an endpoint.
-Prerequisite (accepted with the rule): the machinery must promote the
-mislabeled real flows out of SUBSET — pair 17 (SUBSET/BRIDGE → value-write
-type), pair 19 (SUBSET/READ → join-key read type) — otherwise the
-peremptory exclusion would wrongly drop flows already ruled in.
+Prerequisite (accepted with the rule; probe-pinned list, 2026-08-10): the
+machinery must promote the mislabeled real flows out of SUBSET — the probe
+shows **SEVEN** canonical pairs currently typed SUBSET (the earlier 17/19
+list was incomplete):
+- SUBSET/BRIDGE → honest type: pair 1 (`data_dt@18 --SUBSET/BRIDGE-->
+  bdm_acc_loan_info@16` — the field's filter, promote to FILTER/REF-family),
+  pair 2 (`bdm@16 --SUBSET/BRIDGE--> rollover@9` — the row-set carrier,
+  promote to TABLE_FLOW), pair 12 (`data_dt@160 --SUBSET/BRIDGE-->
+  sup@160` — the partition write, promote to value-write), pair 17
+  (`data_dt@213 --SUBSET/BRIDGE--> rrcdm@211` — the value write, promote to
+  value-write);
+- SUBSET/READ → honest read: pair 13 (`p1.data_dt@43 --SUBSET/READ-->
+  p1@29`), pair 14 (`p1.data_dt@158 --SUBSET/READ--> p1@84`), pair 19
+  (`p2.data_dt@202 --SUBSET/READ--> p2@199` — join-key read, FILTER/JOIN
+  semantics); pair 18 joins this list once Defect-5 is fixed (L225's
+  `data_dt` then registers and its read edge must also come out of SUBSET).
+Without the promotions, the peremptory exclusion would wrongly drop flows
+already ruled in.
+
+**Probe findings (2026-08-10) — how the graph realizes the 19 pairs:**
+- Pairs 4 and 8 have **no single direct edge** — they are realized as two
+  hops (`bdm@29 --ALIAS--> p1@29` + `p1@29 --TABLE_FLOW/FROM--> ⟐subq@0`;
+  same shape at @84). Both hops anchor at the pair's line (29 / 84); the
+  benchmark normalizes via `_canon_key` (alias node → canonical source
+  table) and matches the pair through the FROM hop.
+- Pairs 9 and 10 are **direct edges** — `p6@155` and `p1@198` never
+  materialize as nodes (`TABLE_FLOW/REFERENCE` and `TABLE_FLOW/INSERT`).
+- **Extras beyond the 19** — the closures also carry real flows with real
+  anchors: the ALIAS hops `bdm@29→p1@29` (29), `bdm@84→p1@84` (84),
+  `sup@160→p2@199` (160) and the JOIN condition `p2.data_dt@202
+  --JOIN/JOIN_CONDITION--> ⟐output@0` (202 — the condition line itself).
+  All are genuine flows per the rules; their anchors coincide with the
+  pairs' lines except the JOIN's 202. Whether they are separately counted
+  (each gets `highlight_line` in the payload) or folded into their
+  canonical pair is PENDING USER CONFIRMATION (§8.10).
+- The SCHEMA containment edges (`p1@29→p1.data_dt@43/158`, `p1@84→…`,
+  `p2@199→p2.data_dt@202`) never count (I5); the bridges (`sup@223→
+  rrcdm@211`, the `data_dt@213→rrcdm@211` bridge variant) never count.
 
 **Scope note — robustness, NOT the contract.** Every canonical edge must
 have its exact anchor line per the rules above; a canonical edge without one
@@ -645,26 +679,151 @@ token-run extension (bug list §v3.3.147 addendum 2).
   by the token-run extension (bug list §v3.3.147 addendum 2), which also
   dissolves the duplicate `data_dt@213`; pair 19 exists as a mislabeled
   closure extra (SUBSET/READ) — must be promoted to an honest join-key read.
-- The §7.2 closure spec (13 nodes / 16 edge pairs / 2 sinks) is UNCHANGED —
+  (Plus the four probe-pinned upstream promotions of §8.3: pairs 1, 2, 12,
+  13, 14.)
+- **Closure seeds (probe-pinned 2026-08-10): no single L2 search seed
+  covers all 19 pairs.** The `bdm_acc_loan_info.data_dt` seed yields pairs
+  1–16 (16 nodes / 24 edges); the `bdm_acc_loan_info_sup.data_dt` seed
+  yields pairs 11, 12, 15, 16, 17, 19 (8 nodes / 12 edges). The 19-pair
+  spec is the UNION over the two seeds; `test_edge_lines` asserts pairs
+  1–16 on the bdm seed and pairs 17/19 (+ 18 post-fix) on the sup seed.
+  The §7.2 closure spec (13 nodes / 16 edge pairs / 2 sinks) is UNCHANGED —
   only the highlight layer is redefined; the highlight spec gains the three
   extra pairs.
 
 ### 8.6 Current-system gaps this definition exposes (bug list §v3.3.147)
 
 1. The field-highlight layer still exists (level2 `highlights` from field
-   vars + `highlight_strategies` `single_line`) — must be removed.
+   vars + `highlight_strategies` `single_line`) — must be removed together
+   with the `propagated` payload field. After removal the L2 payload carries
+   per-edge `highlight_line` only (plus the per-edge `flow_kind`/`reason`
+   of §8.8) — no line-list payload fields remain.
 2. `sql_range_finder` is removed entirely (line-only model, §8.1). The L2
    payload replaces edge `sql_range`/`sql_ranges` with edge `highlight_line`;
    the frontend click highlight uses that one line. The range behaviors die
    with the module — including the Bug-4 AND/OR continuation extension
    (v3.3.66): a multi-line WHERE lights only the anchor line now.
-   **Intentional, but pending the user's explicit confirmation of that
-   specific regression.**
+   **CONFIRMED by the user (2026-08-10): "one line highlight is very simple
+   and efficient. Just use it."** — accepted, not a regression to repair.
 3. Line-resolution collapse 3→1 + no stale-cache repair (recorded rulings,
    bug list §v3.3.147 addendum 2) — the Defect-5 fix and the duplicate
    `data_dt@213` split land here.
-4. Type promotions at extraction time: pair 17 (SUBSET/BRIDGE → value
-   write), pair 19 (SUBSET/READ → join-key read); VTs carry creation lines
-   (pairs 5/6/15). Without the promotions, the Flaw-5 boundary rule (bug
-   list, pending ruling) would wrongly exclude flows already ruled in.
+4. Type promotions at extraction time — **three** pairs, all probe-pinned
+   2026-08-10: pair 12 (`data_dt@160 --SUBSET/BRIDGE--> bdm_acc_loan_info_sup@160`
+   — the partition write must promote to field-flow/value-write), pair 17
+   (SUBSET/BRIDGE → value-write), pair 19 (SUBSET/READ → join-key read);
+   VTs carry creation lines (pairs 5/6/15). Without the promotions, the
+   Flaw-5 boundary rule (ruled 2026-08-10) would wrongly exclude flows
+   already ruled in.
 5. Benchmark rework to the 19-pair `CANONICAL_EDGE_LINES` (§8.5).
+
+### 8.7 Real edge types → flow kind → highlight contract (16-row mapping, 2026-08-10)
+
+> User requirement: the definition includes **both edge types** (the real
+> 16-type taxonomy and the semantic flow kind) **and whether the edge
+> highlights**, with the detailed rules. Kind is assigned **per edge** (real
+> type + endpoint roles), never per type alone — a REF edge pointing back at
+> its owning table is a READ (rule 2), the same type flowing forward is a
+> field flow (rule 1). The kind and the anchor line are both derived at
+> extraction time (never reconstructed at render).
+
+| # | Real type | Flow kind | Highlighted | Anchor rule | Canonical instances / notes (probe 2026-08-10) |
+|---|-----------|-----------|-------------|-------------|------------------------------------------------|
+| 1 | TABLE_FLOW | chain | ✅ | 5 — entry line (source def) or VT creation | pairs 2 (post-promotion), 4 & 8 (FROM hop), 5 & 6 (SUBSELECT), 9 (REFERENCE), 10 (INSERT), 11 (SELF_JOIN), 15 (INSERT) |
+| 2 | ALIAS | chain | ✅ | 5 — entry line | hops `bdm@29→p1@29`, `bdm@84→p1@84`, `sup@160→p2@199` (extras, §8.10) |
+| 3 | DML | write | ✅ | 3 — write line | pair 16 (WRITE_READ @211) |
+| 4 | REF | field flow / READ | ✅ | 1 — appearance; 2 — alias-def (READ variant) | promotion target for pairs 13/14; pair 18 post-fix |
+| 5 | AGGREGATE | field flow | ✅ | 1 | no instance in the canonical sample |
+| 6 | TRANSFORM | field flow | ✅ | 1 | no instance in the canonical sample |
+| 7 | WINDOW | field flow | ✅ | 1 | verification sample: `snowflake_qualify.sql` (2 edges, e.g. `order_date@4 --WINDOW--> rn@6` → anchor 4) |
+| 8 | COMPUTED | field flow | ✅ | 1 | no instance in the canonical sample |
+| 9 | FILTER | field flow | ✅ | 1 | pairs 3, 7 (CONDITION); pair 1 post-promotion |
+| 10 | JOIN | field flow | ✅ | 1 — appearance | pair 19 post-promotion (join-key read); extra `p2.data_dt@202 --JOIN/JOIN_CONDITION--> ⟐output@0` (anchor 202) |
+| 11 | CORRELATED | — (config-only) | — | — | **never emitted as a `relationship`** — correlated subqueries are emitted as INDIRECT with operation `CORRELATED`/`CORRELATED_OUT` (probe, dependency_graph.py:487/495); style/range config only |
+| 12 | SET_OP | field flow | ✅ | 1 | verification sample: `tpcds_qualified/86.sql` (`union_result@0 --SET_OP--> results_rollup@14`) |
+| 13 | SUBQUERY | field flow / chain | ✅ | 1 / 5 | not observed on the canonical sample; VT chains there are TABLE_FLOW/SUBSELECT |
+| 14 | INDIRECT | filter (correlated) | ✅ iff the field's token sits at an endpoint | endpoint-decided | verification sample: `spider_complex/046_pets_1_s6.sql` (15 edges, e.g. `T1.stuid@3 --INDIRECT/CORRELATED--> T1.stuid@3` → anchor 3) |
+| 15 | SCHEMA | structure | ❌ never | — (I5 containment) | `p1@29→p1.data_dt@43/158`, `p1@84→…`, `p2@199→p2.data_dt@202` (probe, excluded) |
+| 16 | SUBSET | bridge | ❌ never — **except the seven promoted pairs** (1, 2, 12, 13, 14, 17, 19), which stop being SUBSET at extraction | — | bridges `sup@223→rrcdm@211`, `data_dt@213→rrcdm@211` (probe, excluded) |
+
+Per-pair real-type map (probe-pinned; the 19 pairs as they exist today):
+
+| # | Pair | Current real type | Action |
+|---|------|-------------------|--------|
+| 1 | `data_dt@18 → bdm@16` | SUBSET/BRIDGE | promote → FILTER/REF-family |
+| 2 | `bdm@16 → rollover@9` | SUBSET/BRIDGE | promote → TABLE_FLOW |
+| 3 | `p1.data_dt@43 → ⟐subq` | FILTER/CONDITION | none |
+| 4 | `bdm@29 → ⟐subq` | 2-hop: ALIAS + TABLE_FLOW/FROM | none (pair matched via FROM hop) |
+| 5 | `⟐subq → ⟐subq1` | TABLE_FLOW/SUBSELECT | none |
+| 6 | `⟐subq1 → rollover@9` | TABLE_FLOW/SUBSELECT | none |
+| 7 | `p1.data_dt@158 → loan_final` | FILTER/CONDITION | none |
+| 8 | `bdm@84 → loan_final` | 2-hop: ALIAS + TABLE_FLOW/FROM | none |
+| 9 | `rollover@9 → loan_final` | TABLE_FLOW/REFERENCE | none (p6@155 not a node) |
+| 10 | `loan_final@64 → sup@160` | TABLE_FLOW/INSERT | none (p1@198 not a node) |
+| 11 | `sup@160 → sup@160` | TABLE_FLOW/SELF_JOIN | none |
+| 12 | `data_dt@160 → sup@160` | SUBSET/BRIDGE | promote → value-write |
+| 13 | `p1.data_dt@43 → bdm@29` | SUBSET/READ | promote → read (REF) |
+| 14 | `p1.data_dt@158 → bdm@84` | SUBSET/READ | promote → read (REF) |
+| 15 | `⟐output@0 → sup@160` | TABLE_FLOW/INSERT | none |
+| 16 | `sup@160 → rrcdm@211` | DML/WRITE_READ | none |
+| 17 | `data_dt@213 → rrcdm@211` | SUBSET/BRIDGE | promote → value-write |
+| 18 | `data_dt@225 → sup@223` | **missing (Defect-5)** | Defect-5 fix → read (post-fix SUBSET/READ → promote) |
+| 19 | `p2.data_dt@202 → p2@199` | SUBSET/READ | promote → join-key read (FILTER/JOIN) |
+
+### 8.8 L2 display of flow kind + edge type (R25, requirement — design pending user approval)
+
+**Requirement (user, 2026-08-10):** "the reason of highlight should be in
+L2 for simplicity. Before user clicking, he should know the data flow type."
+The L2 graph must communicate, **before any click**: (a) the edge type (the
+16-type taxonomy — already encoded by color/line style + legend) and (b) the
+**flow kind** — the reason the edge is a highlighted flow (field flow /
+chain / READ / value / write / synthetic — §8.7) — plus its anchor line.
+
+**Suggested design (no code yet — pending approval):**
+1. **Payload** — every L2 edge carries, from extraction time: `highlight_line`
+   (int, the anchor), `flow_kind` (the semantic kind), `reason` (short
+   human string, e.g. "READ — p1.data_dt read via alias p1 @ L29").
+   `sql_range`/`sql_ranges`/`highlights`/`propagated` are removed (§8.6).
+2. **Hover tooltip (before click — primary surface)** — extend the existing
+   `edge-tooltip`: edge type (already shown) + flow-kind badge + "→ SQL
+   L{anchor}" + the reason string. Hover requires no click and no graph
+   clutter.
+3. **Legend** — group the 16 types by flow kind with ✅/❌ marks (counts vs
+   excluded: SCHEMA/SUBSET-bridge) so the user learns *which* types
+   highlight and *why* at a glance.
+4. **Click** — SQL panel scrolls to `highlight_line`, highlights that one
+   line, and echoes the reason as a small tag on the line.
+5. **Optional** — toggleable edge-midpoint labels showing `flow_kind` on
+   highlighted edges only (default off — graph clutter).
+
+### 8.9 Verification plan — the four types absent from the canonical sample (user ruling: verify-first)
+
+The user chose (b) verify-first: find real-SQL samples for INDIRECT /
+WINDOW / CORRELATED / SET_OP and verify their anchors **before** any
+implementation. Corpus scan (2026-08-10, 256 files + full tpcds_qualified):
+
+| Type | Candidate script | Lines | Evidence | Expected anchor |
+|------|------------------|-------|----------|-----------------|
+| WINDOW | `dialect_test/snowflake_qualify.sql` | 9 | 2 WINDOW edges (`order_date@4 --WINDOW--> rn@6`, `customer_id@3 --WINDOW--> rn@6`) | rule 1 — source field's appearance line (4 / 3) |
+| SET_OP | `tpcds_qualified/86.sql` | 32 | 1 SET_OP (`union_result@0 --SET_OP--> results_rollup@14`) + 4 WINDOW in the same script | rule 1/4 — to be pinned by the probe round (VT-sourced: creation line) |
+| INDIRECT | `spider_complex/046_pets_1_s6.sql` | 3 | 15 INDIRECT (`T1.stuid@3 --INDIRECT/CORRELATED--> T1.stuid@3`, 5 CORRELATED + 10 CORRELATED_OUT) | endpoint-decided — token at both endpoints → anchor 3 |
+| CORRELATED | **no script produces a `CORRELATED` relationship** | — | emitted as INDIRECT/CORRELATED (dependency_graph.py:487/495) | n/a — the taxonomy row is config-only; INDIRECT's rule covers correlated subqueries |
+
+Probe round (next step, part of the work list): run the L2 pipeline on the
+three candidate scripts, pin each type's anchor expectation, and add
+mini-samples to the benchmark if they remain canonical.
+
+### 8.10 Open confirmations (2026-08-10) — everything else is ruled
+
+1. **L2 display design** (§8.8) — approve the suggested surface (hover
+   tooltip + legend + click tag; optional edge labels).
+2. **Extras counting** — the 3 ALIAS hops (`bdm@29→p1@29`, `bdm@84→p1@84`,
+   `sup@160→p2@199`) and the JOIN condition (`p2.data_dt@202 → ⟐output@0`)
+   are real flows with real anchors under the boundary rule; recommendation:
+   each gets `highlight_line` in the payload (the canonical 19 remain the
+   benchmark contract; anchors coincide with pairs' lines except the JOIN's
+   202, which is the condition line — correct to highlight).
+3. **Two-seed benchmark** (§8.5) — accept that `test_edge_lines` asserts
+   pairs 1–16 on the bdm seed and 17/19 on the sup seed (the L2 search
+   seed determines which zone renders — current behavior, confirmed by
+   probe).

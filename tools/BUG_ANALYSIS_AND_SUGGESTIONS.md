@@ -3562,11 +3562,11 @@ what we have decided to remove"):
 only): extraction is the sole source of lines; L2 computes per-edge
 highlight entries from var-carried lines + alias-def info; display
 strategies and the payload/frontend are unchanged in shape (see the
-working-layers walkthrough in the conversation). Remaining quality item
-still on the fix list: `sql_range_finder` span quality — its render-time
-text reconstruction is a patch layer; direction per the never-patch
-ruling is extraction-time token extents (inverted `[94,32,94,19]`, coarse
-FROM spans, ALIAS mis-anchors are the known live defects).
+working-layers walkthrough in the conversation). **SUPERSEDED by addendum
+3/5:** `sql_range_finder` is removed entirely (line-only model, user:
+"we only highlight a line instead of a range") — its span quality defects
+(inverted `[94,32,94,19]`, coarse FROM spans, ALIAS mis-anchors) die with
+the module instead of being fixed.
 
 ### v3.3.147 addendum 3 (2026-08-10) — self-join read ruled IN; the 19-pair spec (user ruling)
 
@@ -3586,12 +3586,14 @@ Written into GROUND_TRUTH §8.3 (per-edge anchor table) / §8.4 / §8.5.
   highlight a line instead of a range") — the payload carries edge
   `highlight_line`; the frontend click highlights that one line; the
   range-expansion behaviors die with the module, including the Bug-4
-  AND/OR continuation extension (v3.3.66) — intentional regression, pending
-  the user's explicit confirmation of that specific item.
-- New target: **type promotions** so the Flaw-5 boundary rule (pending
-  ruling) admits the confirmed flows — pair 17: SUBSET/BRIDGE → value-write
-  type (REF/DML semantics); pair 19: SUBSET/READ → honest join-key read
-  (FILTER/JOIN semantics); VTs carry creation lines (pairs 5/6/15).
+  AND/OR continuation extension (v3.3.66) — intentional regression,
+  **CONFIRMED acceptable 2026-08-10** (addendum 5).
+- New target: **type promotions** so the Flaw-5 boundary rule (ruled in
+  addendum 4) admits the confirmed flows — pair 17: SUBSET/BRIDGE →
+  value-write type (REF/DML semantics); pair 19: SUBSET/READ → honest
+  join-key read (FILTER/JOIN semantics); VTs carry creation lines (pairs
+  5/6/15). **AMENDED by addendum 5 (probe-pinned): the SUBSET set is SEVEN
+  pairs — 1, 2, 12, 13, 14, 17, 19** (§8.7 per-pair map).
 - Edge-D anchor: L199 (p2's alias-definition line) — the READ rule applies.
 
 ### v3.3.147 addendum 4 (2026-08-10) — Flaw-5 boundary rule RULED: chain edges count
@@ -3619,7 +3621,10 @@ table + boundary rule, §8.4 counting 19 ⇒ 19, §8.5 CANONICAL_EDGE_LINES,
 §8.6 gaps.
 **Still open before implementation**: (a) the AND/OR continuation
 regression confirmation (sql_range_finder removal — a multi-line WHERE
-lights only the anchor line); (b) the implementation order itself.
+lights only the anchor line) — **CONFIRMED 2026-08-10, addendum 5**
+("one line highlight is very simple and efficient. Just use it.");
+(b) the implementation order itself — **replaced by the work list in
+addendum 5** (no source code before user approval).
 
 **Defect-5 root cause (recorded, probe-verified 2026-08-10):** the WHERE
 walk DOES register L225's `data_dt` (new COLUMN var, TOP1 context), but
@@ -3631,3 +3636,73 @@ data_dt`). Hence no var carries line 225, and the duplicate `data_dt@213`
 (literal + column sharing one stamp) is the same root cause. Fix (ruled,
 addendum 2): token-run matching extended to reads — L225 matches its own
 token, the duplicate dissolves, pair 18 is unblocked.
+
+### v3.3.147 addendum 5 (2026-08-10) — final rulings + probe matrix + WORK LIST (definition complete)
+
+**Four rulings (user):**
+1. **AND/OR continuation regression CONFIRMED**: "one line highlight is
+   very simple and efficient. Just use it." — multi-line conditions light
+   only the anchor line; accepted, not to repair.
+2. **Definition must include both edge types + highlight decision + rules**,
+   updated in the formal definition, requirement, and solution BEFORE any
+   source code: GROUND_TRUTH §8.7 (16-row real-type → flow-kind →
+   highlighted? map + per-pair real-type table), REQUIREMENTS R25, this
+   addendum. **Plus a new L2 display requirement**: the reason of highlight
+   (flow kind) must be visible in L2 before clicking — design suggested in
+   §8.8 (hover tooltip + legend grouping + click echo), pending approval.
+3. **Verify-first approved (option b)**: probe real-SQL anchors for
+   INDIRECT/WINDOW/CORRELATED/SET_OP before implementation — candidates
+   pinned (§8.9): `snowflake_qualify.sql` (WINDOW), `tpcds_qualified/86.sql`
+   (SET_OP+WINDOW), `spider_complex/046_pets_1_s6.sql` (INDIRECT).
+   **Discovery: CORRELATED is never emitted as a relationship** — correlated
+   subqueries are INDIRECT/CORRELATED(_OUT) (dependency_graph.py:487/495).
+4. **Payload/UI statements written** (§8.6, §8.8): payload carries
+   `highlight_line` + `flow_kind` + `reason` only; `highlights`/`propagated`/
+   `sql_range`/`sql_ranges` die; shared lines accepted with multiplicity
+   (rendering decision only).
+
+**Probe matrix (2026-08-10, both closures, seed-parameterized probe):**
+- **Closure seeds split the spec**: bdm seed → pairs 1–16 (16 nodes / 24
+  edges); sup seed → pairs 11, 12, 15, 16, 17, 19 (8 nodes / 12 edges).
+  No single seed covers all 19 → benchmark asserts pairs 1–16 on the bdm
+  seed, 17/19 (+18 post-fix) on the sup seed (§8.5).
+- **Seven pairs typed SUBSET today** (promotions, §8.3/§8.7): SUBSET/BRIDGE
+  — pairs 1, 2, 12, 17; SUBSET/READ — pairs 13, 14, 19 (+18 post-fix).
+- **Pairs 4 & 8 have no direct edge** — 2-hop (ALIAS + TABLE_FLOW/FROM),
+  both hops anchor at the pair's line; pairs 9 & 10 are direct (p6@155 /
+  p1@198 never materialize).
+- **Extras with real anchors**: ALIAS hops bdm@29→p1@29 (29), bdm@84→p1@84
+  (84), sup@160→p2@199 (160) + JOIN condition p2.data_dt@202→⟐output@0
+  (202). Recommendation: count them (each is a real flow); PENDING user
+  confirmation (§8.10.2).
+- **Defect-5 re-confirmed**: `data_dt@225` exists in NO closure; sup@223
+  exists with only the excluded bridge. Pair 18 stays blocked until the
+  token-run fix.
+- **Excluded by rule, probe-visible**: SCHEMA containment edges
+  (p1@29→p1.data_dt@43/158, p1@84→…, p2@199→p2.data_dt@202) and the
+  bridges (sup@223→rrcdm@211, data_dt@213→rrcdm@211).
+
+**Docs updated this round:** GROUND_TRUTH §8.3 (prerequisite + probe
+findings), §8.5 (two-seed benchmark), §8.7 (mapping), §8.8 (L2 display),
+§8.9 (verification plan), §8.10 (open confirmations); REQUIREMENTS R25;
+addenda 2–4 amended (stale promotion list, pending marks, sql_range
+quality item).
+
+**THE WORK LIST (implementation order — NO SOURCE CODE before user
+approval of this list and of §8.10's confirmations):**
+
+| # | Item | Depends on | Verification |
+|---|------|-----------|--------------|
+| W1 | Anchor probe round on the 3 candidates (WINDOW / SET_OP / INDIRECT) — pin §8.9 expectations | — | probe output → §8.9 table complete |
+| W2 | Defect-5 fix: token-run matching extended to reads (L225 registers, duplicate `data_dt@213` dissolves) | — | pair 18 present, anchor 223 |
+| W3 | Type promotions at extraction: pairs 1, 2, 12, 13, 14, 17, 19 → honest types | W2 (pair 18) | per-pair map §8.7 |
+| W4 | Line-resolution collapse 3→1: delete `_find_position`/`_find_position_scoped`; `_find_def_position` for every add; no stale-cache repair (`map_variables_to_lines` fallback gone) | — | probe: no text-search paths left |
+| W5 | Per-edge payload: edge `highlight_line` (+ `flow_kind` + `reason`); remove `sql_range`/`sql_ranges`/`highlights`/`propagated`; remove `sql_range_finder` + dead import | W2–W4 | payload shape test |
+| W6 | VTs carry creation lines (pairs 5/6/15: 26/22/160) | — | anchors 26/22/160 |
+| W7 | Frontend (R25): click → `highlight_line`; hover tooltip shows edge type + flow kind + anchor; legend grouped by kind; reason tag on click | W5 + §8.8 approval | live check |
+| W8 | Benchmark rework: `CANONICAL_EDGE_LINES` 19 pairs × two seeds; `test_edge_lines` (exists + exact anchor + ≥1) | W2–W6 | pytest green |
+| W9 | Docs closed out (benchmark contract update), version bump, deploy per target_deploy.sh | W7–W8 | live check on 192.168.0.66:8000 |
+
+Gates: G1 = user approves §8.10 (display design, extras counting,
+two-seed benchmark); G2 = user approves this work list; G3 = per-item
+verification. Docs-only until G1+G2.

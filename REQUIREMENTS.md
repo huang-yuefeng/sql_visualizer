@@ -1271,3 +1271,58 @@ into L2. Both the search response and the level1 endpoint produced the
 - [ ] Backend scoped tests pass (8 new R24 tests); live verification:
       fresh single-script workspace upload → search → L1 shows the script
       node
+
+## R25 — Per-edge single-line highlight + flow-kind display in L2 (requirement change, 2026-08-10)
+
+> **Priority:** P1 | **Date:** 2026-08-10 | **Status:** DEFINED (user rulings) — not implemented; implementation blocked on the approved work list. Formal definition: GROUND_TRUTH §8 (authoritative), REQUIREMENTS R18 lineage context, bug list §v3.3.147.
+
+**Description:** The highlight feature visualizes, **for each data flow
+(L2 edge)**, the ONE script line where that flow is expressed. Selecting an
+edge highlights its anchor line in the SQL panel. The L2 graph must show
+the **flow kind** (the reason of highlight) and the **edge type** before
+any click. Supersedes the old field-line highlight layer and the
+range-expansion layer (`sql_range_finder`).
+
+### Requirement
+
+1. **Edge = one data flow.** Multiple flows between the same two nodes are
+   emitted as multiple edges — never merged. Edge count == data-flow count.
+2. **Per-edge highlight = exactly ONE script line** (the anchor per the
+   five anchor rules: field appearance / alias-def-FROM / write-group
+   appearance / VT creation / chain entry — GROUND_TRUTH §8.3). Never a
+   range; line 0 or a missing line is a defect.
+3. **No field highlight.** The old field-line layer (`highlights`,
+   `propagated`) and the range layer (`sql_range`, `sql_ranges`,
+   `sql_range_finder`) are removed; each edge carries `highlight_line`
+   (+ `flow_kind` + `reason`, §8.8) from extraction time.
+4. **Both edge types and the highlight decision are part of the
+   definition** — the 16-row real-type → flow-kind → highlighted? mapping
+   with the detailed rules (GROUND_TRUTH §8.7). SCHEMA and SUBSET-bridge
+   never highlight; the seven probe-pinned canonical pairs typed SUBSET
+   (1, 2, 12, 13, 14, 17, 19) are promoted at extraction time to their
+   honest types.
+5. **Reason of highlight visible in L2 before click.** The L2 graph
+   communicates edge type (color/line style + legend) AND flow kind (field
+   flow / chain / READ / value / write / synthetic) — hover tooltip +
+   legend grouping + click echo (design §8.8, pending approval).
+6. **Counting invariant:** 19 canonical pairs ⇒ 19 anchor lines
+   (CANONICAL_EDGE_LINES benchmark, asserted across the two closure seeds
+   bdm/sup per §8.5).
+
+### Acceptance criteria
+
+- [ ] `test_edge_lines` passes: pairs 1–16 exact anchors on the
+      bdm_acc_loan_info seed; pairs 17/19 (+ 18 after the Defect-5 fix)
+      exact anchors on the bdm_acc_loan_info_sup seed
+- [ ] L2 edge payload carries `highlight_line`/`flow_kind`/`reason`; no
+      `sql_range`/`sql_ranges`/`highlights`/`propagated`
+- [ ] Clicking an edge highlights exactly its anchor line in the SQL panel;
+      multi-line conditions light only the anchor line (AND/OR continuation
+      regression CONFIRMED acceptable, 2026-08-10)
+- [ ] Hovering an edge (before click) shows edge type + flow kind + anchor
+      line; the legend groups the 16 types by flow kind with count/not
+      marks
+- [ ] The 7 SUBSET promotions land at extraction time (pairs 1, 2, 12,
+      13, 14, 17, 19) — no render-time re-typing
+- [ ] Defect-5 fixed: L225's `data_dt` registers (token-run extended to
+      reads); duplicate `data_dt@213` dissolved; pair 18 present
