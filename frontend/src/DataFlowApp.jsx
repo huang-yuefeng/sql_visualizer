@@ -347,16 +347,16 @@ export default function DataFlowApp() {
     if (l2Filtered) {
       // Switching to "Show All": fetch unfiltered graph
       if (l2FullGraph) {
-        setL2Graph(l2FullGraph);
-        // R10-#19: keep the selection in sync with the graph actually
-        // shown — the fetch path auto-selects via applyL2Result, so the
-        // cached path must do the same (pickAutoEdge is null-safe).
-        setSelectedEdge(pickAutoEdge({ graph: l2FullGraph }));
+        // Cache the full unfiltered RESPONSE (not just the graph) so this
+        // path routes through applyL2Result like the fetch path — edge
+        // selection, not-in-flow banner and parse-error state can never
+        // go stale from a previous view/script.
+        applyL2Result(l2FullGraph);
         setL2Filtered(false);
       } else {
         try {
           const result = await api.getLevel2Graph(wsId, parentId, currentScriptName, false);
-          setL2FullGraph(result.graph);
+          setL2FullGraph(result);
           applyL2Result(result);
           setL2Filtered(false);
         } catch (e) { setError(e.message); }
@@ -400,6 +400,10 @@ export default function DataFlowApp() {
   const handleDeleteView = useCallback(async (viewId) => {
     if (!wsId) return;
     try { await api.deleteView(wsId, viewId); } catch (e) { /* ignore */ }
+    // The ref must not keep pointing at a deleted view — handleOpenL2
+    // prefers it over activeViewId, so a stale ref would address the API
+    // with a dead view id (wrong parent chain / back navigation).
+    if (parentViewIdRef.current === viewId) parentViewIdRef.current = null;
     setViews(prev => {
       let newViews = prev.filter(v => v.view_id !== viewId);
       newViews = newViews.map(v => ({
@@ -648,7 +652,7 @@ export default function DataFlowApp() {
               </div>
             )}
             <DataFlowGraph
-              graphData={l2Filtered ? l2Graph : l2FullGraph}
+              graphData={l2Filtered ? l2Graph : l2FullGraph.graph}
               level="L2"
               layoutMode={layoutMode}
               breadcrumb={[]}

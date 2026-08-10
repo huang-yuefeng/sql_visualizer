@@ -114,8 +114,13 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     if (o.onBgTap) cy.on('tap', e => { if (e.target === cy) o.onBgTap(e); });
 
     cyRef.current = cy;
-    window.__cy = cy;
-    if (containerRef.current?.closest('.panel-center')) window.__cy1 = cy;
+    // Devtools-only debug handles (nothing in the app reads them). Gated
+    // on DEV so the globals never exist in production; both are cleared
+    // on unmount so they can't outlive the cytoscape instance.
+    if (import.meta.env.DEV) {
+      window.__cy = cy;
+      if (containerRef.current?.closest('.panel-center')) window.__cy1 = cy;
+    }
 
     // ── Initial layout ──────────────────────────────────────────
     cy.ready(() => {
@@ -130,8 +135,13 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     return () => {
       if (cy && !cy.destroyed()) cy.destroy();
       cyRef.current = null;
-      if (window.__cy === cy) {
-        window.__cy = (window.__cy1 && !window.__cy1.destroyed?.()) ? window.__cy1 : null;
+      if (import.meta.env.DEV) {
+        if (window.__cy === cy) {
+          window.__cy = (window.__cy1 && !window.__cy1.destroyed?.()) ? window.__cy1 : null;
+        }
+        // __cy1 was never cleared before — a destroyed instance could
+        // linger after unmount (and even be promoted into __cy above).
+        if (window.__cy1 === cy) window.__cy1 = null;
       }
     };
   }, [graphData, containerRef]);
