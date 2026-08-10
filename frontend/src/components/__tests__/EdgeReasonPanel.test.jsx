@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import EdgeReasonPanel from '../EdgeReasonPanel';
 
 const edge = {
@@ -54,5 +54,109 @@ describe('EdgeReasonPanel — R25/§8.8 (below the SQL panel)', () => {
     render(<EdgeReasonPanel edge={{ id: 'x' }} />);
     expect(screen.getByText('Flow Reason')).toBeInTheDocument();
     expect(screen.getByText('—')).toBeInTheDocument();
+  });
+});
+
+// ── R11-3: code evidence (backend `mech` payload) ─────────────────────
+const mechEdge = {
+  id: 'e1',
+  edge_type: 'TABLE_FLOW',
+  flow_kind: 'chain',
+  highlight_line: 9,
+  reason: 'chain — rollover_loan_info@L9 → ‖loan_final@L64‖',
+  color: '#2ECC71',
+  mech: {
+    clause: 'JOIN',
+    ref_line: 155,
+    alias: 'p6',
+    use_lines: [82, 156],
+    sentence: 'loan_final (L64) reads rollover_loan_info (L9) via LEFT JOIN at L155 (alias p6)',
+  },
+};
+
+const SQL_TEXT = [
+  'WITH rollover_loan_info AS (',
+  '  SELECT id FROM raw',
+  ')',
+  'SELECT *',
+  'FROM loan_final',
+  'LEFT JOIN rollover_loan_info p6',
+  '  ON p6.id = p1.id',
+  'WHERE p6.lending_ref = 1',
+  'INSERT OVERWRITE TABLE sup',
+].join('\n');
+
+describe('EdgeReasonPanel — R11-3 code evidence (mech payload)', () => {
+  it('renders the flow sentence above the code evidence block', () => {
+    render(<EdgeReasonPanel edge={mechEdge} sqlText={SQL_TEXT} />);
+    expect(screen.getByText(/reads rollover_loan_info \(L9\) via LEFT JOIN at L155/)).toBeInTheDocument();
+    expect(screen.getByText('Code evidence')).toBeInTheDocument();
+  });
+
+  it('renders one row per line — ref site, uses, def — sorted and labeled', () => {
+    const { container } = render(<EdgeReasonPanel edge={mechEdge} sqlText={SQL_TEXT} />);
+    const rows = container.querySelectorAll('.edge-reason-evidence-row');
+    // highlight_line 9 (def of source) + ref_line 155 + use_lines 82, 156 → 4 rows, ascending
+    expect(rows.length).toBe(4);
+    expect(rows[0].getAttribute('data-line')).toBe('9');
+    expect(rows[0].textContent).toContain('def of source');
+    expect(rows[0].textContent).toContain('L9: INSERT OVERWRITE TABLE sup');
+    expect(rows[1].getAttribute('data-line')).toBe('82');
+    expect(rows[1].textContent).toContain('join key / value use');
+    expect(rows[2].getAttribute('data-line')).toBe('155');
+    expect(rows[2].textContent).toContain('reference site · JOIN');
+    expect(rows[3].getAttribute('data-line')).toBe('156');
+  });
+
+  it('renders "(line not available)" for lines beyond the script text', () => {
+    const { container } = render(<EdgeReasonPanel edge={mechEdge} sqlText={SQL_TEXT} />);
+    const rows = container.querySelectorAll('.edge-reason-evidence-row');
+    // Lines 82/155/156 lie beyond the 9-line script
+    expect(rows[1].textContent).toContain('(line not available)');
+    expect(rows[2].textContent).toContain('(line not available)');
+    expect(rows[3].textContent).toContain('(line not available)');
+  });
+
+  it('dedupes lines that serve several roles (ref_line === highlight_line)', () => {
+    const dupEdge = {
+      ...mechEdge,
+      highlight_line: 155,
+      mech: { ...mechEdge.mech, ref_line: 155, use_lines: [156] },
+    };
+    const { container } = render(<EdgeReasonPanel edge={dupEdge} sqlText={SQL_TEXT} />);
+    const rows = container.querySelectorAll('.edge-reason-evidence-row');
+    expect(rows.length).toBe(2);
+    expect(rows[0].getAttribute('data-line')).toBe('155');
+    expect(rows[0].textContent).toContain('reference site · JOIN');
+    expect(rows[1].getAttribute('data-line')).toBe('156');
+  });
+
+  it('calls onJumpToLine with the row line when clicked', () => {
+    const onJumpToLine = vi.fn();
+    const { container } = render(
+      <EdgeReasonPanel edge={mechEdge} sqlText={SQL_TEXT} onJumpToLine={onJumpToLine} />
+    );
+    fireEvent.click(container.querySelector('[data-line="155"]'));
+    expect(onJumpToLine).toHaveBeenCalledTimes(1);
+    expect(onJumpToLine).toHaveBeenCalledWith(155);
+    fireEvent.click(container.querySelector('[data-line="9"]'));
+    expect(onJumpToLine).toHaveBeenCalledWith(9);
+  });
+
+  it('renders exactly the R25 output when mech is absent (backward compatible)', () => {
+    const { container } = render(<EdgeReasonPanel edge={edge} />);
+    expect(container.querySelector('.edge-reason-mech')).toBeNull();
+    expect(screen.getByText('chain')).toBeInTheDocument();
+    expect(screen.getByText('Anchor: L43')).toBeInTheDocument();
+    // ‖…‖ emphasis untouched
+    const seg = container.querySelector('.edge-reason-segment');
+    expect(seg.textContent).toBe('p1@L29 → p1.data_dt@L43');
+  });
+
+  it('tolerates an empty sqlText (all rows out of range)', () => {
+    const { container } = render(<EdgeReasonPanel edge={mechEdge} sqlText="" />);
+    const rows = container.querySelectorAll('.edge-reason-evidence-row');
+    expect(rows.length).toBe(4);
+    expect(rows[0].textContent).toContain('(line not available)');
   });
 });

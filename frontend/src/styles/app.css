@@ -382,6 +382,55 @@
 }
 .edge-reason-segment { font-weight: bold; }
 
+/* ── R11-3 code evidence (mech payload) — flow sentence + clickable rows ─ */
+.edge-reason-panel.edge-reason-with-evidence { height: auto; max-height: 260px; }
+.edge-reason-mech { width: 100%; }
+.edge-reason-sentence {
+  color: #ccc;
+  font-family: monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 2px 0;
+}
+.edge-reason-evidence { width: 100%; border-top: 1px solid #2a2a4a; padding-top: 4px; }
+.edge-reason-evidence-title {
+  display: block;
+  font-size: 0.62rem;
+  color: #888;
+  text-transform: uppercase;
+  font-weight: bold;
+  margin-bottom: 2px;
+}
+.edge-reason-evidence-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  padding: 2px 4px;
+  color: #ccc;
+  font-family: monospace;
+  font-size: 0.7rem;
+  text-align: left;
+  cursor: pointer;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.edge-reason-evidence-row:hover { background: rgba(243, 156, 18, 0.12); color: #fff; }
+.edge-reason-evidence-label {
+  color: #888;
+  flex-shrink: 0;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.edge-reason-evidence-code { color: inherit; }
+
 /* Buttons */
 .btn { padding: 6px 12px; border: none; border-radius: 3px; cursor: pointer; font-size: 0.78rem; }
 .btn-primary { background: #2ECC71; color: #000; }

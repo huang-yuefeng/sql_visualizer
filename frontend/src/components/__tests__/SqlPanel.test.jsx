@@ -1,3 +1,4 @@
+import { createRef } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import SqlPanel from '../SqlPanel';
@@ -48,5 +49,28 @@ describe('SqlPanel — R25 single-line edge highlight', () => {
     // prop must not be part of the component surface anymore.
     const { container } = render(<SqlPanel sqlText={SQL} scriptName="s.sql" highlights={[[1, 2]]} />);
     expect(container.querySelectorAll('.highlighted').length).toBe(0);
+  });
+});
+
+describe('SqlPanel — R11-3 scrollToLine imperative API', () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('scrollToLine scrolls the requested line into view', () => {
+    const ref = createRef();
+    render(<SqlPanel ref={ref} sqlText={SQL} scriptName="s.sql" />);
+    ref.current.scrollToLine(2);
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it('scrollToLine tolerates missing and out-of-range lines', () => {
+    const ref = createRef();
+    render(<SqlPanel ref={ref} sqlText={SQL} scriptName="s.sql" />);
+    expect(() => ref.current.scrollToLine(99)).not.toThrow();
+    expect(() => ref.current.scrollToLine(0)).not.toThrow();
+    expect(() => ref.current.scrollToLine(-3)).not.toThrow();
+    expect(() => ref.current.scrollToLine(null)).not.toThrow();
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 });
