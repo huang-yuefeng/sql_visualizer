@@ -1,6 +1,8 @@
 """Dataflow service — cross-script field tracing, L1/L2 graph building, relevance filter."""
 import asyncio
 import json
+import os
+import threading
 import uuid
 import hashlib
 from datetime import datetime, timezone
@@ -308,6 +310,19 @@ def _filter_l1_by_lineage(l1_graph: dict, target_table: str, target_field: str) 
                           and e.get("data", e).get("target") in keep_ids]
 
     return {**l1_graph, "nodes": filtered_nodes, "edges": filtered_edges}
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write text via a temp file + os.replace (E4, item 8).
+
+    A direct write_text can leave a truncated/partial cache file behind on
+    crash or disk-full, which a later unguarded json.loads turns into a
+    500. The temp-name suffix makes concurrent writers safe (each writes
+    its own temp file); os.replace is atomic on the same filesystem.
+    """
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
 def get_level2_graph(ws_id: str, view_id: str, script_name: str,
                      table: str, field: str, filter_relevant_nodes: bool = True) -> dict:
     """Build L2 graph for a script. Loads pre-computed graph cache,
@@ -320,11 +335,17 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     ws_dir = get_workspace_dir(ws_id)
     from app.services.logger import api_request, stage_graph
 
-    scripts_dir = ws_dir / "scripts"
     cache_dir = ws_dir / "cache"
 
-    sp = scripts_dir / script_name
-    if not sp.exists():
+    # E4 (item 1, H1-hardening): `script_name` is user-controlled and was
+    # joined raw into the scripts path (`scripts_dir / script_name`) —
+    # `script=/app/VERSION` (absolute) read the container's VERSION file
+    # and `../../<other_ws>/scripts/x.sql` read another workspace's scripts.
+    # Resolve against the workspace scripts dir via the shared containment
+    # resolver (filter_service.resolve_script) and never read a directory.
+    from app.services.filter_service import resolve_script
+    sp = resolve_script(ws_id, script_name)
+    if sp is None or not sp.is_file():
         return {"error": f"Script '{script_name}' not found"}
 
     sql_text = sp.read_text(encoding="utf-8", errors="replace")
@@ -337,13 +358,33 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     # Try pre-computed graph cache (C3: shared GRAPH_CACHE_PREFIX — writers
     # and readers must agree on the versioned name)
     graph_cache_path = cache_dir / f"{GRAPH_CACHE_PREFIX}_{cache_key}.json"
+    graph_data = None
     if graph_cache_path.exists():
-        graph_data = json.loads(graph_cache_path.read_text())
-        stage_graph(len(graph_data.get('nodes',[])), len(graph_data.get('edges',[])), ws_id=ws_id)
-        # Bug 25: Load cached table_schemas on cache hit
-        if schemas_cache_path.exists():
-            table_schemas = json.loads(schemas_cache_path.read_text())
-    else:
+        try:
+            _cached_graph = json.loads(graph_cache_path.read_text())
+        except Exception:
+            _cached_graph = None  # E4 (item 8): corrupt/partial cache — miss
+        # E4 (item 5): the graph cache carries the extractor version stamped
+        # at write time; a hit from an older extractor is stale (extraction-
+        # semantics changes must never serve old graphs) — mirror the
+        # analysis-cache check in the miss path below.
+        if (_cached_graph is not None
+                and _cached_graph.get("extractor_version") == EXTRACTOR_VERSION):
+            graph_data = _cached_graph
+            stage_graph(len(graph_data.get('nodes',[])), len(graph_data.get('edges',[])), ws_id=ws_id)
+            # Bug 25: Load cached table_schemas on cache hit. E4: the
+            # schemas cache is versioned implicitly — it is written in the
+            # same miss as the graph cache and only read under a graph hit,
+            # so the graph stamp gates both files. A corrupt/missing schemas
+            # cache is a miss (rebuilds the pair together).
+            if schemas_cache_path.exists():
+                try:
+                    table_schemas = json.loads(schemas_cache_path.read_text())
+                except Exception:
+                    table_schemas = None
+            if table_schemas is None:
+                graph_data = None
+    if graph_data is None:
         # Build on-demand
         from app.extractor.adapter import run_full_analysis
         from app.services.graph_service import build_graph_data
@@ -354,12 +395,15 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         analysis_cache_path = cache_dir / f"analysis_{cache_key}.json"
         result = None
         if analysis_cache_path.exists():
-            result = json.loads(analysis_cache_path.read_text())
+            try:
+                result = json.loads(analysis_cache_path.read_text())
+            except Exception:
+                result = None  # E4 (item 8): corrupt analysis cache — re-run
             # C10 (v3.3.140): analysis caches from an older extractor are
             # stale (extraction-semantics changes — phantom subquery dedup,
             # PARTITION vars — must never serve old analysis) — ignore the
             # cache and re-run the full analysis on mismatch.
-            if result.get("extractor_version") != EXTRACTOR_VERSION:
+            if result is not None and result.get("extractor_version") != EXTRACTOR_VERSION:
                 result = None
         if result is None:
             result = run_full_analysis(sql_text, script_name, ws_id=ws_id)
@@ -370,7 +414,9 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
             result.get("variables", []), result.get("dependencies", []))
         # Bug 25: Cache table_schemas alongside graph
         cache_dir.mkdir(parents=True, exist_ok=True)
-        schemas_cache_path.write_text(json.dumps(table_schemas, default=str))
+        # E4 (item 8): atomic writes — a torn cache file must never be
+        # readable as a "hit" (reads treat corrupt files as a miss anyway).
+        _atomic_write_text(schemas_cache_path, json.dumps(table_schemas, default=str))
         # C-10: also write the versioned GRAPH cache so the next request
         # hits the fast path (previously the miss path only wrote schemas,
         # so every on-demand build re-ran the full analysis).
@@ -380,7 +426,14 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         # on the analysis result — stamp them onto the graph cache so the
         # fast path serves the same data (stale caches default to [] below).
         graph_data["parse_errors"] = result.get("parse_errors", [])
-        graph_cache_path.write_text(json.dumps(graph_data, default=str))
+        # E4 (item 5): stamp the extractor version into the graph cache so
+        # reads from an older extractor are detected and rebuilt. The
+        # schemas cache is versioned implicitly through this stamp (written
+        # in the same miss, read only under a graph hit); it keeps its raw
+        # dict shape because l2_builder._load_or_build_graph (not owned by
+        # E4) reads it unversioned.
+        graph_data["extractor_version"] = EXTRACTOR_VERSION
+        _atomic_write_text(graph_cache_path, json.dumps(graph_data, default=str))
 
     # v3.3.145 (case-3): parse_errors ride the graph cache (stamped at
     # write time); stale caches predating this default to [] — no
@@ -455,7 +508,10 @@ def _load_views(ws_id: str) -> list:
 
     views_path = ws_dir / "cache" / "views.json"
     if views_path.exists():
-        return json.loads(views_path.read_text())
+        try:
+            return json.loads(views_path.read_text())
+        except Exception:
+            return []  # E4 (item 8): corrupt views.json — start fresh, never 500
     return []
 
 
@@ -464,7 +520,23 @@ def _save_views(ws_id: str, views: list):
     from app.services.logger import api_request
 
     views_path = ws_dir / "cache" / "views.json"
-    views_path.write_text(json.dumps(views, indent=2, ensure_ascii=False))
+    _atomic_write_text(views_path, json.dumps(views, indent=2, ensure_ascii=False))
+
+
+# E4 (item 6): serialize views.json load→append→save. Without this, two
+# concurrent searches could both load the same views list, both append,
+# and one view would be silently lost (read-modify-write race). A
+# threading.Lock held across the WHOLE sequence inside ONE worker thread
+# (asyncio.to_thread) — no blocking on the event loop, and the lock is
+# never held across an await.
+_views_lock = threading.Lock()
+
+
+def _persist_view_locked(ws_id: str, view: dict) -> None:
+    with _views_lock:
+        views = _load_views(ws_id)
+        views.append(view)
+        _save_views(ws_id, views)
 
 
 async def _persist_search_view(ws_id: str, view: dict):
@@ -473,12 +545,13 @@ async def _persist_search_view(ws_id: str, view: dict):
     Shared by create_search and the F1 no_matches path (dataflow.py), so
     every search — even an empty one — survives reload (R3).
     L9: the write embeds the full L1 graph cache — run it in a worker thread
-    so large workspaces don't stall the event loop.
+    so large workspaces don't stall the event loop. E4: load→append→save
+    runs under _views_lock inside the same worker thread (lost-update
+    race fix; the persisted content shape — full L1 graph in the view — is
+    a design decision, unchanged).
     """
     view.setdefault("created_at", datetime.now(timezone.utc).isoformat())
-    views = _load_views(ws_id)
-    views.append(view)
-    await asyncio.to_thread(_save_views, ws_id, views)
+    await asyncio.to_thread(_persist_view_locked, ws_id, view)
 
 
 def list_views(ws_id: str) -> list:

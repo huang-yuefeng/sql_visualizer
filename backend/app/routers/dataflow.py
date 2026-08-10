@@ -263,18 +263,30 @@ async def get_level1(ws_id: str, view_id: str):
 
 
 @router.get("/workspace/{ws_id}/views/{view_id}/level2")
-async def get_level2(ws_id: str, view_id: str, script: str = Query(...),
-                      filter: bool = Query(True)):
+def get_level2(ws_id: str, view_id: str, script: str = Query(...),
+               filter: bool = Query(True)):
     """Get L2 per-script graph for a view's script.
 
     W5/R25: every edge carries its per-edge payload (highlight_line /
     flow_kind / reason) built at L2 build time — the old response-level
     `highlights` and the `highlight_strategy` query param are gone (R25
     item 3); the payload is unconditional.
+
+    E4 (item 2): plain `def`, not `async def` — the cold path runs the
+    full extraction pipeline (parse + graph + schema infer + cache
+    writes), which must run in FastAPI's threadpool, never on the event
+    loop (one request used to freeze the whole service).
+    E4 (item 1): `script` is user-controlled — validate it against the
+    workspace scripts dir via the shared containment resolver before any
+    read/pipeline work; a traversal attempt gets the same error shape the
+    service returns for a genuinely missing script.
     """
+    from app.services.filter_service import resolve_script
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    if resolve_script(ws_id, script) is None:
+        return {"error": f"Script '{script}' not found"}
     views = list_views(ws_id)
 
     # Find parent view
@@ -300,10 +312,19 @@ async def get_level2(ws_id: str, view_id: str, script: str = Query(...),
 @router.get("/workspace/{ws_id}/scripts/{script_name}/highlight")
 async def get_highlight(ws_id: str, script_name: str,
                          table: str = Query(...), field: str = Query(...)):
-    """Get SQL highlight ranges for a script."""
+    """Get SQL highlight ranges for a script.
+
+    E4 (item 3): `script_name` previously joined raw into the scripts path
+    — `script=..` raised IsADirectoryError (500). Route through the
+    containment resolver; missing / not-a-file → 404.
+    """
+    from app.services.filter_service import resolve_script
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    sp = resolve_script(ws_id, script_name)
+    if sp is None or not sp.is_file():
+        raise HTTPException(status_code=404, detail=f"Script '{script_name}' not found")
     return get_highlight_ranges(ws_id, script_name, table, field)
 
 
