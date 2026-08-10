@@ -108,7 +108,10 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     if (o.onHoverLeave) cy.on('mouseout', 'node', e => o.onHoverLeave(e));
     if (o.onEdgeTap) cy.on('tap', 'edge', e => o.onEdgeTap(e));
     if (o.onEdgeHover) cy.on('mouseover', 'edge', e => o.onEdgeHover(e));
-    if (o.onBgTap) cy.on('tap', e => o.onBgTap(e));
+    // R25/§8.8: background taps only — element taps bubble to the core,
+    // so guard on e.target === cy (tap on canvas/empty space clears the
+    // edge selection; a node/edge tap must never trigger the clear).
+    if (o.onBgTap) cy.on('tap', e => { if (e.target === cy) o.onBgTap(e); });
 
     cyRef.current = cy;
     window.__cy = cy;

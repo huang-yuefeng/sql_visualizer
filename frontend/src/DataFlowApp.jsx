@@ -5,6 +5,7 @@ import FilterPanel from './components/FilterPanel';
 import ViewBar from './components/ViewBar';
 import DataFlowGraph from './components/DataFlowGraph';
 import SqlPanel from './components/SqlPanel';
+import EdgeReasonPanel from './components/EdgeReasonPanel';
 import LogPanel from './components/LogPanel';
 import ResolutionReport from './components/ResolutionReport';
 import * as api from './api/client';
@@ -43,8 +44,6 @@ export default function DataFlowApp() {
   // A3: statement-level parse errors from the level2 response
   // ({stmt_idx, detail}[]; [] when the script parses clean).
   const [l2ParseErrors, setL2ParseErrors] = useState([]);
-  const [highlights, setHighlights] = useState([]);
-  const [sqlHighlightRange, setSqlHighlightRange] = useState(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState(null);
@@ -85,6 +84,9 @@ export default function DataFlowApp() {
   const applyL2Result = useCallback((result) => {
     setL2Graph(result.graph);
     setL2Result(result);
+    // R25: every L2 entry path lands on a fresh graph — no stale edge
+    // selection (and no reason-panel content) from a previous script.
+    setSelectedEdge(null);
     // Contract: search_matched === false → the search field is not in this
     // script (graph is the full unfiltered one); field absent from the
     // response means the search target matched (or none exists).
@@ -112,6 +114,7 @@ export default function DataFlowApp() {
         setActiveL1Table(null); setCurrentScriptName(''); setL2Filtered(true);
         setL2FullGraph(null); setResolutionStats(null); setOrphanFieldSamples(null);
         setSchemaCandidates(null); setSchemaEvidence(null);
+        setSelectedEdge(null);
         setShowLog(true);
       }
       const result = await api.uploadWorkspace(file);
@@ -197,6 +200,7 @@ export default function DataFlowApp() {
       setL2Graph(null);
       setSqlText('');
       setActiveL1Table(null);
+      setSelectedEdge(null);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -214,7 +218,6 @@ export default function DataFlowApp() {
       const result = await api.getLevel2Graph(wsId, viewIdForApi, scriptName);
       applyL2Result(result);
       setSqlText(result.sql_text || '');
-      setHighlights(result.highlights || []);
       setCurrentScriptName(scriptName);
       setGraphLevel('L2');
       setL2Filtered(true);
@@ -276,7 +279,6 @@ export default function DataFlowApp() {
         const result = await api.getLevel2Graph(wsId, entry.parent_view_id, entry.script_name);
         applyL2Result(result);
         setSqlText(result.sql_text || '');
-        setHighlights(result.highlights || []);
         setCurrentScriptName(entry.script_name);
         setGraphLevel('L2');
         setL2Filtered(true);
@@ -295,6 +297,7 @@ export default function DataFlowApp() {
       setL2ParseErrors([]);
       setSqlText('');
       setActiveL1Table(null);
+      setSelectedEdge(null);
     }
   }, [views, wsId]);
 
@@ -310,6 +313,7 @@ export default function DataFlowApp() {
     setL2Graph(null); setSqlText(''); setError(null);
     setResolutionStats(null); setOrphanFieldSamples(null);
     setSchemaCandidates(null); setSchemaEvidence(null);
+    setSelectedEdge(null);
   }, [wsId]);
 
   // ── L1 Table lens click ─────────────────────────────────────────
@@ -359,37 +363,23 @@ export default function DataFlowApp() {
   }, [wsId, activeViewId, currentScriptName, l2Filtered, l2FullGraph, views]);
 
 
-  // ── Pick most specific sql_range: per-type > union ──────────────────
-  const pickBestSqlRange = useCallback((edgeData) => {
-    if (!edgeData) return null;
-    // Try per-type ranges first (more specific)
-    const srDict = edgeData.sql_ranges;
-    if (srDict && typeof srDict === 'object' && Object.keys(srDict).length > 0) {
-      let best = null, bestLen = Infinity;
-      for (const [, r] of Object.entries(srDict)) {
-        if (r && r.length >= 4) {
-          const span = r[2] - r[0];
-          if (span >= 0 && span < bestLen) { best = r; bestLen = span; }
-        }
-      }
-      if (best) return best;
-    }
-    // Fall back to union range (Bug 42: validate array format)
-    const sr = edgeData.sql_range;
-    if (Array.isArray(sr) && sr.length >= 3 && sr[0] > 0) return sr;
-    // Last resort: use line_num if available (single-line highlight)
-    const ln = edgeData.line_num || edgeData.line_number || edgeData.line;
-    if (ln) return [Number(ln), 1, Number(ln), 1];
-    return null;
-  }, []);
-  // ── Edge click → SQL highlighting ──────────────────────────────────
+  // ── Edge click → SQL highlight + reason panel (R25/§8.8) ───────────
+  // The per-edge payload (highlight_line / flow_kind / reason) is the
+  // single source of truth: the SQL panel lights exactly the anchor
+  // line and the reason panel below it shows kind + anchor + reason.
+  // The old response-level `highlights` and per-edge `sql_range` /
+  // `sql_ranges` fields are gone from the API — nothing to pick from.
   const handleEdgeClick = useCallback((edgeData) => {
     setSelectedEdge(edgeData);
-    const best = pickBestSqlRange(edgeData);
-    if (best) {
-      setSqlHighlightRange(best);
-    }
   }, []);
+
+  const clearEdgeSelection = useCallback(() => {
+    setSelectedEdge(null);
+  }, []);
+
+  // Single anchor line for the SQL panel — derived from the selection.
+  const sqlHighlightLine = (selectedEdge && Number.isInteger(selectedEdge.highlight_line)
+    && selectedEdge.highlight_line >= 1) ? selectedEdge.highlight_line : null;
 
   // ── Clear edge selection ────────────────────────────────────────────
   // ── Delete view ───────────────────────────────────────────────────
@@ -409,6 +399,7 @@ export default function DataFlowApp() {
       setL2NotInFlow(false); setL2NotInFlowMessage(null);
       setL2ParseErrors([]);
       setSqlText('');
+      setSelectedEdge(null);
     }
   }, [wsId, activeViewId]);
 
@@ -447,7 +438,6 @@ export default function DataFlowApp() {
         if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
         setGraphLevel("L1");
         setSelectedEdge(null);
-        setSqlHighlightRange(null);
       }
     };
     window.addEventListener("keydown", handler);
@@ -579,6 +569,7 @@ export default function DataFlowApp() {
             activeTable={activeL1Table}
             onClearTableFilter={handleClearTableFilter}
             onEdgeClick={handleEdgeClick}
+            onCanvasTap={clearEdgeSelection}
             selectedEdgeId={selectedEdge?.id}
             refitKey={graphLevel}
           />
@@ -647,11 +638,8 @@ export default function DataFlowApp() {
               level="L2"
               layoutMode={layoutMode}
               breadcrumb={[]}
-              onEdgeClick={(edgeData) => {
-                setSelectedEdge(edgeData);
-                const best = pickBestSqlRange(edgeData);
-                if (best) setSqlHighlightRange(best);
-              }}
+              onEdgeClick={handleEdgeClick}
+              onCanvasTap={clearEdgeSelection}
               selectedEdgeId={selectedEdge?.id}
             />
           </div>
@@ -661,18 +649,19 @@ export default function DataFlowApp() {
             <div className="inline-l2-sql" style={{ height: sqlPanelHeight }}>
               <SqlPanel
                 sqlText={sqlText}
-                highlights={highlights}
+                sqlHighlightLine={sqlHighlightLine}
                 scriptName={currentScriptName}
                 wsId={wsId}
                 table={activeView?.table || ""}
                 field={activeView?.field || ""}
-                l2Result={l2Result}
-                selectedEdge={selectedEdge}
-                sqlHighlightRange={sqlHighlightRange}
-                onClearEdge={() => { setSelectedEdge(null); setSqlHighlightRange(null); }}
               />
             </div>
           )}
+          {/* R25/§8.8: flow reason panel BELOW the SQL panel — kind +
+              anchor line + the reason string with the clicked edge's
+              ‖…‖-wrapped segment emphasized; empty state when no edge
+              is selected. */}
+          <EdgeReasonPanel edge={selectedEdge} />
         </div>
       )}
 

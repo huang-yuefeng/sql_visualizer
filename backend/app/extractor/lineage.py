@@ -662,7 +662,19 @@ def compute_field_flow(graph_data, target_table, target_field,
                 elif et in ("FILTER", "JOIN"):
                     admit = _seed_zone(nid) or _seed_zone(nb)
                 elif et == "DML":
-                    admit = fwd  # forward only (source -> target)
+                    # Forward only (source -> target) — plus the searched
+                    # field's VALUE columns: a DML edge INTO an admitted
+                    # node whose source is a field-like var carrying the
+                    # target field part (the INSERT...SELECT value
+                    # '$(load_date)' AS data_dt at L213 → rrcdm, P17 §8.5)
+                    # is the write-side value appearance — admitted
+                    # backward so the value edge enters the closure.
+                    nb_var = node_map.get(nb)
+                    admit = fwd or (
+                        nb_var is not None
+                        and nb_var.get("variable_type") in FIELD_LIKE
+                        and _field_part(nb_var) == target_field
+                    )
                 elif et == "TABLE_FLOW":
                     # Q1, forward-only: (a) table-like source whose physical
                     # identity is in the chain; (b) VT whose context is an

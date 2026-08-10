@@ -405,30 +405,38 @@ def build_dependency_graph(
                     continue
                 _add_edge(anchor, v, "SCHEMA", "OUTPUT")
 
-    # Phase 4d: READ — qualified column → its own-scope alias table
-    # (the alias the read is attributed to at extraction time, I2).
-    # The canonical field→table read edge. SUBSET is never walked by the
-    # strict walker, so these are inert for closures — they surface in
-    # the filtered L2 output once both endpoints are admitted (the same
-    # pattern as the existing SUBSET bridges data_dt@18 → bdm@16).
+    # Phase 4d: READ — column → its own-scope alias/physical table (the
+    # table the read is attributed to at extraction time, I2). The
+    # canonical field→table read edge. W-iteration (v3.3.147): every read
+    # is REF/READ — a join-condition read is still a READ of the key
+    # through its alias (user ruling, addendum 3: "the READ rule applies",
+    # pair 19 → anchor 199), and BARE columns (WHERE data_dt = ...,
+    # pair 18) get the same read edge to their owner table's same-context
+    # instance (Phase 7/8 only ever bridged them FILTER/CONDITION). No
+    # SUBSET escapes this phase.
     for v in variables:
         if v.variable_type != VariableType.COLUMN:
             continue
-        if "." not in v.name:
-            continue
         if not v.source_tables:      # I2: attributed at extraction time
             continue
-        prefix = v.name.split(".", 1)[0]
         ctx = v.context or "TOP"
+        if "." in v.name:
+            prefix = v.name.split(".", 1)[0]
+            match_t = lambda t: (t.name == prefix and t.id != v.id
+                                 and t.source_tables
+                                 and t.source_tables[0] == v.source_tables[0])
+        else:
+            # Bare column: the owner's own instance in the same context
+            # (bdm_acc_loan_info_sup@223 for the statement-2 WHERE read).
+            match_t = lambda t: (t.name == v.source_tables[0]
+                                 and t.id != v.id)
         for t in variables:
             if t.variable_type not in (VariableType.TABLE, VariableType.VIEW):
                 continue
             if (t.context or "TOP") != ctx:
                 continue
-            if t.name != prefix or t.id == v.id:
-                continue
-            if t.source_tables and t.source_tables[0] == v.source_tables[0]:
-                _add_edge(v, t, "SUBSET", "READ")
+            if match_t(t):
+                _add_edge(v, t, "REF", "READ")
                 break
 
     # ══════════════════════════════════════════════════════════════════
@@ -701,31 +709,160 @@ def build_dependency_graph(
     # Phase 8: Ensure ≥2 edges for non-table nodes
     # ══════════════════════════════════════════════════════════════════
     from collections import Counter as _Ctr
+    # W3: Phase-7 SUBSET bridges are EXCLUDED from the edge count — an
+    # incoming Phase-7 bridge on a TABLE's own bridge partner inflated
+    # ec to ≥2 and left pair 2 (bdm@16 → rollover@9) and the subquery-
+    # body TABLE→VT bridges stuck at SUBSET (Phase 8 skips them before
+    # the re-type path runs). Only real (non-SUBSET) edges mean
+    # "already connected".
     ec = _Ctr()
     for d in deps:
+        if d.relationship == "SUBSET":
+            continue
         ec[d.source_id] += 1
         ec[d.target_id] += 1
 
     skip_if_connected = {VariableType.TABLE, VariableType.VIEW}
 
-    for v in variables:
-        if ec.get(v.id, 0) >= 2:
-            continue
-        if v.variable_type in skip_if_connected and ec.get(v.id, 0) >= 1:
-            continue
-        # Anchor on the nearest owner: the full context chain — exact
-        # context, then each enclosing context, then the CTE's own
-        # statement context — each picking the table-like var at-or-
-        # before v's line (I3; line-0 virtual nodes take the stage's
-        # head). The global first-match fallback is gone — a var with no
-        # anchor in any stage stays under-connected.
-        anchor = None
+    # W3 (v3.3.7x): the Phase-8 bridge is typed HONESTLY from
+    # extraction-time info only (the vars' own types/defined_in — never
+    # a render-time filter or closure scan):
+    #   (a) predicate columns (WHERE/HAVING/QUALIFY)     → FILTER/CONDITION
+    #   (b) non-table vars anchored on a DML target       → DML/<keyword>
+    #       (the INSERT-target's partition/projection columns read as
+    #       write-side — pair 12 data_dt@160 → bdm_acc_loan_info_sup@160)
+    #   (c) join-condition columns (JOIN ON)              → JOIN/JOIN_CONDITION
+    #   (d) any other non-table var                       → REF/READ
+    #   (e) TABLE/VIEW → query-type anchor (CTE/SUBQUERY/
+    #       VIRTUAL_TABLE/UNION_BRANCH)                   → TABLE_FLOW/REFERENCE
+    #   (f) TABLE/VIEW → physical TABLE/MERGE_TARGET      → SUBSET/BRIDGE
+    #       (the only SUBSET that may leave this phase — B1
+    #       sup@223 → rrcdm@211 must stay SUBSET)
+    _QUERY_ANCHOR_TYPES = {VariableType.CTE, VariableType.SUBQUERY,
+                           VariableType.VIRTUAL_TABLE,
+                           VariableType.UNION_BRANCH}
+    _DML_WORDS = ("UPDATE", "DELETE", "MERGE", "INSERT")
+
+    def _bridge_typing(v, anchor) -> tuple[str, str]:
+        di = (v.defined_in or "").strip().upper()
+        ai = (anchor.defined_in or "").upper()
+        if v.variable_type == VariableType.COLUMN \
+                and di in ("WHERE", "HAVING", "QUALIFY"):
+            return "FILTER", "CONDITION"
+        if v.variable_type == VariableType.COLUMN and di == "JOIN ON":
+            return "JOIN", "JOIN_CONDITION"
+        if v.variable_type not in _TABLE_TYPES:
+            for word in _DML_WORDS:
+                if word in ai:
+                    return "DML", word
+            return "REF", "READ"
+        if v.variable_type in (VariableType.TABLE, VariableType.VIEW):
+            if anchor.variable_type in _QUERY_ANCHOR_TYPES:
+                return "TABLE_FLOW", "REFERENCE"
+            return "SUBSET", "BRIDGE"
+        return "REF", "READ"
+
+    def _bridge_target(v):
+        """Nearest owner across the full context chain (I3) — the same
+        deterministic pick for every phase-8 candidate."""
         for scope_ctx in _context_stages(v.context or "TOP"):
             anchor = _pick_anchor(variables, v, scope_ctx)
             if anchor is not None:
-                break
+                return anchor
+        return None
+
+    def _retype_or_add(v, anchor, rel, op):
+        existing = next((d for d in deps
+                         if d.source_id == v.id
+                         and d.target_id == anchor.id), None)
+        if existing is not None:
+            if existing.relationship != "SUBSET":
+                # W-iteration (v3.3.147): a REAL edge already connects this
+                # pair — the Phase-4d REF/READ (data_dt@225 → sup@223,
+                # pair 18) must never be clobbered. The bridge is added
+                # alongside below (the FILTER/CONDITION at the column's own
+                # line still expresses the WHERE participation).
+                pass
+            else:
+                # Phase 7 may already have bridged this exact pair as
+                # SUBSET/BRIDGE — re-type that edge honestly instead of
+                # adding a duplicate (W3: the pinned pairs 1/2/12/18 sit on
+                # Phase-7-bridged singleton components).
+                existing.relationship = rel
+                existing.operation = op
+                return
+        _add_edge(v, anchor, rel, op)
+
+    for v in variables:
+        if v.variable_type in skip_if_connected:
+            # TABLE/VIEW handled FIRST (before the ec≥2 skip): a table
+            # referenced inside a CTE/subquery body whose ec was raised
+            # to ≥2 by the Phase-4d REF/READs (pair 2 bdm@16, ec=3) must
+            # still get its chain bridge to the owning query — the old
+            # ordering skipped it at the ec≥2 gate and left pair 2 stuck
+            # at SUBSET/BRIDGE.
+            if ec.get(v.id, 0) >= 1:
+                # TABLE/VIEW already has real edges. Never ADD a bridge to
+                # a var that already connects to its anchor (the ALIAS
+                # bdm@29→p1@29 already expresses that hop); re-type an
+                # existing SUBSET to the same anchor (W3). The W-iteration
+                # case (v3.3.147): a CTE/subquery-body reference whose
+                # ec was raised to ≥1 by the Phase-4d REF/READs (pair 2
+                # bdm@16 → rollover@9) — the old ec=0 path no longer
+                # fires, so the chain bridge is re-added here with honest
+                # typing. (Only CTE-internal bodies pass the TOP-context
+                # guard below — statement-level subquery bodies never get
+                # new bridges.)
+                anchor = _bridge_target(v)
+                if anchor is None:
+                    continue
+                existing = next((d for d in deps
+                                 if d.source_id == v.id
+                                 and d.target_id == anchor.id), None)
+                if existing is not None:
+                    if existing.relationship == "SUBSET":
+                        existing.relationship, existing.operation = \
+                            _bridge_typing(v, anchor)
+                    continue
+                if (v.context or "TOP").startswith("TOP"):
+                    # Statement-level table with real edges: no bridge —
+                    # the DML-routed ⟐ output already carries the write
+                    # edge (rrcdm@211 → ⟐output@211 would duplicate it).
+                    continue
+                rel, op = _bridge_typing(v, anchor)
+                if rel != "TABLE_FLOW":
+                    # (f) TABLE→physical TABLE stays SUBSET only for the
+                    # residual Phase-7 bridge (B1) — never add new ones.
+                    continue
+                _add_edge(v, anchor, rel, op)
+                continue
+            # TABLE/VIEW with no real edges: only Phase-7 SUBSET bridges
+            # remain — re-type the EXISTING bridge to its EXISTING target
+            # (the Phase-7 pick can differ from the Phase-8 pick when it
+            # used the nearest-main fallback — B1 sup@223 → rrcdm@211 —
+            # so the existing target is the honest one to type). If no
+            # Phase-7 bridge exists at all, a new edge may still be added
+            # from the Phase-8 anchor pick (the fallback below).
+            bridge = next((d for d in deps
+                           if d.source_id == v.id
+                           and d.relationship == "SUBSET"), None)
+            if bridge is not None:
+                tgt = id_index.get(bridge.target_id)
+                if tgt is not None:
+                    rel, op = _bridge_typing(v, tgt)
+                    bridge.relationship, bridge.operation = rel, op
+                continue
+            anchor = _bridge_target(v)
+            if anchor:
+                rel, op = _bridge_typing(v, anchor)
+                _add_edge(v, anchor, rel, op)
+            continue
+        if ec.get(v.id, 0) >= 2:
+            continue
+        anchor = _bridge_target(v)
         if anchor:
-            _add_edge(v, anchor, "SUBSET", "BRIDGE")
+            rel, op = _bridge_typing(v, anchor)
+            _retype_or_add(v, anchor, rel, op)
 
     return deps
 
