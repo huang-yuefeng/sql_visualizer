@@ -9,6 +9,7 @@ import EdgeReasonPanel from './components/EdgeReasonPanel';
 import LogPanel from './components/LogPanel';
 import ResolutionReport from './components/ResolutionReport';
 import * as api from './api/client';
+import pickAutoEdge from './utils/pickAutoEdge';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useResizable } from './utils/useResizable';
 import './styles/resizable.css';
@@ -27,6 +28,8 @@ export default function DataFlowApp() {
   const [activeViewId, setActiveViewId] = useState(null);
   const parentViewIdRef = useRef(null);
   const [graphLevel, setGraphLevel] = useState('L1');
+  // R11-3: imperative handle for the SQL panel's scrollToLine (code-evidence rows).
+  const sqlPanelRef = useRef(null);
   const [layoutMode, setLayoutMode] = useState('snake'); // 'snake' or 'pipeline'
   const [l1Graph, setL1Graph] = useState(null);
   const [l2Graph, setL2Graph] = useState(null);
@@ -86,7 +89,9 @@ export default function DataFlowApp() {
     setL2Result(result);
     // R25: every L2 entry path lands on a fresh graph — no stale edge
     // selection (and no reason-panel content) from a previous script.
-    setSelectedEdge(null);
+    // R11-1: instead of leaving the reason panel stuck at "Click an edge
+    // …", auto-select a sensible edge (seed-zone > chain > first).
+    setSelectedEdge(pickAutoEdge(result));
     // Contract: search_matched === false → the search field is not in this
     // script (graph is the full unfiltered one); field absent from the
     // response means the search target matched (or none exists).
@@ -373,6 +378,11 @@ export default function DataFlowApp() {
     setSelectedEdge(edgeData);
   }, []);
 
+  // R11-3: code-evidence rows jump the SQL panel to the payload line.
+  const handleJumpToLine = useCallback((line) => {
+    sqlPanelRef.current?.scrollToLine(line);
+  }, []);
+
   const clearEdgeSelection = useCallback(() => {
     setSelectedEdge(null);
   }, []);
@@ -648,6 +658,7 @@ export default function DataFlowApp() {
           {sqlText && (
             <div className="inline-l2-sql" style={{ height: sqlPanelHeight }}>
               <SqlPanel
+                ref={sqlPanelRef}
                 sqlText={sqlText}
                 sqlHighlightLine={sqlHighlightLine}
                 scriptName={currentScriptName}
@@ -660,8 +671,14 @@ export default function DataFlowApp() {
           {/* R25/§8.8: flow reason panel BELOW the SQL panel — kind +
               anchor line + the reason string with the clicked edge's
               ‖…‖-wrapped segment emphasized; empty state when no edge
-              is selected. */}
-          <EdgeReasonPanel edge={selectedEdge} />
+              is selected. R11-3: with a `mech` payload the panel adds the
+              flow sentence + clickable code-evidence rows that scroll the
+              SQL panel via onJumpToLine. */}
+          <EdgeReasonPanel
+            edge={selectedEdge}
+            sqlText={sqlText}
+            onJumpToLine={handleJumpToLine}
+          />
         </div>
       )}
 

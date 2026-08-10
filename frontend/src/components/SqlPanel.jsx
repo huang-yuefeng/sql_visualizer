@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback, useState, useImperativeHandle } from 'react';
 import * as api from '../api/client';
 
 const DEFAULT_CONFIG = {
@@ -25,7 +25,7 @@ const CONFIG_LABELS = {
   target_only: 'Target variable only (no context)',
 };
 
-export default function SqlPanel({ sqlText, sqlHighlightLine, scriptName, wsId, table, field }) {
+const SqlPanel = React.forwardRef(function SqlPanel({ sqlText, sqlHighlightLine, scriptName, wsId, table, field }, ref) {
   const containerRef = useRef(null);
   const configRef = useRef(null);
   const [showConfig, setShowConfig] = useState(false);
@@ -54,14 +54,22 @@ export default function SqlPanel({ sqlText, sqlHighlightLine, scriptName, wsId, 
 
   const lines = sqlText ? sqlText.split('\n') : [];
 
+  // R11-3: imperative scroll API — the code-evidence rows in the reason
+  // panel call scrollToLine(line) to bring that SQL line into view.
+  const scrollToLine = useCallback((line) => {
+    if (!containerRef.current || !Number.isInteger(line) || line < 1) return;
+    const el = containerRef.current.querySelector(`[data-line="${line}"]`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
+
+  useImperativeHandle(ref, () => ({ scrollToLine }), [scrollToLine]);
+
   // Auto-scroll to the edge's anchor line when the selection changes
   useEffect(() => {
-    if (!containerRef.current || !Number.isInteger(sqlHighlightLine) || sqlHighlightLine < 1) return;
-    const el = containerRef.current.querySelector(`[data-line="${sqlHighlightLine}"]`);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (Number.isInteger(sqlHighlightLine) && sqlHighlightLine >= 1) {
+      scrollToLine(sqlHighlightLine);
     }
-  }, [sqlHighlightLine]);
+  }, [sqlHighlightLine, scrollToLine]);
 
   // ── Enhanced Export ──
   const handleExport = useCallback(() => {
@@ -316,4 +324,6 @@ export default function SqlPanel({ sqlText, sqlHighlightLine, scriptName, wsId, 
       </div>
     </div>
   );
-}
+});
+
+export default SqlPanel;
