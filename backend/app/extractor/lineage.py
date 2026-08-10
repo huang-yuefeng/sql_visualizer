@@ -123,8 +123,15 @@ def compute_field_lineage(graph_data: dict, target_table: str,
         ed = e.get("data", e)
         src, tgt = ed.get("source"), ed.get("target")
         etype = ed.get("edge_type") or ed.get("relationship", "")
-        adj.setdefault(src, []).append((tgt, etype, "forward"))
-        adj.setdefault(tgt, []).append((src, etype, "reverse"))
+        # `read` flag: REF edges with operation == "READ" are field→holder
+        # reads — walkable ONLY from the field node to its holder
+        # (forward), never from the holder back out into sibling fields
+        # (the L1 sibling-leak; the same model compute_field_flow gained in
+        # v3.3.148). The flag rides the adjacency tuples so the expansion
+        # loop and the production-evidence checks apply the same rule.
+        read = bool(etype == "REF" and (ed.get("operation") or "") == "READ")
+        adj.setdefault(src, []).append((tgt, etype, "forward", read))
+        adj.setdefault(tgt, []).append((src, etype, "reverse", read))
 
     # --- Edge type classification ---
     # Production edges "produce" a value in the target
@@ -222,7 +229,7 @@ def compute_field_lineage(graph_data: dict, target_table: str,
         changed = False
         new_nodes = set()
         for nid in list(R):
-            for (neighbor, etype, direction) in adj.get(nid, []):
+            for (neighbor, etype, direction, read) in adj.get(nid, []):
                 if neighbor in R:
                     continue
 
@@ -237,13 +244,20 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                         should_add = True
                     else:
                         # table→column: only if column has non-DML production from R
-                        for (n2, e2, d2) in adj.get(neighbor, []):
-                            if n2 in R and e2 in _PRODUCTION and e2 != "DML":
+                        for (n2, e2, d2, r2) in adj.get(neighbor, []):
+                            # r2: read-flagged REF edges are the field
+                            # being READ, not production into the table —
+                            # never production evidence (sibling leak).
+                            if (n2 in R and e2 in _PRODUCTION and e2 != "DML"
+                                    and not r2):
                                 should_add = True
                                 break
                 elif etype in _BIDIR:
                     if edge_filter is None or etype in edge_filter:
-                        should_add = True
+                        # read edges traverse field → holder only; the
+                        # reverse walk (holder → sibling fields) is the
+                        # v3.3.148 sibling leak.
+                        should_add = not (read and direction == "reverse")
                 elif etype == "SCHEMA":
                     # Bug 37 decision (pinned): SCHEMA directionality here is
                     # the intended shared semantics for BOTH consumers — L1
@@ -259,8 +273,9 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                         should_add = True
                     else:
                         # table → column (downstream): production-filtered
-                        for (n2, e2, d2) in adj.get(neighbor, []):
-                            if n2 in R and e2 in _PRODUCTION and d2 == "reverse":
+                        for (n2, e2, d2, r2) in adj.get(neighbor, []):
+                            if (n2 in R and e2 in _PRODUCTION and d2 == "reverse"
+                                    and not r2):
                                 should_add = True
                                 break
                 elif etype == "JOIN":
@@ -278,8 +293,8 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                             should_add = True
                         else:
                             has_prod = False
-                            for (n2, e2, d2) in adj.get(neighbor, []):
-                                if n2 in R and e2 in _PRODUCTION:
+                            for (n2, e2, d2, r2) in adj.get(neighbor, []):
+                                if n2 in R and e2 in _PRODUCTION and not r2:
                                     has_prod = True
                                     break
                             if has_prod:
@@ -289,8 +304,8 @@ def compute_field_lineage(graph_data: dict, target_table: str,
                         pass  # skip
                     else:
                         has_prod = False
-                        for (n2, e2, d2) in adj.get(neighbor, []):
-                            if n2 in R and e2 in _PRODUCTION:
+                        for (n2, e2, d2, r2) in adj.get(neighbor, []):
+                            if n2 in R and e2 in _PRODUCTION and not r2:
                                 has_prod = True
                                 break
                         if has_prod:
@@ -436,7 +451,8 @@ def _field_part(var):
 def _table_like(var):
     """Table-like vars: declared source types, or vars with resolved source_tables."""
     return (var.get("variable_type") in
-            {"table", "view", "cte", "virtual_table", "subquery"}
+            {"table", "view", "cte", "virtual_table", "subquery",
+             "merge_target"}
             or bool(var.get("source_tables")))
 
 
@@ -596,7 +612,16 @@ def compute_field_flow(graph_data, target_table, target_field,
             continue
         if _field_part(var) != target_field:
             continue
-        if var.get("defined_in") == "PARTITION" or _owner_of(var, node_map, idx) == target_table:
+        if var.get("defined_in") == "PARTITION":
+            # E3a/6: a PARTITION var seeds only its own DML target table.
+            # Two scripts can both insert PARTITION(data_dt) into different
+            # tables — the data_dt partition var of another table must never
+            # seed this search (table-agnostic PARTITION seeds leaked
+            # write-side flows across unrelated inserts).
+            st = var.get("source_tables") or []
+            if st and st[0] == target_table:
+                seeds.add(nid)
+        elif _owner_of(var, node_map, idx) == target_table:
             seeds.add(nid)
 
     # ── seed_zone: memoized BFS from the seeds over FIELD_LAND edges (both
@@ -752,6 +777,13 @@ def compute_field_flow(graph_data, target_table, target_field,
                         visited.add(cte_id)
                         changed = True
                         _register(cte_id)
+    # D1: the fixpoint is capped at 100 rounds (monotone — should never
+    # fire); when it does, the closure may be incomplete — surface it in
+    # the log instead of silently returning a partial closure.
+    if rounds >= 100:
+        _log.warning("compute_field_flow fixpoint hit the 100-round cap "
+                     "(%d nodes in closure) for %s.%s — closure may be "
+                     "incomplete", len(visited), target_table, target_field)
     return visited
 
 

@@ -31,7 +31,7 @@ from app.models.variable import VariableDefinition, VariableType
 
 
 # Bump to invalidate analysis caches when extraction semantics change.
-EXTRACTOR_VERSION = "2026-08-10.1"
+EXTRACTOR_VERSION = "2026-08-10.3"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
@@ -357,16 +357,86 @@ def _preprocess_sql(sql_text: str) -> str:
     import re
     lines = sql_text.split('\n')
     cleaned = []
+    # E3a/1: a "SET"-prefixed line is only a config statement when it is
+    # NOT the SET clause of a multi-line UPDATE/MERGE/DELETE/INSERT — the
+    # DML keyword line opens the statement, the first ';' closes it.
+    in_dml = False
     for line in lines:
         stripped = line.strip()
-        # Skip SET statements (MaxCompute/ODPS configuration)
-        if re.match(r'(?i)^set\s+', stripped):
-            continue
         # Skip pure comments
         if stripped.startswith('--'):
             continue
+        if re.match(r'(?i)^(update|merge|delete|insert)\b', stripped):
+            in_dml = True
+        # Skip SET statements (MaxCompute/ODPS configuration) — the
+        # standalone `SET key = value;` form only; a SET clause line inside
+        # a DML statement is kept (sqlglot parses the SET assignments).
+        if re.match(r'(?i)^set\s+', stripped):
+            if not in_dml:
+                continue
+        if stripped.endswith(';'):
+            in_dml = False
         cleaned.append(line)
     return '\n'.join(cleaned)
+
+
+def _split_hive_multi_inserts(clean_sql: str) -> dict[int, list[tuple[int, exp.Expression]]]:
+    """Hive FROM-led multi-table INSERT → re-parsed per-arm statements.
+
+    `FROM <source> INSERT OVERWRITE TABLE t1 SELECT … INSERT OVERWRITE
+    TABLE t2 SELECT …` cannot be parsed by sqlglot in any dialect (it
+    degrades to a garbage Select with the arms dropped). Returns
+    {stmt_idx: [(arm_idx, sqlglot_stmt), …]} — only for statements that
+    are textually FROM-led with ≥1 INSERT arm, and only arms that
+    re-parse cleanly as exp.Insert (hive dialect covers the
+    OVERWRITE/INTO + PARTITION forms).
+    """
+    import re as _re
+    pieces = [p for p in clean_sql.split(";") if p.strip()]
+    out: dict[int, list] = {}
+    for idx, piece in enumerate(pieces):
+        lines = piece.split('\n')
+        # FROM-led guard: the statement's FIRST token must be FROM — a
+        # plain `INSERT INTO t … SELECT … FROM u` is NOT a multi-insert
+        # and must go through the normal walk (E3a/2 regression guard).
+        first_line = next((l for l in lines if l.strip()), "")
+        if not _re.match(r'(?i)^\s*from\b', first_line):
+            continue
+        from_lines, arm_blocks, cur = [], [], None
+        for line in lines:
+            if _re.match(r'(?i)^\s*insert\b', line):
+                if cur is not None:
+                    arm_blocks.append(cur)
+                cur = [line]
+            elif cur is None:
+                from_lines.append(line)
+            else:
+                cur.append(line)
+        if cur is not None:
+            arm_blocks.append(cur)
+        if not arm_blocks:
+            continue
+        from_clause = '\n'.join(from_lines).strip()
+        stmts = []
+        for i, block in enumerate(arm_blocks):
+            text = '\n'.join(block).strip()
+            m = _re.search(r'(?i)\bselect\b', text)
+            if not m:
+                continue
+            header, body = text[:m.start()].strip(), text[m.start():].strip()
+            # from_clause already starts with "FROM" (leading keyword of
+            # the from-led statement) — do not prefix another one.
+            synthetic = f"{header} {body} {from_clause}".strip()
+            try:
+                arm_stmt = sqlglot.parse_one(synthetic, dialect="hive",
+                                             error_level=sqlglot.ErrorLevel.IGNORE)
+            except Exception:
+                arm_stmt = None
+            if arm_stmt is not None and isinstance(arm_stmt, exp.Insert):
+                stmts.append((i, arm_stmt))
+        if stmts:
+            out[idx] = stmts
+    return out
 
 
 def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionResult:
@@ -420,12 +490,30 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
     if '${' in sql_text:
         result.template_replacements.append("template vars present — may affect parsing")
 
+    # E3a/2: Hive FROM-led multi-table INSERT (`FROM t INSERT OVERWRITE
+    # TABLE a SELECT … INSERT OVERWRITE TABLE b SELECT …`) — sqlglot
+    # parses it as a garbage Select in every dialect. Detect textually
+    # per statement piece, synthesize one INSERT…SELECT per arm, re-parse
+    # each arm (hive dialect), and walk the arms instead of the garbage
+    # statement. The synthetic text is only for PARSING — var line
+    # numbers come from token runs against the ORIGINAL stream (I1), so
+    # the synthesised FROM/GROUP BY shift nothing.
+    hive_arms = _split_hive_multi_inserts(clean_sql)
+
     extractor = _RoleBasedExtractor(result, script_name, sql_text)
     # C-9: top-level statements are context-scoped by their statement index
     # ("TOP0", "TOP1", …) so same-named variables across DIFFERENT
     # top-level statements no longer collapse under the old shared "TOP"
     # context (they are different nodes — one per statement).
     for stmt_idx, statement in enumerate(parsed):
+        if stmt_idx in hive_arms:
+            # E3a/2: skip the garbage parse of a FROM-led multi-insert —
+            # walk the re-parsed arms instead (each arm is its own INSERT
+            # with target + SELECT body, context TOP{idx}/hive_arm{i}).
+            for arm_idx, arm_stmt in hive_arms[stmt_idx]:
+                extractor.process_statement(arm_stmt,
+                                            f"TOP{stmt_idx}/hive_arm{arm_idx}")
+            continue
         if statement is not None:
             extractor.process_statement(statement, f"TOP{stmt_idx}")
         else:
@@ -976,6 +1064,14 @@ class _RoleBasedExtractor:
             ctx = v.context or "TOP"
             if (ctx.startswith("CTE{") and "/" not in ctx
                     and ":join:" not in ctx):
+                # E3a/4 (TPC-DS comma-join CTE): a bare column in a ≥2-table
+                # scope (comma join) was stashed as an S4a schema candidate —
+                # stamping it here would (a) mis-parent it under the CTE in
+                # L2 and (b) block the S4a unique-owner post-pass and the
+                # index-time S4b re-test (both require `not source_tables`).
+                # Comma-join scope tables stay attribution candidates.
+                if self._is_schema_candidate(v):
+                    continue
                 # CTE body output → the CTE that defines it
                 end = ctx.find("}")
                 if end > 4:
@@ -984,10 +1080,27 @@ class _RoleBasedExtractor:
                 continue
             if v.is_output and ("/" in ctx or ":join:" in ctx):
                 # subquery/derived-body walk output → its own ⟐ container
+                # (the output column OF the subquery — its own S2 container
+                # attribution, pinned by test_m13_cache_attribution_
+                # context_scoped: never a schema/scope attribution).
                 container = ctx_to_vt.get(ctx)
                 if container:
                     v.source_tables = [container]
                     self._resolution_stats["resolved_by"]["expr_alias"] += 1
+
+    def _is_schema_candidate(self, v) -> bool:
+        """E3a/4: is this var a still-unresolved S4a schema candidate?
+
+        The candidate stash records (field, visible_tables, contexts) —
+        exact name + context membership, case-insensitive field compare
+        (the stash and _finalize_schema_candidates both compare names
+        case-insensitively; R4 whole-name equality).
+        """
+        for cand in self._schema_candidates:
+            if (cand["field"].lower() == (v.name or "").lower()
+                    and v.context in cand.get("contexts", [])):
+                return True
+        return False
 
     def build_resolution_stats(self) -> dict:
         """Final resolution_stats for this script.
@@ -1080,6 +1193,8 @@ class _RoleBasedExtractor:
             self._walk_setop(stmt, "EXCEPT", context)
         elif isinstance(stmt, exp.Merge):
             self._walk_merge(stmt, context)
+        elif isinstance(stmt, exp.Update):
+            self._walk_update(stmt, context)
         elif isinstance(stmt, exp.Insert):
             self._walk_insert(stmt, context)
         elif isinstance(stmt, exp.Create):
@@ -1221,6 +1336,21 @@ class _RoleBasedExtractor:
                       defined_in=context, context=context,
                       def_site=(runs, node, context))
             output_container = vt_name
+            # E3a/3: when this SELECT is the source of an INSERT, its
+            # expression outputs attribute to the INSERT TARGET table (the
+            # DML statement defines them — COUNT(1) AS total_rows in
+            # INSERT INTO TABLE rrcdm_job_log_exec_par(…) is a column of
+            # rrcdm_job_log_exec_par, never of the synthetic ⟐ output
+            # container). The ⟐ VT is still created (DML edges route
+            # through it) — only the S2 output attribution moves.
+            if isinstance(p, exp.Insert):
+                into = p.args.get("into") or p.args.get("this")
+                if isinstance(into, exp.Schema):
+                    into = into.this
+                if isinstance(into, exp.Table):
+                    tname = _clean(into.name or "")
+                    if tname:
+                        output_container = tname
         else:
             if cte_name is None:
                 cte_name = context[4:-1] if context.startswith("CTE{") else context
@@ -2417,9 +2547,11 @@ class _RoleBasedExtractor:
 
         # WHEN clauses
         for when in (merge.args.get("whens") or []):
+            # E3a/5: sqlglot MergeWhen nodes always have this=None — the
+            # branch action (exp.Update / exp.Insert) lives in `then`.
+            action = when.this or when.args.get("then")
             # S4a source 2: MERGE INTO t … WHEN UPDATE SET a=… — the SET
             # targets are canonical schema evidence for t (evidence only).
-            action = when.this or when.args.get("then")
             if target_name and isinstance(action, exp.Update):
                 stmt_line = self._statement_anchor(merge)
                 for e in (action.expressions or []):
@@ -2429,10 +2561,155 @@ class _RoleBasedExtractor:
                         if cname:
                             self._script_schemas.setdefault(
                                 target_name, {}).setdefault(cname, stmt_line)
-            if hasattr(when, 'this') and when.this:
-                self._walk_columns_in_expr(when.this, context,
-                                           defined_in="MERGE WHEN",
-                                           scope=merge_scope)
+            if isinstance(action, exp.Update):
+                # E3a/5: walk the WHEN UPDATE SET assignments — bare SET
+                # targets become fields of the MERGE target table; RHS
+                # columns (target.total_spent + source.total_spent) walk
+                # the normal chain against the merge scope.
+                for e in (action.expressions or []):
+                    if not isinstance(e, _UPDATE_SET_NODES):
+                        continue
+                    lhs = e.this
+                    if isinstance(lhs, exp.Column):
+                        if _clean(lhs.table or ""):
+                            # qualified LHS (target.a = …) — S1 chain
+                            self._register_column(lhs, context,
+                                                  defined_in="MERGE UPDATE SET",
+                                                  scope=merge_scope)
+                        elif target_name:
+                            lname = _clean(lhs.name or "")
+                            if lname:
+                                self._add(lname, VariableType.COLUMN,
+                                          sql_expr=_sql(lhs),
+                                          defined_in="MERGE UPDATE SET",
+                                          context=context,
+                                          source_tables=[target_name],
+                                          def_site=([["set", lname],
+                                                     [lname]], None,
+                                                    context, True, True))
+                    rhs = e.args.get("expression")
+                    if rhs is not None:
+                        self._walk_columns_in_expr(rhs, context,
+                                                   defined_in="MERGE UPDATE SET",
+                                                   scope=merge_scope)
+            elif isinstance(action, exp.Insert):
+                # E3a/5: WHEN NOT MATCHED THEN INSERT (cols) VALUES (vals)
+                # — the insert column list defines fields of the MERGE
+                # target; the VALUES expressions walk the normal chain.
+                col_tuple = (action.this
+                             if isinstance(action.this, exp.Tuple) else None)
+                if col_tuple and target_name:
+                    for col in (col_tuple.expressions or []):
+                        if isinstance(col, exp.Column):
+                            cname = _clean(col.name or "")
+                            if cname:
+                                self._add(cname, VariableType.COLUMN,
+                                          sql_expr=_sql(col),
+                                          defined_in="MERGE INSERT",
+                                          context=context,
+                                          source_tables=[target_name])
+                val_expr = action.expression
+                if val_expr is not None:
+                    self._walk_columns_in_expr(val_expr, context,
+                                               defined_in="MERGE WHEN",
+                                               scope=merge_scope)
+
+    # ── UPDATE walker ───────────────────────────────────────────────
+
+    def _walk_update(self, update: exp.Update, context: str):
+        """Walk an UPDATE statement (E3a/1).
+
+        A dedicated walker — the generic SELECT walk treats `expressions`
+        as SELECT projections, but for exp.Update they are the SET
+        assignments. Here:
+          - the target table registers with dml="UPDATE" (the dependency
+            graph's DML phase keys on defined_in containing UPDATE);
+          - bare SET targets become COLUMN vars whose source_tables is the
+            TARGET table (fields of the updated table, never ⟐ output);
+          - qualified SET LHS (t.a = …) walk the normal S1 chain;
+          - SET RHS + WHERE walk the normal column chain — subqueries and
+            NOT EXISTS bodies get their own subqN/existsN contexts;
+          - a ⟐ output VT exists so DML edges route through it.
+        """
+        # D-series: statement anchor for line-scoped resolution.
+        self._record_stmt_anchor(context, update)
+        scope = _SelectScope(owner=update)
+
+        # Output VT for DML routing (same label convention as _walk_select).
+        label = "output"
+        if context.startswith("CTE{") and "/" not in context and ":" not in context:
+            label = context[4:context.index("}")]
+        vt_name = f"⟐ {label}"
+        head_run = _statement_head_run(update)
+        self._add(vt_name, VariableType.VIRTUAL_TABLE,
+                  sql_expr=_sql(update), defined_in=context, context=context,
+                  def_site=([head_run, head_run[:2]], update, context))
+
+        # Target table (exp.Update.this) — UPDATE-marked for the DML phase.
+        target = update.args.get("this")
+        target_name = ""
+        if target and isinstance(target, exp.Table):
+            target_name = _clean(target.name or "")
+            self._register_table(target, context, dml="UPDATE", scope=scope)
+            # S4a source 2: SET targets are canonical schema evidence for
+            # the target table (evidence only — mirrored from _walk_select).
+            if target_name:
+                stmt_line = self._statement_anchor(update)
+                for e in (update.expressions or []):
+                    if (isinstance(e, _UPDATE_SET_NODES)
+                            and isinstance(e.this, exp.Column)):
+                        cname = _clean(e.this.name or "")
+                        if cname:
+                            self._script_schemas.setdefault(
+                                target_name, {}).setdefault(cname, stmt_line)
+
+        # SET clauses — sqlglot puts the assignments in `expressions`.
+        for e in (update.expressions or []):
+            if not isinstance(e, _UPDATE_SET_NODES):
+                continue
+            lhs = e.this
+            if isinstance(lhs, exp.Column) and _clean(lhs.table or ""):
+                # Qualified LHS (t.a = …) — normal chain (S1 alias
+                # resolution through the statement scope).
+                self._register_column(lhs, context, defined_in="UPDATE SET",
+                                      scope=scope)
+            elif isinstance(lhs, exp.Column) and target_name:
+                # Bare SET target: a field OF THE TARGET TABLE — the UPDATE
+                # defines this column of the target (E3a/1: SET targets were
+                # previously not extracted at all, or attributed to ⟐ output).
+                lname = _clean(lhs.name or "")
+                if lname:
+                    self._add(lname, VariableType.COLUMN,
+                              sql_expr=_sql(lhs),
+                              defined_in="UPDATE SET", context=context,
+                              source_tables=[target_name],
+                              def_site=([["set", lname], [lname]], None,
+                                        context, True, True))
+            rhs = e.args.get("expression")
+            if rhs is not None:
+                self._walk_columns_in_expr(rhs, context,
+                                           defined_in="UPDATE SET",
+                                           scope=scope)
+
+        # FROM / JOIN clauses (MySQL UPDATE ... FROM / JOIN forms)
+        from_exp = update.args.get("from") or update.args.get("from_")
+        if from_exp:
+            self._walk_from(from_exp, context, scope)
+        for join in (update.args.get("joins") or []):
+            self._walk_join(join, context, scope)
+
+        # WHERE — after SET so bare refs dedup against the SET targets
+        cond = update.args.get("where")
+        if cond:
+            self._walk_columns_in_expr(cond, context, defined_in="WHERE",
+                                       scope=scope)
+
+        # ORDER BY (MySQL UPDATE ... ORDER BY ... LIMIT)
+        order = update.args.get("order")
+        if order:
+            for e in (order.expressions if hasattr(order, 'expressions') else [order]):
+                self._walk_columns_in_expr(e, context, defined_in="ORDER BY",
+                                           scope=scope)
 
     # ── INSERT / CREATE walkers ─────────────────────────────────────
 
