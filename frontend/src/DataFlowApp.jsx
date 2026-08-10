@@ -348,6 +348,10 @@ export default function DataFlowApp() {
       // Switching to "Show All": fetch unfiltered graph
       if (l2FullGraph) {
         setL2Graph(l2FullGraph);
+        // R10-#19: keep the selection in sync with the graph actually
+        // shown — the fetch path auto-selects via applyL2Result, so the
+        // cached path must do the same (pickAutoEdge is null-safe).
+        setSelectedEdge(pickAutoEdge({ graph: l2FullGraph }));
         setL2Filtered(false);
       } else {
         try {
@@ -656,29 +660,32 @@ export default function DataFlowApp() {
           {/* Resize handle: L2 graph | SQL panel */}
           <div {...sqlResize.handleProps} />
           {sqlText && (
-            <div className="inline-l2-sql" style={{ height: sqlPanelHeight }}>
-              <SqlPanel
-                ref={sqlPanelRef}
+            <>
+              <div className="inline-l2-sql" style={{ height: sqlPanelHeight }}>
+                <SqlPanel
+                  ref={sqlPanelRef}
+                  sqlText={sqlText}
+                  sqlHighlightLine={sqlHighlightLine}
+                  scriptName={currentScriptName}
+                  wsId={wsId}
+                  table={activeView?.table || ""}
+                  field={activeView?.field || ""}
+                />
+              </div>
+              {/* R25/§8.8: flow reason panel BELOW the SQL panel — kind +
+                  anchor line + the reason string with the clicked edge's
+                  ‖…‖-wrapped segment emphasized; empty state when no edge
+                  is selected. R11-3: with a `mech` payload the panel adds
+                  the flow sentence + clickable code-evidence rows that
+                  scroll the SQL panel via onJumpToLine. R10-#18: only
+                  rendered when there is a script (sqlText) to jump to. */}
+              <EdgeReasonPanel
+                edge={selectedEdge}
                 sqlText={sqlText}
-                sqlHighlightLine={sqlHighlightLine}
-                scriptName={currentScriptName}
-                wsId={wsId}
-                table={activeView?.table || ""}
-                field={activeView?.field || ""}
+                onJumpToLine={handleJumpToLine}
               />
-            </div>
+            </>
           )}
-          {/* R25/§8.8: flow reason panel BELOW the SQL panel — kind +
-              anchor line + the reason string with the clicked edge's
-              ‖…‖-wrapped segment emphasized; empty state when no edge
-              is selected. R11-3: with a `mech` payload the panel adds the
-              flow sentence + clickable code-evidence rows that scroll the
-              SQL panel via onJumpToLine. */}
-          <EdgeReasonPanel
-            edge={selectedEdge}
-            sqlText={sqlText}
-            onJumpToLine={handleJumpToLine}
-          />
         </div>
       )}
 

@@ -744,6 +744,12 @@
   border-top: 2px solid #F39C12;
   background: #14142a;
   border-radius: 4px;
+  /* R10-#18: column flex (mirrors .dataflow-main) so the resizable SQL
+     panel absorbs the squeeze instead of clipping the reason panel —
+     the reason panel can now grow with the code-evidence block. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   overflow: hidden;
 }
 .inline-l2-header {
@@ -753,6 +759,7 @@
   padding: 8px 12px;
   background: #1a1a2e;
   border-bottom: 1px solid #3a3a5a;
+  flex-shrink: 0;
 }
 .inline-l2-header h3 {
   margin: 0;
@@ -769,10 +776,16 @@
   /* anchor for the absolutely-positioned .no-match-banner (L2 not-in-flow),
      mirroring .panel-center for the L1 no_matches banner */
   position: relative;
+  /* R10-#18: the graph keeps its fixed height — the SQL panel below it
+     is the flex item that gives up space in tight windows */
+  flex-shrink: 0;
 }
 .inline-l2-sql {
   /* max-height removed — user drags freely */
   overflow-y: auto;
+  /* R10-#18: as the flexible flex item, it must be allowed to shrink
+     below its content height when the reason panel grows */
+  min-height: 0;
 }
 
 /* ── Bundled Edge Tooltip ── */
