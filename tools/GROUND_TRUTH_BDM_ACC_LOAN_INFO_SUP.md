@@ -547,9 +547,24 @@ SQL panel. Field lines survive only as *fallback candidates* for edge spans
    available exact line.
 5. **Chain flow** (TABLE_FLOW/ALIAS/DML pass-through): anchor = the flow's
    entry line — the source node's def line.
+6. **SCHEMA flow** (structure — container → member: "the field belongs to
+   the table/VT", ruled in 2026-08-10): anchor = the **member node's
+   appearance line** (the field's var-carried `line_start`; a VT member
+   anchors at its creation line). Canonical: `p1@29 → p1.data_dt@43` → 43,
+   `p1@84 → p1.data_dt@158` → 158, `p2@199 → p2.data_dt@202` → 202 —
+   all lines already anchored by the member field's flow edges (pairs
+   3/7/E4); shared lines with multiplicity, accepted.
+7. **SUBSET flow** (bridge — column-set membership: "this statement's
+   column set is part of the target's columns", ruled in 2026-08-10):
+   anchor = the **source node's def line**. Canonical: `sup@223 →
+   rrcdm@211` → 223 (already pair 18's anchor post-fix). The seven
+   promoted pairs stop being SUBSET at extraction (rule 1/5 anchors
+   apply); only the residual bridge takes rule 7.
 
 **Guarantee:** every edge's highlight = exactly **one script line ≥ 1**.
-Line 0 or a missing line is a defect, never a valid highlight.
+Line 0 or a missing line is a defect, never a valid highlight. **Every
+edge in the L2 graph carries a highlight** (user ruling 2026-08-10: "there
+is an edge, there should be a highlight").
 
 **The canonical 19-pair spec** (this sample — 16 canonical pairs + 3 flows;
 supersedes the 16-pair §7.2 highlight framing):
@@ -596,12 +611,23 @@ An edge counts as a flow iff:
    is *inside* the flow, not printed on the carrier's lines (a chain
    anchor may carry no field token — that is what makes the chain clause a
    separate kind).
-Excluded, peremptorily:
-- **SUBSET/BRIDGE never counts** — not even as a tie-breaker
-  (`sup@223 → rrcdm@211` stays out; the `data_dt@213 → rrcdm@211` bridge
-  variants stay out as bridges — they are replaced by the promoted pair 17).
-- **SCHEMA containment never counts** (I5 — structure, not a value flow).
+Highlighted — **every edge in the L2 graph** (supersedes the peremptory
+exclusions below; user ruling 2026-08-10: "There is an edge, there should
+be a highlight… every edge in L2 representing a data flow, doesn't it? so
+the scheme edge is also included"):
+- **SCHEMA containment edges count** (structure kind — "belongs to") —
+  anchor rule 6 (member's appearance line).
+- **SUBSET/BRIDGE edges count** (bridge kind — column-set membership) —
+  anchor rule 7 (source's def line). The seven promoted pairs stop being
+  SUBSET at extraction anyway; on this sample only ONE residual bridge
+  remains (`sup@223 → rrcdm@211`, sup seed).
 - **INDIRECT** counts iff the field's token sits at an endpoint.
+Former exclusions (kept as history; superseded by the ruling above):
+- ~~SUBSET/BRIDGE never counts~~ — the `data_dt@213 → rrcdm@211` bridge
+  variant is pair 17 (promoted to value-write), the `sup@223 → rrcdm@211`
+  bridge is now highlighted as B1 (anchor 223).
+- ~~SCHEMA containment never counts~~ (I5 — structure, not a value flow) —
+  now highlighted as S1–S5 (structure kind, rule 6).
 Prerequisite (accepted with the rule; probe-pinned list, 2026-08-10): the
 machinery must promote the mislabeled real flows out of SUBSET — the probe
 shows **SEVEN** canonical pairs currently typed SUBSET (the earlier 17/19
@@ -643,9 +669,12 @@ already ruled in.
   alternative (exclude them, payload = exactly 19) was offered and
   declined: it would need an exclusion rule contradicting "chain edges
   count", and clicking the JOIN edge would highlight nothing at L202.
-- The SCHEMA containment edges (`p1@29→p1.data_dt@43/158`, `p1@84→…`,
-  `p2@199→p2.data_dt@202`) never count (I5); the bridges (`sup@223→
-  rrcdm@211`, the `data_dt@213→rrcdm@211` bridge variant) never count.
+- The SCHEMA containment edges (`p1@29→p1.data_dt@43/158`,
+  `p1@84→p1.data_dt@43/158`, `p2@199→p2.data_dt@202`) and the residual
+  bridge (`sup@223→rrcdm@211`) are now **highlighted too** (ruling
+  2026-08-10, every edge is a data flow unit) — pinned as S1–S5 and B1 in
+  the benchmark (§8.5), anchors = rule 6/7 (43, 158, 202, 223 — all
+  already-lit lines).
 
 **Scope note — robustness, NOT the contract.** Every canonical edge must
 have its exact anchor line per the rules above; a canonical edge without one
@@ -656,14 +685,15 @@ token-run extension (bug list §v3.3.147 addendum 2).
 ### 8.4 Counting invariant
 
 - Per edge: exactly **one primary line** ⇒ per-edge highlight count == edge
-  count. Canonical contract: **19 canonical edges ⇒ 19 highlight lines**
-  (16 pairs + the 3 extras of §8.3). On this sample the payload additionally
-  carries the 4 verified extras of §8.3 (boundary-rule flows): **23
-  highlight entries → 16 distinct lines** (the 19 anchors + the JOIN's
-  202; L160 = 5 entries [pairs 11/12/15 + ALIAS hop E3], L29 = 3 [pairs
-  4/13 + E1], L84 = 3 [pairs 8/14 + E2]). The canonical 19 are the
-  benchmark contract; the extras are pinned too (§8.5) so the payload
-  count is deterministic, not open-ended.
+  count. **Every edge in the L2 graph highlights** (ruling 2026-08-10) —
+  there is no excluded category. Canonical contract on this sample: **19
+  canonical pairs + 4 verified extras + 6 SCHEMA/residual-bridge entries
+  (S1–S5, B1) = 29 highlight entries → 16 distinct lines** (L160 = 5
+  entries [pairs 11/12/15 + E3], L29 = 3 [pairs 4/13 + E1], L84 = 3
+  [pairs 8/14 + E2]; S1–S5/B1 anchor at 43/158/202/223 — all already
+  covered). The canonical 19 are the benchmark contract; every other
+  entry is pinned too (§8.5) so the payload count is deterministic, not
+  open-ended.
 - Multiple edges may share one line — shared anchors are accepted (L160:
   pairs 11/12/15 + E3; L29: pairs 4/13 + E1; L84: pairs 8/14 + E2; L43's
   FILTER and READ flows now anchor apart — 43 and 29 — per the READ rule).
@@ -679,9 +709,10 @@ token-run extension (bug list §v3.3.147 addendum 2).
 `CANONICAL_HIGHLIGHTS` (field lines), `CANONICAL_PROPAGATED`, and the
 earlier `CANONICAL_EDGE_RANGES` plan are all superseded. The test ground
 truth is **CANONICAL_EDGE_LINES**: the 19 canonical pairs + 4 verified
-extras (§8.3), each with its exact anchor line and closure seed.
+extras + 6 SCHEMA/residual-bridge entries (§8.3), each with its exact
+anchor line and closure seed.
 
-**The complete table — 23 entries, this sample, post-promotion state:**
+**The complete table — 29 entries, this sample, post-promotion state:**
 
 | # | Pair | Kind | Real type (post-promotion) | Seed | Anchor |
 |---|------|------|---------------------------|------|--------|
@@ -708,11 +739,21 @@ extras (§8.3), each with its exact anchor line and closure seed.
 | E2 | `bdm@84 → p1@84` | ALIAS hop | ALIAS | bdm | 84 |
 | E3 | `sup@160 → p2@199` | ALIAS hop | ALIAS | sup | 160 |
 | E4 | `p2.data_dt@202 → ⟐output@0` | JOIN cond | JOIN/JOIN_CONDITION | sup | 202 |
+| S1 | `p1@29 → p1.data_dt@43` | structure | SCHEMA/TABLE_COLUMN | bdm | 43 |
+| S2 | `p1@29 → p1.data_dt@158` | structure | SCHEMA/TABLE_COLUMN | bdm | 158 |
+| S3 | `p1@84 → p1.data_dt@43` | structure | SCHEMA/TABLE_COLUMN | bdm | 43 |
+| S4 | `p1@84 → p1.data_dt@158` | structure | SCHEMA/TABLE_COLUMN | bdm | 158 |
+| S5 | `p2@199 → p2.data_dt@202` | structure | SCHEMA/TABLE_COLUMN | sup | 202 |
+| B1 | `sup@223 → rrcdm@211` | bridge | SUBSET (residual) | sup | 223 |
 
 Real-type column = the state AFTER the §8.3 promotions land; today's
 probe shows rows 1, 2, 12, 13, 14, 17, 19 as SUBSET and row 18 missing
 (Defect-5). Pair names use canonical endpoints; pairs 4/8 and E1–E3 are
-matched with `_canon_key` alias normalization.
+matched with `_canon_key` alias normalization. S1–S5/B1 (probe-pinned
+2026-08-10): the SCHEMA containment edges and the single residual SUBSET
+bridge in the two closures — every edge in the L2 graph highlights
+(ruling 2026-08-10); S3/S4 confirm both p1 alias instances sync to the
+shared `p1.data_dt@43/158` field nodes (Sync 1).
 
 **Assertion spec — `test_edge_lines`** (per entry, on its seed):
 (a) the edge EXISTS in the closure (canonical normalization);
@@ -720,18 +761,20 @@ matched with `_canon_key` alias normalization.
     a fallback line FAILS the test as a solution defect;
 (c) line ≥ 1 (line 0 is a defect).
 Canonical pairs (1–19): existence + exact anchor. Verified extras
-(E1–E4): existence + exact anchor (pinned so the payload count is
-deterministic). Pair 18 is asserted only AFTER the Defect-5 fix (work
-list W2); until then the test asserts the KNOWN GAP (pair 18 absent,
-`data_dt@225` not extracted) instead of failing.
+(E1–E4) and the SCHEMA/bridge entries (S1–S5, B1): existence + exact
+anchor (pinned so the payload count is deterministic). Pair 18 is
+asserted only AFTER the Defect-5 fix (work list W2); until then the test
+asserts the KNOWN GAP (pair 18 absent, `data_dt@225` not extracted)
+instead of failing.
 
 **Closure seeds (probe-pinned 2026-08-10): no single L2 search seed
 covers all 19 pairs.** The `bdm_acc_loan_info.data_dt` seed yields pairs
-1–16 + E1/E2 (16 nodes / 24 edges); the `bdm_acc_loan_info_sup.data_dt`
-seed yields pairs 11, 12, 15, 16, 17, 19 + E3/E4 (8 nodes / 12 edges).
-The 23-entry spec is the UNION over the two seeds; the Seed column states
-where each entry is asserted. The §7.2 closure spec (13 nodes / 16 edge
-pairs / 2 sinks) is UNCHANGED — only the highlight layer is redefined.
+1–16 + E1/E2 + S1–S4 (16 nodes / 24 edges); the
+`bdm_acc_loan_info_sup.data_dt` seed yields pairs 11, 12, 15, 16, 17, 19
++ E3/E4 + S5 + B1 (8 nodes / 12 edges). The 29-entry spec is the UNION
+over the two seeds; the Seed column states where each entry is asserted.
+The §7.2 closure spec (13 nodes / 16 edge pairs / 2 sinks) is UNCHANGED —
+only the highlight layer is redefined.
 
 ### 8.6 Current-system gaps this definition exposes (bug list §v3.3.147)
 
@@ -785,8 +828,8 @@ pairs / 2 sinks) is UNCHANGED — only the highlight layer is redefined.
 | 12 | SET_OP | field flow | ✅ | 1 | verification sample: `tpcds_qualified/86.sql` (`union_result@0 --SET_OP--> results_rollup@14`) |
 | 13 | SUBQUERY | field flow / chain | ✅ | 1 / 5 | not observed on the canonical sample; VT chains there are TABLE_FLOW/SUBSELECT |
 | 14 | INDIRECT | filter (correlated) | ✅ iff the field's token sits at an endpoint | endpoint-decided | verification sample: `spider_complex/046_pets_1_s6.sql` (15 edges, e.g. `T1.stuid@3 --INDIRECT/CORRELATED--> T1.stuid@3` → anchor 3) |
-| 15 | SCHEMA | structure | ❌ never | — (I5 containment) | `p1@29→p1.data_dt@43/158`, `p1@84→…`, `p2@199→p2.data_dt@202` (probe, excluded) |
-| 16 | SUBSET | bridge | ❌ never — **except the seven promoted pairs** (1, 2, 12, 13, 14, 17, 19), which stop being SUBSET at extraction | — | bridges `sup@223→rrcdm@211`, `data_dt@213→rrcdm@211` (probe, excluded) |
+| 15 | SCHEMA | structure | ✅ (ruled 2026-08-10) | 6 — member's appearance line | `p1@29→p1.data_dt@43/158`, `p1@84→p1.data_dt@43/158`, `p2@199→p2.data_dt@202` (S1–S5) |
+| 16 | SUBSET | bridge | ✅ (ruled 2026-08-10) — the seven promoted pairs (1, 2, 12, 13, 14, 17, 19) stop being SUBSET at extraction; the residual bridge takes rule 7 | 7 — source's def line | residual `sup@223→rrcdm@211` (B1); `data_dt@213→rrcdm@211` is pair 17 (promoted) |
 
 Per-pair real-type map (probe-pinned; the 19 pairs as they exist today):
 
@@ -824,9 +867,10 @@ new panel). Also the reason should include the string format data flow."
    its flow-kind label at the edge midpoint. The label carries the flow
    kind ONLY — never the edge type, never SQL text. Kind names are the
    §8.7 canonical set: `chain`, `field flow`, `read`, `write`, `filter`,
-   `structure`, `bridge`. Highlighted edges render the label in the edge's
-   category color; excluded edges render `structure` (SCHEMA) / `bridge`
-   (SUBSET) in gray. No toggle — labels always on.
+   `structure`, `bridge` — **every edge is highlighted** (ruled
+   2026-08-10: "there is an edge, there should be a highlight"; the
+   SCHEMA edge is a data flow unit too), so every label renders in the
+   edge's category color. No toggle — labels always on.
 2. **Click → SQL highlight + reason panel.** Clicking an edge (a) scrolls
    the SQL panel to `highlight_line` and highlights exactly that one line
    (existing single-line behavior; AND/OR continuation lights only the
@@ -853,10 +897,10 @@ new panel). Also the reason should include the string format data flow."
    + anchor + reason; the legend groups the 16 types by flow kind with
    ✅/❌ marks.
 
-Open micro-decision — flow-string scope: **RESOLVED (both, item 3)**.
-Excluded-edge labels: user question (2026-08-10) — "there should not be
-an edge that cannot be highlighted, because every edge is a unit of data
-flow" — explanation given in chat; ruling pending.
+Open micro-decisions — flow-string scope: **RESOLVED (both, item 3)**.
+Excluded-edge labels: **RESOLVED (2026-08-10)** — the user ruled every
+edge in L2 is a data flow unit and highlights, SCHEMA included; there is
+no excluded category anymore (S1–S5, B1 pinned in §8.5).
 
 ### 8.9 Verification plan — the four types absent from the canonical sample (user ruling: verify-first)
 
@@ -878,11 +922,12 @@ mini-samples to the benchmark if they remain canonical.
 ### 8.10 Open confirmations (2026-08-10) — everything else is ruled
 
 1. **L2 display design — RULED (2026-08-10)** (§8.8): flow-kind labels on
-   the edges (kind only, always visible; gray `structure`/`bridge` for
-   excluded); click → SQL anchor highlight + NEW reason panel below the
-   SQL panel; reason includes the string-format data flow — full path +
-   current edge location (both, ruled). Open micro-decision: excluded-edge
-   labels (user question pending ruling, §8.8).
+   the edges (kind only, always visible, category color — **every edge
+   highlights**, SCHEMA/SUBSET included, no excluded category); click →
+   SQL anchor highlight + NEW reason panel below the SQL panel; reason
+   includes the string-format data flow — full path + current edge
+   location (both, ruled). All open micro-decisions resolved; the only
+   remaining gate is G2 (work list approval).
 2. **Extras counting — RESOLVED (2026-08-10): counted per the boundary
    rule** (option 1); the 4 verified extras (E1–E4) are pinned in the
    benchmark (§8.5) with exact anchors. The exclusion alternative

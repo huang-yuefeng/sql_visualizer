@@ -1297,15 +1297,17 @@ range-expansion layer (`sql_range_finder`).
    (+ `flow_kind` + `reason`, §8.8) from extraction time.
 4. **Both edge types and the highlight decision are part of the
    definition** — the 16-row real-type → flow-kind → highlighted? mapping
-   with the detailed rules (GROUND_TRUTH §8.7). SCHEMA and SUBSET-bridge
-   never highlight; the seven probe-pinned canonical pairs typed SUBSET
-   (1, 2, 12, 13, 14, 17, 19) are promoted at extraction time to their
-   honest types.
+   with the detailed rules (GROUND_TRUTH §8.7). **Every edge in the L2
+   graph highlights** (ruled 2026-08-10: every edge is a data flow unit,
+   SCHEMA included — no excluded category; SCHEMA = structure kind, rule
+   6, residual SUBSET = bridge kind, rule 7). The seven probe-pinned
+   canonical pairs typed SUBSET (1, 2, 12, 13, 14, 17, 19) are promoted
+   at extraction time to their honest types.
 5. **Flow kind labeled on the edges (ruled 2026-08-10).** Every L2 edge
    displays its flow-kind label at the edge midpoint — the flow kind ONLY
-   (never the edge type, never SQL text). Highlighted edges render the
-   kind in the edge's category color; excluded edges render `structure`
-   (SCHEMA) / `bridge` (SUBSET) in gray. Always visible — no toggle.
+   (never the edge type, never SQL text). Every edge highlights (no
+   excluded category), so every label renders in the edge's category
+   color. Always visible — no toggle.
 6. **Reason panel below the SQL panel (ruled 2026-08-10).** Clicking an
    edge highlights its anchor line in the SQL panel (existing behavior)
    AND shows the reason in a NEW panel below the SQL panel: flow kind +
@@ -1316,9 +1318,11 @@ range-expansion layer (`sql_range_finder`).
    overview + current edge for orientation; design §8.8, RULED). Flow
    string built at L2 build time from the closure walk — never
    reconstructed at render.
-7. **Counting invariant:** 19 canonical pairs ⇒ 19 anchor lines
+7. **Counting invariant:** 29 highlight entries on this sample — 19
+   canonical pairs + 4 extras + 6 SCHEMA/residual-bridge (S1–S5, B1) ⇒
+   16 distinct lines (all S/B anchors are already-lit lines; §8.4).
    (CANONICAL_EDGE_LINES benchmark, asserted across the two closure seeds
-   bdm/sup per §8.5).
+   bdm/sup per §8.5.)
 
 ### Acceptance criteria
 
@@ -1333,8 +1337,9 @@ range-expansion layer (`sql_range_finder`).
       conditions light only the anchor line (AND/OR continuation
       regression CONFIRMED acceptable, 2026-08-10)
 - [ ] All L2 edges carry a visible flow-kind label at the edge midpoint:
-      label = flow kind only (no edge type, no SQL text); `structure` /
-      `bridge` in gray for SCHEMA / SUBSET-bridge; hover tooltip + legend
+      label = flow kind only (no edge type, no SQL text); every edge
+      highlights incl. SCHEMA (`structure`) and residual SUBSET
+      (`bridge`), all labels in category color; hover tooltip + legend
       stay as secondary surfaces (edge type, counts)
 - [ ] The 7 SUBSET promotions land at extraction time (pairs 1, 2, 12,
       13, 14, 17, 19) — no render-time re-typing
