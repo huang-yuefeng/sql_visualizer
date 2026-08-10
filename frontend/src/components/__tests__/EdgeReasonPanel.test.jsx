@@ -55,6 +55,18 @@ describe('EdgeReasonPanel — R25/§8.8 (below the SQL panel)', () => {
     expect(screen.getByText('Flow Reason')).toBeInTheDocument();
     expect(screen.getByText('—')).toBeInTheDocument();
   });
+
+  it('exposes the reason area as a polite live region (a11y)', () => {
+    // R10-#25: both states — empty hint and edge content — announce changes
+    const { container, rerender } = render(<EdgeReasonPanel edge={null} />);
+    const emptyPanel = container.querySelector('[data-testid="edge-reason-panel"]');
+    expect(emptyPanel).toHaveAttribute('role', 'status');
+    expect(emptyPanel).toHaveAttribute('aria-live', 'polite');
+    rerender(<EdgeReasonPanel edge={edge} />);
+    const contentPanel = container.querySelector('[data-testid="edge-reason-panel"]');
+    expect(contentPanel).toHaveAttribute('role', 'status');
+    expect(contentPanel).toHaveAttribute('aria-live', 'polite');
+  });
 });
 
 // ── R11-3: code evidence (backend `mech` payload) ─────────────────────

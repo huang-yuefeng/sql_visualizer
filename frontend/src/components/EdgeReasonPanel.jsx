@@ -22,7 +22,8 @@ import React from 'react';
 export default function EdgeReasonPanel({ edge, sqlText, onJumpToLine }) {
   if (!edge) {
     return (
-      <div className="edge-reason-panel edge-reason-empty" data-testid="edge-reason-panel">
+      <div className="edge-reason-panel edge-reason-empty" data-testid="edge-reason-panel"
+        role="status" aria-live="polite">
         <span className="edge-reason-title">Flow Reason</span>
         <span className="edge-reason-hint">Click an edge to see its flow reason</span>
       </div>
@@ -70,7 +71,8 @@ export default function EdgeReasonPanel({ edge, sqlText, onJumpToLine }) {
     (sqlLines && line >= 1 && line <= sqlLines.length) ? sqlLines[line - 1] : null;
 
   return (
-    <div className={`edge-reason-panel${mech ? ' edge-reason-with-evidence' : ''}`} data-testid="edge-reason-panel">
+    <div className={`edge-reason-panel${mech ? ' edge-reason-with-evidence' : ''}`} data-testid="edge-reason-panel"
+      role="status" aria-live="polite">
       <span className="edge-reason-title">Flow Reason</span>
       {kind && (
         <span className="edge-reason-kind" style={{ color, borderColor: color }}>
