@@ -533,6 +533,19 @@ SQL panel. Field lines survive only as *fallback candidates* for edge spans
 (`line_start ≥ 1`, `line_end ≥ line_start`). A span with inverted or
 out-of-bounds columns is a defect, not a valid highlight.
 
+**Scope of the fallbacks — robustness clauses, NOT the contract.** Every
+canonical edge must have an exact range per (1); a canonical edge that falls
+back is a solution defect (bug to fix), never a "hard case". The fallback
+clauses exist only for:
+(a) expression vars that are genuinely unanchored today (verified on this
+    sample: 7 CONCAT join-key vars have line 0 — their JOIN edges have no
+    anchor line; extractor fix preferred, see round-8 review D1/D2);
+(b) graph caches built by older extractor versions (line-0 vars);
+(c) a *defined degraded state* for the renderer whenever the exact span is
+    unavailable — an invalid span (line 0 / inverted / out-of-bounds, as the
+    live data shows today for SUBSET edges) is a defect that (2)/(3) never
+    excuse.
+
 ### 8.4 Counting invariant
 
 - Per edge: exactly **one primary span** ⇒ per-edge highlight count == edge
@@ -552,7 +565,11 @@ out-of-bounds columns is a defect, not a valid highlight.
 - `test_highlights` / `test_propagated_field` are reworked into per-edge
   span assertions (rename: `test_edge_ranges`), asserting:
   (a) every closure edge has ≥1 line (`line_start ≥ 1`, not inverted);
-  (b) each canonical edge's span matches its expected entry.
+  (b) **exact spans for all 16 canonical edges** — a canonical edge that
+      falls back (§8.3.2/§8.3.3) FAILS the test as a solution defect;
+  (c) fallback-only edges (non-canonical, e.g. JOIN edges on unanchored
+      CONCAT keys) report their fallback line for classification, but are
+      not canonical failures.
 - Defect 5 (L225): the extractor still creates no var at L225. Under the new
   definition its impact is no longer "missing field line" but "the flow of
   stmt2's WHERE read may lack an edge or an exact span" — the §8.3.2
