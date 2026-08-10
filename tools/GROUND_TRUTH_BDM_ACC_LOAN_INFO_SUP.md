@@ -629,14 +629,20 @@ already ruled in.
   table) and matches the pair through the FROM hop.
 - Pairs 9 and 10 are **direct edges** — `p6@155` and `p1@198` never
   materialize as nodes (`TABLE_FLOW/REFERENCE` and `TABLE_FLOW/INSERT`).
-- **Extras beyond the 19** — the closures also carry real flows with real
-  anchors: the ALIAS hops `bdm@29→p1@29` (29), `bdm@84→p1@84` (84),
-  `sup@160→p2@199` (160) and the JOIN condition `p2.data_dt@202
-  --JOIN/JOIN_CONDITION--> ⟐output@0` (202 — the condition line itself).
-  All are genuine flows per the rules; their anchors coincide with the
-  pairs' lines except the JOIN's 202. Whether they are separately counted
-  (each gets `highlight_line` in the payload) or folded into their
-  canonical pair is PENDING USER CONFIRMATION (§8.10).
+- **Extras beyond the 19 — COUNTED (resolved 2026-08-10, option 1).** The
+  closures also carry real flows with real anchors: the ALIAS hops
+  `bdm@29→p1@29` (29), `bdm@84→p1@84` (84), `sup@160→p2@199` (160) and
+  the JOIN condition `p2.data_dt@202 --JOIN/JOIN_CONDITION--> ⟐output@0`
+  (202 — the condition line itself). They are genuine flows per the
+  boundary rule (ALIAS chain / value-carrying with a field-appearance
+  anchor) and NO new exclusion rule was added — they each carry
+  `highlight_line` like any flow. They are **verified extras**: pinned in
+  the benchmark (§8.5) with exact anchors so they cannot drift. Three
+  anchors coincide with the 19 pairs' lines (29 / 84 / 160); the JOIN adds
+  the new line **202** (the condition line — correct to highlight). The
+  alternative (exclude them, payload = exactly 19) was offered and
+  declined: it would need an exclusion rule contradicting "chain edges
+  count", and clicking the JOIN edge would highlight nothing at L202.
 - The SCHEMA containment edges (`p1@29→p1.data_dt@43/158`, `p1@84→…`,
   `p2@199→p2.data_dt@202`) never count (I5); the bridges (`sup@223→
   rrcdm@211`, the `data_dt@213→rrcdm@211` bridge variant) never count.
@@ -650,46 +656,82 @@ token-run extension (bug list §v3.3.147 addendum 2).
 ### 8.4 Counting invariant
 
 - Per edge: exactly **one primary line** ⇒ per-edge highlight count == edge
-  count. For the canonical spec: **19 canonical edges ⇒ 19 highlight
-  lines** (16 pairs + the 3 extras of §8.3).
+  count. Canonical contract: **19 canonical edges ⇒ 19 highlight lines**
+  (16 pairs + the 3 extras of §8.3). On this sample the payload additionally
+  carries the 4 verified extras of §8.3 (boundary-rule flows): **23
+  highlight entries → 16 distinct lines** (the 19 anchors + the JOIN's
+  202; L160 = 5 entries [pairs 11/12/15 + ALIAS hop E3], L29 = 3 [pairs
+  4/13 + E1], L84 = 3 [pairs 8/14 + E2]). The canonical 19 are the
+  benchmark contract; the extras are pinned too (§8.5) so the payload
+  count is deterministic, not open-ended.
 - Multiple edges may share one line — shared anchors are accepted (L160:
-  pairs 11/12/15; L29: pairs 4/13; L84: pairs 8/14; L43's FILTER and READ
-  flows now anchor apart — 43 and 29 — per the READ rule). Deduping shared
-  lines for display is a *rendering* decision, never a semantic one; the
-  edge→line mapping is one-to-one and the benchmark asserts it **per edge**.
+  pairs 11/12/15 + E3; L29: pairs 4/13 + E1; L84: pairs 8/14 + E2; L43's
+  FILTER and READ flows now anchor apart — 43 and 29 — per the READ rule).
+  Deduping shared lines for display is a *rendering* decision, never a
+  semantic one; the edge→line mapping is one-to-one and the benchmark
+  asserts it **per edge**.
 - The write group (pairs 16/17/18) keeps every appearance traceable: the
   write line 211, the value line 213, the read line 223 — three edges, one
   per appearance, per the user's 3-edge ruling.
 
-### 8.5 Benchmark impact (next iteration round)
+### 8.5 Highlight ground truth for testing (CANONICAL_EDGE_LINES — complete)
 
-- `CANONICAL_HIGHLIGHTS` (field lines), `CANONICAL_PROPAGATED`, and the
-  earlier `CANONICAL_EDGE_RANGES` plan are all superseded. Replaced by
-  **CANONICAL_EDGE_LINES**: the 19 pairs of §8.3, each with its exact anchor
-  line.
-- `test_highlights` / `test_propagated_field` are reworked into
-  `test_edge_lines`, asserting per canonical pair:
-  (a) the edge EXISTS in the closure;
-  (b) its highlight line == the expected anchor — **exact match required**;
-      a fallback line FAILS the test as a solution defect;
-  (c) line ≥ 1 (line 0 is a defect).
-- The three extras are canonical now, with implementation prerequisites:
-  pair 17 exists in the closure but is mislabeled SUBSET/BRIDGE — must be
-  promoted to a value-write type; pair 18 is blocked by Defect 5 — resolved
-  by the token-run extension (bug list §v3.3.147 addendum 2), which also
-  dissolves the duplicate `data_dt@213`; pair 19 exists as a mislabeled
-  closure extra (SUBSET/READ) — must be promoted to an honest join-key read.
-  (Plus the four probe-pinned upstream promotions of §8.3: pairs 1, 2, 12,
-  13, 14.)
-- **Closure seeds (probe-pinned 2026-08-10): no single L2 search seed
-  covers all 19 pairs.** The `bdm_acc_loan_info.data_dt` seed yields pairs
-  1–16 (16 nodes / 24 edges); the `bdm_acc_loan_info_sup.data_dt` seed
-  yields pairs 11, 12, 15, 16, 17, 19 (8 nodes / 12 edges). The 19-pair
-  spec is the UNION over the two seeds; `test_edge_lines` asserts pairs
-  1–16 on the bdm seed and pairs 17/19 (+ 18 post-fix) on the sup seed.
-  The §7.2 closure spec (13 nodes / 16 edge pairs / 2 sinks) is UNCHANGED —
-  only the highlight layer is redefined; the highlight spec gains the three
-  extra pairs.
+`CANONICAL_HIGHLIGHTS` (field lines), `CANONICAL_PROPAGATED`, and the
+earlier `CANONICAL_EDGE_RANGES` plan are all superseded. The test ground
+truth is **CANONICAL_EDGE_LINES**: the 19 canonical pairs + 4 verified
+extras (§8.3), each with its exact anchor line and closure seed.
+
+**The complete table — 23 entries, this sample, post-promotion state:**
+
+| # | Pair | Kind | Real type (post-promotion) | Seed | Anchor |
+|---|------|------|---------------------------|------|--------|
+| 1 | `data_dt@18 → bdm@16` | field flow | FILTER/REF (promoted) | bdm | 18 |
+| 2 | `bdm@16 → rollover@9` | chain | TABLE_FLOW (promoted) | bdm | 16 |
+| 3 | `p1.data_dt@43 → ⟐subq` | field flow | FILTER/CONDITION | bdm | 43 |
+| 4 | `bdm@29 → ⟐subq` | chain | TABLE_FLOW/FROM (2-hop: +ALIAS) | bdm | 29 |
+| 5 | `⟐subq → ⟐subq1` | chain | TABLE_FLOW/SUBSELECT | bdm | 26 |
+| 6 | `⟐subq1 → rollover@9` | chain | TABLE_FLOW/SUBSELECT | bdm | 22 |
+| 7 | `p1.data_dt@158 → loan_final` | field flow | FILTER/CONDITION | bdm | 158 |
+| 8 | `bdm@84 → loan_final` | chain | TABLE_FLOW/FROM (2-hop: +ALIAS) | bdm | 84 |
+| 9 | `rollover@9 → loan_final` | chain | TABLE_FLOW/REFERENCE | bdm | 9 |
+| 10 | `loan_final@64 → sup@160` | chain | TABLE_FLOW/INSERT | bdm | 64 |
+| 11 | `sup@160 → sup@160` | chain | TABLE_FLOW/SELF_JOIN | bdm+sup | 160 |
+| 12 | `data_dt@160 → sup@160` | field flow | value-write (promoted) | bdm+sup | 160 |
+| 13 | `p1.data_dt@43 → bdm@29` | READ | read (promoted) | bdm | 29 |
+| 14 | `p1.data_dt@158 → bdm@84` | READ | read (promoted) | bdm | 84 |
+| 15 | `⟐output@0 → sup@160` | synthetic | TABLE_FLOW/INSERT | bdm+sup | 160 |
+| 16 | `sup@160 → rrcdm@211` | write | DML/WRITE_READ | bdm+sup | 211 |
+| 17 | `data_dt@213 → rrcdm@211` | value | value-write (promoted) | sup | 213 |
+| 18 | `data_dt@225 → sup@223` | READ | read (post-fix, promoted) | sup | 223 |
+| 19 | `p2.data_dt@202 → p2@199` | READ | join-key read (promoted) | sup | 199 |
+| E1 | `bdm@29 → p1@29` | ALIAS hop | ALIAS | bdm | 29 |
+| E2 | `bdm@84 → p1@84` | ALIAS hop | ALIAS | bdm | 84 |
+| E3 | `sup@160 → p2@199` | ALIAS hop | ALIAS | sup | 160 |
+| E4 | `p2.data_dt@202 → ⟐output@0` | JOIN cond | JOIN/JOIN_CONDITION | sup | 202 |
+
+Real-type column = the state AFTER the §8.3 promotions land; today's
+probe shows rows 1, 2, 12, 13, 14, 17, 19 as SUBSET and row 18 missing
+(Defect-5). Pair names use canonical endpoints; pairs 4/8 and E1–E3 are
+matched with `_canon_key` alias normalization.
+
+**Assertion spec — `test_edge_lines`** (per entry, on its seed):
+(a) the edge EXISTS in the closure (canonical normalization);
+(b) its `highlight_line` == the expected anchor — **exact match required**;
+    a fallback line FAILS the test as a solution defect;
+(c) line ≥ 1 (line 0 is a defect).
+Canonical pairs (1–19): existence + exact anchor. Verified extras
+(E1–E4): existence + exact anchor (pinned so the payload count is
+deterministic). Pair 18 is asserted only AFTER the Defect-5 fix (work
+list W2); until then the test asserts the KNOWN GAP (pair 18 absent,
+`data_dt@225` not extracted) instead of failing.
+
+**Closure seeds (probe-pinned 2026-08-10): no single L2 search seed
+covers all 19 pairs.** The `bdm_acc_loan_info.data_dt` seed yields pairs
+1–16 + E1/E2 (16 nodes / 24 edges); the `bdm_acc_loan_info_sup.data_dt`
+seed yields pairs 11, 12, 15, 16, 17, 19 + E3/E4 (8 nodes / 12 edges).
+The 23-entry spec is the UNION over the two seeds; the Seed column states
+where each entry is asserted. The §7.2 closure spec (13 nodes / 16 edge
+pairs / 2 sinks) is UNCHANGED — only the highlight layer is redefined.
 
 ### 8.6 Current-system gaps this definition exposes (bug list §v3.3.147)
 
@@ -817,13 +859,13 @@ mini-samples to the benchmark if they remain canonical.
 
 1. **L2 display design** (§8.8) — approve the suggested surface (hover
    tooltip + legend + click tag; optional edge labels).
-2. **Extras counting** — the 3 ALIAS hops (`bdm@29→p1@29`, `bdm@84→p1@84`,
-   `sup@160→p2@199`) and the JOIN condition (`p2.data_dt@202 → ⟐output@0`)
-   are real flows with real anchors under the boundary rule; recommendation:
-   each gets `highlight_line` in the payload (the canonical 19 remain the
-   benchmark contract; anchors coincide with pairs' lines except the JOIN's
-   202, which is the condition line — correct to highlight).
-3. **Two-seed benchmark** (§8.5) — accept that `test_edge_lines` asserts
-   pairs 1–16 on the bdm seed and 17/19 on the sup seed (the L2 search
-   seed determines which zone renders — current behavior, confirmed by
-   probe).
+2. **Extras counting — RESOLVED (2026-08-10): counted per the boundary
+   rule** (option 1); the 4 verified extras (E1–E4) are pinned in the
+   benchmark (§8.5) with exact anchors. The exclusion alternative
+   (payload = exactly 19) was declined: it needs a new exclusion rule
+   contradicting "chain edges count" and would kill the L202 click.
+3. **Two-seed benchmark (§8.5) — recorded as the test design**:
+   `test_edge_lines` asserts per the Seed column (pairs 1–16 + E1/E2 on
+   the bdm seed; 17/19 + E3/E4 + 18 post-fix on the sup seed). The L2
+   search seed determines which zone renders — current behavior, confirmed
+   by probe.

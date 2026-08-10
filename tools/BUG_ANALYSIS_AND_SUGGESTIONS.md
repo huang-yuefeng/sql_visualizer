@@ -3671,10 +3671,10 @@ token, the duplicate dissolves, pair 18 is unblocked.
 - **Pairs 4 & 8 have no direct edge** — 2-hop (ALIAS + TABLE_FLOW/FROM),
   both hops anchor at the pair's line; pairs 9 & 10 are direct (p6@155 /
   p1@198 never materialize).
-- **Extras with real anchors**: ALIAS hops bdm@29→p1@29 (29), bdm@84→p1@84
-  (84), sup@160→p2@199 (160) + JOIN condition p2.data_dt@202→⟐output@0
-  (202). Recommendation: count them (each is a real flow); PENDING user
-  confirmation (§8.10.2).
+- **Extras with real anchors — RESOLVED (counted, option 1)**: ALIAS hops
+  bdm@29→p1@29 (29), bdm@84→p1@84 (84), sup@160→p2@199 (160) + JOIN
+  condition p2.data_dt@202→⟐output@0 (202). Counted per the boundary rule;
+  pinned as verified extras E1–E4 in §8.5 (GROUND_TRUTH).
 - **Defect-5 re-confirmed**: `data_dt@225` exists in NO closure; sup@223
   exists with only the excluded bridge. Pair 18 stays blocked until the
   token-run fix.
@@ -3700,7 +3700,7 @@ approval of this list and of §8.10's confirmations):**
 | W5 | Per-edge payload: edge `highlight_line` (+ `flow_kind` + `reason`); remove `sql_range`/`sql_ranges`/`highlights`/`propagated`; remove `sql_range_finder` + dead import | W2–W4 | payload shape test |
 | W6 | VTs carry creation lines (pairs 5/6/15: 26/22/160) | — | anchors 26/22/160 |
 | W7 | Frontend (R25): click → `highlight_line`; hover tooltip shows edge type + flow kind + anchor; legend grouped by kind; reason tag on click | W5 + §8.8 approval | live check |
-| W8 | Benchmark rework: `CANONICAL_EDGE_LINES` 19 pairs × two seeds; `test_edge_lines` (exists + exact anchor + ≥1) | W2–W6 | pytest green |
+| W8 | Benchmark rework: `CANONICAL_EDGE_LINES` 19 pairs + 4 verified extras (E1–E4) × two seeds; `test_edge_lines` (exists + exact anchor + ≥1) | W2–W6 | pytest green |
 | W9 | Docs closed out (benchmark contract update), version bump, deploy per target_deploy.sh | W7–W8 | live check on 192.168.0.66:8000 |
 
 Gates: G1 = user approves §8.10 (display design, extras counting,
