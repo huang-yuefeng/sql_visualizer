@@ -85,18 +85,24 @@ async def scan_workspace(ws_id: str):
 
 
 @router.post("/workspace/{ws_id}/index")
-async def index_workspace(ws_id: str, body: dict):
-    """Index selected scripts. body: {scripts: ["path1.sql", ...]}"""
+def index_workspace(ws_id: str, body: dict):
+    """Index selected scripts. body: {scripts: ["path1.sql", ...]}
+
+    E4 (item 2): plain `def`, not `async def` — indexing runs the full
+    extraction pipeline (parse + graph + schema inference + analysis-cache
+    writes) per script; it must run in FastAPI's threadpool, never on the
+    event loop (a large index request used to freeze the whole service).
+    """
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    
+
     scripts = body.get("scripts", [])
     if not scripts:
         # Auto-select all SQL files from scan
         tree = scan_folder(ws_id)
         scripts = _collect_sql_files(tree)
-    
+
     result = index_scripts(ws_id, scripts)
     return result
 
@@ -175,23 +181,43 @@ async def get_default_config():
     return dict(DEFAULT_CONFIG)
 
 
+# E4 (item 4): `type` is user-controlled and was joined raw into the cache
+# path (`f"{type}_index.json"`) — `type=../../../<other_ws>/cache/table`
+# read another workspace's table_index.json. Whitelist the index kinds the
+# indexer actually writes (folder_index_service: table_index.json /
+# field_index.json / pair_index.json); anything else is a 400.
+_ACCEPTED_INDEX_TYPES = frozenset({"table", "field", "pair"})
+
+
 @router.get("/workspace/{ws_id}/autocomplete")
-async def autocomplete(ws_id: str, type: str = "table", q: str = ""):
-    """Get autocomplete suggestions. type: 'table' or 'field'."""
+def autocomplete(ws_id: str, type: str = "table", q: str = ""):
+    """Get autocomplete suggestions. type: 'table' or 'field'.
+
+    E4 (item 4): unknown `type` values (e.g. path traversal) are rejected
+    with 400 — the cache path is only ever built from the whitelist.
+    E4 (item 2): plain `def` — index JSON files are large; the parse runs
+    in the threadpool, not on the event loop.
+    """
     from app.services.folder_index_service import autocomplete as ac
     import json
-    
+
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    
+    if type not in _ACCEPTED_INDEX_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unknown autocomplete type: {type}")
+
     cache_dir = get_workspace_dir(ws_id) / "cache"
     index_path = cache_dir / (f"{type}_index.json")
-    
+
     if not index_path.exists():
         return {"suggestions": []}
-    
-    index = json.loads(index_path.read_text())
+
+    try:
+        index = json.loads(index_path.read_text())
+    except Exception:
+        return {"suggestions": []}  # corrupt index cache — never 500
+
     suggestions = ac(index, type, q)
     return {"suggestions": suggestions}
 

@@ -5,13 +5,20 @@ from app.services.workspace_service import get_workspace_dir
 
 def get_highlight_ranges(ws_id: str, script_name: str,
                          table: str, field: str) -> dict:
-    """Return line ranges to highlight for target table.field in a script."""
+    """Return line ranges to highlight for target table.field in a script.
+
+    E4 (item 3): `script_name` is user-controlled and was joined raw into
+    the scripts path — `script=..` raised IsADirectoryError (500). Resolve
+    through the shared containment resolver; missing / not-a-file keeps the
+    existing error shape (the router turns it into a 404 for HTTP callers).
+    """
     ws_dir = get_workspace_dir(ws_id)
     scripts_dir = ws_dir / "scripts"
     cache_dir = ws_dir / "cache"
 
-    sp = scripts_dir / script_name
-    if not sp.exists():
+    from app.services.filter_service import resolve_script
+    sp = resolve_script(ws_id, script_name)
+    if sp is None or not sp.is_file():
         return {"error": f"Script '{script_name}' not found", "highlight_ranges": []}
 
     sql_text = sp.read_text(encoding="utf-8", errors="replace")

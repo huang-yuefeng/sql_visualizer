@@ -3,10 +3,20 @@
 Logs to stdout (Docker-compatible) at key stages with balanced detail.
 Also pushes to per-workspace thread-safe queues for SSE streaming to frontend.
 """
+import os
 import time
 import sys
 import queue  # thread-safe, unlike asyncio.Queue
 import threading
+
+# E4 (item 7): the per-line stderr print is gated behind SQL_VIZ_LOG_STDERR
+# (default OFF). Every pipeline stage previously printed to stderr with
+# flush=True — when stderr is a pipe (docker logs), a blocked/backpressured
+# pipe would block the calling stage, a candidate contributor to a frozen
+# service. The SSE queues deliver every event to connected frontends, so
+# the stderr line is redundant; set the env var to re-enable it for
+# debugging. Value parsed once at import time.
+_LOG_STDERR = os.environ.get("SQL_VIZ_LOG_STDERR", "").lower() not in ("", "0", "false", "no")
 
 # ── SSE queue registry ──────────────────────────────────────────────────
 # Per-workspace thread-safe queues for frontend log streaming.
@@ -25,8 +35,14 @@ def _ts() -> str:
 
 
 def _push(ws_id: str | None, stage: str, message: str):
-    """Push a log entry to stderr + optionally the thread-safe SSE queue."""
-    print(message, file=sys.stderr, flush=True)
+    """Push a log entry to stderr (optional) + the thread-safe SSE queue.
+
+    E4 (item 7): the stderr print only happens when SQL_VIZ_LOG_STDERR is
+    set — a blocked stderr pipe must never stall a pipeline stage. The
+    ref-counted SSE queue logic below is unchanged.
+    """
+    if _LOG_STDERR:
+        print(message, file=sys.stderr, flush=True)
     if ws_id:
         try:
             # M7: only put when a queue ALREADY exists. register_queue creates
