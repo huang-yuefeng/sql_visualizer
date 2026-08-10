@@ -3679,9 +3679,13 @@ token, the duplicate dissolves, pair 18 is unblocked.
 - **Defect-5 re-confirmed**: `data_dt@225` exists in NO closure; sup@223
   exists with only the excluded bridge. Pair 18 stays blocked until the
   token-run fix.
-- **Excluded by rule, probe-visible**: SCHEMA containment edges
-  (p1@29→p1.data_dt@43/158, p1@84→…, p2@199→p2.data_dt@202) and the
-  bridges (sup@223→rrcdm@211, data_dt@213→rrcdm@211).
+- **All edges highlight (ruled 2026-08-10)** — the SCHEMA containment
+  edges (p1@29→p1.data_dt@43/158, p1@84→p1.data_dt@43/158,
+  p2@199→p2.data_dt@202) and the residual bridge (sup@223→rrcdm@211)
+  are highlighted too: S1–S5 + B1 in the benchmark (anchors 43/158/202/
+  223 — all already-lit lines). 23 → 29 entries, still 16 distinct
+  lines. The seven promotions stand (type honesty); only B1 remains
+  SUBSET after promotion. Peremptory exclusions superseded.
 
 **Docs updated this round:** GROUND_TRUTH §8.3 (prerequisite + probe
 findings), §8.5 (two-seed benchmark), §8.7 (mapping), §8.8 (L2 display),
@@ -3693,8 +3697,9 @@ quality item).
 1. **Flow-kind labels on the edges** — every L2 edge shows its flow-kind
    label at the edge midpoint; label = flow kind ONLY (never edge type,
    never SQL text). Kind names per §8.7 (`chain` / `field flow` / `read` /
-   `write` / `filter` / `structure` / `bridge`); excluded edges render
-   `structure`/`bridge` gray. Always visible, no toggle.
+   `write` / `filter` / `structure` / `bridge`); every edge highlights
+   (ruled — SCHEMA/SUBSET included), labels render in the edge's category
+   color. Always visible, no toggle.
 2. **Click → SQL highlight + NEW reason panel BELOW the SQL panel** — the
    panel shows flow kind + anchor + reason.
 3. **Reason includes the string-format data flow — full path + current
@@ -3703,13 +3708,14 @@ quality item).
    edge's target (overview), with the clicked edge's own segment
    emphasized (current edge location). Built at L2 build time (never
    reconstructed at render). Worked example in §8.8.3 (pair 4).
-4. **User question on excluded edges (2026-08-10, pending ruling)** —
-   "there should not be an edge that cannot be highlighted, because every
-   edge is a unit of data flow." Explanation given in chat: SCHEMA =
-   containment membership (no value travels; field lines already covered
-   by the field's flow edges), residual SUBSET = column-list bookkeeping
-   (value edges highlighted as pairs 16/17; bridge lines already covered).
-   Awaiting user's decision on labeling/highlighting them.
+4. **Every edge highlights — RESOLVED (2026-08-10, user ruling)** —
+   "There is an edge, there should be a highlight… every edge in L2
+   representing a data flow, doesn't it? so the scheme edge is also
+   included." SCHEMA (structure, rule 6: member's appearance line) and
+   residual SUBSET (bridge, rule 7: source's def line) are highlighted
+   like any flow. No excluded category; the former peremptory exclusions
+   are superseded (kept as history in §8.3). New benchmark rows S1–S5 +
+   B1 (probe-pinned) — 29 entries, 16 distinct lines.
 W5/W7 updated below; GROUND_TRUTH §8.8 rewritten RULED; R25 amended.
 
 **THE WORK LIST (implementation order — NO SOURCE CODE before user
@@ -3723,11 +3729,12 @@ approval of this list and of §8.10's confirmations):**
 | W4 | Line-resolution collapse 3→1: delete `_find_position`/`_find_position_scoped`; `_find_def_position` for every add; no stale-cache repair (`map_variables_to_lines` fallback gone) | — | probe: no text-search paths left |
 | W5 | Per-edge payload: edge `highlight_line` (+ `flow_kind` + `reason`, where `reason` includes the string-format data flow — full path + current edge segment, closure walk `{label}@L{line} → …`, §8.8.3); remove `sql_range`/`sql_ranges`/`highlights`/`propagated`; remove `sql_range_finder` + dead import | W2–W4 | payload shape test |
 | W6 | VTs carry creation lines (pairs 5/6/15: 26/22/160) | — | anchors 26/22/160 |
-| W7 | Frontend (R25, ruled 2026-08-10): edge flow-kind labels at edge midpoint (kind only; gray `structure`/`bridge`); click → `highlight_line` + NEW reason panel below the SQL panel (kind + anchor + reason incl. string-format flow); hover tooltip + legend stay secondary | W5 + §8.8 (ruled) | live check |
-| W8 | Benchmark rework: `CANONICAL_EDGE_LINES` 19 pairs + 4 verified extras (E1–E4) × two seeds; `test_edge_lines` (exists + exact anchor + ≥1) | W2–W6 | pytest green |
+| W7 | Frontend (R25, ruled 2026-08-10): edge flow-kind labels at edge midpoint (kind only, category color — every edge incl. SCHEMA/SUBSET); click → `highlight_line` + NEW reason panel below the SQL panel (kind + anchor + reason incl. string-format flow, full path + current edge); hover tooltip + legend stay secondary | W5 + §8.8 (ruled) | live check |
+| W8 | Benchmark rework: `CANONICAL_EDGE_LINES` 19 pairs + 4 verified extras (E1–E4) + SCHEMA/bridge entries (S1–S5, B1) × two seeds; `test_edge_lines` (exists + exact anchor + ≥1) | W2–W6 | pytest green |
 | W9 | Docs closed out (benchmark contract update), version bump, deploy per target_deploy.sh | W7–W8 | live check on 192.168.0.66:8000 |
 
 Gates: G1 = §8.10 confirmations — extras counting + two-seed benchmark
-RESOLVED; display design RULED (2026-08-10); open micro-decisions in §8.8
-(flow-string scope, excluded-edge labels); G2 = user approves this work
-list; G3 = per-item verification. Docs-only until G1+G2.
+RESOLVED; display design RULED (2026-08-10); all micro-decisions RESOLVED
+(flow-string scope: both; excluded edges: every edge highlights, no
+excluded category). G1 is fully cleared. G2 = user approves this work
+list; G3 = per-item verification. Docs-only until G2.
