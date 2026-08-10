@@ -491,16 +491,21 @@ sinks/highlights only).
 ### 8.1 Feature definition
 
 The highlight feature visualizes, **for each data flow (L2 edge)**, the SQL
-script lines where that flow is expressed. Selecting an edge in the L2 graph
-highlights its script span in the SQL panel; the closure-level highlight set
-is the union of the per-edge spans over the filtered edges.
+script line where that flow is expressed. Selecting an edge in the L2 graph
+highlights its script line in the SQL panel; the closure-level highlight set
+is the union of the per-edge lines over the filtered edges.
 
 **Edge = one data flow.** Every L2 edge represents exactly one data flow
 between its endpoints. If multiple distinct flows exist between the same two
 nodes, they are emitted as **multiple edges** — flows are never merged into
 one edge. (Consequence: edge count == data-flow count. This matches the
-benchmark's per-endpoint-pair coverage model in §7.2 — each of the 16
+benchmark's per-endpoint-pair coverage model in §7.2 — each of the 19
 canonical pairs is one flow.)
+
+**The highlight of an edge is exactly ONE script line** — never a range
+(v3.3.147 refinement, user: "we only highlight a line instead of a range").
+The line is the flow's **anchor line** per §8.3. The range-expansion layer
+(`sql_range_finder`) is removed — see §8.6.
 
 ### 8.2 What is NOT part of the feature
 
@@ -511,97 +516,129 @@ The field-occurrence display layer must be removed from the L2 response /
 SQL panel. Field lines survive only as *fallback candidates* for edge spans
 (§8.3.2) — they are not a display layer by themselves.
 
-### 8.3 Edge-highlight contract (per edge e, in priority order)
+### 8.3 Edge-highlight contract (per edge e — anchor rules, in priority order)
 
-1. **Exact range (first choice):** the script span expressing the flow,
-   derived from extraction-time info — the flow's def line (`line_start`,
-   I1 def-site semantics) expanded to a range by the designated module
-   `sql_range_finder` (`find_sql_range`, `partition_edge_ranges`). This is
-   the module the user calls out as already built for exactly this purpose:
-   one line from the SQL parser → a range. No reconstruction from rendered
-   output (existing rule — build on extraction-time info only).
-2. **Fallback single line (when the exact range is difficult):** at least
-   one line, obtained by **field-name text matching** of the flow's field
-   inside the flow's owning statement — deliberate simplicity, by design.
-   The field line sets of §5 are the known-good candidates for this.
-3. **Synthetic-flow rule — the creation line (2026-08-10 refinement):**
-   a flow whose SOURCE node is synthetic (`⟐ output@0`, `⟐ subq@0`, … — no
-   script presence of their own) uses the synthetic node's **creation line**:
-   the first-token line of the statement/subquery that creates it, taken at
-   extraction time (the `_stmt_anchor_lines` machinery). Concretely, on this
-   sample (probe-verified): subquery VTs anchor at their own SELECT line
-   (`⟐ subq` → L26, `⟐ subq1` → L22); statement-level output VTs anchor at
-   the statement's **DML-clause line** (INSERT/MERGE keyword), NOT the
-   whole-statement anchor — TOP0's raw anchor is L9 (`WITH …`) while the
-   flow lives at L160 (`INSERT OVERWRITE …`), so the DML-clause line is the
-   rule. The ≥1-line guarantee then holds by construction.
-   Flows whose TARGET is synthetic do NOT use the creation line — they keep
-   the exact-range-first contract (the feeding var's own def line, e.g.
+1. **Field flow** (the field's value/occurrence moves between real lines):
+   anchor = the field's **appearance line** — the var-carried `line_start`
+   of the flow's source, I1 token-run semantics, extraction time.
+   Canonical sample: L18, L43, L158, L160, L211, L213.
+2. **READ flow** (a table's field is read — from the table's perspective,
+   the queried field is inside the table by default): anchor = the
+   **alias-definition / FROM line** of the alias the read happens through,
+   NOT the field-use line (user ruling 2026-08-10). Canonical: L29, L84,
+   L223, L199.
+3. **Write group** (a field flows from a table to a write target): **one
+   edge per field appearance**, each anchoring at its own appearance line —
+   the write line, the value line, the read line — so every appearance is
+   traceable (user ruling: 3 edges). Canonical stmt2: write L211, value
+   L213, read L223.
+4. **Synthetic-source flow** (source node is a VT `⟐ …@0` — no script
+   presence of its own): anchor = the VT's **creation line**, taken at
+   extraction time — statement-level VTs: the statement's **DML-clause
+   line** (INSERT/MERGE keyword), NOT the whole-statement first-token anchor
+   (TOP0's raw anchor is L9 `WITH …` while the flow lives at L160
+   `INSERT OVERWRITE …` — probe-verified); subquery VTs: their own SELECT
+   line (`⟐ subq` → L26, `⟐ subq1` → L22). VT-TARGETED edges never use the
+   creation line — they keep the feeding var's exact line (e.g.
    `p1@29 → ⟐subq@0` anchors at L29, the subquery's FROM). Using the
    creation line there would collapse hub edges (`rollover@9 → ⟐output`,
    `loan_final@64 → ⟐output`, `⟐output → sup@160` → all L160) and lose
    per-flow granularity (§8.1) — a creation line never overrides an
    available exact line.
+5. **Chain flow** (TABLE_FLOW/ALIAS/DML pass-through): anchor = the flow's
+   entry line — the source node's def line.
 
-**Guarantee:** every edge's highlight contains **at least one script line**
-(`line_start ≥ 1`, `line_end ≥ line_start`). A span with inverted or
-out-of-bounds columns is a defect, not a valid highlight.
+**Guarantee:** every edge's highlight = exactly **one script line ≥ 1**.
+Line 0 or a missing line is a defect, never a valid highlight.
 
-**Scope of the fallbacks — robustness clauses, NOT the contract.** Every
-canonical edge must have an exact range per (1); a canonical edge that falls
-back is a solution defect (bug to fix), never a "hard case". The fallback
-clauses exist only for:
-(a) expression vars that are genuinely unanchored today (verified on this
-    sample: 7 CONCAT join-key vars have line 0 — their JOIN edges have no
-    anchor line; extractor fix preferred, see round-8 review D1/D2);
-(b) graph caches built by older extractor versions (line-0 vars);
-(c) a *defined degraded state* for the renderer whenever the exact span is
-    unavailable — an invalid span (line 0 / inverted / out-of-bounds, as the
-    live data shows today for SUBSET edges) is a defect that (2)/(3) never
-    excuse.
+**The canonical 19-pair spec** (this sample — 16 canonical pairs + 3 flows;
+supersedes the 16-pair §7.2 highlight framing):
+
+| # | Pair | Kind | Anchor |
+|---|------|------|--------|
+| 1 | `data_dt@18 → bdm_acc_loan_info@16` | field flow | 18 |
+| 2 | `bdm_acc_loan_info@16 → rollover_loan_info@9` | chain | 16 |
+| 3 | `p1.data_dt@43 → ⟐ subq@0` | field flow | 43 |
+| 4 | `bdm_acc_loan_info@29 → ⟐ subq@0` | chain | 29 |
+| 5 | `⟐ subq@0 → ⟐ subq1@0` | chain (VT→VT) | 26 (creation) |
+| 6 | `⟐ subq1@0 → rollover_loan_info@9` | chain | 22 (creation) |
+| 7 | `p1.data_dt@158 → loan_final@64` | field flow | 158 |
+| 8 | `bdm_acc_loan_info@84 → loan_final@64` | chain | 84 |
+| 9 | `rollover_loan_info@9 → loan_final@64` | chain (ALIAS) | 9 |
+| 10 | `loan_final@64 → bdm_acc_loan_info_sup@160` | chain (ALIAS) | 64 |
+| 11 | `bdm_acc_loan_info_sup@160 → bdm_acc_loan_info_sup@160` | chain (self-join) | 160 |
+| 12 | `data_dt@160 → bdm_acc_loan_info_sup@160` | field flow | 160 |
+| 13 | `p1.data_dt@43 → bdm_acc_loan_info@29` | READ | 29 (alias-def) |
+| 14 | `p1.data_dt@158 → bdm_acc_loan_info@84` | READ | 84 (alias-def) |
+| 15 | `⟐ output@0 → bdm_acc_loan_info_sup@160` | synthetic | 160 (creation) |
+| 16 | `bdm_acc_loan_info_sup@160 → rrcdm_job_log_exec_par@211` | write | 211 |
+| 17 | `data_dt@213 → rrcdm_job_log_exec_par@211` | value (write group) | 213 |
+| 18 | `data_dt@225 → bdm_acc_loan_info_sup@223` | READ (write group) | 223 (alias-def) |
+| 19 | `p2.data_dt@202 → p2@199` | READ (self-join key) | 199 (alias-def) |
+
+**Self-join reads are data flows** (user ruling 2026-08-10): the script
+joins the table to itself (`LEFT JOIN bdm_acc_loan_info_sup p2 …
+AND p2.data_dt = DATEADD(DATE'$(load_date)',-1,'DD')`); the join-key read at
+L202 is a genuine data flow and belongs in the spec — pair 19.
+
+**Scope note — robustness, NOT the contract.** Every canonical edge must
+have its exact anchor line per the rules above; a canonical edge without one
+is a solution defect (bug to fix), never a "hard case". Edge 18's anchor
+(223) depends on L225 being extracted — the Defect-5 gap — resolved by the
+token-run extension (bug list §v3.3.147 addendum 2).
 
 ### 8.4 Counting invariant
 
-- Per edge: exactly **one primary span** ⇒ per-edge highlight count == edge
-  count. For the canonical spec: 16 canonical edges ⇒ 16 highlight spans.
-- Multiple edges may share one span (e.g. two flows emanating from the same
-  predicate line, L43: FILTER `p1.data_dt@43 → ⟐subq@0` AND READ
-  `p1.data_dt@43 → p1@29`). Deduping shared lines for display is a
-  *rendering* decision, not a semantic one; the edge→span mapping is
-  one-to-one and the benchmark asserts it **per edge**.
+- Per edge: exactly **one primary line** ⇒ per-edge highlight count == edge
+  count. For the canonical spec: **19 canonical edges ⇒ 19 highlight
+  lines** (16 pairs + the 3 extras of §8.3).
+- Multiple edges may share one line — shared anchors are accepted (L160:
+  pairs 11/12/15; L29: pairs 4/13; L84: pairs 8/14; L43's FILTER and READ
+  flows now anchor apart — 43 and 29 — per the READ rule). Deduping shared
+  lines for display is a *rendering* decision, never a semantic one; the
+  edge→line mapping is one-to-one and the benchmark asserts it **per edge**.
+- The write group (pairs 16/17/18) keeps every appearance traceable: the
+  write line 211, the value line 213, the read line 223 — three edges, one
+  per appearance, per the user's 3-edge ruling.
 
 ### 8.5 Benchmark impact (next iteration round)
 
-- `CANONICAL_HIGHLIGHTS` (field lines) and `CANONICAL_PROPAGATED` are
-  superseded. Replaced by **CANONICAL_EDGE_RANGES**: for each of the 16
-  canonical edges, the expected span — exact where determinable (§8.3.1),
-  else the guaranteed single line via §8.3.2/§8.3.3.
-- `test_highlights` / `test_propagated_field` are reworked into per-edge
-  span assertions (rename: `test_edge_ranges`), asserting:
-  (a) every closure edge has ≥1 line (`line_start ≥ 1`, not inverted);
-  (b) **exact spans for all 16 canonical edges** — §8.3.3 creation lines are
-      exact expectations (VT-sourced edges); a canonical edge resorting to
-      the §8.3.2 field-name fallback FAILS the test as a solution defect;
-  (c) fallback-only edges (non-canonical, e.g. JOIN edges on unanchored
-      CONCAT keys) report their fallback line for classification, but are
-      not canonical failures.
-- Defect 5 (L225): the extractor still creates no var at L225. Under the new
-  definition its impact is no longer "missing field line" but "the flow of
-  stmt2's WHERE read may lack an edge or an exact span" — the §8.3.2
-  field-name match is the documented path that can still surface L225 as a
-  fallback line. Kept as a known-gap marker until the extractor is fixed.
-- The closure spec (§7.2 nodes/edges/sinks) is UNCHANGED by this ruling —
-  only the highlight layer is redefined.
+- `CANONICAL_HIGHLIGHTS` (field lines), `CANONICAL_PROPAGATED`, and the
+  earlier `CANONICAL_EDGE_RANGES` plan are all superseded. Replaced by
+  **CANONICAL_EDGE_LINES**: the 19 pairs of §8.3, each with its exact anchor
+  line.
+- `test_highlights` / `test_propagated_field` are reworked into
+  `test_edge_lines`, asserting per canonical pair:
+  (a) the edge EXISTS in the closure;
+  (b) its highlight line == the expected anchor — **exact match required**;
+      a fallback line FAILS the test as a solution defect;
+  (c) line ≥ 1 (line 0 is a defect).
+- The three extras are canonical now, with implementation prerequisites:
+  pair 17 exists in the closure but is mislabeled SUBSET/BRIDGE — must be
+  promoted to a value-write type; pair 18 is blocked by Defect 5 — resolved
+  by the token-run extension (bug list §v3.3.147 addendum 2), which also
+  dissolves the duplicate `data_dt@213`; pair 19 exists as a mislabeled
+  closure extra (SUBSET/READ) — must be promoted to an honest join-key read.
+- The §7.2 closure spec (13 nodes / 16 edge pairs / 2 sinks) is UNCHANGED —
+  only the highlight layer is redefined; the highlight spec gains the three
+  extra pairs.
 
 ### 8.6 Current-system gaps this definition exposes (bug list §v3.3.147)
 
 1. The field-highlight layer still exists (level2 `highlights` from field
    vars + `highlight_strategies` `single_line`) — must be removed.
-2. Edge `sql_range` quality is broken on the live sample (verified 2026-08-10):
-   inverted SUBSET ranges `[94,32,94,19]` (start col > end col, out of
-   bounds → empty highlight), ALIAS edges anchored at the alias's first
-   column use (`[66,14,69,30]`) instead of the alias-def line, coarse
-   table-read spans (`[15,5,15,32]` = just `FROM`). These are the concrete
-   fix targets of the next iteration, judged by §8.3/§8.4.
-3. The old invariant "highlight count == edge count" was 4 vs 16 under the
-   field model; under §8.4 it holds by construction (16 edges ⇒ 16 spans).
+2. `sql_range_finder` is removed entirely (line-only model, §8.1). The L2
+   payload replaces edge `sql_range`/`sql_ranges` with edge `highlight_line`;
+   the frontend click highlight uses that one line. The range behaviors die
+   with the module — including the Bug-4 AND/OR continuation extension
+   (v3.3.66): a multi-line WHERE lights only the anchor line now.
+   **Intentional, but pending the user's explicit confirmation of that
+   specific regression.**
+3. Line-resolution collapse 3→1 + no stale-cache repair (recorded rulings,
+   bug list §v3.3.147 addendum 2) — the Defect-5 fix and the duplicate
+   `data_dt@213` split land here.
+4. Type promotions at extraction time: pair 17 (SUBSET/BRIDGE → value
+   write), pair 19 (SUBSET/READ → join-key read); VTs carry creation lines
+   (pairs 5/6/15). Without the promotions, the Flaw-5 boundary rule (bug
+   list, pending ruling) would wrongly exclude flows already ruled in.
+5. Benchmark rework to the 19-pair `CANONICAL_EDGE_LINES` (§8.5).
