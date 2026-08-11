@@ -26,6 +26,27 @@ import { runSnakeLayout } from '../utils/snakeLayout';
 
 const TABLE_SEL = TABLE_SELECTOR;
 
+// R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — hidden
+// by default behind a client-side display toggle. The selector matches
+// edge_type (canonical) and tolerates the legacy relationship key.
+const SCHEMA_EDGE_SELECTOR = '[edge_type="SCHEMA"], [relationship="SCHEMA"]';
+
+/**
+ * Net-flow role badge for an L2 table node (R19.6a, defensive).
+ * Data-driven only: `flow_role` ("source"|"target"|"waypoint") wins;
+ * otherwise `flow_source`/`flow_target` booleans (both → "S/T").
+ * Returns null when the payload carries no role fields — no badge.
+ */
+function flowRoleBadge(d) {
+  if (d.flow_role === 'source') return 'S';
+  if (d.flow_role === 'target') return 'T';
+  if (d.flow_role === 'waypoint') return 'W';
+  const parts = [];
+  if (d.flow_source === true) parts.push('S');
+  if (d.flow_target === true) parts.push('T');
+  return parts.length > 0 ? parts.join('/') : null;
+}
+
 // ── Pipeline layout (lazy-import ELK) ──────────────────────────────
 async function pipelineLayout(cy, opts = {}) {
   if (!cy || cy.destroyed() || cy.nodes().length === 0) return;
@@ -46,6 +67,9 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
   const fieldRelRef = useRef(null);
 
   const { level, layoutMode } = options;
+  // R19.4: default OFF — SCHEMA structure/containment edges are hidden
+  // unless the caller explicitly passes showStructureEdges: true.
+  const showStructureEdges = options.showStructureEdges === true;
 
   useEffect(() => {
     if (!containerRef.current || !graphData) return;
@@ -100,6 +124,32 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
         n.data('label', (n.data('label') || '') + '\n' + ab.join(' '));
     });
 
+    // ── R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow ──
+    // Hidden by default via a style class — client-side visibility only:
+    // the edges STAY in the graph model (the payload is untouched and
+    // nothing re-fetches); edge taps on hidden edges never fire, so the
+    // SQL highlight-on-edge-click keeps working for visible edges.
+    if (optsRef.current.showStructureEdges !== true) {
+      cy.edges(SCHEMA_EDGE_SELECTOR).addClass('structure-hidden');
+    }
+
+    // ── Net-flow role badges on L2 table nodes (defensive) ──────────
+    // If the payload carries flow_role ("source"|"target"|"waypoint")
+    // and/or flow_source/flow_target booleans, append a small S/T/W
+    // badge line to the table label. Field absent → no badge — the
+    // renderer never guesses (the backend attaches the fields only
+    // where it has the information, e.g. the FULL no-search view).
+    if (isL2) {
+      cy.nodes().forEach(n => {
+        const d = n.data();
+        if (!d) return;
+        const badge = flowRoleBadge(d);
+        if (!badge) return;
+        const label = d.label || '';
+        if (!label.endsWith('\n' + badge)) n.data('label', label + '\n' + badge);
+      });
+    }
+
     // ── Event wiring ────────────────────────────────────────────
     const o = optsRef.current;
     if (o.onTap) cy.on('tap', 'node', e => o.onTap(e));
@@ -145,6 +195,15 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
       }
     };
   }, [graphData, containerRef]);
+
+  // R19.4/R19.6a: live structure-edge toggle — an option change without
+  // a graphData change flips the hidden class on the existing instance
+  // (a fresh graph already got the class at creation time above).
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || cy.destroyed()) return;
+    cy.edges(SCHEMA_EDGE_SELECTOR).toggleClass('structure-hidden', !showStructureEdges);
+  }, [showStructureEdges]);
 
   const fit = useCallback((p = undefined) => {
     if (cyRef.current && !cyRef.current.destroyed()) {

@@ -197,6 +197,10 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
                                          for n in full_graph.get("nodes", [])])
     l2b._sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map,
                                    dml_pairs, full_graph, nodes)
+    # Wave 2 (R19.1/R19.2): flow-role phase — the orchestrator calls it
+    # after the sync phase, before assembly (mirror for identity).
+    l2b._attach_flow_roles(new_edges, table_nodes, id_map, full_graph,
+                           TARGET_TABLE, TARGET_FIELD, True)
     phased = l2b._assemble_output(table_nodes, field_nodes, new_edges, nodes,
                                   sql, STEP3, f"{TARGET_TABLE}.{TARGET_FIELD}")
     # Issue a: the orchestrator stamps search_matched on the result dict

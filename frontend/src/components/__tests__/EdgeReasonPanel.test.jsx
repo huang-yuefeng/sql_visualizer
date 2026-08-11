@@ -192,3 +192,71 @@ describe('EdgeReasonPanel — R11-3 code evidence (mech payload)', () => {
     expect(rows[0].textContent).toContain('(line not available)');
   });
 });
+
+// ── R20: path-scoped reasons (Team E) ────────────────────────────────
+// The reason becomes the FULL source→target path with exactly ONE
+// ‖…‖-wrapped segment (the edge's own, spanning two hops) in the middle,
+// and the head may carry the path-scope role parenthetical:
+//   `chain (CTE chain) — source@L… → … → ‖own1@L… → own2@L…‖ → … → target@L…`
+// The emphasis (bold + edge color) must keep working for the longer string.
+const pathEdge = {
+  id: 'e-path',
+  edge_type: 'TABLE_FLOW',
+  flow_kind: 'chain',
+  highlight_line: 64,
+  reason: 'chain (CTE chain) — bdm_acc_loan_info.data_dt@L18 → loan_final.lending_ref@L9 → ‖loan_final@L64 → sup.lending_ref@L211‖ → sup.data_dt@L217',
+  color: '#2ECC71',
+};
+
+describe('EdgeReasonPanel — R20 path-scoped reason (one ‖…‖ segment in the middle)', () => {
+  it('emphasizes exactly the own ‖…‖ segment in the longer path-scoped string', () => {
+    const { container } = render(<EdgeReasonPanel edge={pathEdge} />);
+    const emphasized = container.querySelectorAll('.edge-reason-segment');
+    expect(emphasized.length).toBe(1);
+    // The wrapper characters are stripped; the own-segment text is exact
+    // (the own segment spans two hops — the ‖…‖ wrapper still marks it).
+    expect(emphasized[0].textContent).toBe('loan_final@L64 → sup.lending_ref@L211');
+    expect(emphasized[0].textContent).not.toContain('‖');
+    expect(emphasized[0].style.color).toBe('rgb(46, 204, 113)'); // #2ECC71 — edge color
+    // The path endpoints + the role-bearing head stay plain (un-emphasized)
+    expect(screen.getByText(/bdm_acc_loan_info\.data_dt@L18/)).toBeInTheDocument();
+    expect(screen.getByText(/sup\.data_dt@L217/)).toBeInTheDocument();
+    expect(screen.getByText(/chain \(CTE chain\)/)).toBeInTheDocument();
+  });
+
+  it('preserves the full reason text around the emphasized segment (‖ stripped only from the segment)', () => {
+    const { container } = render(<EdgeReasonPanel edge={pathEdge} />);
+    const textEl = container.querySelector('.edge-reason-text');
+    expect(textEl.textContent).toBe(
+      'chain (CTE chain) — bdm_acc_loan_info.data_dt@L18 → loan_final.lending_ref@L9 → loan_final@L64 → sup.lending_ref@L211 → sup.data_dt@L217'
+    );
+  });
+
+  it('emphasizes every ‖…‖ segment when several exist (defensive)', () => {
+    const { container } = render(<EdgeReasonPanel edge={{
+      id: 'x', edge_type: 'REF', flow_kind: 'field flow', highlight_line: 3,
+      reason: 'field flow — a@L1 → ‖b@L2‖ → c@L3 → ‖d@L4‖ → e@L5', color: '#27AE60',
+    }} />);
+    const emphasized = container.querySelectorAll('.edge-reason-segment');
+    expect(emphasized.length).toBe(2);
+    expect(emphasized[0].textContent).toBe('b@L2');
+    expect(emphasized[1].textContent).toBe('d@L4');
+  });
+
+  it('renders an unmatched opening ‖ as plain text (defensive, no crash)', () => {
+    const { container } = render(<EdgeReasonPanel edge={{
+      id: 'x', flow_kind: 'chain', highlight_line: 3, reason: 'chain — ‖broken@L2', color: '#2ECC71',
+    }} />);
+    expect(container.querySelector('.edge-reason-text').textContent).toBe('chain — ‖broken@L2');
+    expect(container.querySelectorAll('.edge-reason-segment').length).toBe(0);
+  });
+
+  it('keeps the fallback form (no path-style reason) rendered as today', () => {
+    const { container } = render(<EdgeReasonPanel edge={{
+      id: 'x', flow_kind: 'bridge', highlight_line: 7,
+      reason: 'bridge — sup@L223 → rrcdm@L211', color: '#7F8C8D',
+    }} />);
+    expect(screen.getByText(/sup@L223 → rrcdm@L211/)).toBeInTheDocument();
+    expect(container.querySelectorAll('.edge-reason-segment').length).toBe(0);
+  });
+});

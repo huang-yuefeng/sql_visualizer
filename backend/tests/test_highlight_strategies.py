@@ -107,6 +107,15 @@ def test_single_line_payload_rewritten_dml_edge_stays_write():
     payload = _single_line_payload(e)
     assert payload["highlight_line"] == 211
     assert payload["flow_kind"] == "write"
+    # R20.2: the two halves of the DML rewrite carry distinct path roles —
+    # the value edge is `(write value)`, the write leg `(write leg)`.
+    e2 = _edge(edge_type="TABLE_FLOW", _op="WRITE_READ", _src_line=213,
+               _tgt_line=211, _dml_origin=True, _value_edge=True,
+               _src_label="data_dt", _tgt_label="rrcdm_job_log_exec_par")
+    assert _flow_kind(e2) == "write"
+    assert _single_line_payload(e2)["reason"] == (
+        "write (write value) — ‖data_dt@L213 → rrcdm_job_log_exec_par@L211‖")
+    assert _single_line_payload(e)["reason"].startswith("write (write leg) — ")
 
 
 def test_single_line_payload_bridge_edge_anchors_source_line():
@@ -156,6 +165,16 @@ def test_single_line_payload_ref_roles():
                _src_owner="t1", _tgt_canon="t2")
     assert _flow_kind(e3) == "field flow"
     assert _single_line_payload(e3)["highlight_line"] == 9
+    # R20.2: a READ into the ⟐ output VT (final endpoint) renders the
+    # `(read into output)` path role; an ALIAS hop renders `(alias hop)`.
+    e4 = _edge(edge_type="REF", _op="READ", _src_line=160, _tgt_line=160,
+               _src_label="data_dt", _tgt_label="bdm_acc_loan_info_sup",
+               _tgt_output=True)
+    assert _single_line_payload(e4)["reason"].startswith(
+        "read (read into output) — ")
+    e5 = _edge(edge_type="ALIAS", _op="FROM", _src_line=160, _tgt_line=199,
+               _src_label="bdm_acc_loan_info_sup", _tgt_label="p2")
+    assert _single_line_payload(e5)["reason"].startswith("chain (alias hop) — ")
 
 
 def test_single_line_payload_field_flow_anchors_source_appearance():
@@ -179,6 +198,13 @@ def test_single_line_payload_reason_wraps_own_segment():
               _tgt_label="p1", _src_line=43, _tgt_line=29)
     payload = _single_line_payload(e)
     assert payload["reason"] == "read — ‖p1.data_dt@L43 → p1@L29‖"
+    # R20.2: the path-scope role rides after the kind — a CTE hop renders
+    # `chain (CTE chain)`, derived from the carried VT types.
+    e2 = _edge(edge_type="TABLE_FLOW", _op="FROM", _src_vt="cte",
+               _tgt_vt="cte", _src_label="rollover_loan_info",
+               _tgt_label="loan_final", _src_line=9, _tgt_line=64)
+    assert _single_line_payload(e2)["reason"] == (
+        "chain (CTE chain) — ‖rollover_loan_info@L9 → loan_final@L64‖")
 
 
 def test_single_line_payload_reason_renders_closure_walk():
@@ -195,6 +221,18 @@ def test_single_line_payload_reason_renders_closure_walk():
     # the wrapped segment is the LAST pair
     assert payload["reason"].count("‖") == 2
     assert payload["reason"].endswith("rrcdm@L211‖")
+    # R20.1: with _own_seg_idx the own segment sits in the MIDDLE of the
+    # complete source→target path — upstream closure walk, own segment
+    # ‖…‖-wrapped, then the downstream continuation to a flow target.
+    e2 = _edge(edge_type="TABLE_FLOW", _op="WRITE_READ",
+               _path_hops=[("p1.data_dt", 158), ("loan_final", 64),
+                           ("sup", 160), ("rrcdm", 211)],
+               _own_seg_idx=1)
+    assert _single_line_payload(e2)["reason"] == (
+        "chain — p1.data_dt@L158 → ‖loan_final@L64 → sup@L160‖ → "
+        "rrcdm@L211")
+    # still exactly one ‖…‖ pair — the own segment
+    assert _single_line_payload(e2)["reason"].count("‖") == 2
 
 
 def test_single_line_payload_reason_single_hop_walk():
@@ -204,6 +242,15 @@ def test_single_line_payload_reason_single_hop_walk():
     e = _edge(edge_type="TABLE_FLOW", _path_hops=[("sup", 160), ("rrcdm", 211)])
     assert _single_line_payload(e)["reason"] == (
         "chain — ‖sup@L160 → rrcdm@L211‖")
+    # R20.2: the DML rewrite's write leg renders `write (write leg)` —
+    # the write role wins over the chain role and carries the path role.
+    e2 = _edge(edge_type="TABLE_FLOW", _op="WRITE_READ", _dml_origin=True,
+               _src_label="data_dt", _tgt_label="sup",
+               _src_line=160, _tgt_line=160,
+               _path_hops=[("data_dt", 160), ("⟐ output", 160), ("sup", 160)],
+               _own_seg_idx=1)
+    assert _single_line_payload(e2)["reason"] == (
+        "write (write leg) — data_dt@L160 → ‖⟐ output@L160 → sup@L160‖")
 
 
 def test_safe_int_non_numeric_carried_lines():

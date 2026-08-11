@@ -193,6 +193,15 @@ the same node — asserted by the R19.3 no-bypass checks, row 20 of
    node, R19.3 no-bypass asserted)
 ```
 
+**R19.6b note (2026-08-11, probe-verified):** the served L2 graph carries
+TWO distinct synthetic output VTs, un-merged by statement —
+`l2_tbl_7b217fb63a` (label `⟐ output`, ctx TOP0, line 160) and
+`l2_tbl_236587aa4c` (label `⟐ output`, ctx TOP1, line 211). R22's
+label-keyed one-node-per-table merge never merges per-context VTs, so the
+canonical `⟐output@0` rows below match BOTH served VTs label-only
+(NORMALIZE_MAP folds the label; the anchor line comes from the edge, not
+the VT) — write/read leg pairs never render as an inverse edge pair.
+
 Cross-scope SCHEMA contamination (the I2 finding, visible in the same probe):
 `SCHEMA` edges attach **every** `p1.*` field to **every** p1 alias across all
 scopes — `p1@29` (rollover's inner alias) owns `p1.data_dt@158`,

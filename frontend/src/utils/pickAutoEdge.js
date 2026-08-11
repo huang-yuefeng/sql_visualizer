@@ -11,6 +11,11 @@
  *   2. The first chain edge (flow_kind === 'chain') — the backbone flow.
  *   3. The first edge in the graph.
  *
+ * R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow and are
+ * hidden by default in the L2 view — auto-selection prefers visible
+ * (flow) edges; only a graph with nothing else falls back to structure
+ * edges, so the reason panel never shows a hidden edge's reason.
+ *
  * Returns the edge's data object, or null when there is nothing to show.
  */
 export default function pickAutoEdge(result) {
@@ -22,6 +27,12 @@ export default function pickAutoEdge(result) {
     .filter(e => e && typeof e.id === 'string' && e.id.length > 0);
   if (edges.length === 0) return null;
 
+  // R19.4: structure edges are hidden by default — pick from the visible
+  // pool whenever it has anything.
+  const isStructure = (e) => e.edge_type === 'SCHEMA' || e.relationship === 'SCHEMA';
+  const flowEdges = edges.filter(e => !isStructure(e));
+  const pool = flowEdges.length > 0 ? flowEdges : edges;
+
   // 1. Seed zone: the searched table's compound node (is_target) bounds
   //    the reference site; its def range may not exist yet on older
   //    payloads — that's a graceful skip to the next priority.
@@ -32,16 +43,16 @@ export default function pickAutoEdge(result) {
     const lo = seedNode.line_start;
     const hi = seedNode.line_end;
     if (Number.isInteger(lo) && lo >= 1 && Number.isInteger(hi) && hi >= lo) {
-      const zoneEdge = edges.find(e =>
+      const zoneEdge = pool.find(e =>
         Number.isInteger(e.highlight_line) && e.highlight_line >= lo && e.highlight_line <= hi);
       if (zoneEdge) return zoneEdge;
     }
   }
 
   // 2. First chain edge.
-  const chainEdge = edges.find(e => e.flow_kind === 'chain');
+  const chainEdge = pool.find(e => e.flow_kind === 'chain');
   if (chainEdge) return chainEdge;
 
-  // 3. First edge in the graph.
-  return edges[0];
+  // 3. First edge in the (visible) graph.
+  return pool[0];
 }

@@ -846,3 +846,197 @@ def filter_by_field_flow(graph_data, target_table, target_field,
         "nodes": filtered_nodes,
         "edges": filtered_edges,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# FLOW SOURCE / FLOW TARGETS / NET-FLOW ROLES (R19.1/R19.2/R19.5 —
+# user ruling 2026-08-11)
+# Additive build-time helpers. Consumed at build time (the L2 node
+# assembly), never at render — no reconstruction machinery.
+#   flow_source_id()       R19.1: the searched seed's physical table node
+#                          (the filtered view's single flow source — the
+#                          source is USER-DEFINED by the search, never
+#                          inferred; v3.3.140 seed semantics).
+#   flow_targets()         R19.2: DML write targets whose write leg
+#                          `output → T` lies in the seed's flow closure.
+#   classify_flow_roles()  R19.5: full-view (no search) table roles —
+#                          net-flow classification over FLOW edges only.
+# ═══════════════════════════════════════════════════════════════════════
+
+# Non-flow edge types (R19.5): the identity/containment/padding family.
+#   ALIAS  — original → alias identity hop, no data moves
+#   SCHEMA — table → column ownership/containment (R19.4)
+#   SUBSET — disconnected-component bridge, pure connectivity padding
+# TABLE_FLOW is NOT excluded: it is the table-to-table data flow itself
+# ("Table feeds output" — dependency_graph Phase 1), and the requirement
+# examples pin it in (sup is a waypoint only because the read-into-output
+# TABLE_FLOW counts as flow-out). The L2 DML rewrite re-types write legs
+# to TABLE_FLOW (stamped category="write") — they count as flow-in to the
+# target, as they must. Everything else (REF/TRANSFORM/COMPUTED/
+# AGGREGATE/WINDOW/FILTER/JOIN/INDIRECT/CORRELATED/DML/SET_OP/SUBQUERY)
+# is flow. The `category` field is deliberately NOT consulted: the L2
+# TABLE_FLOW chain edges carry category="structure" yet ARE flow, so the
+# edge type is the single discriminator.
+NON_FLOW_EDGE_TYPES = {"ALIAS", "SCHEMA", "SUBSET"}
+# DML write keywords — extraction-time attribution (dependency_graph
+# Phase 1c: MERGE_TARGET vars, and TABLE vars whose defined_in names one).
+_DML_WRITE_OPS = ("INSERT", "UPDATE", "DELETE", "MERGE")
+
+
+def _is_flow_edge(ed: dict) -> bool:
+    """R19.5 flow test on one edge dict (raw or L2 shape).
+
+    Every edge type except ALIAS/SCHEMA/SUBSET is flow — TABLE_FLOW
+    included (table-to-table flow; the L2 DML rewrite's write legs are
+    TABLE_FLOW and must count as flow-in to their target).
+    """
+    etype = (ed.get("edge_type") or ed.get("relationship") or "").upper()
+    return etype not in NON_FLOW_EDGE_TYPES
+
+
+def classify_flow_roles(edge_list, table_node_ids) -> dict:
+    """R19.5 net-flow classification for full-view (no search) table roles.
+
+    A table is a SOURCE when flow out dominates (out-edges > in-edges), a
+    TARGET when flow in dominates; balanced (out == in, including 0-0) is
+    a WAYPOINT — both roles (e.g. sup: target of output1→sup, source of
+    sup→output2). Counted over FLOW edges only (every edge type except
+    ALIAS/SCHEMA/SUBSET — the identity/containment/padding family; R19.4
+    SCHEMA is not flow), with self-loops excluded. TABLE_FLOW counts —
+    the read-into-output legs of bare FROM reads (Issue 3 read
+    recognition) are TABLE_FLOW, so read-only tables dominate flow-out
+    and classify as sources (R19.1 full-view note), and DML write legs
+    (re-typed TABLE_FLOW in the L2 list) count as flow-in to targets.
+
+    Input: the L2 edge list of the FULL view (no search) — the DML value
+    edges are already collapsed into the single write leg and merged
+    self-loops are gone, so the counting is per physical table. Raw
+    full-graph edges work too (same edge-type rule), but raw DML value
+    edges are not collapsed — pass the L2 list for exact roles. Both
+    wrapped {"data": {...}} and flat edge dicts work. `table_node_ids`
+    is the caller's table node set (the L2 compound keepers).
+
+    Returns {node_id: "source" | "target" | "waypoint"} — one entry per
+    passed table node id.
+    """
+    out_deg = {}
+    in_deg = {}
+    for e in edge_list:
+        ed = e.get("data", e)
+        src, tgt = ed.get("source"), ed.get("target")
+        if not src or not tgt or src == tgt:
+            continue
+        if not _is_flow_edge(ed):
+            continue
+        if src in table_node_ids:
+            out_deg[src] = out_deg.get(src, 0) + 1
+        if tgt in table_node_ids:
+            in_deg[tgt] = in_deg.get(tgt, 0) + 1
+    roles = {}
+    for nid in table_node_ids:
+        o, i = out_deg.get(nid, 0), in_deg.get(nid, 0)
+        if o > i:
+            roles[nid] = "source"
+        elif i > o:
+            roles[nid] = "target"
+        else:
+            roles[nid] = "waypoint"
+    return roles
+
+
+def _dml_write_targets(nodes: list) -> dict:
+    """Extraction-time DML attribution (mirror of dependency_graph Phase
+    1c): {raw node id: write keyword} for MERGE_TARGET vars and TABLE vars
+    whose defined_in names a DML keyword. Never inferred from edges.
+    """
+    targets = {}
+    for n in nodes:
+        nd = n.get("data", n)
+        vt = nd.get("variable_type")
+        if vt == "merge_target":
+            targets[nd.get("id")] = "MERGE"
+        elif vt == "table":
+            di = (nd.get("defined_in") or "").upper()
+            for kw in _DML_WRITE_OPS:
+                if kw in di:
+                    targets[nd.get("id")] = kw
+                    break
+    return targets
+
+
+def _is_write_leg(ed: dict, node_map: dict) -> bool:
+    """Write leg `output → T` (dependency_graph Phase 1c-extra2): the DML
+    edge from the statement's output VT into the DML target table — or
+    its L2 rewrite (TABLE_FLOW stamped category/flow_kind "write" +
+    _dml_origin). WRITE_READ edges (table → table) are never write legs.
+    """
+    etype = (ed.get("edge_type") or ed.get("relationship") or "").upper()
+    if etype == "DML":
+        op = (ed.get("operation") or "").upper()
+        src = node_map.get(ed.get("source")) or {}
+        return (op in _DML_WRITE_OPS
+                and src.get("variable_type") == "virtual_table")
+    return bool(ed.get("_dml_origin")
+                or ed.get("category") == "write"
+                or ed.get("flow_kind") == "write")
+
+
+def flow_targets(graph_data, target_table, target_field) -> set:
+    """R19.2 flow targets of the searched table.field.
+
+    DECISION PROCEDURE (user ruling 2026-08-11): T is a flow target iff
+      (a) T is a DML statement's write target (extraction-time DML
+          attribution — dependency_graph Phase 1c), AND
+      (b) T's write leg `output → T` is in the seed's flow closure
+          (the compute_field_flow reachability walk — both endpoints of
+          the write leg are in the closure).
+
+    Operates on the RAW full graph (the same graph compute_field_flow
+    walks — the graph _apply_relevance_filter consumes). Returns the set
+    of raw node ids of the target tables; the caller maps them to the L2
+    compound keepers via id_map. A table can be BOTH target and waypoint
+    (sup: target of output1→sup, source of sup→output2) — roles are
+    per-edge/path, unified by physical identity; the decision procedure
+    here is purely mechanical.
+    """
+    if not graph_data or not target_table or not target_field:
+        return set()
+    nodes = graph_data.get("nodes", []) or []
+    edges = graph_data.get("edges", []) or []
+    closure = compute_field_flow(graph_data, target_table, target_field)
+    if not closure:
+        return set()
+    node_map = {}
+    for n in nodes:
+        nd = n.get("data", n)
+        node_map[nd.get("id")] = nd
+    targets = _dml_write_targets(nodes)
+    out = set()
+    for e in edges:
+        ed = e.get("data", e)
+        tgt_id = ed.get("target")
+        if tgt_id not in targets:
+            continue
+        if not _is_write_leg(ed, node_map):
+            continue
+        if ed.get("source") in closure and tgt_id in closure:
+            out.add(tgt_id)
+    return out
+
+
+def flow_source_id(graph_data, target_table) -> str | None:
+    """R19.1 exposure: raw id of the searched table's physical table node.
+
+    The filtered L2 flow view's single flow source is the searched seed —
+    a USER-DEFINED source (the search), never inferred. This helper only
+    exposes the seed's table node so the display can mark it; returns the
+    first table/view var whose label is exactly target_table, else None.
+    """
+    if not graph_data or not target_table:
+        return None
+    for n in graph_data.get("nodes", []) or []:
+        nd = n.get("data", n)
+        if (nd.get("variable_type") in ("table", "view")
+                and nd.get("label") == target_table):
+            return nd.get("id")
+    return None

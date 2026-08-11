@@ -119,7 +119,7 @@ const FLOW_KIND_GROUPS = [
   },
 ];
 
-function FlowKindLegend() {
+function FlowKindLegend({ structureEdgesHidden, structureEdgeCount }) {
   return (
     <div className="dataflow-legend" data-testid="legend-l2-flow-kinds">
       <span className="legend-title">L2 Flow Kinds — every edge highlights ✅</span>
@@ -139,16 +139,24 @@ function FlowKindLegend() {
           ))}
         </span>
       ))}
+      {/* R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow —
+          hidden by default; the legend reflects the toggle so the edge
+          count is never misleading. */}
+      {structureEdgesHidden && structureEdgeCount > 0 && (
+        <span className="legend-structure-note" data-testid="legend-structure-note">
+          structure edges hidden ({structureEdgeCount})
+        </span>
+      )}
     </div>
   );
 }
 
-export default function DataFlowLegend({ level }) {
+export default function DataFlowLegend({ level, structureEdgesHidden, structureEdgeCount }) {
   let items, title;
   if (level === 'L1') {
     items = L1_LEGEND;
   } else if (level === 'L2') {
-    return <FlowKindLegend />;
+    return <FlowKindLegend structureEdgesHidden={structureEdgesHidden} structureEdgeCount={structureEdgeCount} />;
   } else if (level === 'categories') {
     items = CATEGORY_LEGEND;
     title = '7 Edge Categories';
