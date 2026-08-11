@@ -1,0 +1,978 @@
+{
+  "filtered": {
+    "edges": [
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 2,
+          "id": "l2e_9e9ca4b21ab2",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "item",
+            "clause": "JOIN",
+            "ref_line": 2,
+            "sentence": "\u27d0 output (L1) reads item (L2) via LEFT JOIN at L2 (alias item)",
+            "use_lines": [
+              3,
+              9,
+              10
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016item@L2 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_c38b59735c",
+          "target": "l2_tbl_6f5935ee28",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 4,
+          "id": "l2e_5aa3c3303d33",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_ext_sales_price@L4 \u2192 sum_agg@L4\u2016",
+          "source": "fld_8bcea7ff1d",
+          "target": "fld_69cc5659e5",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 4,
+          "id": "l2e_c3d34b5c60d4",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0",
+            "ref_line": 4,
+            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 sum_agg@L4\u2016",
+          "source": "l2_tbl_6f5935ee28",
+          "target": "fld_69cc5659e5",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 2,
+          "id": "l2e_68afc441c308",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016ss_ext_sales_price@L4 \u2192 item@L2\u2016",
+          "source": "fld_8bcea7ff1d",
+          "target": "l2_tbl_c38b59735c",
+          "width": 1
+        }
+      }
+    ],
+    "filtered_nodes": 4,
+    "nodes": [
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "TOP0",
+          "id": "l2_tbl_6f5935ee28",
+          "label": "output",
+          "line_end": 11,
+          "line_start": 1,
+          "original_id": "e88c4757c1e3da7d",
+          "table_name": "\u27d0 output",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "JOIN",
+          "id": "l2_tbl_c38b59735c",
+          "label": "item",
+          "line_end": 11,
+          "line_start": 2,
+          "original_id": "1ed21d637f336af1",
+          "table_name": "item",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_69cc5659e5",
+          "is_target": true,
+          "label": "sum_agg",
+          "orig_type": "aggregate",
+          "original_id": "e4f2e093e6f089bf",
+          "parent": "l2_tbl_6f5935ee28",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_8bcea7ff1d",
+          "is_target": false,
+          "label": "ss_ext_sales_price",
+          "orig_type": "column",
+          "original_id": "590cfc2bc60804f4",
+          "type": "field",
+          "variable_type": "field"
+        }
+      }
+    ],
+    "script_name": "03.sql",
+    "search_matched": true,
+    "target": "\u27d0 output.sum_agg",
+    "total_edges": 4,
+    "total_nodes": 4
+  },
+  "full": {
+    "edges": [
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 5,
+          "id": "l2e_dac34ed46f9b",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "FROM",
+            "ref_line": 5,
+            "sentence": "\u27d0 output (L1) reads dt (L5) in its FROM clause at L5"
+          },
+          "reason": "chain (read into output) \u2014 \u2016dt@L5 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_fc74533c4b",
+          "target": "l2_tbl_6f5935ee28",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 6,
+          "id": "l2e_63176c390dce",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "JOIN",
+            "ref_line": 6,
+            "sentence": "\u27d0 output (L1) reads store_sales (L6) via LEFT JOIN at L6 (alias store_sales)",
+            "use_lines": [
+              8,
+              9
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L6 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_bfa2bb049a",
+          "target": "l2_tbl_6f5935ee28",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 2,
+          "id": "l2e_9e9ca4b21ab2",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "item",
+            "clause": "JOIN",
+            "ref_line": 2,
+            "sentence": "\u27d0 output (L1) reads item (L2) via LEFT JOIN at L2 (alias item)",
+            "use_lines": [
+              3,
+              9,
+              10
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016item@L2 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_c38b59735c",
+          "target": "l2_tbl_6f5935ee28",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#1ABC9C",
+          "desc": "Original \u2192 alias",
+          "edge_type": "ALIAS",
+          "flow_kind": "chain",
+          "highlight_line": 5,
+          "id": "l2e_80912c38c24d",
+          "label": "ALIAS",
+          "line_style": "dashed",
+          "mech": {
+            "alias": "dt",
+            "clause": "FROM",
+            "ref_line": 5,
+            "sentence": "dt (L5) reads date_dim (L5) in its FROM clause at L5",
+            "use_lines": [
+              8,
+              11
+            ]
+          },
+          "reason": "chain (alias hop) \u2014 \u2016date_dim@L5 \u2192 dt@L5\u2016",
+          "source": "l2_tbl_97b25f7b6d",
+          "target": "l2_tbl_fc74533c4b",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 4,
+          "id": "l2e_5aa3c3303d33",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_ext_sales_price@L4 \u2192 sum_agg@L4\u2016",
+          "source": "fld_8bcea7ff1d",
+          "target": "l2_tbl_6f5935ee28",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 1,
+          "id": "l2e_37cde3a9e0ff",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 1,
+            "sentence": "structural: date_dim (5) references dt (5) \u2014 see date_dim's definition"
+          },
+          "reason": "structure \u2014 \u2016dt@L5 \u2192 dt.d_year@L1\u2016",
+          "source": "l2_tbl_fc74533c4b",
+          "target": "fld_2154765e23",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 2,
+          "id": "l2e_973af80b52d8",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "alias": "item",
+            "clause": "JOIN",
+            "ref_line": 2,
+            "sentence": "item (L2) reads item (L2) via LEFT JOIN at L2 (alias item)",
+            "use_lines": [
+              3,
+              9,
+              10
+            ]
+          },
+          "reason": "structure \u2014 \u2016item@L2 \u2192 item.i_brand_id@L2\u2016",
+          "source": "l2_tbl_c38b59735c",
+          "target": "fld_c672a5b3ba",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 3,
+          "id": "l2e_8f3b047f4140",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "alias": "item",
+            "clause": "JOIN",
+            "ref_line": 2,
+            "sentence": "item (L2) reads item (L2) via LEFT JOIN at L2 (alias item)",
+            "use_lines": [
+              3,
+              9,
+              10
+            ]
+          },
+          "reason": "structure \u2014 \u2016item@L2 \u2192 item.i_brand@L3\u2016",
+          "source": "l2_tbl_c38b59735c",
+          "target": "fld_bf361edf56",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 11,
+          "id": "l2e_7b1964c9d9b7",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 11,
+            "sentence": "structural: date_dim (5) references dt (5) \u2014 see date_dim's definition"
+          },
+          "reason": "structure \u2014 \u2016dt@L5 \u2192 dt.d_moy@L11\u2016",
+          "source": "l2_tbl_fc74533c4b",
+          "target": "fld_5a46b64b3c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 10,
+          "id": "l2e_d19c04406433",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "alias": "item",
+            "clause": "JOIN",
+            "ref_line": 2,
+            "sentence": "item (L2) reads item (L2) via LEFT JOIN at L2 (alias item)",
+            "use_lines": [
+              3,
+              9,
+              10
+            ]
+          },
+          "reason": "structure \u2014 \u2016item@L2 \u2192 item.i_manufact_id@L10\u2016",
+          "source": "l2_tbl_c38b59735c",
+          "target": "fld_ff432ccc62",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 8,
+          "id": "l2e_f2f8bfde0a38",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 8,
+            "sentence": "structural: date_dim (5) references dt (5) \u2014 see date_dim's definition"
+          },
+          "reason": "structure \u2014 \u2016dt@L5 \u2192 dt.d_date_sk@L8\u2016",
+          "source": "l2_tbl_fc74533c4b",
+          "target": "fld_ac09ffe0b1",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 8,
+          "id": "l2e_49820dc51c80",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "JOIN",
+            "ref_line": 6,
+            "sentence": "store_sales (L6) reads store_sales (L6) via LEFT JOIN at L6 (alias store_sales)",
+            "use_lines": [
+              8,
+              9
+            ]
+          },
+          "reason": "structure \u2014 \u2016store_sales@L6 \u2192 store_sales.ss_sold_date_sk@L8\u2016",
+          "source": "l2_tbl_bfa2bb049a",
+          "target": "fld_c3ec9d7bff",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 9,
+          "id": "l2e_546cdc199203",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "JOIN",
+            "ref_line": 6,
+            "sentence": "store_sales (L6) reads store_sales (L6) via LEFT JOIN at L6 (alias store_sales)",
+            "use_lines": [
+              8,
+              9
+            ]
+          },
+          "reason": "structure \u2014 \u2016store_sales@L6 \u2192 store_sales.ss_item_sk@L9\u2016",
+          "source": "l2_tbl_bfa2bb049a",
+          "target": "fld_207ebb1e7f",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 9,
+          "id": "l2e_0f90d996a4de",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "alias": "item",
+            "clause": "JOIN",
+            "ref_line": 2,
+            "sentence": "item (L2) reads item (L2) via LEFT JOIN at L2 (alias item)",
+            "use_lines": [
+              3,
+              9,
+              10
+            ]
+          },
+          "reason": "structure \u2014 \u2016item@L2 \u2192 item.i_item_sk@L9\u2016",
+          "source": "l2_tbl_c38b59735c",
+          "target": "fld_eb237d9cbb",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 1,
+          "id": "l2e_bfd642d679f8",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 1,
+            "sentence": "structural: date_dim (5) references \u27d0 output (1) \u2014 see date_dim's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 dt.d_year@L1\u2016",
+          "source": "l2_tbl_6f5935ee28",
+          "target": "fld_2154765e23",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 2,
+          "id": "l2e_c28d38ba3a5e",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0",
+            "ref_line": 4,
+            "sentence": "structural: item (2) references \u27d0 output (1) \u2014 see item's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 brand_id@L2\u2016",
+          "source": "l2_tbl_6f5935ee28",
+          "target": "fld_31a67de5eb",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 3,
+          "id": "l2e_76af5d7d905b",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0",
+            "ref_line": 4,
+            "sentence": "structural: item (2) references \u27d0 output (1) \u2014 see item's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 brand@L3\u2016",
+          "source": "l2_tbl_6f5935ee28",
+          "target": "fld_7acfb06804",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 4,
+          "id": "l2e_c3d34b5c60d4",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0",
+            "ref_line": 4,
+            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 sum_agg@L4\u2016",
+          "source": "l2_tbl_6f5935ee28",
+          "target": "fld_69cc5659e5",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 5,
+          "id": "l2e_50fa6abe6999",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "dt",
+            "clause": "FROM",
+            "ref_line": 5,
+            "sentence": "dt (L5) reads date_dim (L5) in its FROM clause at L5",
+            "use_lines": [
+              8,
+              11
+            ]
+          },
+          "reason": "read \u2014 \u2016dt.d_year@L1 \u2192 dt@L5\u2016",
+          "source": "l2_tbl_97b25f7b6d",
+          "target": "l2_tbl_fc74533c4b",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 11,
+          "id": "l2e_1b9f35c5149f",
+          "label": "FILTER",
+          "line_style": "solid",
+          "mech": {
+            "alias": "dt",
+            "clause": "FROM",
+            "ref_line": 5,
+            "sentence": "\u27d0 output (L1) reads date_dim (L5) in its FROM clause at L5",
+            "use_lines": [
+              1,
+              8,
+              11
+            ]
+          },
+          "reason": "field flow (filter step) \u2014 \u2016dt.d_moy@L11 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_97b25f7b6d",
+          "target": "l2_tbl_6f5935ee28",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 10,
+          "id": "l2e_4cc396b652ba",
+          "label": "FILTER",
+          "line_style": "solid",
+          "mech": {
+            "alias": "item",
+            "clause": "JOIN",
+            "ref_line": 2,
+            "sentence": "\u27d0 output (L1) reads item (L2) via LEFT JOIN at L2 (alias item)",
+            "use_lines": [
+              3,
+              9,
+              10
+            ]
+          },
+          "reason": "field flow (filter step) \u2014 \u2016item.i_manufact_id@L10 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_c38b59735c",
+          "target": "l2_tbl_6f5935ee28",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 8,
+          "id": "l2e_fe1ffa76d825",
+          "label": "FILTER",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "JOIN",
+            "ref_line": 6,
+            "sentence": "\u27d0 output (L1) reads store_sales (L6) via LEFT JOIN at L6 (alias store_sales)",
+            "use_lines": [
+              8,
+              9
+            ]
+          },
+          "reason": "field flow (filter step) \u2014 \u2016store_sales.ss_sold_date_sk@L8 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_bfa2bb049a",
+          "target": "l2_tbl_6f5935ee28",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 2,
+          "id": "l2e_68afc441c308",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016ss_ext_sales_price@L4 \u2192 item@L2\u2016",
+          "source": "fld_8bcea7ff1d",
+          "target": "l2_tbl_c38b59735c",
+          "width": 1
+        }
+      }
+    ],
+    "filtered_nodes": 18,
+    "nodes": [
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "TOP0",
+          "id": "l2_tbl_6f5935ee28",
+          "label": "output",
+          "line_end": 11,
+          "line_start": 1,
+          "original_id": "e88c4757c1e3da7d",
+          "table_name": "\u27d0 output",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "FROM",
+          "flow_role": "source",
+          "id": "l2_tbl_97b25f7b6d",
+          "label": "date_dim",
+          "line_end": 11,
+          "line_start": 5,
+          "original_id": "d32de1857a42ff33",
+          "table_name": "date_dim",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "FROM",
+          "flow_role": "waypoint",
+          "id": "l2_tbl_fc74533c4b",
+          "label": "dt@5",
+          "line_end": 11,
+          "line_start": 5,
+          "original_id": "dfc6f4ea910f2c48",
+          "table_name": "dt",
+          "type": "alias_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "JOIN",
+          "flow_role": "source",
+          "id": "l2_tbl_bfa2bb049a",
+          "label": "store_sales",
+          "line_end": 11,
+          "line_start": 6,
+          "original_id": "09b5a2fe15c43ca7",
+          "table_name": "store_sales",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "JOIN",
+          "flow_role": "source",
+          "id": "l2_tbl_c38b59735c",
+          "label": "item",
+          "line_end": 11,
+          "line_start": 2,
+          "original_id": "1ed21d637f336af1",
+          "table_name": "item",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_2154765e23",
+          "is_target": false,
+          "label": "d_year",
+          "orig_type": "column",
+          "original_id": "930381a031aed123",
+          "parent": "l2_tbl_97b25f7b6d",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_31a67de5eb",
+          "is_target": false,
+          "label": "brand_id",
+          "orig_type": "column",
+          "original_id": "a6f8461565186563",
+          "parent": "l2_tbl_c38b59735c",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_c672a5b3ba",
+          "is_target": false,
+          "label": "i_brand_id",
+          "orig_type": "column",
+          "original_id": "e936acce1c31187e",
+          "parent": "l2_tbl_c38b59735c",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_7acfb06804",
+          "is_target": false,
+          "label": "brand",
+          "orig_type": "column",
+          "original_id": "d6a28ceef89bce41",
+          "parent": "l2_tbl_c38b59735c",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_bf361edf56",
+          "is_target": false,
+          "label": "i_brand",
+          "orig_type": "column",
+          "original_id": "4375bc294ff3408f",
+          "parent": "l2_tbl_c38b59735c",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_69cc5659e5",
+          "is_target": false,
+          "label": "sum_agg",
+          "orig_type": "aggregate",
+          "original_id": "e4f2e093e6f089bf",
+          "parent": "l2_tbl_6f5935ee28",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_8bcea7ff1d",
+          "is_target": false,
+          "label": "ss_ext_sales_price",
+          "orig_type": "column",
+          "original_id": "590cfc2bc60804f4",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_5a46b64b3c",
+          "is_target": false,
+          "label": "d_moy",
+          "orig_type": "column",
+          "original_id": "7b052b50ee7a86d3",
+          "parent": "l2_tbl_97b25f7b6d",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_ff432ccc62",
+          "is_target": false,
+          "label": "i_manufact_id",
+          "orig_type": "column",
+          "original_id": "f23c95c7a18c678a",
+          "parent": "l2_tbl_c38b59735c",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_ac09ffe0b1",
+          "is_target": false,
+          "label": "d_date_sk",
+          "orig_type": "column",
+          "original_id": "f1bf195631d69951",
+          "parent": "l2_tbl_97b25f7b6d",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_c3ec9d7bff",
+          "is_target": false,
+          "label": "ss_sold_date_sk",
+          "orig_type": "column",
+          "original_id": "9c5bb00345609426",
+          "parent": "l2_tbl_bfa2bb049a",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_207ebb1e7f",
+          "is_target": false,
+          "label": "ss_item_sk",
+          "orig_type": "column",
+          "original_id": "83ffd84dcabb3204",
+          "parent": "l2_tbl_bfa2bb049a",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_eb237d9cbb",
+          "is_target": false,
+          "label": "i_item_sk",
+          "orig_type": "column",
+          "original_id": "a7daf19d508d70e6",
+          "parent": "l2_tbl_c38b59735c",
+          "type": "field",
+          "variable_type": "field"
+        }
+      }
+    ],
+    "script_name": "03.sql",
+    "search_matched": true,
+    "target": ".",
+    "total_edges": 23,
+    "total_nodes": 18
+  },
+  "script_name": "03.sql",
+  "seed": {
+    "field": "sum_agg",
+    "table": "\u27d0 output"
+  }
+}

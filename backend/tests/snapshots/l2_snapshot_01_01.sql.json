@@ -1,0 +1,1467 @@
+{
+  "filtered": {
+    "edges": [
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 1,
+          "id": "l2e_ccb1bed9b839",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "ctr1",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 output (L11) reads customer_total_return (L1) in its FROM clause at L12",
+            "use_lines": [
+              15,
+              16,
+              17,
+              18,
+              21
+            ]
+          },
+          "reason": "chain (CTE chain) \u2014 \u2016customer_total_return@L1 \u2192 \u27d0 output@L11\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "l2_tbl_422a284cb5",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 12,
+          "id": "l2e_2bba480d00e5",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 output (L11) reads ctr1 (L12) in its FROM clause at L12"
+          },
+          "reason": "chain (read into output) \u2014 ctr1.ctr_customer_sk@L21 \u2192 \u2016ctr1@L12 \u2192 \u27d0 output@L11\u2016",
+          "source": "l2_tbl_dd97ee4179",
+          "target": "l2_tbl_422a284cb5",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 17,
+          "id": "l2e_31c6982a9f05",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "FROM",
+            "ref_line": 17,
+            "sentence": "\u27d0 subq1 (L16) reads ctr2 (L17) in its FROM clause at L17"
+          },
+          "reason": "chain (read into output) \u2014 \u2016ctr2@L17 \u2192 \u27d0 subq1@L16\u2016",
+          "source": "l2_tbl_ef7a8b79e8",
+          "target": "l2_tbl_bdf4413cd9",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 16,
+          "id": "l2e_53159758f2d9",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "FROM",
+            "ref_line": 16,
+            "sentence": "\u27d0 output (L11) reads \u27d0 subq1 (L16) in its FROM clause at L16"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq1@L16 \u2192 \u27d0 output@L11\u2016",
+          "source": "l2_tbl_bdf4413cd9",
+          "target": "l2_tbl_422a284cb5",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#1ABC9C",
+          "desc": "Original \u2192 alias",
+          "edge_type": "ALIAS",
+          "flow_kind": "chain",
+          "highlight_line": 1,
+          "id": "l2e_3754d886bbb7",
+          "label": "ALIAS",
+          "line_style": "dashed",
+          "mech": {
+            "alias": "ctr1",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "ctr1 (L12) reads customer_total_return (L1) in its FROM clause at L12",
+            "use_lines": [
+              15,
+              16,
+              17,
+              18,
+              21
+            ]
+          },
+          "reason": "chain (alias hop) \u2014 \u2016customer_total_return@L1 \u2192 ctr1@L12\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "l2_tbl_dd97ee4179",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#1ABC9C",
+          "desc": "Original \u2192 alias",
+          "edge_type": "ALIAS",
+          "flow_kind": "chain",
+          "highlight_line": 1,
+          "id": "l2e_cb9185b804ee",
+          "label": "ALIAS",
+          "line_style": "dashed",
+          "mech": {
+            "alias": "ctr2",
+            "clause": "FROM",
+            "ref_line": 17,
+            "sentence": "ctr2 (L17) reads customer_total_return (L1) in its FROM clause at L17",
+            "use_lines": [
+              18,
+              21
+            ]
+          },
+          "reason": "chain (alias hop) \u2014 \u2016customer_total_return@L1 \u2192 ctr2@L17\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "l2_tbl_ef7a8b79e8",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 21,
+          "id": "l2e_22f024256b13",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 21,
+            "sentence": "structural: customer_total_return (1) references ctr1 (12) \u2014 see customer_total_return's definition"
+          },
+          "reason": "structure \u2014 \u2016ctr1@L12 \u2192 ctr1.ctr_customer_sk@L21\u2016",
+          "source": "l2_tbl_dd97ee4179",
+          "target": "fld_b10718e405",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 12,
+          "id": "l2e_3be88617ddcb",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "ctr1",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "ctr1 (L12) reads customer_total_return (L1) in its FROM clause at L12",
+            "use_lines": [
+              15,
+              16,
+              17,
+              18,
+              21
+            ]
+          },
+          "reason": "read \u2014 \u2016ctr1.ctr_customer_sk@L21 \u2192 ctr1@L12\u2016",
+          "source": "fld_b10718e405",
+          "target": "l2_tbl_dd97ee4179",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 21,
+          "id": "l2e_5aa496e1f0c4",
+          "label": "FILTER",
+          "line_style": "solid",
+          "mech": {
+            "alias": "ctr1",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 output (L11) reads customer_total_return (L1) in its FROM clause at L12",
+            "use_lines": [
+              15,
+              16,
+              17,
+              18,
+              21
+            ]
+          },
+          "reason": "field flow (filter step) \u2014 \u2016ctr1.ctr_customer_sk@L21 \u2192 \u27d0 output@L11\u2016",
+          "source": "fld_b10718e405",
+          "target": "l2_tbl_422a284cb5",
+          "width": 2
+        }
+      }
+    ],
+    "filtered_nodes": 6,
+    "nodes": [
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "CTE{customer_total_return}",
+          "id": "l2_tbl_b6e656aeb2",
+          "label": "customer_total_return",
+          "line_end": 10,
+          "line_start": 1,
+          "original_id": "b7769e01bf3d115c",
+          "table_name": "customer_total_return",
+          "type": "cte_table",
+          "variable_type": "cte"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "TOP0",
+          "id": "l2_tbl_422a284cb5",
+          "label": "output",
+          "line_end": 21,
+          "line_start": 11,
+          "original_id": "5d8b093edc946f52",
+          "table_name": "\u27d0 output",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "FROM",
+          "id": "l2_tbl_dd97ee4179",
+          "label": "ctr1@12",
+          "line_end": 21,
+          "line_start": 12,
+          "original_id": "742e7c26e702f6b5",
+          "table_name": "ctr1",
+          "type": "alias_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq1",
+          "defined_in": "TOP0/subq1",
+          "id": "l2_tbl_bdf4413cd9",
+          "label": "subq1",
+          "line_end": 21,
+          "line_start": 16,
+          "original_id": "2c627a39bc7ddb5b",
+          "table_name": "\u27d0 subq1",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq1",
+          "defined_in": "FROM",
+          "id": "l2_tbl_ef7a8b79e8",
+          "label": "ctr2@17",
+          "line_end": 21,
+          "line_start": 17,
+          "original_id": "d4979fed047fca82",
+          "table_name": "ctr2",
+          "type": "alias_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_b10718e405",
+          "is_target": true,
+          "label": "ctr_customer_sk",
+          "orig_type": "column",
+          "original_id": "d01dee29018e4b89",
+          "parent": "l2_tbl_b6e656aeb2",
+          "type": "field",
+          "variable_type": "field"
+        }
+      }
+    ],
+    "script_name": "01.sql",
+    "search_matched": true,
+    "target": "customer_total_return.ctr_customer_sk",
+    "total_edges": 9,
+    "total_nodes": 6
+  },
+  "full": {
+    "edges": [
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 1,
+          "id": "l2e_ccb1bed9b839",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "ctr1",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 output (L11) reads customer_total_return (L1) in its FROM clause at L12",
+            "use_lines": [
+              15,
+              16,
+              17,
+              18,
+              21
+            ]
+          },
+          "reason": "chain (CTE chain) \u2014 \u2016customer_total_return@L1 \u2192 \u27d0 output@L11\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "l2_tbl_422a284cb5",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 5,
+          "id": "l2e_4e97d66cbe57",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_returns",
+            "clause": "FROM",
+            "ref_line": 5,
+            "sentence": "customer_total_return (L1) reads store_returns (L5) in its FROM clause at L5"
+          },
+          "reason": "chain (CTE chain) \u2014 \u2016store_returns@L5 \u2192 customer_total_return@L1\u2016",
+          "source": "l2_tbl_80632110b3",
+          "target": "l2_tbl_b6e656aeb2",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 6,
+          "id": "l2e_6a3b4f091c9b",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "date_dim",
+            "clause": "JOIN",
+            "ref_line": 6,
+            "sentence": "customer_total_return (L1) reads date_dim (L6) via LEFT JOIN at L6 (alias date_dim)"
+          },
+          "reason": "chain (CTE chain) \u2014 \u2016date_dim@L6 \u2192 customer_total_return@L1\u2016",
+          "source": "l2_tbl_a9f5ab6e6f",
+          "target": "l2_tbl_b6e656aeb2",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 12,
+          "id": "l2e_2bba480d00e5",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 output (L11) reads ctr1 (L12) in its FROM clause at L12"
+          },
+          "reason": "chain (read into output) \u2014 \u2016ctr1@L12 \u2192 \u27d0 output@L11\u2016",
+          "source": "l2_tbl_dd97ee4179",
+          "target": "l2_tbl_422a284cb5",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 13,
+          "id": "l2e_e4a0403cade6",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store",
+            "clause": "JOIN",
+            "ref_line": 13,
+            "sentence": "\u27d0 output (L11) reads store (L13) via LEFT JOIN at L13 (alias store)"
+          },
+          "reason": "chain (read into output) \u2014 \u2016store@L13 \u2192 \u27d0 output@L11\u2016",
+          "source": "l2_tbl_6461c6b6fd",
+          "target": "l2_tbl_422a284cb5",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 14,
+          "id": "l2e_e62ce1c11c6f",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "customer",
+            "clause": "JOIN",
+            "ref_line": 14,
+            "sentence": "\u27d0 output (L11) reads customer (L14) via LEFT JOIN at L14 (alias customer)"
+          },
+          "reason": "chain (read into output) \u2014 \u2016customer@L14 \u2192 \u27d0 output@L11\u2016",
+          "source": "l2_tbl_82a1328b8e",
+          "target": "l2_tbl_422a284cb5",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 17,
+          "id": "l2e_31c6982a9f05",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "FROM",
+            "ref_line": 17,
+            "sentence": "\u27d0 subq1 (L16) reads ctr2 (L17) in its FROM clause at L17"
+          },
+          "reason": "chain (read into output) \u2014 \u2016ctr2@L17 \u2192 \u27d0 subq1@L16\u2016",
+          "source": "l2_tbl_ef7a8b79e8",
+          "target": "l2_tbl_bdf4413cd9",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 16,
+          "id": "l2e_53159758f2d9",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "FROM",
+            "ref_line": 16,
+            "sentence": "\u27d0 output (L11) reads \u27d0 subq1 (L16) in its FROM clause at L16"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq1@L16 \u2192 \u27d0 output@L11\u2016",
+          "source": "l2_tbl_bdf4413cd9",
+          "target": "l2_tbl_422a284cb5",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#1ABC9C",
+          "desc": "Original \u2192 alias",
+          "edge_type": "ALIAS",
+          "flow_kind": "chain",
+          "highlight_line": 1,
+          "id": "l2e_3754d886bbb7",
+          "label": "ALIAS",
+          "line_style": "dashed",
+          "mech": {
+            "alias": "ctr1",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "ctr1 (L12) reads customer_total_return (L1) in its FROM clause at L12",
+            "use_lines": [
+              15,
+              16,
+              17,
+              18,
+              21
+            ]
+          },
+          "reason": "chain (alias hop) \u2014 \u2016customer_total_return@L1 \u2192 ctr1@L12\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "l2_tbl_dd97ee4179",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#1ABC9C",
+          "desc": "Original \u2192 alias",
+          "edge_type": "ALIAS",
+          "flow_kind": "chain",
+          "highlight_line": 1,
+          "id": "l2e_cb9185b804ee",
+          "label": "ALIAS",
+          "line_style": "dashed",
+          "mech": {
+            "alias": "ctr2",
+            "clause": "FROM",
+            "ref_line": 17,
+            "sentence": "ctr2 (L17) reads customer_total_return (L1) in its FROM clause at L17",
+            "use_lines": [
+              18,
+              21
+            ]
+          },
+          "reason": "chain (alias hop) \u2014 \u2016customer_total_return@L1 \u2192 ctr2@L17\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "l2_tbl_ef7a8b79e8",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 2,
+          "id": "l2e_5db307734344",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016sr_customer_sk@L2 \u2192 ctr_customer_sk@L2\u2016",
+          "source": "fld_1c7045bed6",
+          "target": "l2_tbl_b6e656aeb2",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 3,
+          "id": "l2e_30aeda996f7d",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016sr_store_sk@L3 \u2192 ctr_store_sk@L3\u2016",
+          "source": "fld_3b330b5033",
+          "target": "l2_tbl_b6e656aeb2",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 4,
+          "id": "l2e_295ade828693",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016sr_return_amt@L4 \u2192 ctr_total_return@L4\u2016",
+          "source": "fld_093d88d4e4",
+          "target": "l2_tbl_b6e656aeb2",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "compute",
+          "color": "#D35400",
+          "desc": "COALESCE/CAST/CONCAT",
+          "edge_type": "TRANSFORM",
+          "flow_kind": "field flow",
+          "highlight_line": 16,
+          "id": "l2e_7ad828ddd1a9",
+          "label": "TRANSFORM",
+          "line_style": "dashed",
+          "mech": {
+            "alias": "ctr2",
+            "clause": "FROM",
+            "ref_line": 17,
+            "sentence": "\u27d0 subq1 (L16) reads customer_total_return (L1) in its FROM clause at L17",
+            "use_lines": [
+              16,
+              18,
+              21
+            ]
+          },
+          "reason": "field flow (compute step) \u2014 \u2016ctr_total_return@L16 \u2192 AVGctr_total_return_*_1.2@L0\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "l2_tbl_bdf4413cd9",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 21,
+          "id": "l2e_22f024256b13",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 21,
+            "sentence": "structural: customer_total_return (1) references ctr1 (12) \u2014 see customer_total_return's definition"
+          },
+          "reason": "structure \u2014 \u2016ctr1@L12 \u2192 ctr1.ctr_customer_sk@L21\u2016",
+          "source": "l2_tbl_dd97ee4179",
+          "target": "fld_b10718e405",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 15,
+          "id": "l2e_db6818d444dd",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 15,
+            "sentence": "structural: customer_total_return (1) references ctr1 (12) \u2014 see customer_total_return's definition"
+          },
+          "reason": "structure \u2014 \u2016ctr1@L12 \u2192 ctr1.ctr_total_return@L15\u2016",
+          "source": "l2_tbl_dd97ee4179",
+          "target": "fld_d16131c573",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 18,
+          "id": "l2e_1fc6e8e778db",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 18,
+            "sentence": "structural: customer_total_return (1) references ctr1 (12) \u2014 see customer_total_return's definition"
+          },
+          "reason": "structure \u2014 \u2016ctr1@L12 \u2192 ctr1.ctr_store_sk@L18\u2016",
+          "source": "l2_tbl_dd97ee4179",
+          "target": "fld_927a60f4e3",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 18,
+          "id": "l2e_8e6c08573dc2",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 18,
+            "sentence": "structural: customer_total_return (1) references ctr2 (17) \u2014 see customer_total_return's definition"
+          },
+          "reason": "structure \u2014 \u2016ctr2@L17 \u2192 ctr2.ctr_store_sk@L18\u2016",
+          "source": "l2_tbl_ef7a8b79e8",
+          "target": "fld_927a60f4e3",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 2,
+          "id": "l2e_ab8f721b6ab9",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "CTE{CUSTOMER_TOTAL_RETURN}",
+            "ref_line": 2,
+            "sentence": "structural: customer_total_return (1) references customer_total_return (1) \u2014 see customer_total_return's definition",
+            "use_lines": [
+              3,
+              4
+            ]
+          },
+          "reason": "structure \u2014 \u2016customer_total_return@L1 \u2192 ctr_customer_sk@L2\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "fld_afc1b4e36b",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 3,
+          "id": "l2e_79720b4ae181",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "CTE{CUSTOMER_TOTAL_RETURN}",
+            "ref_line": 2,
+            "sentence": "structural: customer_total_return (1) references customer_total_return (1) \u2014 see customer_total_return's definition",
+            "use_lines": [
+              3,
+              4
+            ]
+          },
+          "reason": "structure \u2014 \u2016customer_total_return@L1 \u2192 ctr_store_sk@L3\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "fld_04871fd581",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 4,
+          "id": "l2e_752f0afbb2e0",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "CTE{CUSTOMER_TOTAL_RETURN}",
+            "ref_line": 2,
+            "sentence": "structural: customer_total_return (1) references customer_total_return (1) \u2014 see customer_total_return's definition",
+            "use_lines": [
+              3,
+              4
+            ]
+          },
+          "reason": "structure \u2014 \u2016customer_total_return@L1 \u2192 ctr_total_return@L4\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "fld_2db0b595dd",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 11,
+          "id": "l2e_e7961f2b82a8",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L11 \u2192 c_customer_id@L11\u2016",
+          "source": "l2_tbl_422a284cb5",
+          "target": "fld_a7dd8bbd23",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 0,
+          "id": "l2e_e59ccd4516c0",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 subq1@L16 \u2192 AVGctr_total_return_*_1.2@L0\u2016",
+          "source": "l2_tbl_bdf4413cd9",
+          "target": "fld_1705ca3c90",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 12,
+          "id": "l2e_3be88617ddcb",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "ctr1",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "ctr1 (L12) reads customer_total_return (L1) in its FROM clause at L12",
+            "use_lines": [
+              15,
+              16,
+              17,
+              18,
+              21
+            ]
+          },
+          "reason": "read \u2014 \u2016ctr1.ctr_customer_sk@L21 \u2192 ctr1@L12\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "l2_tbl_dd97ee4179",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 17,
+          "id": "l2e_6f91fd0ca04a",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "ctr2",
+            "clause": "FROM",
+            "ref_line": 17,
+            "sentence": "ctr2 (L17) reads customer_total_return (L1) in its FROM clause at L17",
+            "use_lines": [
+              18,
+              21
+            ]
+          },
+          "reason": "read \u2014 \u2016ctr2.ctr_store_sk@L18 \u2192 ctr2@L17\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "l2_tbl_ef7a8b79e8",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#C0392B",
+          "desc": "HAVING\u2192SELECT match",
+          "edge_type": "INDIRECT",
+          "flow_kind": "filter",
+          "highlight_line": 18,
+          "id": "l2e_98b2db587335",
+          "label": "INDIRECT",
+          "line_style": "dot-dash",
+          "reason": "filter (filter step) \u2014 \u2016ctr1.ctr_store_sk@L18 \u2192 c_customer_id@L11\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "fld_a7dd8bbd23",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 21,
+          "id": "l2e_5aa496e1f0c4",
+          "label": "FILTER",
+          "line_style": "solid",
+          "mech": {
+            "alias": "ctr1",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 output (L11) reads customer_total_return (L1) in its FROM clause at L12",
+            "use_lines": [
+              15,
+              16,
+              17,
+              18,
+              21
+            ]
+          },
+          "reason": "field flow (filter step) \u2014 \u2016ctr1.ctr_customer_sk@L21 \u2192 \u27d0 output@L11\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "l2_tbl_422a284cb5",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 18,
+          "id": "l2e_cf3d71f57cba",
+          "label": "FILTER",
+          "line_style": "solid",
+          "mech": {
+            "alias": "ctr2",
+            "clause": "FROM",
+            "ref_line": 17,
+            "sentence": "\u27d0 subq1 (L16) reads customer_total_return (L1) in its FROM clause at L17",
+            "use_lines": [
+              16,
+              18,
+              21
+            ]
+          },
+          "reason": "field flow (filter step) \u2014 \u2016ctr1.ctr_store_sk@L18 \u2192 \u27d0 subq1@L16\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "l2_tbl_bdf4413cd9",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 7,
+          "id": "l2e_2ebea44107e9",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016sr_returned_date_sk@L7 \u2192 date_dim@L6\u2016",
+          "source": "fld_233182978a",
+          "target": "l2_tbl_a9f5ab6e6f",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 7,
+          "id": "l2e_e6eb1207b633",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016d_date_sk@L7 \u2192 date_dim@L6\u2016",
+          "source": "fld_a032827710",
+          "target": "l2_tbl_a9f5ab6e6f",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 8,
+          "id": "l2e_fd0bfa4c4d2c",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016d_year@L8 \u2192 date_dim@L6\u2016",
+          "source": "fld_2377910478",
+          "target": "l2_tbl_a9f5ab6e6f",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 21,
+          "id": "l2e_e808e31af011",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016c_customer_sk@L21 \u2192 customer@L14\u2016",
+          "source": "fld_28b5f278fd",
+          "target": "l2_tbl_82a1328b8e",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 20,
+          "id": "l2e_aae72fc7cf55",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016s_state@L20 \u2192 customer@L14\u2016",
+          "source": "fld_ba34d8af6a",
+          "target": "l2_tbl_82a1328b8e",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 19,
+          "id": "l2e_e2e0b4f1b66d",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016s_store_sk@L19 \u2192 customer@L14\u2016",
+          "source": "fld_9674b31129",
+          "target": "l2_tbl_82a1328b8e",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 1,
+          "id": "l2e_b8271a077e16",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016sr_return_amt@L4 \u2192 customer_total_return@L1\u2016",
+          "source": "fld_093d88d4e4",
+          "target": "l2_tbl_b6e656aeb2",
+          "width": 1
+        }
+      }
+    ],
+    "filtered_nodes": 26,
+    "nodes": [
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "CTE{customer_total_return}",
+          "id": "l2_tbl_b6e656aeb2",
+          "label": "customer_total_return",
+          "line_end": 10,
+          "line_start": 1,
+          "original_id": "b7769e01bf3d115c",
+          "table_name": "customer_total_return",
+          "type": "cte_table",
+          "variable_type": "cte"
+        }
+      },
+      {
+        "data": {
+          "context": "CTE{customer_total_return}",
+          "defined_in": "FROM",
+          "flow_role": "source",
+          "id": "l2_tbl_80632110b3",
+          "label": "store_returns",
+          "line_end": 10,
+          "line_start": 5,
+          "original_id": "3958ccd6b1503041",
+          "table_name": "store_returns",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "CTE{customer_total_return}",
+          "defined_in": "JOIN",
+          "flow_role": "target",
+          "id": "l2_tbl_a9f5ab6e6f",
+          "label": "date_dim",
+          "line_end": 10,
+          "line_start": 6,
+          "original_id": "4747445704781881",
+          "table_name": "date_dim",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "TOP0",
+          "id": "l2_tbl_422a284cb5",
+          "label": "output",
+          "line_end": 21,
+          "line_start": 11,
+          "original_id": "5d8b093edc946f52",
+          "table_name": "\u27d0 output",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "FROM",
+          "flow_role": "waypoint",
+          "id": "l2_tbl_dd97ee4179",
+          "label": "ctr1@12",
+          "line_end": 21,
+          "line_start": 12,
+          "original_id": "742e7c26e702f6b5",
+          "table_name": "ctr1",
+          "type": "alias_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "JOIN",
+          "flow_role": "source",
+          "id": "l2_tbl_6461c6b6fd",
+          "label": "store",
+          "line_end": 21,
+          "line_start": 13,
+          "original_id": "a8d4dc2eb9ad471a",
+          "table_name": "store",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "JOIN",
+          "flow_role": "target",
+          "id": "l2_tbl_82a1328b8e",
+          "label": "customer",
+          "line_end": 21,
+          "line_start": 14,
+          "original_id": "6becd57b211238d0",
+          "table_name": "customer",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq1",
+          "defined_in": "TOP0/subq1",
+          "id": "l2_tbl_bdf4413cd9",
+          "label": "subq1",
+          "line_end": 21,
+          "line_start": 16,
+          "original_id": "2c627a39bc7ddb5b",
+          "table_name": "\u27d0 subq1",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq1",
+          "defined_in": "FROM",
+          "flow_role": "waypoint",
+          "id": "l2_tbl_ef7a8b79e8",
+          "label": "ctr2@17",
+          "line_end": 21,
+          "line_start": 17,
+          "original_id": "d4979fed047fca82",
+          "table_name": "ctr2",
+          "type": "alias_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_afc1b4e36b",
+          "is_target": false,
+          "label": "ctr_customer_sk",
+          "orig_type": "column",
+          "original_id": "d73bde697c46dc04",
+          "parent": "l2_tbl_b6e656aeb2",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_1c7045bed6",
+          "is_target": false,
+          "label": "sr_customer_sk",
+          "orig_type": "column",
+          "original_id": "a3bd3faca4e2597c",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_04871fd581",
+          "is_target": false,
+          "label": "ctr_store_sk",
+          "orig_type": "column",
+          "original_id": "9a70196bffcf5c94",
+          "parent": "l2_tbl_b6e656aeb2",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_3b330b5033",
+          "is_target": false,
+          "label": "sr_store_sk",
+          "orig_type": "column",
+          "original_id": "3dc8651075d65e0e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_2db0b595dd",
+          "is_target": false,
+          "label": "ctr_total_return",
+          "orig_type": "aggregate",
+          "original_id": "7d030feb8a61e504",
+          "parent": "l2_tbl_b6e656aeb2",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_093d88d4e4",
+          "is_target": false,
+          "label": "sr_return_amt",
+          "orig_type": "column",
+          "original_id": "2f09b0b936500f49",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_233182978a",
+          "is_target": false,
+          "label": "sr_returned_date_sk",
+          "orig_type": "column",
+          "original_id": "c97d0e8b59de2713",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_a032827710",
+          "is_target": false,
+          "label": "d_date_sk",
+          "orig_type": "column",
+          "original_id": "83b171c11b3f09d5",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_2377910478",
+          "is_target": false,
+          "label": "d_year",
+          "orig_type": "column",
+          "original_id": "e40a86c4062db911",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_a7dd8bbd23",
+          "is_target": false,
+          "label": "c_customer_id",
+          "orig_type": "column",
+          "original_id": "d031f0ef55971895",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_b10718e405",
+          "is_target": false,
+          "label": "ctr_customer_sk",
+          "orig_type": "column",
+          "original_id": "d01dee29018e4b89",
+          "parent": "l2_tbl_b6e656aeb2",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_28b5f278fd",
+          "is_target": false,
+          "label": "c_customer_sk",
+          "orig_type": "column",
+          "original_id": "8210964107d0ea71",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_ba34d8af6a",
+          "is_target": false,
+          "label": "s_state",
+          "orig_type": "column",
+          "original_id": "81cd9fcdb4395e45",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_d16131c573",
+          "is_target": false,
+          "label": "ctr_total_return",
+          "orig_type": "column",
+          "original_id": "d151647edc8e744d",
+          "parent": "l2_tbl_b6e656aeb2",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_1705ca3c90",
+          "is_target": false,
+          "label": "2",
+          "orig_type": "expression",
+          "original_id": "a67f33115499ea78",
+          "parent": "l2_tbl_bdf4413cd9",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_927a60f4e3",
+          "is_target": false,
+          "label": "ctr_store_sk",
+          "orig_type": "column",
+          "original_id": "38a7a327f9c4b26a",
+          "parent": "l2_tbl_b6e656aeb2",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_9674b31129",
+          "is_target": false,
+          "label": "s_store_sk",
+          "orig_type": "column",
+          "original_id": "7e574fb4cbddbc0e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      }
+    ],
+    "script_name": "01.sql",
+    "search_matched": true,
+    "target": ".",
+    "total_edges": 35,
+    "total_nodes": 29
+  },
+  "script_name": "01.sql",
+  "seed": {
+    "field": "ctr_customer_sk",
+    "table": "customer_total_return"
+  }
+}

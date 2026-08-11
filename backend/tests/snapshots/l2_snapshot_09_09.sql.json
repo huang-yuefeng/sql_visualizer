@@ -1,0 +1,2673 @@
+{
+  "filtered": {
+    "edges": [
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 67,
+          "id": "l2e_186f6fefe70e",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "reason",
+            "clause": "FROM",
+            "ref_line": 67,
+            "sentence": "\u27d0 output (L2) reads reason (L67) in its FROM clause at L67",
+            "use_lines": [
+              68
+            ]
+          },
+          "reason": "chain (read into output) \u2014 r_reason_sk@L68 \u2192 \u2016reason@L67 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_d376b22c78",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 67,
+          "id": "l2e_1ecf7b9d6959",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "reason",
+            "clause": "FROM",
+            "ref_line": 67,
+            "sentence": "reason (L67) reads reason (L67) in its FROM clause at L67",
+            "use_lines": [
+              68
+            ]
+          },
+          "reason": "read \u2014 \u2016r_reason_sk@L68 \u2192 reason@L67\u2016",
+          "source": "fld_8cb380ef7e",
+          "target": "l2_tbl_d376b22c78",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 68,
+          "id": "l2e_080e0177ccf7",
+          "label": "FILTER",
+          "line_style": "solid",
+          "mech": {
+            "alias": "reason",
+            "clause": "FROM",
+            "ref_line": 67,
+            "sentence": "reason (L67) reads reason (L67) in its FROM clause at L67",
+            "use_lines": [
+              68
+            ]
+          },
+          "reason": "field flow (filter step) \u2014 \u2016r_reason_sk@L68 \u2192 reason@L67\u2016",
+          "source": "fld_8cb380ef7e",
+          "target": "l2_tbl_d376b22c78",
+          "width": 2
+        }
+      }
+    ],
+    "filtered_nodes": 3,
+    "nodes": [
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "TOP0",
+          "id": "l2_tbl_775551baaf",
+          "label": "output",
+          "line_end": 68,
+          "line_start": 2,
+          "original_id": "d9145fc487a06892",
+          "table_name": "\u27d0 output",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "FROM",
+          "flow_source": true,
+          "id": "l2_tbl_d376b22c78",
+          "label": "reason",
+          "line_end": 68,
+          "line_start": 67,
+          "original_id": "453b81546eedd0b5",
+          "table_name": "reason",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_8cb380ef7e",
+          "is_target": true,
+          "label": "r_reason_sk",
+          "orig_type": "column",
+          "original_id": "a17d601019979729",
+          "parent": "l2_tbl_d376b22c78",
+          "type": "field",
+          "variable_type": "field"
+        }
+      }
+    ],
+    "script_name": "09.sql",
+    "search_matched": true,
+    "target": "reason.r_reason_sk",
+    "total_edges": 3,
+    "total_nodes": 3
+  },
+  "full": {
+    "edges": [
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 67,
+          "id": "l2e_186f6fefe70e",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "reason",
+            "clause": "FROM",
+            "ref_line": 67,
+            "sentence": "\u27d0 output (L2) reads reason (L67) in its FROM clause at L67",
+            "use_lines": [
+              68
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016reason@L67 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_d376b22c78",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 12,
+          "id": "l2e_04636fb9a54e",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq1 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L12 \u2192 \u27d0 subq1@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_e93cf63cf2",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 8,
+          "id": "l2e_55f8f1146bfd",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq2 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L8 \u2192 \u27d0 subq2@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_1d27272eb4",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 5,
+          "id": "l2e_f88a5b96ce4b",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 5,
+            "sentence": "\u27d0 subq3 (L4) reads store_sales (L12) in its FROM clause at L5",
+            "use_lines": [
+              6,
+              7,
+              8,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L5 \u2192 \u27d0 subq3@L4\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_912461f2fb",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 12,
+          "id": "l2e_17c48b165c72",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq4 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L12 \u2192 \u27d0 subq4@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_c562844fcc",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 8,
+          "id": "l2e_5203b89ec048",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq5 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L8 \u2192 \u27d0 subq5@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_35da598aeb",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 5,
+          "id": "l2e_d2ae8ef92095",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 5,
+            "sentence": "\u27d0 subq6 (L4) reads store_sales (L12) in its FROM clause at L5",
+            "use_lines": [
+              6,
+              7,
+              8,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L5 \u2192 \u27d0 subq6@L4\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_d6f6313a7b",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 12,
+          "id": "l2e_e1ae6d0a7ccf",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq7 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L12 \u2192 \u27d0 subq7@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_6bfbb8671e",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 8,
+          "id": "l2e_79c5bb76e644",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq8 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L8 \u2192 \u27d0 subq8@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_cec9cb02e0",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 5,
+          "id": "l2e_32acfc9fb3cd",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 5,
+            "sentence": "\u27d0 subq9 (L4) reads store_sales (L12) in its FROM clause at L5",
+            "use_lines": [
+              6,
+              7,
+              8,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L5 \u2192 \u27d0 subq9@L4\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_4d2ef81825",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 12,
+          "id": "l2e_2c041cc985ce",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq10 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L12 \u2192 \u27d0 subq10@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_432e5e102a",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 8,
+          "id": "l2e_1782d2bdc9a5",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq11 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L8 \u2192 \u27d0 subq11@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_502cee4c31",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 5,
+          "id": "l2e_5b39f0995fdc",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 5,
+            "sentence": "\u27d0 subq12 (L4) reads store_sales (L12) in its FROM clause at L5",
+            "use_lines": [
+              6,
+              7,
+              8,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L5 \u2192 \u27d0 subq12@L4\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_4cdcf4e24a",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 12,
+          "id": "l2e_791fca64a418",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq13 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L12 \u2192 \u27d0 subq13@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_43c18b9f44",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 8,
+          "id": "l2e_f90d8dba4a09",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq14 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L8 \u2192 \u27d0 subq14@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_41dea064c7",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 5,
+          "id": "l2e_b3add0031fae",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 5,
+            "sentence": "\u27d0 subq15 (L4) reads store_sales (L12) in its FROM clause at L5",
+            "use_lines": [
+              6,
+              7,
+              8,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L5 \u2192 \u27d0 subq15@L4\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_984343042e",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 11,
+          "id": "l2e_3bcc86bc88c8",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ1",
+            "ref_line": 11,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq1 (11) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq1@L11 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_e93cf63cf2",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 7,
+          "id": "l2e_530ace27c1f2",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ2",
+            "ref_line": 7,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq2 (7) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq2@L7 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_1d27272eb4",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 4,
+          "id": "l2e_acf33e239cb6",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ3",
+            "ref_line": 4,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq3 (4) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq3@L4 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_912461f2fb",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 11,
+          "id": "l2e_6f285f205b76",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ4",
+            "ref_line": 11,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq4 (11) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq4@L11 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_c562844fcc",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 7,
+          "id": "l2e_535efa6510dc",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ5",
+            "ref_line": 7,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq5 (7) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq5@L7 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_35da598aeb",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 4,
+          "id": "l2e_7c3352606fd2",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ6",
+            "ref_line": 4,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq6 (4) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq6@L4 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_d6f6313a7b",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 11,
+          "id": "l2e_ae8d2305042e",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ7",
+            "ref_line": 11,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq7 (11) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq7@L11 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_6bfbb8671e",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 7,
+          "id": "l2e_70b508cd9356",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ8",
+            "ref_line": 7,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq8 (7) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq8@L7 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_cec9cb02e0",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 4,
+          "id": "l2e_0d21b014a14a",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ9",
+            "ref_line": 4,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq9 (4) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq9@L4 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_4d2ef81825",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 11,
+          "id": "l2e_f332eb9cf5f4",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ10",
+            "ref_line": 11,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq10 (11) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq10@L11 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_432e5e102a",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 7,
+          "id": "l2e_397620d7e3f0",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ11",
+            "ref_line": 7,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq11 (7) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq11@L7 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_502cee4c31",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 4,
+          "id": "l2e_f99298aa8604",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ12",
+            "ref_line": 4,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq12 (4) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq12@L4 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_4cdcf4e24a",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 11,
+          "id": "l2e_2c7ea5ac90f0",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ13",
+            "ref_line": 11,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq13 (11) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq13@L11 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_43c18b9f44",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 7,
+          "id": "l2e_dbc85c1ceb8d",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ14",
+            "ref_line": 7,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq14 (7) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq14@L7 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_41dea064c7",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 4,
+          "id": "l2e_6f10fee9e320",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ15",
+            "ref_line": 4,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 subq15 (4) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq15@L4 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_984343042e",
+          "target": "l2_tbl_775551baaf",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "compute",
+          "color": "#E67E22",
+          "desc": "CASE WHEN result",
+          "edge_type": "COMPUTED",
+          "flow_kind": "field flow",
+          "highlight_line": 11,
+          "id": "l2e_1bcd98f0e907",
+          "label": "COMPUTED",
+          "line_style": "dotted",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 5,
+            "sentence": "\u27d0 output (L2) reads store_sales (L12) in its FROM clause at L5",
+            "use_lines": [
+              6,
+              7,
+              8,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "field flow (compute step) \u2014 \u2016ss_net_paid@L11 \u2192 bucket1@L14\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_775551baaf",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 11,
+          "id": "l2e_def2e7823f81",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq1 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_net_paid@L11 \u2192 AVGss_net_paid@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_e93cf63cf2",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 7,
+          "id": "l2e_765f5a2e8c82",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq2 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_ext_discount_amt@L7 \u2192 AVGss_ext_discount_amt@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_1d27272eb4",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 11,
+          "id": "l2e_dd351f563cc5",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq4 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_net_paid@L11 \u2192 AVGss_net_paid@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_c562844fcc",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 7,
+          "id": "l2e_c2f51c400b7f",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq5 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_ext_discount_amt@L7 \u2192 AVGss_ext_discount_amt@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_35da598aeb",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 11,
+          "id": "l2e_8f727198f181",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq7 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_net_paid@L11 \u2192 AVGss_net_paid@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_6bfbb8671e",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 7,
+          "id": "l2e_37cfd32c5fa3",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq8 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_ext_discount_amt@L7 \u2192 AVGss_ext_discount_amt@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_cec9cb02e0",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 11,
+          "id": "l2e_1521c93a31e2",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq10 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_net_paid@L11 \u2192 AVGss_net_paid@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_432e5e102a",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 7,
+          "id": "l2e_84c00fe6c40d",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq11 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_ext_discount_amt@L7 \u2192 AVGss_ext_discount_amt@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_502cee4c31",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 11,
+          "id": "l2e_609ac4818dab",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq13 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_net_paid@L11 \u2192 AVGss_net_paid@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_43c18b9f44",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 7,
+          "id": "l2e_68b6dc1af962",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq14 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_ext_discount_amt@L7 \u2192 AVGss_ext_discount_amt@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_41dea064c7",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 14,
+          "id": "l2e_3da98d4439f3",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 14,
+            "sentence": "structural: \u27d0 output (2) references \u27d0 output (2) \u2014 see \u27d0 output's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 output@L2 \u2192 bucket1@L14\u2016",
+          "source": "l2_tbl_775551baaf",
+          "target": "fld_6f201ab3a7",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 27,
+          "id": "l2e_ca4df51bbbca",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 27,
+            "sentence": "structural: store_sales (12) references \u27d0 output (2) \u2014 see store_sales's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 output@L2 \u2192 bucket2@L27\u2016",
+          "source": "l2_tbl_775551baaf",
+          "target": "fld_b9564952f2",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 40,
+          "id": "l2e_1ddaa8a47af5",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 40,
+            "sentence": "structural: store_sales (12) references \u27d0 output (2) \u2014 see store_sales's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 output@L2 \u2192 bucket3@L40\u2016",
+          "source": "l2_tbl_775551baaf",
+          "target": "fld_0cfeeb0afe",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 53,
+          "id": "l2e_a214ac6f28d8",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 53,
+            "sentence": "structural: store_sales (12) references \u27d0 output (2) \u2014 see store_sales's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 output@L2 \u2192 bucket4@L53\u2016",
+          "source": "l2_tbl_775551baaf",
+          "target": "fld_21d2a7c498",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 66,
+          "id": "l2e_a74f831f83fe",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "SCHEMA",
+            "ref_line": 66,
+            "sentence": "structural: store_sales (12) references \u27d0 output (2) \u2014 see store_sales's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 output@L2 \u2192 bucket5@L66\u2016",
+          "source": "l2_tbl_775551baaf",
+          "target": "fld_02d83fcafb",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 11,
+          "id": "l2e_80b5fb5854bf",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ1",
+            "ref_line": 11,
+            "sentence": "structural: \u27d0 subq1 (11) references \u27d0 subq1 (11) \u2014 see \u27d0 subq1's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq1@L11 \u2192 AVGss_net_paid@L11\u2016",
+          "source": "l2_tbl_e93cf63cf2",
+          "target": "fld_6834ab9ece",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 7,
+          "id": "l2e_959bab0333b2",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ2",
+            "ref_line": 7,
+            "sentence": "structural: \u27d0 subq2 (7) references \u27d0 subq2 (7) \u2014 see \u27d0 subq2's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq2@L7 \u2192 AVGss_ext_discount_amt@L7\u2016",
+          "source": "l2_tbl_1d27272eb4",
+          "target": "fld_a14233f67a",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 4,
+          "id": "l2e_8a18280009f2",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ3",
+            "ref_line": 4,
+            "sentence": "structural: \u27d0 subq3 (4) references \u27d0 subq3 (4) \u2014 see \u27d0 subq3's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq3@L4 \u2192 COUNT*@L4\u2016",
+          "source": "l2_tbl_912461f2fb",
+          "target": "fld_b1f8dd0216",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 11,
+          "id": "l2e_2d76f34a8306",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ4",
+            "ref_line": 11,
+            "sentence": "structural: \u27d0 subq4 (11) references \u27d0 subq4 (11) \u2014 see \u27d0 subq4's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq4@L11 \u2192 AVGss_net_paid@L11\u2016",
+          "source": "l2_tbl_c562844fcc",
+          "target": "fld_c349a63f44",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 7,
+          "id": "l2e_fbf5fa3f7353",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ5",
+            "ref_line": 7,
+            "sentence": "structural: \u27d0 subq5 (7) references \u27d0 subq5 (7) \u2014 see \u27d0 subq5's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq5@L7 \u2192 AVGss_ext_discount_amt@L7\u2016",
+          "source": "l2_tbl_35da598aeb",
+          "target": "fld_0e07bb7c0b",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 4,
+          "id": "l2e_4c018a16ba30",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ6",
+            "ref_line": 4,
+            "sentence": "structural: \u27d0 subq6 (4) references \u27d0 subq6 (4) \u2014 see \u27d0 subq6's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq6@L4 \u2192 COUNT*@L4\u2016",
+          "source": "l2_tbl_d6f6313a7b",
+          "target": "fld_dc2e9c2df4",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 11,
+          "id": "l2e_2c47a69fa639",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ7",
+            "ref_line": 11,
+            "sentence": "structural: \u27d0 subq7 (11) references \u27d0 subq7 (11) \u2014 see \u27d0 subq7's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq7@L11 \u2192 AVGss_net_paid@L11\u2016",
+          "source": "l2_tbl_6bfbb8671e",
+          "target": "fld_205fd60d99",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 7,
+          "id": "l2e_f5bae0f7d5cb",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ8",
+            "ref_line": 7,
+            "sentence": "structural: \u27d0 subq8 (7) references \u27d0 subq8 (7) \u2014 see \u27d0 subq8's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq8@L7 \u2192 AVGss_ext_discount_amt@L7\u2016",
+          "source": "l2_tbl_cec9cb02e0",
+          "target": "fld_f956cdcffe",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 4,
+          "id": "l2e_bf231f5b1fd7",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ9",
+            "ref_line": 4,
+            "sentence": "structural: \u27d0 subq9 (4) references \u27d0 subq9 (4) \u2014 see \u27d0 subq9's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq9@L4 \u2192 COUNT*@L4\u2016",
+          "source": "l2_tbl_4d2ef81825",
+          "target": "fld_42c73fe3a8",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 11,
+          "id": "l2e_0728bd915405",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ10",
+            "ref_line": 11,
+            "sentence": "structural: \u27d0 subq10 (11) references \u27d0 subq10 (11) \u2014 see \u27d0 subq10's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq10@L11 \u2192 AVGss_net_paid@L11\u2016",
+          "source": "l2_tbl_432e5e102a",
+          "target": "fld_dba2782bb6",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 7,
+          "id": "l2e_9ff779fad29d",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ11",
+            "ref_line": 7,
+            "sentence": "structural: \u27d0 subq11 (7) references \u27d0 subq11 (7) \u2014 see \u27d0 subq11's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq11@L7 \u2192 AVGss_ext_discount_amt@L7\u2016",
+          "source": "l2_tbl_502cee4c31",
+          "target": "fld_cfcd99f894",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 4,
+          "id": "l2e_288c36dea318",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ12",
+            "ref_line": 4,
+            "sentence": "structural: \u27d0 subq12 (4) references \u27d0 subq12 (4) \u2014 see \u27d0 subq12's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq12@L4 \u2192 COUNT*@L4\u2016",
+          "source": "l2_tbl_4cdcf4e24a",
+          "target": "fld_be1aa18e5e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 11,
+          "id": "l2e_6e14c32a05cd",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ13",
+            "ref_line": 11,
+            "sentence": "structural: \u27d0 subq13 (11) references \u27d0 subq13 (11) \u2014 see \u27d0 subq13's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq13@L11 \u2192 AVGss_net_paid@L11\u2016",
+          "source": "l2_tbl_43c18b9f44",
+          "target": "fld_41e2d88b26",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 7,
+          "id": "l2e_a0a7b6cb32d9",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ14",
+            "ref_line": 7,
+            "sentence": "structural: \u27d0 subq14 (7) references \u27d0 subq14 (7) \u2014 see \u27d0 subq14's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq14@L7 \u2192 AVGss_ext_discount_amt@L7\u2016",
+          "source": "l2_tbl_41dea064c7",
+          "target": "fld_3f0b6ac2a0",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 4,
+          "id": "l2e_9e3e390efeb7",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ15",
+            "ref_line": 4,
+            "sentence": "structural: \u27d0 subq15 (4) references \u27d0 subq15 (4) \u2014 see \u27d0 subq15's definition"
+          },
+          "reason": "structure \u2014 \u2016\u27d0 subq15@L4 \u2192 COUNT*@L4\u2016",
+          "source": "l2_tbl_984343042e",
+          "target": "fld_c09e9887d4",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 11,
+          "id": "l2e_6925728f9c3e",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq1 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "read (read into output) \u2014 \u2016ss_net_paid@L11 \u2192 \u27d0 subq1@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_e93cf63cf2",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 7,
+          "id": "l2e_a86ed298abe3",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq2 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "read (read into output) \u2014 \u2016ss_ext_discount_amt@L7 \u2192 \u27d0 subq2@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_1d27272eb4",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 11,
+          "id": "l2e_d723437cd660",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq4 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "read (read into output) \u2014 \u2016ss_net_paid@L11 \u2192 \u27d0 subq4@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_c562844fcc",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 7,
+          "id": "l2e_84f37dc99f85",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq5 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "read (read into output) \u2014 \u2016ss_ext_discount_amt@L7 \u2192 \u27d0 subq5@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_35da598aeb",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 11,
+          "id": "l2e_32126c1dd838",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq7 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "read (read into output) \u2014 \u2016ss_net_paid@L11 \u2192 \u27d0 subq7@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_6bfbb8671e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 7,
+          "id": "l2e_25094441cb0f",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq8 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "read (read into output) \u2014 \u2016ss_ext_discount_amt@L7 \u2192 \u27d0 subq8@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_cec9cb02e0",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 11,
+          "id": "l2e_3bdeecc0b780",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 12,
+            "sentence": "\u27d0 subq10 (L11) reads store_sales (L12) in its FROM clause at L12",
+            "use_lines": [
+              11,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "read (read into output) \u2014 \u2016ss_net_paid@L11 \u2192 \u27d0 subq10@L11\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_432e5e102a",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 7,
+          "id": "l2e_609609c311f0",
+          "label": "REF",
+          "line_style": "solid",
+          "mech": {
+            "alias": "store_sales",
+            "clause": "FROM",
+            "ref_line": 8,
+            "sentence": "\u27d0 subq11 (L7) reads store_sales (L12) in its FROM clause at L8",
+            "use_lines": [
+              7,
+              9,
+              11,
+              12,
+              13,
+              14,
+              27,
+              40,
+              53,
+              66
+            ]
+          },
+          "reason": "read (read into output) \u2014 \u2016ss_ext_discount_amt@L7 \u2192 \u27d0 subq11@L7\u2016",
+          "source": "l2_tbl_67ac304a2e",
+          "target": "l2_tbl_502cee4c31",
+          "width": 1
+        }
+      }
+    ],
+    "filtered_nodes": 42,
+    "nodes": [
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "TOP0",
+          "id": "l2_tbl_775551baaf",
+          "label": "output",
+          "line_end": 68,
+          "line_start": 2,
+          "original_id": "d9145fc487a06892",
+          "table_name": "\u27d0 output",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "FROM",
+          "flow_role": "source",
+          "id": "l2_tbl_d376b22c78",
+          "label": "reason",
+          "line_end": 68,
+          "line_start": 67,
+          "original_id": "453b81546eedd0b5",
+          "table_name": "reason",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq1",
+          "defined_in": "TOP0/subq1",
+          "id": "l2_tbl_e93cf63cf2",
+          "label": "subq1",
+          "line_end": 68,
+          "line_start": 11,
+          "original_id": "fdcd0abc6ecf84c6",
+          "table_name": "\u27d0 subq1",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq1",
+          "defined_in": "FROM",
+          "flow_role": "source",
+          "id": "l2_tbl_67ac304a2e",
+          "label": "store_sales",
+          "line_end": 68,
+          "line_start": 12,
+          "original_id": "a0e8305a10bfbed9",
+          "table_name": "store_sales",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq2",
+          "defined_in": "TOP0/subq2",
+          "id": "l2_tbl_1d27272eb4",
+          "label": "subq2",
+          "line_end": 68,
+          "line_start": 7,
+          "original_id": "fb0ee426199a7736",
+          "table_name": "\u27d0 subq2",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq3",
+          "defined_in": "TOP0/subq3",
+          "id": "l2_tbl_912461f2fb",
+          "label": "subq3",
+          "line_end": 68,
+          "line_start": 4,
+          "original_id": "b19ada72d9a47438",
+          "table_name": "\u27d0 subq3",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq4",
+          "defined_in": "TOP0/subq4",
+          "id": "l2_tbl_c562844fcc",
+          "label": "subq4",
+          "line_end": 68,
+          "line_start": 11,
+          "original_id": "dd1e1530b18a7d17",
+          "table_name": "\u27d0 subq4",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq5",
+          "defined_in": "TOP0/subq5",
+          "id": "l2_tbl_35da598aeb",
+          "label": "subq5",
+          "line_end": 68,
+          "line_start": 7,
+          "original_id": "5e17d96ae9a7dfa2",
+          "table_name": "\u27d0 subq5",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq6",
+          "defined_in": "TOP0/subq6",
+          "id": "l2_tbl_d6f6313a7b",
+          "label": "subq6",
+          "line_end": 68,
+          "line_start": 4,
+          "original_id": "0d9eff63b6f60900",
+          "table_name": "\u27d0 subq6",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq7",
+          "defined_in": "TOP0/subq7",
+          "id": "l2_tbl_6bfbb8671e",
+          "label": "subq7",
+          "line_end": 68,
+          "line_start": 11,
+          "original_id": "87152bd721aa06bb",
+          "table_name": "\u27d0 subq7",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq8",
+          "defined_in": "TOP0/subq8",
+          "id": "l2_tbl_cec9cb02e0",
+          "label": "subq8",
+          "line_end": 68,
+          "line_start": 7,
+          "original_id": "f0e89d4c22e8a86a",
+          "table_name": "\u27d0 subq8",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq9",
+          "defined_in": "TOP0/subq9",
+          "id": "l2_tbl_4d2ef81825",
+          "label": "subq9",
+          "line_end": 68,
+          "line_start": 4,
+          "original_id": "0572cf3b11bb9573",
+          "table_name": "\u27d0 subq9",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq10",
+          "defined_in": "TOP0/subq10",
+          "id": "l2_tbl_432e5e102a",
+          "label": "subq10",
+          "line_end": 68,
+          "line_start": 11,
+          "original_id": "a0e53b4ebb9980c3",
+          "table_name": "\u27d0 subq10",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq11",
+          "defined_in": "TOP0/subq11",
+          "id": "l2_tbl_502cee4c31",
+          "label": "subq11",
+          "line_end": 68,
+          "line_start": 7,
+          "original_id": "ed65350e6b05141b",
+          "table_name": "\u27d0 subq11",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq12",
+          "defined_in": "TOP0/subq12",
+          "id": "l2_tbl_4cdcf4e24a",
+          "label": "subq12",
+          "line_end": 68,
+          "line_start": 4,
+          "original_id": "5a65224c567fc67a",
+          "table_name": "\u27d0 subq12",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq13",
+          "defined_in": "TOP0/subq13",
+          "id": "l2_tbl_43c18b9f44",
+          "label": "subq13",
+          "line_end": 68,
+          "line_start": 11,
+          "original_id": "70c010f428978192",
+          "table_name": "\u27d0 subq13",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq14",
+          "defined_in": "TOP0/subq14",
+          "id": "l2_tbl_41dea064c7",
+          "label": "subq14",
+          "line_end": 68,
+          "line_start": 7,
+          "original_id": "d08ef809c4ccefe4",
+          "table_name": "\u27d0 subq14",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq15",
+          "defined_in": "TOP0/subq15",
+          "id": "l2_tbl_984343042e",
+          "label": "subq15",
+          "line_end": 68,
+          "line_start": 4,
+          "original_id": "910142f6a4c9fdf0",
+          "table_name": "\u27d0 subq15",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_6f201ab3a7",
+          "is_target": false,
+          "label": "bucket1",
+          "orig_type": "case",
+          "original_id": "2824925a7c0f6b8f",
+          "parent": "l2_tbl_775551baaf",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_6834ab9ece",
+          "is_target": false,
+          "label": "AVGss_net_paid",
+          "orig_type": "aggregate",
+          "original_id": "5c03410c36f87b85",
+          "parent": "l2_tbl_e93cf63cf2",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_2ffa584c73",
+          "is_target": false,
+          "label": "ss_net_paid",
+          "orig_type": "column",
+          "original_id": "8a77aa534f228238",
+          "parent": "l2_tbl_67ac304a2e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_c757c5d4d8",
+          "is_target": false,
+          "label": "ss_quantity",
+          "orig_type": "column",
+          "original_id": "1b56e771f73efa27",
+          "parent": "l2_tbl_67ac304a2e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_a14233f67a",
+          "is_target": false,
+          "label": "AVGss_ext_discount_amt",
+          "orig_type": "aggregate",
+          "original_id": "74baaa53a07900e7",
+          "parent": "l2_tbl_1d27272eb4",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_cbca600472",
+          "is_target": false,
+          "label": "ss_ext_discount_amt",
+          "orig_type": "column",
+          "original_id": "b55cf210dd25d700",
+          "parent": "l2_tbl_67ac304a2e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_b1f8dd0216",
+          "is_target": false,
+          "label": "COUNT*",
+          "orig_type": "aggregate",
+          "original_id": "0a62e747eb8bda99",
+          "parent": "l2_tbl_912461f2fb",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_b9564952f2",
+          "is_target": false,
+          "label": "bucket2",
+          "orig_type": "case",
+          "original_id": "76a444f6e50fd914",
+          "parent": "l2_tbl_67ac304a2e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_c349a63f44",
+          "is_target": false,
+          "label": "AVGss_net_paid",
+          "orig_type": "aggregate",
+          "original_id": "5f010e51e4ccd685",
+          "parent": "l2_tbl_c562844fcc",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_0e07bb7c0b",
+          "is_target": false,
+          "label": "AVGss_ext_discount_amt",
+          "orig_type": "aggregate",
+          "original_id": "47037e66f9acaacb",
+          "parent": "l2_tbl_35da598aeb",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_dc2e9c2df4",
+          "is_target": false,
+          "label": "COUNT*",
+          "orig_type": "aggregate",
+          "original_id": "4313f88ad9211ba1",
+          "parent": "l2_tbl_d6f6313a7b",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_0cfeeb0afe",
+          "is_target": false,
+          "label": "bucket3",
+          "orig_type": "case",
+          "original_id": "62fe50c1619fcd78",
+          "parent": "l2_tbl_67ac304a2e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_205fd60d99",
+          "is_target": false,
+          "label": "AVGss_net_paid",
+          "orig_type": "aggregate",
+          "original_id": "32813115d4bf7a16",
+          "parent": "l2_tbl_6bfbb8671e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_f956cdcffe",
+          "is_target": false,
+          "label": "AVGss_ext_discount_amt",
+          "orig_type": "aggregate",
+          "original_id": "e5932ae20d9fad7d",
+          "parent": "l2_tbl_cec9cb02e0",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_42c73fe3a8",
+          "is_target": false,
+          "label": "COUNT*",
+          "orig_type": "aggregate",
+          "original_id": "4eb16e1a8c73d2e2",
+          "parent": "l2_tbl_4d2ef81825",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_21d2a7c498",
+          "is_target": false,
+          "label": "bucket4",
+          "orig_type": "case",
+          "original_id": "69eeb9ba8edc2246",
+          "parent": "l2_tbl_67ac304a2e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_dba2782bb6",
+          "is_target": false,
+          "label": "AVGss_net_paid",
+          "orig_type": "aggregate",
+          "original_id": "d19ca1839cf6076b",
+          "parent": "l2_tbl_432e5e102a",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_cfcd99f894",
+          "is_target": false,
+          "label": "AVGss_ext_discount_amt",
+          "orig_type": "aggregate",
+          "original_id": "18bf64cc06f2eb38",
+          "parent": "l2_tbl_502cee4c31",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_be1aa18e5e",
+          "is_target": false,
+          "label": "COUNT*",
+          "orig_type": "aggregate",
+          "original_id": "58142ef4672d90ab",
+          "parent": "l2_tbl_4cdcf4e24a",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_02d83fcafb",
+          "is_target": false,
+          "label": "bucket5",
+          "orig_type": "case",
+          "original_id": "8f3d8663898cdf40",
+          "parent": "l2_tbl_67ac304a2e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_41e2d88b26",
+          "is_target": false,
+          "label": "AVGss_net_paid",
+          "orig_type": "aggregate",
+          "original_id": "48dc4a2c91f0582e",
+          "parent": "l2_tbl_43c18b9f44",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_3f0b6ac2a0",
+          "is_target": false,
+          "label": "AVGss_ext_discount_amt",
+          "orig_type": "aggregate",
+          "original_id": "cd4a5e2a81d5cafd",
+          "parent": "l2_tbl_41dea064c7",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_c09e9887d4",
+          "is_target": false,
+          "label": "COUNT*",
+          "orig_type": "aggregate",
+          "original_id": "5a7b078bb1e53577",
+          "parent": "l2_tbl_984343042e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_8cb380ef7e",
+          "is_target": false,
+          "label": "r_reason_sk",
+          "orig_type": "column",
+          "original_id": "a17d601019979729",
+          "parent": "l2_tbl_d376b22c78",
+          "type": "field",
+          "variable_type": "field"
+        }
+      }
+    ],
+    "script_name": "09.sql",
+    "search_matched": true,
+    "target": ".",
+    "total_edges": 70,
+    "total_nodes": 78
+  },
+  "script_name": "09.sql",
+  "seed": {
+    "field": "r_reason_sk",
+    "table": "reason"
+  }
+}
