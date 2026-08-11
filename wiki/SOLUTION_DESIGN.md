@@ -1058,6 +1058,18 @@ test. The gate is the safety net that makes the refactor safe.
 - Flagship `BDM_ACC_LOAN_INFO_SUP_M.sql`: model ≡ current merged display
   graph (byte-level equality on labels/edges/highlights).
 
+## 10. Migration map (Wave A deliverable)
+
+`tools/PHYSICAL_MODEL_MIGRATION_MAP.md` — line-level inventory for the
+stage teams: every reconstruction-machinery site (keeper merge, seed
+matcher, seed_/sync_/dml_ proxies, merge_target split, floating-field
+rescues, alias compounds, DML routing, payload walks), the walker
+contract restated as predicates over PhysicalEdge + PhysicalTable
+roles (W1-W14, with current lineage.py line numbers), stage 2/3/4
+checklists, and risks (cache prefix/format_version, test pins,
+frontend id coupling). Verified 2026-08-11 against HEAD acb2dcf
+(v3.3.150).
+
 # J12-13 — L2 Flow Topology + Path-Scoped Reasons (user ruling 2026-08-11)
 
 > **Status:** Requirement recorded (R19/R20 in REQUIREMENTS_TRACEABILITY.md).
