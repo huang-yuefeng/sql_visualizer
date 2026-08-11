@@ -4047,9 +4047,418 @@ extraction-semantics changes can never serve stale graphs again
   read); /highlight 404; dataflow graph cache stamped extractor_version;
   view-persist `_views_lock` + `_atomic_write_text`; `_load_views`
   corrupt → []; logger stderr backpressure env-gated.
-- **Backlog (deferred, recorded)**: hl=0 clamp (highlight_strategies),
-  substring seed match (l2_builder.py:202), MERGE_TARGET keeper merge
-  (l2_builder #7), floating fields/parenting (#8/#9), dml_dml_ proxy
-  chaining (#12), L1 cache perf, 3 frontend nits (Show-All cached-branch
-  banner staleness, parentViewIdRef phantom parent after view delete,
-  window.__cy/__cy1 globals).
+- **Backlog (deferred, recorded)**: "Jaccard 4-decimal tolerance"
+  → J12-12 (scoring replaced by the recall/precision pair — A=B
+  semantics; the tolerance problem dissolves by construction);
+  **Issue 1** (L2 edge-click viewport refit, frontend — analysis in
+  the Issue 1 section below; fix decided 2026-08-11: constant height
+  pre-drag + drag-to-resize handle),
+  **Issue 2** (L2 "3 parallel lines, 1 inverse" — the inverse edge is
+  the DML write leg, mis-styled as a chain; analysis in the Issue 2
+  section below; fix pick A/B OPEN),
+  **Issue 3** (L2 missing the bdm → rrcdm / sup read chain — bare FROM
+  refs get no source_tables → read edge only as a non-walkable SUBSET
+  bridge; analysis in the Issue 3 section below; fix = extractor
+  source_tables for bare refs + closure admission; verified at raw
+  level),
+  3 frontend nits (Show-All cached-branch banner staleness,
+  parentViewIdRef phantom parent after view delete,
+  window.__cy/__cy1 globals — fixed in ce83f57, to be struck from
+  this list). Former entries superseded by user rulings: "hl=0 clamp"
+  → J12-8 (restart-time cache purge); "substring seed match" → J12-9
+  (exact match confirmed, matcher simplified to one predicate);
+  "L1 cache perf" → J12-11 (deferred by ruling — file reuse kept,
+  memory reuse only when a real perf issue appears);
+  MERGE_TARGET keeper merge (#7), floating fields/parenting (#8/#9),
+  dml_dml_ proxy chaining (#12) → **J12-10 further work** (Physical
+  Model Layer design, dissolves them by construction — see
+  wiki/SOLUTION_DESIGN.md).
+
+### J12-8 · Restart-time cache purge (user ruling 2026-08-11) — closes the hl=0 item
+
+**Decision (user's solution, ruling 2026-08-11)**: on every container
+start (docker restart / new deploy), ALL cached files are removed. The
+service does not promise to keep user data; the caches exist only to
+save rebuild time, and redoing that calculation after a restart is
+accepted ("But it is OK"). Simple — no version marker, no gating.
+Execute later, batched with the other backlog items.
+
+**Why it closes the hl=0 item**: probe evidence (2026-08-11, 457
+scripts) — the engine never produces `line_start < 1`; a served
+`highlight_line: 0` can only arrive from a stale/corrupt cache carrier.
+Wiping the caches at restart removes that only source entirely. The
+previously drafted hl=0 clamp (`/tmp/hl0_ban_draft.patch`, 402 lines,
+`_safe_int` default 0 → None, verified 705 passed) is superseded by
+this ruling as the fix; the draft stays on disk as optional contract
+hardening (a served `highlight_line` is always ≥ 1), not part of this
+solution.
+
+**Implementation sketch (for the batch)**:
+- Hook: FastAPI lifespan startup (`backend/app/main.py:27`) — runs on
+  every process start; `docker restart` triggers it.
+- Scope: `WORKSPACE_ROOT` (`/tmp/workspaces`, named volume
+  `workspace_data` — survives container recreation, so a startup hook
+  is the correct place; an image-build purge would not reach the
+  volume) → each `{ws_id}/cache/` → delete the cache-prefixed files
+  (`graph_*`, `analysis_*`, `schemas_*` `.json`). Never `views.json`,
+  never user scripts/samples.
+- Existing stamps stay as-is (format_version + extractor_version) —
+  they remain the read-time backstop for anything that slips through
+  between restarts.
+- Consideration to confirm at execution: the dev compose runs uvicorn
+  `--reload`, which re-runs lifespan on code edits → purge on every
+  dev save. Acceptable in practice (dev workspaces are small), or gate
+  the purge on a reload-detection env flag if it becomes annoying.
+  Production (`release.sh` image) has no reload, so it purges exactly
+  on restarts/deploys as intended.
+
+### J12-9 · Seed matcher simplification — exact match confirmed, 5 paths → 1 predicate (user ruling 2026-08-11)
+
+**Ruling**: seed matching uses **exact match on `table.field`** —
+substring matching is NOT adopted. This closes the former "substring
+seed match" backlog item. No further design needed.
+
+**Evidence** (probe 2026-08-11): analysis-cache `source_columns`
+entries are bare field names (`'lending_ref'`, `'podcg'` — never
+`table.field`), so the `target_full in sc` substring path can never
+fire — dead code; no live substring path exists in the matcher today.
+
+**Simplification decision**: the 5 match paths at l2_builder.py:196-213
+decompose into ONE exact-field-part predicate:
+`value.rsplit(".", 1)[-1] == field`, applied to the node label and to
+each `source_columns` entry. Reasoning: "table.field" is itself a
+dotted label, so `name == target_full` (path 1), `name == field`
+(path 2) and suffix-after-dot (path 3) are all one rule — the unified
+rule is a strict superset, behavior-identical. Path 4 (`target_full
+in sc`) is dead → deleted. Path 5 (`_target_field_sc(sc, field)`) is
+the same suffix rule on `source_columns` → helper redundant (retired
+with the H2-era NameError history). The vt whitelist
+(`column/cte_column/expression/aggregate/window/case/transform/
+literal`) duplicates `FIELD_LIKE_TYPES` (already imported in
+l2_builder) → reuse. Net: ~15 lines → ~5, one helper, **no substring
+anywhere** (R4 invariant, doc line 2137: short names must never match
+inside longer ones).
+
+**Kept semantics — do NOT narrow**: field-only labels (`data_dt`) and
+alias-qualified labels (`p1.data_dt`) must keep matching a search for
+`bdm_acc_loan_info.data_dt` — the alias-copy seed depends on it (doc
+line 3055: "data_dt seeds 1→3 = physical + alias copy + target
+partition, all is_target"; `p1.data_dt` matches only via the suffix
+rule). Narrowing to literal `name == target_full` would drop the
+alias copy, seeds 3→2, and **regress the Jaccard gate**.
+
+**Batch**: implement together with J12-8; verify behavior-identical —
+run `test_jaccard_benchmark.py` before/after; bdm/sup node Jaccard
+must be unchanged.
+
+### J12-10 · Physical Model Layer — design proposal, further work (user ruling 2026-08-11)
+
+User-approved direction: introduce a **physical layer** between the
+syntax layer (per-occurrence vars/deps) and the display layer (L2) —
+one entity per physical table and per physical field, built at
+extraction time; data flow (walk/closure/seed) built FROM this layer;
+the display becomes a pure projection. Root cause it addresses: the
+display layer today synthesizes physical identity at render time
+(label-keyed keeper merge, seed_/sync_/dml_ proxy copies, alias nodes,
+merge_target/table split) — all reconstruction machinery that the
+never-patch rule opposes.
+
+- **Full design**: `wiki/SOLUTION_DESIGN.md` § J12-10 (entities,
+  consumer changes, what does NOT change, migration stages 1-4 each
+  gated by the Jaccard benchmark, risks, verification targets).
+- **Supersedes as further work**: backlog items #7 (MERGE_TARGET
+  keeper merge), #8/#9 (floating fields/parenting), #12 (dml_dml_
+  proxy chaining) — the physical layer dissolves them by construction;
+  they are NOT in the current batch, they await this design.
+- **Not in the current batch** (J12-8/J12-9 + small items); multi-round
+  refactor, staged and gated. The Jaccard gate is the safety net.
+
+### J12-11 · L1 memory reuse of analysis caches — deferred by ruling (user ruling 2026-08-11)
+
+**Decision**: keep the existing FILE reuse of `analysis_*.json`
+(intermediate extraction files read from disk per request) — do NOT
+implement memory reuse at this stage. Rationale (user's judgment,
+agreed): the measured ceiling is ~27 ms per L1 request on the
+heaviest workspace (99 scripts / 5.4 MB); typical workspaces are
+~44 KB (sub-ms); this is not user-facing at the current stage, and
+memory reuse adds real source complexity (per-workspace caches,
+signature invalidation — the exact class of stale-cache bug this
+project has been bitten by before). The J12-10 physical layer will
+restructure the enrichment path anyway.
+
+**Condition to fix (recorded trigger)**: implement memory reuse ONLY
+when a real, measurable performance issue appears that traces to the
+analysis-cache re-read — e.g. L1 request latency dominated by the
+re-read (hundreds of scripts × slow volume storage, or concurrent
+load). The design is already recorded: memoize `analysis_cache_map`
+per `ws_id` keyed on cache-dir file-set/mtime (`l1_builder.py:460-468`);
+same pattern for `graph_*.json` as an LRU of hot scripts (L2 path);
+each invalidated by file-set signature. Freshness + restart-cleanup
+follow the J12-8 purge philosophy.
+
+**Measured evidence (2026-08-11, live container)**: 312 analysis
+files / 7.4 MB across 169 workspaces; avg file 23.6 KB, max 345 KB;
+per-file read+parse 0.087 ms; biggest workspace 99 files / 5.4 MB /
+27.5 ms for the full set. (For comparison: 750 graph files / 169.6 MB
+/ avg 226 KB — ~1 ms per L2 request; schemas files negligible.)
+
+### J12-12 · Benchmark scoring: Jaccard → recall/precision pair, A=B semantics (user ruling 2026-08-11)
+
+**Decision**: replace the Jaccard score (`ni / (na + nb - ni)` at
+`test_jaccard_benchmark.py:165-167`) with the two-sided equality pair:
+recall = `|A∩B| / |B|` ("did we lose any canonical item?") and
+precision = `|A∩B| / |A|` ("did we emit any junk?"). **A = B ⟺
+recall = precision = 1.0** — the score is "near 1" exactly when the
+response equals the canonical set (user's proposal: score near 1 iff
+A=B, instead of intersection/union). One-sided measures are the right
+tool because B is authoritative ground truth, not a fuzzy peer set.
+
+**GUARD (user ruling 2026-08-11): "A = B" is genuine SET EQUALITY —
+mutual membership, never |A| = |B|.** Equality is the AND of both
+directions: recall = 1.0 ⟺ B ⊆ A, precision = 1.0 ⟺ A ⊆ B (both
+= 1.0 ⟺ A = B). Never collapse to a cardinality check: A = {x},
+B = {y} have equal sizes but recall = precision = 0; A = canonical
+minus one plus one junk node has |A| = |B| but recall = precision =
+8/9. The implementation must compare membership, not sizes.
+
+**Why it is better than Jaccard** (all verified against the live
+code):
+1. **Separates the two failure modes.** Jaccard conflates "lost a
+   canonical item" and "emitted an extra non-canonical item" into one
+   number. Example: sup nodes today have 1 documented extra
+   (9 canonical + rrcdm phantom). Losing one canonical node too:
+   Jaccard 0.9 → 0.8 (ambiguous); pair recall 1.0 → 0.889, precision
+   0.9 → 0.889 (both directions visible).
+2. **Makes today's floors honest.** The old floor comment was already
+   a precision story ("sup nodes stay 0.9 while the rrcdm node carries
+   the extra non-canonical DML phantom data_dt"). Re-derived floors,
+   identical pass/fail today:
+   - bdm: recall 1.0/1.0/1.0, precision 1.0/1.0/1.0 (N/E/H)
+   - sup: recall 1.0/1.0/1.0, precision **0.9**/1.0/1.0 (N/E/H)
+   Recall floor 1.0 everywhere = "losing a canonical item is never
+   OK" — a rule Jaccard could not express. Precision moves to 1.0
+   when the R11-2 Sync-2 dedup lands (already documented).
+3. **Kills the 4-decimal tolerance item entirely.** Steps are exactly
+   1/|A| and 1/|B| — ≥ 0.11 for nodes (|B|=9), ~1/300 for edges —
+   far above the ±0.00005 rounding band; no masking, `round(j,6)` no
+   longer needed (rounding becomes cosmetic, kept for display).
+
+**Scope (batch item, replaces the "Jaccard 4-decimal tolerance"
+entry)**: `test_jaccard_benchmark.py` — counts unchanged; scoring +
+FLOORS restructured per direction (R/P), report prints both, one
+assertion per direction; `jaccard_canonical.py` — conventions note
+(scores: recall/precision); bug-list entry + floor comment updated.
+Test + doc only — zero engine risk; verify same pass/fail today
+(sup precision nodes 0.9 ≥ 0.9 floor) + full suite green.
+
+### Issue 1 · L2 edge click → viewport refit (frontend, OPEN — awaiting user's fix pick)
+
+**Symptom** (user report 2026-08-11): clicking an edge in L2 shows the flow
+reason, but the L2 graph viewport automatically re-fits to a new scale,
+making it hard to see which edge was clicked.
+
+**Root cause — full verified chain** (read-only analysis, no code changed):
+1. Edge click → `handleEdgeClick` → `setSelectedEdge`
+   (DataFlowApp.jsx:381-382). `graphData` state reference is UNCHANGED →
+   the cytoscape instance is NOT recreated (that obvious suspect is ruled
+   out; the effect deps are `[graphData, containerRef]`,
+   useCytoscapeGraph.js:147).
+2. EdgeReasonPanel changes HEIGHT on click: empty state
+   `.edge-reason-panel` = `height: 92px` (fixed, app.css:347-357);
+   with the R11-3 `mech` payload (now on EVERY edge, v3.3.149) it becomes
+   `.edge-reason-with-evidence` = `height: auto; max-height: 260px`
+   (app.css:386) → grows ~30–170px per click (shrinks back on background
+   tap via `clearEdgeSelection`).
+3. `.panel-inline-l2` is a flex column (app.css:742-750). resizable.css
+   loads AFTER app.css (DataFlowApp.jsx:15) and wins the cascade:
+   `.inline-l2-graph` = `flex: 1 1 0%; min-height: 60px; overflow: hidden`
+   (resizable.css:106-110; overrides app.css's `height: 400px;
+   flex-shrink: 0`) → the graph area shrinks by exactly the panel's growth.
+4. The ResizeObserver on `.graph-canvas` (DataFlowGraph.jsx:73-93) fires
+   on ANY size change → 200 ms debounce → `fit(pad)` → cytoscape `fit()`
+   reframes the whole graph → zoom/pan reset → the clicked edge's screen
+   position is lost.
+
+The auto-fit was designed for genuine panel/window resizing (Bug 4
+adaptive padding) but has NO guard distinguishing user resize from
+internal sibling-induced reflow. The reason panel is the only internal
+reflow source (the no-match/parse-error banners are absolutely
+positioned — no reflow).
+
+**Fix (user ruling 2026-08-11): constant height pre-drag + drag-to-resize
+handle — Option B + user control; supersedes A and C**:
+- The panel has a **constant height in every state** (empty / simple /
+  with-evidence) UNTIL the user drags: the height is state
+  `reasonPanelHeight` (like `sqlPanelHeight`), default ~150–180px, min
+  60, generous max (the graph's own `min-height: 60px` is the flex
+  backstop). Content-driven height changes are impossible → edge click
+  never changes the panel height → no flex reflow → the RO never fires
+  on click → no viewport refit. After a drag the height is user-set —
+  still constant across clicks (invariant: height changes only when the
+  user drags).
+- **Drag handle**: `useResizable({direction: 'vertical', ...})` — the
+  same hook the SQL panel uses; handle bar on the panel's TOP edge
+  (between SQL panel and reason panel). Dragging squeezes the GRAPH
+  (the flex-1 item that gives up space) → live resize + the debounced
+  RO auto-fit during the drag — identical to today's SQL-panel handle
+  behavior (desired). The remaining RO firings are all genuine user
+  resizes → **Fix A (fit-on-drag-end guard) no longer needed**.
+- **CSS**: base `.edge-reason-panel` height = the state value; delete
+  `height: auto; max-height: 260px` from `.edge-reason-with-evidence`;
+  keep `overflow-y: auto` → long evidence scrolls internally. Empty
+  state renders the same default height → first click: zero change.
+- **Semantics change**: R10-#18's "reason panel grows with the
+  code-evidence block" becomes "grows by user drag" (update that
+  comment in the fix). State not persisted (R23 clean start,
+  consistent with the SQL panel).
+
+**Candidate for the batch** (waiting on user's "go").
+
+### Issue 2 · "3 parallel lines, 1 inverse" — the inverse edge is the write leg, mis-styled as a chain (backend, OPEN — awaiting user's fix pick)
+
+**User question** (2026-08-11): "In L2, the edge direction should be in the
+data flow direction. When there are three parallel lines between the same
+two tables, one edge is inverse to the other two. Why? Does it make sense?"
+
+**Answer: it makes sense — both patterns' "inverse" edges are real and
+correctly directed; the sup pattern additionally exposes a genuine payload
+inconsistency (the write leg renders as a chain instead of a write), which
+is exactly why it *reads* as a wrong-direction flow line.**
+
+#### Pattern B (bdm_acc_loan_info_sup ↔ ⟐ output) — the self-read + self-write INSERT OVERWRITE
+
+Three parallel edges (verified live, benchmark build path, seed
+bdm_acc_loan_info/data_dt):
+
+| edge | type | kind | meaning |
+|------|------|------|---------|
+| `sup.data_dt → output` | REF | read | sup read as `p2` (previous-day partition, `p2.data_dt = DATEADD(DATE'$(load_date)',-1,'DD')` @L159) |
+| `sup.data_dt → output` | TABLE_FLOW `_value` | write | P17 — the searched field's VALUE column feeding the INSERT result set |
+| `output → sup` | TABLE_FLOW | **chain** | the WRITE leg — the SELECT's output VT feeds the INSERT OVERWRITE target |
+
+The statement (L150-208) is `INSERT OVERWRITE TABLE bdm_acc_loan_info_sup …
+SELECT … FROM loan_final p1 LEFT JOIN bdm_acc_loan_info_sup p2` — sup is
+BOTH the write target (today's partition) AND the read source (yesterday's
+partition via p2). The "inverse" edge IS the genuine write leg: data really
+does flow `output → sup`. Semantically 100% correct.
+
+**Why it renders as a chain (the inconsistency, full verified chain)**:
+1. `dependency_graph.py` Phase 1c (:132-157): per-source-column DML edges
+   into each DML target. `⟐ output` has NO `source_columns` (probed:
+   n_src_cols=0 in both TOP0 and TOP1) → never in `src_vars`.
+   - TOP0 (sup, 55 vars, 15 with source_columns): the src_vars branch
+     fires → DML field edges (`p1.internal_key → sup`, …) → **no
+     `DML output → sup` edge exists**.
+   - TOP1 (rrcdm, 13 vars, **0** with source_columns): src_vars empty →
+     the 1c fallback (:153-157) picks ctx_anchor = the `⟐ output` VT →
+     **`DML output → rrcdm` IS created**.
+2. Phase 1c-extra2 (:172-179) always adds `TABLE_FLOW output → target` for
+   every DML target → raw `TABLE_FLOW output → sup` (TOP0) AND
+   `TABLE_FLOW output → rrcdm` (TOP1) both exist.
+3. L2 `_simplify_dml_edges` (l2_builder.py:1009-1021) rewrites **raw DML**
+   edges → `output → target` stamped `_dml_origin=True` (id `_dml_out`)
+   → `_flow_kind` = 'write' (highlight_strategies.py:51-55, §8.7 rule 3).
+   - rrcdm: the raw DML edge triggers the rewrite → `l2e_…_dml_out`
+     (write, hl=211) — the surviving 1c-extra2 TABLE_FLOW twin is
+     suppressed by the same machinery (no chain twin in the output).
+   - sup: no raw DML edge exists → the 1c-extra2 TABLE_FLOW survives
+     unstamped (`l2e_8bc2dd7b554e`, kind=chain, hl=160) → **§8.7 rule 3
+     violation: a DML target's write leg renders green-solid like a read
+     instead of blue-double like a write** — the root of the user's
+     "wrong direction" reading.
+
+**Fix options** (no code changed; awaiting ruling):
+- **A (DG-side, preferred — builds on extraction-time info)**: Phase 1c
+  emits `DML output → target` whenever the statement has exactly one
+  output VT AND the fallback branch did not already create it (i.e. the
+  src_vars branch fired). Every DML target then gets the DML edge → the
+  L2 rewrite stamps it uniformly → the write leg renders 'write'. Raw
+  graph shape changes for every INSERT statement → re-run the Jaccard
+  gate (canonical rows 10/12/16/17/B1/C4 are endpoint-keyed, likely
+  unaffected; verify).
+- **B (narrow)**: in `_simplify_dml_edges`, stamp `_dml_origin=True` on
+  surviving `TABLE_FLOW output → target` edges whose `_op` is a DML word
+  and whose target is that statement's DML target. Smaller blast radius,
+  but decides a write role in L2 — the never-patch principle favors A.
+- Pattern A (below) needs NO fix — direction is by design.
+
+**Pattern B Jaccard note**: the canonical set matches these three edges
+endpoint-keyed today with the chain kind — a kind-insensitive match means
+A/B pass the gate unchanged; the batch will verify.
+
+#### Pattern A (bdm_acc_loan_info ↔ p1@29 / p1@84) — the SCHEMA containment edge
+
+Three parallel edges between the physical bdm node and the alias node
+p1@29: `ALIAS bdm → p1@29` (chain — physical → alias), `REF
+bdm.data_dt → p1@29` (read), and `SCHEMA p1@29 → bdm.data_dt`
+(structure, hl=43 — `structure — ‖p1@L29 → p1.data_dt@L43‖`). The inverse
+one is the SCHEMA edge: an alias-membership/containment edge whose
+direction is owner → member **by design** (table → its field), not data
+flow. The member's field node renders on the PHYSICAL table's rectangle
+(field dedup key `(parent_table_id, label, stmt_idx)` — alias nodes carry
+no own field copies), so the arrow visually points "backwards" from the
+alias into the physical table. The ground truth is endpoint-blind for
+SCHEMA (jaccard_canonical.py `anchor_rel`, S1/S3 rows) — direction never
+mattered to the benchmark. Semantically correct; visual-only confusion.
+No fix proposed; a future display tweak (e.g. distinct arrowhead for
+structure edges) could clarify.
+
+**Candidate for the batch** (waiting on user's "go" + fix pick A/B).
+
+
+### Issue 3 · L2 missing the bdm → rrcdm chain: bare FROM refs get no source_tables — the sup read leg exists only as a non-walkable SUBSET bridge (backend, OPEN — analysis done, awaiting user's ruling)
+
+**User question** (2026-08-11): "How does the data flow from
+bdm_acc_loan_info to rrcdm_job_log_exec_par? The L2 does not show this."
+Follow-up ruling asked: is the ground truth wrong?
+
+**Verdict: the ground truth is NOT wrong — the engine display is.**
+The script genuinely flows to BOTH tables, and the canonical already
+expects it: bdm closure rows 15 (`output@0 → sup@160`) and 16
+(`output@0 → rrcdm@211`); sup closure rows 16 (`output@0 → rrcdm@211`),
+18 (`data_dt@225 → sup@223` REF — the statement-2 read) and B1
+(`sup@223 → output@0` SUBSET bridge). True chain:
+`bdm → rollover/loan_final CTEs → output1 → sup (INSERT OVERWRITE write
+@L160) → [statement 2 reads sup @L223] → output2 → rrcdm (INSERT @L211)`.
+
+**Root cause (byte-level verified)**:
+1. `_register_table` (variable_extractor_v2.py:1722-1725) registers the
+   BASE table var for a bare `FROM`/`JOIN` reference (no alias) WITHOUT
+   `source_tables` (defaults []); the alias var (:1757-1761, which carries
+   `source_tables=[name]`) is only created when an alias exists. Statement
+   2's `FROM bdm_acc_loan_info_sup` (L223) is bare → the TOP1 sup var has
+   `source_tables=[]` (probed) while TOP0's aliases p1/p2/p3 are populated.
+2. Phase 1a (dependency_graph.py:100-121) gates on `if not
+   v.source_tables: continue` (:117); Phase 1c-extra (:161-170) gates the
+   same way (:166) → the bare reference produces NO `sup → output` raw
+   edge. The read is represented only by the SUBSET bridge (phase 7/8,
+   ungated) and the 1c-cross DML WRITE_READ (`sup(TOP0) → rrcdm` @L211,
+   :181-236) — both lost or degraded in the filtered L2: the bridge is
+   never-walkable by design (design 14) and renders kind=bridge; the DML
+   WRITE_READ is consumed by `_simplify_dml_edges` into `output → rrcdm`
+   (write, hl=211).
+
+**Fix A (extractor-side, preferred — builds on extraction-time info)**:
+`_register_table` sets `source_tables=[name]` for bare FROM/JOIN refs
+(NOT DML targets — avoids spurious target→output edges). Simulated
+end-to-end (adapter monkeypatch, 17 bare refs fixed, fresh-workspace
+build — graph cache bypassed): the full graph gains exactly
+`TABLE_FLOW sup(TOP1)@L223 → ⟐output(TOP1)` (op=FROM, Phase 1a) and
+`TABLE_FLOW sup(TOP1) → rrcdm` (op=INSERT, 1c-extra); the SUBSET bridge
+B1 is superseded (no SUBSET sup→output in the post-fix raw graph).
+Residual gap: the L2 relevance closure (`compute_field_flow` from seed
+bdm_acc_loan_info.data_dt) reaches statement 2 only via the cross-
+statement DML WRITE_READ shortcut `sup(TOP0) → rrcdm`, which bypasses
+the statement-2 read instance → `sup(TOP1)` and `⟐output(TOP1)` stay
+outside the closure (probed INCLOSURE=False) → the bdm seed's filtered
+L2 still drops the read edge. The closure needs a same-table physical-
+identity admission (a TABLE var whose physical label matches an
+in-closure table joins the closure), or the DML WRITE_READ should route
+through the reader instance — to decide at batch time.
+
+**Jaccard impact**: with Fix A, canonical B1's type changes SUBSET →
+TABLE_FLOW (same endpoints, anchor 223 — doc repair with probe evidence
+per the repair-the-doc rule); the sup seed's closure gains the walkable
+read edge. Re-run the gate; raise floors with measured values.
+
+**Candidate for the batch** (waiting on user's "go").
