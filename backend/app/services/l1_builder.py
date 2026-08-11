@@ -11,6 +11,7 @@ import traceback
 
 from app.services.workspace_service import get_workspace_dir
 from app.extractor.lineage import compute_field_lineage, PRODUCTION_EDGES
+from app.extractor.physical_model import build_physical_model
 from app.services.logger import _push
 
 _log = logging.getLogger("sql_visualizer.dataflow")
@@ -287,6 +288,9 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             graph_data = build_graph_data(result)
             input_tables, output_tables = _classify_tables(
                 result.get("variables", []))
+            # J12-10 stage 4: the physical model is built ONCE from the
+            # inline extraction result (the per-script analysis) and drives
+            # L1's tables/fields/aliases — display = pure projection.
             all_scripts = [{
                 "script_id": result["script_id"],
                 "script_name": name,
@@ -298,11 +302,69 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                 "_all_vars": [{"name": v.get("name", ""),
                                "source_tables": v.get("source_tables", [])}
                               for v in result.get("variables", [])],
+                "_model": build_physical_model(result, script_name=name),
             }]
         else:
             from app.services.multi_script_service import analyze_multiple_scripts
             result = analyze_multiple_scripts(script_data)
             all_scripts = result.get("scripts", [])
+
+        # ── J12-10 stage 4: per-script physical models ──
+        # The physical model IS the extraction-time truth L1 projects from
+        # (display = pure projection). Built per script from the analysis
+        # cache when available (full extraction truth incl. I4 alias_of),
+        # else from the inline extraction pipeline (fresh workspaces — no
+        # disk cache yet; the SQL text is right here in script_data, and
+        # re-running the same deterministic pipeline gives the identical
+        # analysis the cache would have stored). The inline single-script
+        # path already attached its model to the script entry.
+        # NOTE: the graph-data form of build_physical_model is NOT used —
+        # graph edges carry source/target (not source_id/target_id), which
+        # the model's Pass 3 cannot read, so graph-backed models lose every
+        # edge (fresh-vs-cached L1 divergence). Analysis is the extraction
+        # truth; the graph is a display projection.
+        cache_dir = scripts_dir.parent / "cache"
+        analysis_cache_map = {}  # script_name → analysis dict
+        if cache_dir.exists():
+            for af_path in sorted(cache_dir.glob("analysis_*.json")):
+                try:
+                    adata = json.loads(af_path.read_text())
+                    sname = adata.get("script_name", "")
+                    if sname:
+                        analysis_cache_map[sname] = adata
+                except Exception as exc:
+                    _log.warning("L1: failed to read analysis cache %s: %s",
+                                 af_path.name, exc)
+
+        def _lookup_analysis(sname: str) -> dict | None:
+            """Cache lookup: exact script_name first, then suffix match
+            (workspace-dir-prefixed names)."""
+            analysis = analysis_cache_map.get(sname)
+            if not analysis:
+                for cache_name, cache_data in analysis_cache_map.items():
+                    if cache_name.endswith("/" + sname) or cache_name == sname:
+                        return cache_data
+            return analysis
+
+        model_by_script = {}  # script_name → PhysicalModel
+        sql_by_name = {n: sql for n, sql in script_data}
+        for s in all_scripts:
+            sname = s.get("script_name", "")
+            model = s.get("_model")
+            if model is None:
+                analysis = _lookup_analysis(sname)
+                if analysis is None and sname in sql_by_name:
+                    # Fresh workspace (no analysis cache on disk): run the
+                    # inline pipeline — the SAME deterministic extraction
+                    # the cache would hold, so fresh and cached L1 output
+                    # is identical.
+                    from app.extractor.adapter import run_full_analysis
+                    analysis = run_full_analysis(sql_by_name[sname], sname)
+                if analysis is not None:
+                    model = build_physical_model(analysis,
+                                                 script_name=sname)
+            if model is not None:
+                model_by_script[sname] = model
 
         nodes = []
         edges = []
@@ -342,29 +404,20 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             edges.append({"data": d})
 
         # ── Classify tables (filter out aliases) ──
-        # Build alias set: table names that are actually SQL aliases.
-        # An alias is a name that:
-        #   a) appears as a variable with source_tables pointing to another table, OR
-        #   b) is short (<=3 chars) and lowercase (typical SQL alias pattern like "so", "c")
-        #   c) appears in analysis cache as an alias (has source_tables)
+        # J12-10 stage 4: alias truth comes from the physical model — every
+        # alias variable (I4 exact alias_of, or the label-keyed rule for
+        # table/view/cte) is recorded as an alias view on its canonical
+        # PhysicalTable (PhysicalTable.alias_views). The historical scan
+        # over _all_vars ("source_tables[0] != name") also marked every
+        # column label (e.g. "so.customer_id") and derived-table name as an
+        # alias — harmless junk that never collided with table names, but
+        # label reconstruction. The model's alias views are the
+        # extraction-time truth (Bug 5 semantics: semantic check only).
         aliases = set()
-        for s in all_scripts:
-            for v in s.get("_all_vars", []):
-                src_tables = v.get("source_tables", [])
-                name = v.get("name", "")
-                # Issue 3 (2026-08-11, Team B): a BARE FROM/JOIN reference
-                # (no alias — alias_or_name yields the table's own name)
-                # carries source_tables == [its own name] so the flow
-                # walker sees the read instance. It is NOT an alias: only
-                # a variable resolving to a DIFFERENT table is one (rule
-                # (a) above already says "pointing to another table").
-                # Without this guard a bare-referenced input table would
-                # be misclassified as an alias, dropped from the L1 table
-                # set, and R18.1 would prune the graph to the script node.
-                if src_tables and src_tables[0] != name:
-                    aliases.add(name)
-                # Bug 5 fix: removed length heuristic — semantic check above covers real aliases
-        # (Analysis cache aliases collected below after cache_map is built)
+        for m in model_by_script.values():
+            for tbl in m.tables.values():
+                for av in tbl.alias_views:
+                    aliases.add(av["label"])
 
         all_inputs = set()
         all_outputs = set()
@@ -455,113 +508,58 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
 
 
         # ── V3.3: Enrich L1 with compound field children (design §5.1, §4.6) ──
-        # Add field-level nodes as children of table compound nodes.
-        # Reads per-script analysis cache (analysis_*.json) which has raw
-        # variables+dependencies, NOT the graph cache (graph_*.json).
+        # J12-10 stage 4: field children are a pure projection of the
+        # physical model — one PhysicalField per (table, field), rendered
+        # under its owning PhysicalTable (tbl.name, fld.name — no label
+        # heuristics). direct/indirect = whether ANY of the field's
+        # occurrence var ids is reached by a BFS over the model's edges
+        # seeded from every occurrence of any field named `field` — the
+        # model's field-identity form of the historical label-suffix seed
+        # rule ("name == target_full or name.endswith('.field')"; the
+        # visited set is identical — verified on the flagship sample).
         target_full = f"{table}.{field}"
         direct_fields = set()    # (table_name, field_name) on path to target
         indirect_fields = set()  # (table_name, field_name) off-path
-        cache_dir = scripts_dir.parent / "cache"
-
-        # Build a map: script_name → analysis cache file path
-        # Script IDs from analyze_multiple_scripts() may differ from those
-        # generated during upload/index (different script name prefix).
-        # We match by script_name inside each analysis file.
-        analysis_cache_map = {}  # script_name → analysis dict
-        if cache_dir.exists():
-            for af_path in sorted(cache_dir.glob("analysis_*.json")):
-                try:
-                    adata = json.loads(af_path.read_text())
-                    sname = adata.get("script_name", "")
-                    if sname:
-                        analysis_cache_map[sname] = adata
-                except Exception as exc:
-                    _log.warning("L1: failed to read analysis cache %s: %s",
-                                 af_path.name, exc)
 
         for s in all_scripts:
-            sid = s.get("script_id", "")
-            sname = s.get("script_name", "")
-            # Try exact match first, then prefix match (strip workspace dir prefix)
-            analysis = analysis_cache_map.get(sname)
-            if not analysis:
-                # Try matching by just filename (strip dir prefix like "multi_workflow/")
-                for cache_name, cache_data in analysis_cache_map.items():
-                    if cache_name.endswith("/" + sname) or cache_name == sname:
-                        analysis = cache_data
-                        break
-            if not analysis:
+            m = model_by_script.get(s.get("script_name", ""))
+            if m is None:
                 continue
 
-            variables = analysis.get("variables", [])
-            deps = analysis.get("dependencies", [])
+            seed_ids = set()
+            for fld in m.fields.values():
+                if fld.name == field:
+                    seed_ids.update(fld.occurrence_ids)
 
-            # Build alias → real table name map from table variables
-            alias_to_real = {}
-            for v in variables:
-                vt = v.get("variable_type", "")
-                name = v.get("name", "")
-                src_tables = v.get("source_tables", [])
-                if vt in ("table",) and src_tables:
-                    alias_to_real[name] = src_tables[0]
-
-            # Find target variable in this script
-            target_var_ids = set()
-            var_by_id = {}
-            for v in variables:
-                vid = v.get("id", "")
-                var_by_id[vid] = v
-                vname = v.get("name", "")
-                if vname == target_full or vname.endswith("." + field):
-                    target_var_ids.add(vid)
-            
-            # Expand to transitively connected variables via BFS
-            if target_var_ids:
+            visited = set(seed_ids)
+            if seed_ids:
+                # Expand to transitively connected variables via BFS over
+                # the model's edges (same endpoints as the dependency
+                # graph — the model derives its edges from it, typed once).
                 adj = {}
-                for d in deps:
-                    src = d.get("source_id", "")
-                    tgt = d.get("target_id", "")
-                    if src not in adj: adj[src] = set()
-                    if tgt not in adj: adj[tgt] = set()
-                    adj[src].add(tgt)
-                    adj[tgt].add(src)
-                
-                visited = set(target_var_ids)
-                queue = list(target_var_ids)
+                for e in m.edges:
+                    adj.setdefault(e.source_id, set()).add(e.target_id)
+                    adj.setdefault(e.target_id, set()).add(e.source_id)
+                queue = list(seed_ids)
                 while queue:
                     vid = queue.pop(0)
                     for neighbor in adj.get(vid, set()):
                         if neighbor not in visited:
                             visited.add(neighbor)
                             queue.append(neighbor)
-                
-                for v in variables:
-                    vname = v.get("name", "")
-                    vt = v.get("variable_type", "")
-                    # Only process column-like variables
-                    if vt not in ("column", "cte_column"):
-                        continue
-                    
-                    src_tables = v.get("source_tables", [])
-                    var_table = None
-                    # Derive field name: last part after dot, or whole name
-                    var_field = vname.rsplit(".", 1)[-1] if "." in vname else vname
-                    
-                    if src_tables:
-                        var_table = src_tables[0]
-                    elif "." in vname:
-                        prefix = vname.rsplit(".", 1)[0]
-                        # Resolve alias prefix to real table name
-                        var_table = alias_to_real.get(prefix, prefix)
-                    
-                    # Skip ⟐ and empty. Accept any valid table name (even short ones).
-                    if var_table and var_table not in ("⟐", ""):
-                        key = (var_table, var_field)
-                        if v.get("id") in visited:
-                            direct_fields.add(key)
-                        else:
-                            indirect_fields.add(key)
-        
+
+            for tbl in m.tables.values():
+                tname = tbl.name
+                # Skip ⟐ and empty. Accept any valid table name (even short ones).
+                if tname in ("⟐", ""):
+                    continue
+                for fld in tbl.fields.values():
+                    key = (tname, fld.name)
+                    if any(occ in visited for occ in fld.occurrence_ids):
+                        direct_fields.add(key)
+                    else:
+                        indirect_fields.add(key)
+
         # Add field child nodes to table compound nodes
         for (tname, fname) in sorted(direct_fields | indirect_fields):
             tbl_id = f"tbl_{tname}"
@@ -707,86 +705,17 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                 nd["x"] = 0
                 nd["y"] = 0
 
-        # ── V3.2.6: Propagate fields to intermediate/output tables ──
-        # Tables like analytics_orders, daily_summary may have 0 direct
-        # fields because the extractor assigns columns to source tables
-        # (via aliases). We propagate: if table A (with fields) feeds into
-        # table B through script S, then B inherits A's fields (indirect).
-        field_by_table = {}  # table_id -> set of (tname, fname)
-        for n in nodes:
-            nd = n["data"]
-            if nd["type"] == "field":
-                parent = nd.get("parent", "")
-                if parent:
-                    field_by_table.setdefault(parent, set()).add(
-                        (nd.get("table_name", ""), nd.get("field_name", ""), nd.get("field_group", "indirect"))
-                    )
-        
-        # Build: for each table, which scripts write to it (producers)
-        #         and which tables those scripts read from (inputs)
-        producers = {}  # table_id -> set of script_ids that write to it
-        inputs_of = {}  # script_id -> set of table_ids it reads from
-        for e in edges:
-            ed = e["data"]
-            if ed.get("edge_type") == "writes_to":
-                # script -> table
-                producers.setdefault(ed["target"], set()).add(ed["source"])
-            elif ed.get("edge_type") == "reads_from":
-                # table -> script
-                inputs_of.setdefault(ed["target"], set()).add(ed["source"])
-        
-        # Propagate: for table B with 0 fields, find scripts S that
-        # WRITE to B (producers), then find tables A that S READS from
-        # (inputs), and inherit A's fields down to B.
-        propagated = 0
-        for n in nodes:
-            nd = n["data"]
-            nid = nd["id"]
-            ntype = nd["type"]
-            if ntype not in ("intermediate_table", "output_table"):
-                continue
-            if nid in field_by_table and field_by_table[nid]:
-                continue  # already has fields
-            
-            tname = nd.get("table_name", "")
-            # Find scripts that PRODUCE this table
-            upstream_fields = set()
-            for sid in producers.get(nid, set()):
-                # For each producer script, get its input tables
-                for input_tbl_id in inputs_of.get(sid, set()):
-                    if input_tbl_id != nid and input_tbl_id in field_by_table:
-                        upstream_fields.update(field_by_table[input_tbl_id])
-            
-            if upstream_fields:
-                for (ftname, fname, fgroup) in upstream_fields:
-                    field_id = f"fld_{tname}_{fname}"
-                    if field_id in seen_node_ids:
-                        continue
-                    seen_node_ids.add(field_id)
-                    is_target = (f"{tname}.{fname}" == target_full)
-                    field_label = f"★{fname}" if is_target else fname
-                    field_node = {
-                        "data": {
-                            "id": field_id,
-                            "label": field_label,
-                            "type": "field",
-                            "parent": nid,
-                            "field_group": "indirect",
-                            "is_target": is_target,
-                            "table_name": tname,
-                            "field_name": fname,
-                        }
-                    }
-                    nodes.append(field_node)
-                    field_by_table.setdefault(nid, set()).add(
-                        (tname, fname, "indirect")
-                    )
-                    propagated += 1
-        
-        if propagated:
-            import logging
-            logging.getLogger("sql_visualizer.dataflow").debug(
-                "L1 field propagation: %d fields inherited by downstream tables", propagated)
+        # ── V3.2.6 field propagation DELETED (J12-10 stage 4) ──
+        # The propagation inherited upstream tables' fields into
+        # intermediate/output tables with zero fields — display-time proxy
+        # synthesis compensating for the L1's column-only scan. The
+        # physical model replaces it by construction: every PhysicalField
+        # has its owning PhysicalTable (design §1.5 "#8/#9 dissolved"), and
+        # DML-target columns are extraction-attributed to the target table
+        # (e.g. step4's daily_summary carries cnt/dt/total). Field children
+        # are now the model projection above; nothing is copied across
+        # tables. (Deleted machinery was deletion-verified by the green L1
+        # suite: test_l1_l2_integration.py + tests/test_dataflow/.)
 
         # ── Pattern 1 fix (Bug 47+39): Single P4-based extraction ──
         # Instead of three independent passes with diverging fallbacks,
@@ -794,61 +723,24 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
         # scripts, then use it as single source of truth.
         # (PRODUCTION_EDGES imported from app.extractor.lineage at module level)
 
-        # C2: single disk-cache pass — absorb the pre-built P4 table_fields
-        # and P5 alias_map from each graph cache (Bug 48). The former two
-        # passes (alias scan, table_fields scan) re-read the same files;
-        # one read now feeds both structures.
+        # J12-10 stage 4: the P4 table_fields / P5 alias_map
+        # reconstructions (_absorb_p4 + the graph-cache scan + the
+        # analysis-cache alias fallback) are replaced by the physical
+        # models — PhysicalTable.fields are the table_fields truth and
+        # PhysicalTable.alias_views are the alias truth (label →
+        # canonical table name). One source, no disk-cache passes (C2).
         global_alias_map = {}
         all_table_fields = set()
-
-        def _absorb_p4(gdata: dict) -> None:
-            """Merge the pre-built P4 table_fields + P5 alias_map from one
-            graph data dict (disk cache or on-the-fly graph data)."""
-            g_alias = gdata.get("alias_map", {})
-            if g_alias:
-                global_alias_map.update(g_alias)
-            for tbl, flds in gdata.get("table_fields", {}).items():
-                for fn in flds:
-                    all_table_fields.add((tbl, fn))
-
-        if cache_dir.exists():
-            for gc_path in sorted(cache_dir.glob("graph_*.json")):
-                try:
-                    gdata = json.loads(gc_path.read_text())
-                    # CW7: normalize edge_type on cache read (cache stores "relationship")
-                    for _e in gdata.get("edges", []):
-                        _ed = _e.get("data", _e)
-                        _ed.setdefault("edge_type", _ed.get("relationship", "REF"))
-                    # Item 4: cache format versioning — warn once per stale cache file
-                    if gdata.get("format_version") != 3:
-                        logging.getLogger("sql_visualizer.dataflow").warning(
-                            "L1 cache %s has format_version=%r (expected 3) — stale graph cache",
-                            gc_path.name, gdata.get("format_version"))
-                    _absorb_p4(gdata)
-                except Exception as exc:
-                    _log.warning("L1: failed to read graph cache %s: %s",
-                                 gc_path.name, exc)
-        # Fallback to analysis caches if no graph caches have alias_map
-        if not global_alias_map and cache_dir.exists():
-            for af_path in sorted(cache_dir.glob("analysis_*.json")):
-                try:
-                    adata = json.loads(af_path.read_text())
-                    for v in adata.get("variables", []):
-                        vt = v.get("variable_type", "")
-                        name = v.get("name", "")
-                        src_tables = v.get("source_tables", [])
-                        if vt in ("table",) and src_tables:
-                            global_alias_map[name] = src_tables[0]
-                except Exception as exc:
-                    _log.warning("L1: failed to read analysis cache %s: %s",
-                                 af_path.name, exc)
-
-        # C2: absorb P4/P5 from each script's own graph data (on-the-fly
-        # analyze_multiple_scripts output — build_graph_data carries both),
-        # so the P1 validation also works before any graph cache is written
-        # (fresh workspaces with no disk cache yet).
-        for s in all_scripts:
-            _absorb_p4(s.get("graph", {}) or {})
+        for m in model_by_script.values():
+            for tbl in m.tables.values():
+                for av in tbl.alias_views:
+                    canon = m.tables.get(av["canonical_key"])
+                    if canon is not None:
+                        # dict.update() semantics (last-writer-wins across
+                        # scripts) mirror the historical P5 merge.
+                        global_alias_map[av["label"]] = canon.name
+                for fld in tbl.fields.values():
+                    all_table_fields.add((tbl.name, fld.name))
 
         # Single extraction: run compute_field_lineage per script,
         # intersect reached nodes with all_table_fields
