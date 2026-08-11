@@ -29,8 +29,6 @@ export default function DataFlowApp() {
   const [activeViewId, setActiveViewId] = useState(null);
   const parentViewIdRef = useRef(null);
   const [graphLevel, setGraphLevel] = useState('L1');
-  // R11-3: imperative handle for the SQL panel's scrollToLine (code-evidence rows).
-  const sqlPanelRef = useRef(null);
   // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — the
   // L2 graph hides them by default (toggle default OFF). Client-side
   // display preference only: the payload is untouched, nothing re-fetches.
@@ -403,11 +401,6 @@ export default function DataFlowApp() {
     setSelectedEdge(edgeData);
   }, []);
 
-  // R11-3: code-evidence rows jump the SQL panel to the payload line.
-  const handleJumpToLine = useCallback((line) => {
-    sqlPanelRef.current?.scrollToLine(line);
-  }, []);
-
   const clearEdgeSelection = useCallback(() => {
     setSelectedEdge(null);
   }, []);
@@ -699,7 +692,6 @@ export default function DataFlowApp() {
             <>
               <div className="inline-l2-sql" style={{ height: sqlPanelHeight }}>
                 <SqlPanel
-                  ref={sqlPanelRef}
                   sqlText={sqlText}
                   sqlHighlightLine={sqlHighlightLine}
                   scriptName={currentScriptName}
@@ -711,21 +703,20 @@ export default function DataFlowApp() {
               {/* R25/§8.8: flow reason panel BELOW the SQL panel — kind +
                   anchor line + the reason string with the clicked edge's
                   ‖…‖-wrapped segment emphasized; empty state when no edge
-                  is selected. R11-3: with a `mech` payload the panel adds
-                  the flow sentence + clickable code-evidence rows that
-                  scroll the SQL panel via onJumpToLine. R10-#18: only
+                  is selected. R26 (2026-08-11): the R11-3 "Code evidence"
+                  block is gone — the script panel already shows the full
+                  SQL with the anchor highlighted on edge click, so the
+                  panel renders kind + anchor + reason only. R10-#18: only
                   rendered when there is a script (sqlText) to jump to.
                   Issue 1 (fix 2026-08-11): the panel's height is
                   CONSTANT in every state (reasonPanelHeight, like
-                  sqlPanelHeight) — it never grows with the code-evidence
-                  block; it grows ONLY by dragging the handle below. */}
+                  sqlPanelHeight); it grows ONLY by dragging the handle
+                  below. */}
               {/* Issue 1: drag-to-resize handle on the reason panel's TOP
                   edge (between SQL panel and reason panel). */}
               <div {...reasonResize.handleProps} />
               <EdgeReasonPanel
                 edge={selectedEdge}
-                sqlText={sqlText}
-                onJumpToLine={handleJumpToLine}
                 height={reasonPanelHeight}
               />
             </>

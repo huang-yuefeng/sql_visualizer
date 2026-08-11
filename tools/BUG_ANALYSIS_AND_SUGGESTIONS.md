@@ -4327,7 +4327,7 @@ WRITE_READ bypass alone fails. CONSEQUENCE (intended): the gate flips
 RED on the bdm edge set until Issues 2/3 land; floors re-derived when
 the fixes land.
 
-### Issue 1 · L2 edge click → viewport refit (frontend, OPEN — awaiting user's fix pick)
+### Issue 1 · L2 edge click → viewport refit (frontend, FIXED 2026-08-11 — Wave 1D)
 
 **Symptom** (user report 2026-08-11): clicking an edge in L2 shows the flow
 reason, but the L2 graph viewport automatically re-fits to a new scale,
@@ -4388,9 +4388,17 @@ handle — Option B + user control; supersedes A and C**:
   comment in the fix). State not persisted (R23 clean start,
   consistent with the SQL panel).
 
-**Candidate for the batch** (waiting on user's "go").
+**IMPLEMENTED 2026-08-11 (Wave 1D, frontend)** — Option B + user control exactly as ruled:
+constant `reasonPanelHeight` state (default ~150-180px) in every state; drag handle on
+the panel's top edge via the same `useResizable` hook as the SQL panel; `height: auto;
+max-height: 260px` deleted from `.edge-reason-with-evidence` (overflow-y: auto keeps
+long evidence scrollable internally); R10-#18 comment updated to "grows by user drag".
+Invariant verified in code: height changes ONLY on user drag → edge click never changes
+panel height → no flex reflow → the ResizeObserver fit never fires on click → no viewport
+refit. Code comments in DataFlowApp.jsx carry the "Issue 1 (fix 2026-08-11)" marker.
+State intentionally not persisted (R23 clean start).
 
-### Issue 2 · "3 parallel lines, 1 inverse" — the inverse edge is the write leg, mis-styled as a chain (backend, DECIDED 2026-08-11 — Fix A)
+### Issue 2 · "3 parallel lines, 1 inverse" — the inverse edge is the write leg, mis-styled as a chain (backend, FIXED 2026-08-11 — Wave 1B, Fix A)
 
 **User question** (2026-08-11): "In L2, the edge direction should be in the
 data flow direction. When there are three parallel lines between the same
@@ -4507,10 +4515,22 @@ mattered to the benchmark. Semantically correct; visual-only confusion.
 No fix proposed; a future display tweak (e.g. distinct arrowhead for
 structure edges) could clarify.
 
-**Candidate for the batch** (waiting on user's "go" + fix pick A/B).
+**IMPLEMENTED 2026-08-11 (Wave 1B, backend) — Fix A via the cleaner formulation**:
+Phase 1c-extra2 (dependency_graph.py:172-179) now emits `DML` instead of `TABLE_FLOW`
+for the output-VT→DML-target edge — the edge IS the write leg by definition; the
+src_vars/fallback DML edges cover the duplicates and `_add_edge` dedup absorbs overlap
+(no ordering dependency). **Verified LIVE 2026-08-11 via probe through the real build
+path** (fresh workspace, filtered L2, seed bdm_acc_loan_info/data_dt):
+`l2e_3b8e8e62b668_dml_out: output → bdm_acc_loan_info_sup | TABLE_FLOW kind=write hl=160
+reason="write (write leg)"` and `l2e_73632d4f7c7a_dml_out: output →
+rrcdm_job_log_exec_par | TABLE_FLOW kind=write hl=211` — both write legs render as
+blue-double writes; the old unstamped chain twin (l2e_8bc2dd7b554e) is gone. Gate-neutral
+as predicted (anchor 160/211 + type TABLE_FLOW + endpoints unchanged; only the derived
+flow_kind flips) — the kind flip is pinned by the R19.3/R20 path assertions; gate green
+(702 passed).
 
 
-### Issue 3 · L2 missing the bdm → rrcdm chain: bare FROM refs get no source_tables — the sup read leg exists only as a non-walkable SUBSET bridge (backend, OPEN — analysis done, awaiting user's ruling)
+### Issue 3 · L2 missing the bdm → rrcdm chain: bare FROM refs get no source_tables — the sup read leg exists only as a non-walkable SUBSET bridge (backend, FIXED 2026-08-11 — Wave 1B, Fix A)
 
 **User question** (2026-08-11): "How does the data flow from
 bdm_acc_loan_info to rrcdm_job_log_exec_par? The L2 does not show this."
@@ -4571,7 +4591,20 @@ branches, no-bypass — is violated exactly at this spot (sup = broken
 waypoint, DML WRITE_READ bypasses the reader). The Issue-3 fix is the
 first stage of J12-13 (see wiki/SOLUTION_DESIGN.md §J12-13).
 
-**Candidate for the batch** (waiting on user's "go").
+**IMPLEMENTED 2026-08-11 (Wave 1B, backend) — Fix A**: `_register_table`
+(variable_extractor_v2.py) sets `source_tables=[name]` for bare FROM/JOIN refs (NOT DML
+targets). **Verified LIVE 2026-08-11 via probe through the real build path** (fresh
+workspace, filtered L2, seed bdm_acc_loan_info/data_dt):
+`l2e_b4fc03d22434: bdm_acc_loan_info_sup → output | TABLE_FLOW kind=chain hl=223
+reason="chain (read into output)"` — the statement-2 read leg is a walkable TABLE_FLOW
+edge in the filtered closure (row 22 of the canonical), no longer only a non-walkable
+SUBSET bridge. Gate green (702 passed) with the fix in place — the canonical is
+consistent with the post-fix payloads.
+
+**Residual (parked, J12-13 territory)**: the closure-reachability question — the bdm
+seed's filtered closure reaches statement 2 via the DML WRITE_READ shortcut vs. a
+same-table physical-identity admission — is a flow-topology refinement for the J12-13
+round, not an issue-3 defect; the read leg itself renders.
 
 ### J12-15 · DML write legs misattach to the FIRST statement's ⟐ output — single-global-trunk rewrite (found via user live-test 2026-08-11)
 
@@ -4594,3 +4627,33 @@ first stage of J12-13 (see wiki/SOLUTION_DESIGN.md §J12-13).
 **Root-cause refinement (analysis subagent, third pass 2026-08-11) — the historical design clash**: the single-trunk assumption predates per-statement output VTs. The W5 fix at l2_builder.py:986-990 (guard against a subquery VT `⟐ subq1` coming first) *prefers* `"⟐ output"` but still `break`s at the FIRST match — iteration order = extraction order → TOP0's output always wins. Then R19.6b (2026-08-11) deliberately stopped merging output VTs per statement (the physical merge at :393 touches only `table`/`view` vars, never VTs) — the graph now has N per-statement output VTs while the rewrite still picks 1 trunk. **Why the payload is self-contradictory**: `_carry_edge_info` (l2_builder.py:673-712) stamps the raw TOP1 VT's label/line ("⟐ output"@211) onto the edge BEFORE the rewrite; the rewrite at :1042 changes only the `source` id, never the carried `_src_label/_src_line` — so R20 path strings + flow targets stay "correct-looking" while the endpoint id is wrong (also why the label+line-based gate cannot catch it). Fix = trunk selection per raw DML edge keyed by the source statement's context/stmt_idx (the owning output VT), `"⟐ output"`-preferred fallback preserved.
 
 **Related but verified by-design (the user's second question — do NOT fix with this bug)**: the TWO `data_dt` fields under the bdm_acc_loan_info_sup compound are NOT duplicates and NOT part of J12-15. C-9 per-statement field dedup (`_classify_compound_nodes`, l2_builder.py:540-547 — key `(parent_table_id, label, stmt_idx)`): stmt_idx 0's occurrences merge into ONE field (`fld_e2b38f37a7` = keeper of the PARTITION-write var `72a148e54e11caca` @L160 plus the self-join-key var `a29aff53f7a81fa5` @L202, probe-verified); stmt_idx 1's WHERE-filter var `058f9462c6a6f7ed` @L225 is a different statement → its own field (`fld_faa927ddff`). Distinct original_ids and edge sets (write-side 160/199/202 vs read-side 223/225). Pre-existing at HEAD (filtered payloads byte-identical). R22 merges the TABLE occurrences into one compound; C-9 keeps FIELDS per statement — the combination is exactly why two same-labeled fields render in one box. By design; no action.
+
+### J12-16 · DESIGN NOTE → **DECIDED 2026-08-11 (USER RULING: MERGE)** — fold same-named field instances into ONE display field per physical table (C-9 field-level stmt_idx split reversal)
+
+**Finding (analysis subagent, 2026-08-11, follow-up to the user's two live-service questions)**: the two-`data_dt` display split is the ONLY remaining per-statement split at the field level, and it is inconsistent with both the physical model (ONE `PhysicalField (sup, data_dt)` with 3 occurrences — probe-verified: `058f9462c6a6f7ed` TOP1 WHERE @225, `72a148e54e11caca` TOP0 PARTITION @160, `a29aff53f7a81fa5` TOP0 JOIN ON @202) and the Jaccard canonical itself (jaccard_canonical.py:83-85: "field folds: canonical 'p1.data_dt'/'p2.data_dt' → 'data_dt' — the response merges both instances into one bare 'data_dt' field node per table"). The canonical's mental model is ONE `data_dt` per table; the two-node display is the outlier. R22 already merges TABLE occurrences into one compound with both statements' edges incident — the field level is the last per-statement split, an inconsistency rather than a requirement.
+
+**Why it's safe (agent's evidence)**:
+1. **Nothing is lost per-edge.** All per-edge precision (highlight_line 160/199/202 vs 223/225, reason, flow_kind) rides the edges via W5 carried info (`_carry_edge_info`, l2_builder.py:673-712), never derived from field nodes. The split buys only node-level provenance that the edges already carry.
+2. **The gate is agnostic to the split.** Node realization = "normalized label equal AND line in the response node's incident-edge highlight_line set" (jaccard_canonical.py:94-98) — both forms satisfy it (today two fields normalize to `data_dt`; merged, one field carries all six incident lines). Edge rows are line-keyed and unchanged. `dml_phantom_field_dups` is rrcdm-scoped — untouched. STILL: any implementation must be verified by a benchmark run — the gate is the gate.
+3. **No inverse-pair risk.** With one field the edge set is REF/JOIN/value-write → output@L160, REF → p2@199, REF/FILTER → sup — no field-level write/read inverse pair appears (R19.6b rationale applies to output VTs, not fields).
+4. **Change is small and display-only**: drop `stmt_idx` from the C-9 dedup key (l2_builder.py:540-541 column branch, :588-589 computed branch); the existing merge machinery (`merged_original_ids` + `_build_id_map`) covers it.
+
+**Caveats (binding)**:
+- **Keep it separate from J12-15.** Merging sup's fields does NOT fix the output-VT misattachment (VT-level routing), and the J12-15 fix depends on per-statement output identity. **Do NOT merge the output VTs themselves** — R19.6b un-merges them deliberately so write/read leg pairs never render inverse.
+- The split is a prior design decision (C-9, design decision 16). Reversing it requires a USER RULING — recorded here as a design note, not a defect; no action taken.
+- If adopted: implement as a display-only projection change with a benchmark re-run to confirm gate neutrality; J12-15 stays independent; do NOT fold into Stage 4's keeper-merge deletion (S4 brief explicitly excludes the C-9 field dedup key).
+- **USER RULING GRANTED 2026-08-11 (AskUserQuestion, user picked "Merge (Recommended)")**: fold same-named field instances into ONE display field per physical table — drop `stmt_idx` from the C-9 field dedup key (both sites: the column branch and the computed branch, l2_builder.py `_classify_compound_nodes`). Display-only; verified by a benchmark run before landing (the gate is the gate); J12-15 stays independent; output VTs stay un-merged (R19.6b). Note for the record: an earlier draft mislabeled this "user ruling: physically one field → display must show ONE data_dt" — that was an agent mis-framing BEFORE the ruling existed; THIS entry is the genuine ruling (user's explicit answer). **Implementation order**: fold into S4's stage-4 as its final step (S4 is already rewriting the merge machinery in l2_builder.py), then Jaccard gate + full suite verification; J12-17(d) settles on option 1 (global (parent,label) uniqueness with no per-statement exception).
+
+### J12-17 · Benchmark blind spot — why the gate does not report J12-15 (benchmark weakness, 2026-08-11, analysis; fix queued)
+
+**Question (analysis subagent, self-raised while investigating the user's live-test findings J12-15/J12-16)**: "Why does the benchmark not report such errors? Is there any weakness in the benchmark?" — NOT a user question; the agent's own investigation question, recorded as an analysis finding. (Related real user concern from an earlier round, 2026-08-10 — "Why you stop in yesterday's improve Jaccard benchmark to convergence? If you stopped, we should not miss any edges. Is there any defect in the evaluation?" — same spirit: the gate must catch defects; not this question.) **Priority assessment (analysis, not user-marked): HIGH for the post-stage-4 integration — the gate's blindness to J12-15-class defects (misattached endpoints with correct labels/lines) must be closed so the J12-15 fix is pinned by the gate.** Fix directions queued pending the batch.
+
+**Answer: yes — five weaknesses, all verified in the gate code; J12-15 is structurally invisible to the current matching model.**
+
+1. **Label-only endpoint identity for virtual tables** (jaccard_canonical.py:31-33, 83-98; NORMALIZE_MAP folds "⟐output"→"output", canonical "output@0" is ONE node): the canonical predates R19.6b's per-statement output un-merge — it has no instance identity for same-labeled VTs. The defect lives exactly at that unmodeled granularity (which output VT carries the write leg). Two response nodes with the same normalized label both "realize" one canonical node (node_realized, test_jaccard_benchmark.py:359-367) — multiplicity is never asserted.
+2. **Edge matching is by (normalized label, anchor line)** (find_entry_edge, jaccard_canonical.py:184+): the misattached edge `output@L160 → rrcdm` carries the correct labels, hl=211 and flow_kind='write' — only its endpoint id is wrong, and ids are never compared (opaque-hash resilience became blindness).
+3. **The one reachability check is connectivity-only and passes via a wrong path** (test_jaccard_benchmark.py:349-352 — `_reachable(rl["target"], w2["source"])` BFS over ANY edge type): served graph has output@L211 →(SCHEMA)→ fld_93b6c10731 →(value-edge, itself misattached to output@L160)→ output@L160 →(write leg)→ rrcdm — reachable, so the check passes although the INTENDED chain (output@L211 → rrcdm) does not exist. The check verifies connectivity, never the semantic identity of the path.
+4. **The "no dead-end flow branches" half of R19.3 is not enumerated**: only the 4 named chain hops + flow_kind + incidence + one reachability call (R19_3_CHAIN, test_jaccard_benchmark.py:265-357). output@L211's single flow in-edge with no flow out-edge violates R19.3's first sentence without tripping any check.
+5. **The field-uniqueness guard is scoped to proxy id prefixes** (dml_/seed_/sync_, test_jaccard_benchmark.py:368-395): sup's two real `data_dt` fields (fld_*) are outside its scope — general (parent,label) multiplicity is unasserted, so J12-16's two-field display is also invisible (there by design, but the gate cannot distinguish intended per-statement splits from genuine dups).
+
+**Fix directions (queued, benchmark scope)**: (a) assert write-leg endpoint identity — the served payload already carries `context`/`line_start` on node data (output@L211 = TOP1/L211 vs output@L160 = TOP0/L160); canonical write-leg rows must require their source node's statement context to match the row's statement; (b) replace `_reachable` with a flow-only, flow-target-terminated path check (no SCHEMA/SUBSET hops, no value-edge detours — the R19.3 path property actually asserted); (c) enumerate dead-end flow nodes (every flow edge on a source→target path); (d) extend the uniqueness invariant from proxy prefixes to all field nodes under one (parent,label) — with the C-9 per-statement exception made explicit so J12-16 merges it away deliberately.

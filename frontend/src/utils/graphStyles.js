@@ -871,3 +871,75 @@ export const L2_DETAIL_STYLES = [
   { selector: 'node[type="window"]', style: { 'shape': 'hexagon', 'background-color': '#967ADC', 'width': 30, 'height': 30 } },
   { selector: 'node[type="literal"]', style: { 'shape': 'ellipse', 'background-color': '#CCCCCC', 'width': 15, 'height': 15 } },
 ];
+
+// ══════════════════════════════════════════════════════════════════
+// R28: L2 node-role styles (2026-08-11) — source / target / waypoint
+// ══════════════════════════════════════════════════════════════════
+// Single source of truth for the role palette: the node styles AND the
+// L2 node-role legend swatches (DataFlowLegend.jsx imports this). All
+// colors come from the existing token palette — no new color system:
+// source = the source/accent blue family (L1 "Source Table"), target =
+// the output green family (L1 "Output Table"), waypoint = the neutral
+// intermediate gray.
+export const L2_ROLE_COLORS = {
+  source: { border: '#5DADE2', fill: '#4A90D9' },
+  target: { border: '#58D68D', fill: '#2ECC71' },
+  waypoint: { border: '#7a7a9a', fill: '#5a5a7a' },
+};
+
+// Data-driven from the payload — the renderer never guesses:
+//   - full view (no search): `flow_role` ("source"|"target"|"waypoint")
+//     on physical table compounds (CTE/derived/VT compounds stay
+//     neutral), per the R19.5 net-flow classification.
+//   - filtered view: `flow_source` / `flow_target` booleans on the
+//     searched seed's table keeper and the closure's DML write targets.
+// Seed-copy FIELDS (is_target, v3.3.140 P1 MOVE→COPY) keep their
+// existing gold styling — untouched.
+//
+// These rules must sit AFTER the compound-type styles in the assembled
+// sheet (useCytoscapeGraph appends L2_NODE_ROLE_STYLES last) so the
+// attribute selectors win the specificity tie against
+// `node[type="source_table"]` / `node[type="output_table"]`.
+//
+// Order within this array matters for dual-role nodes (a table can be
+// both flow_source and flow_target — sup: write leg in, read leg out):
+// the SOURCE rule comes last so the searched seed identity wins the
+// visual tie (matching the "S/T" badge's primary reading).
+export const L2_NODE_ROLE_STYLES = [
+  // Target — flow destinations / DML write targets (filtered view
+  // flow_target, full view flow_role "target"): output-green border
+  // + fill tint.
+  {
+    selector: 'node[flow_role="target"], node[flow_target]',
+    style: {
+      'border-width': 4,
+      'border-color': L2_ROLE_COLORS.target.border,
+      'border-style': 'solid',
+      'background-color': L2_ROLE_COLORS.target.fill,
+      'background-opacity': 0.5,
+    },
+  },
+  // Source — the searched table, the flow's start (filtered view
+  // flow_source, full view flow_role "source"): strong source-blue
+  // border + fill tint.
+  {
+    selector: 'node[flow_role="source"], node[flow_source]',
+    style: {
+      'border-width': 4,
+      'border-color': L2_ROLE_COLORS.source.border,
+      'border-style': 'solid',
+      'background-color': L2_ROLE_COLORS.source.fill,
+      'background-opacity': 0.6,
+    },
+  },
+  // Waypoint — intermediate tables on the flow path (full view
+  // flow_role "waypoint" only): neutral dashed border, type fill kept.
+  {
+    selector: 'node[flow_role="waypoint"]',
+    style: {
+      'border-width': 3,
+      'border-color': L2_ROLE_COLORS.waypoint.border,
+      'border-style': 'dashed',
+    },
+  },
+];

@@ -3,7 +3,20 @@
 Hand-verified data flow of `samples/sql_sample_v1/BDM_ACC_LOAN_INFO_SUP_M.sql`
 (226 lines). This is the reference for future work: every extractor / graph /
 highlight change must preserve these flows. All facts below were verified by
-running the live extraction (v3.3.145, 2026-08-07) and by reading the SQL.
+running the live extraction (v3.3.145 baseline, 2026-08-07) and by reading the
+SQL. **CURRENT-STATE RE-VERIFICATION (2026-08-11): this doc reflects the
+working tree AFTER the 2026-08-11 re-pin round (Issues 2/3 landed, §8.5
+rows 20/21/22/23, X3 re-instated), re-verified LIVE against the container
+`gps-sql-backend` by probe (2026-08-11, stage-3 engine 034eaa2): the bdm
+and sup seeds' filtered L2 payloads realize the canonical rows below —
+claimed edge ids present with the claimed hl/type/kind (`l2e_b4fc03d22434`
+TABLE_FLOW@223 chain, `l2e_331f8ad2e8aa` REF@223 read, `l2e_bf9ac3e3bd03`
+FILTER@225); ONE `data_dt` display node on the bdm compound (keeper line
+16) with incident lines 16/18/29/43/84/158; sup's C-9 split
+(`fld_e2b38f37a7` stmt-0 write-side vs `fld_faa927ddff` stmt-1 read-side);
+two per-statement output VTs @160/@211 (R19.6b). The §4.3 "ALL FOUR
+RESOLVED" markers and §8.5 "LIVE/REMOVED" annotations are the CURRENT
+state of the running engine, not only fix history.**
 
 ---
 
@@ -104,6 +117,19 @@ L43   SUBSTR(p1.data_dt,1,7) = ...        read, inner subq WHERE, p1 = bdm_acc_l
 L158  p1.data_dt = '$(load_date)'         read, CTE2 WHERE, p1 = bdm_acc_loan_info (L84)
 L160  PARTITION(data_dt='$(load_date)')   write, stmt1 target partition
 ```
+
+Instance identity (display-node mapping, probe-verified 2026-08-10/11):
+L18's bare `data_dt` (keeper instance @16) and L43's p1-qualified
+`data_dt` (p1@29 alias instance) are DISTINCT raw instances of the same
+physical field — but the C-9 dedup key `(parent_table_id,
+undecorated_label, stmt_idx)` merges L18 + L43 + L158 (all stmt-0
+CTE-zone) into ONE display field node on the bdm compound (probe
+2026-08-11: the single node `fld_7d239e1e68` carries incident edges at
+lines 16/18/29/43/84/158 — the L43+L158 merge is the probe finding in
+§8.5; the payload carries no per-node occurrence list, the merge is
+proven by the incident lines). The 4 occurrences below are PHYSICAL
+occurrences; the display node is a per-statement merge — 4 occurrences
+≠ 4 display nodes.
 
 NOT this field (belongs to other tables — negative proof):
 
@@ -781,7 +807,7 @@ B1/X5), B1 re-pinned SUBSET → TABLE_FLOW, X3 re-instated):**
 | 17 | `data_dt@213 → ⟐output@0` (re-pinned 2026-08-10) | value | TABLE_FLOW (value-write) | sup | 213 |
 | 18 | `data_dt@225 → sup@223` | READ | read (post-fix, promoted) | sup | 223 |
 | 19 | `p2.data_dt@202 → p2@199` | READ | read (REF, promoted) | sup | 199 |
-| 20 | ~~`sup@160 → sup@223`~~ — J12-13 requirement row (2026-08-11, §4.3 MISSING item 4) — REMOVED from B by the 2026-08-11 re-pin: R22's label-keyed node merge unifies sup@160/sup@223 into ONE served node — no served-L2 projection exists. The requirement lives on as the R19.3 no-bypass assertion (write leg @160 + statement-2 read edges @223 incident on the same node), never as a row | chain | DML (cross-statement write→read link — asserted via R19.3 incidence) | bdm+sup | 223 |
+| 20 | ~~`sup@160 → sup@223`~~ — J12-13 requirement row (2026-08-11, §4.3 MISSING item 4) — REMOVED from B by the 2026-08-11 re-pin: R22's label-keyed node merge unifies sup@160/sup@223 into ONE served node — no served-L2 projection exists. The requirement lives on as the R19.3 no-bypass assertion (write leg @160 + statement-2 read edges @223 incident on the same node), never as a row. The flow's served read leg IS row 22 (`sup@223 → ⟐output@0`, TABLE_FLOW@223 — probe-verified `l2e_b4fc03d22434`): the write→read link exists in the served graph, only its sup→sup projection is absent (R22 merge) | chain | DML (cross-statement write→read link — asserted via R19.3 incidence) | bdm+sup | 223 |
 | 21 | `data_dt@225 → sup@223` — J12-13 requirement row — mirrors pair 18 for the bdm seed, derived from §4.3 items 3/4 + LAYER-2 line 134 — LIVE since 2026-08-11 (Issue 3 landed): served as data_dt → sup REF@223 | READ | read (REF, promoted) | bdm | 223 |
 | 22 | `sup@223 → ⟐output@0` — 2026-08-11 re-pin row — the statement-2 read leg into output2, bdm mirror of B1 (probe-verified: served sup → output TABLE_FLOW@223) — the stmt-2 chain the bdm closure was missing (Issue-3 gap) | chain | TABLE_FLOW (the reader's read leg) | bdm | 223 |
 | 23 | `data_dt@225 → sup@225` — 2026-08-11 re-pin row — the statement-2 WHERE read, bdm mirror of X5 (probe-verified: served data_dt → sup FILTER@225) | field flow | FILTER (promoted) | bdm | 225 |
@@ -829,6 +855,29 @@ sup = pairs 12, 15,
 entries = 14 closure edges** (row 11 removed — see Repair; C4 merged
 into C3, same bypass reason; pair 18 live since W2, 2026-08-10; B1
 re-pinned SUBSET → TABLE_FLOW and X3 re-instated — 2026-08-11).
+
+**Docs-team re-verification (2026-08-11, second independent probe — the
+header block's probe facts reproduced with fresh workspace ids; no
+contradiction found, all rows above stand).** Raw pipeline
+(`variable_extractor_v2` + `dependency_graph` — unaffected by any L2-side
+changes): the stmt-2 read `bdm_acc_loan_info_sup@223` (var
+`9990a58a8386d6ec`, ctx TOP1, line 223) → `⟐ output@211` (VT
+`8073ded23edd597b`) is a real **TABLE_FLOW op='FROM'** edge — B1's
+SUBSET→TABLE_FLOW re-pin confirmed at the RAW level; a SUBSET-bridge
+sweep from sup@223 returns **zero** bridges (the residual bridge is
+gone, Issue 3's bare-FROM read recognition superseded it). Filtered L2
+(`app.services.l2_builder._build_l2_graph`, fresh ws ids per seed):
+bdm seed 15 nodes / 27 edges, sup seed 8 nodes / 14 edges — the two
+Issue-2 write legs carry their pinned ids in BOTH seeds:
+`l2e_3b8e8e62b668_dml_out` (output → sup, TABLE_FLOW kind=write hl=160,
+row 15) and `l2e_73632d4f7c7a_dml_out` (output → rrcdm, TABLE_FLOW
+kind=write hl=211, row 16) — the sup write leg is a direct DML write
+edge, never a chain. Rows 21/22/23 serve with the header-block ids in
+BOTH seeds: `l2e_331f8ad2e8aa` (data_dt → sup REF hl=223),
+`l2e_b4fc03d22434` (sup → output TABLE_FLOW hl=223 — row 22, the bdm
+mirror, and B1 in the sup seed), `l2e_bf9ac3e3bd03` (data_dt → sup
+FILTER hl=225). X3 (`l2e_3e14029caa30` output → data_dt SCHEMA hl=213)
+present in both seeds — its re-instatement holds.
 
 **Repair (2026-08-10, DML routing — evidence-backed doc repair, never
 engine work).** The label dump of the post-fix filtered L2 output showed

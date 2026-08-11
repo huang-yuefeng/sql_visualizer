@@ -400,14 +400,6 @@ body { background: var(--bg-app); color: var(--ink-900); }
   color: var(--ink-600); white-space: nowrap;
 }
 .legend-item span:first-child { font-size: 0.9em; line-height: 1; }
-/* R25/§8.8: L2 legend regrouped by flow kind (kind header + per-kind
-   edge-type chips; edge-type info stays available but secondary) */
-.legend-kind-group {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 0 8px; border-left: 1px solid var(--border);
-}
-.legend-kind-group:first-of-type { border-left: none; padding-left: 0; }
-.legend-kind-name { color: var(--ink-900); font-weight: bold; }
 .legend-title { color: var(--ink-400); font-weight: bold; text-transform: uppercase; font-size: 0.62rem; }
 /* R19.4/R19.6a: structure (SCHEMA) edges hidden by default — the L2
    legend note reflects the toggle (theme tokens: light default, dark
@@ -434,12 +426,12 @@ body { background: var(--bg-app); color: var(--ink-900); }
 
 /* ── Edge Reason Panel (R25/§8.8 — below the SQL panel) ───────────── */
 /* Issue 1 (fix 2026-08-11): the panel has a CONSTANT height in every
-   state (empty / simple / with-evidence) — height comes from state
-   reasonPanelHeight (default 160px, inline style set by DataFlowApp)
-   until the user drags. No height:auto variant exists, so an edge
-   click never changes the panel's height → no flex reflow → the
-   graph-canvas ResizeObserver never fires on click → the L2 viewport
-   never auto-refits. Long evidence scrolls internally. */
+   state (empty / simple) — height comes from state reasonPanelHeight
+   (default 160px, inline style set by DataFlowApp) until the user
+   drags. No height:auto variant exists, so an edge click never changes
+   the panel's height → no flex reflow → the graph-canvas ResizeObserver
+   never fires on click → the L2 viewport never auto-refits. Content
+   scrolls internally. */
 .edge-reason-panel {
   flex-shrink: 0;
   height: 160px;
@@ -477,54 +469,6 @@ body { background: var(--bg-app); color: var(--ink-900); }
   word-break: break-word;
 }
 .edge-reason-segment { font-weight: bold; }
-
-/* ── R11-3 code evidence (mech payload) — flow sentence + clickable rows ─ */
-.edge-reason-mech { width: 100%; }
-.edge-reason-sentence {
-  color: var(--ink-900);
-  font-family: monospace;
-  font-size: 0.72rem;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  padding: 2px 0;
-}
-.edge-reason-evidence { width: 100%; border-top: 1px solid var(--border); padding-top: 4px; }
-.edge-reason-evidence-title {
-  display: block;
-  font-size: 0.62rem;
-  color: var(--ink-400);
-  text-transform: uppercase;
-  font-weight: bold;
-  margin-bottom: 2px;
-}
-.edge-reason-evidence-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  width: 100%;
-  background: none;
-  border: none;
-  border-radius: 3px;
-  padding: 2px 4px;
-  color: var(--ink-900);
-  font-family: monospace;
-  font-size: 0.7rem;
-  text-align: left;
-  cursor: pointer;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.edge-reason-evidence-row:hover { background: var(--warning-soft); color: var(--ink-900); }
-.edge-reason-evidence-label {
-  color: var(--ink-400);
-  flex-shrink: 0;
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-.edge-reason-evidence-code { color: inherit; }
 
 /* Buttons */
 .btn { padding: 6px 12px; border: none; border-radius: 3px; cursor: pointer; font-size: 0.78rem; }

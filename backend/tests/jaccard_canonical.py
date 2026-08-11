@@ -229,6 +229,16 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
    Final counts: CANONICAL_EDGES 41 entries (27 bdm + 14 sup),
    CANONICAL_ROWS 37 tuples. The gate is GREEN -- FLOORS all
    1.0000/1.0000 (2026-08-11).
+
+11. J12-17 GATE HARDENING (2026-08-11, benchmark scope -- closes the
+   J12-15 endpoint-identity blind spot). ADDITIVE only: the write-leg
+   rows (15/16 both seeds, 17 sup, X4 bdm) gain a "stmt" key naming the
+   edge's OWNING statement ("TOP0"/"TOP1" -- the statement of the row's
+   anchor line: rows at 160 are TOP0's, rows at 211/213 are TOP1's).
+   The consumer test asserts the matched edge's ⟐output endpoint IS
+   that statement's output VT (node context + line_start), never merely
+   the label "output". Matching code ignores unknown keys -- nothing
+   else changes.
 """
 
 CANONICAL_ROWS = [
@@ -260,6 +270,9 @@ CANONICAL_ROWS = [
     # flow_kind='write' (id *_dml_out); the row goes back to the EMITTED
     # type and the write-leg semantics are pinned by the R19.3
     # flow_kind='write' assertion (never the row type).
+    # Rows 15/16/17/X4 carry "stmt" (J12-17, point 11 -- additive): the
+    # write leg's OWNING statement; the gate asserts the matched edge's
+    # ⟐output endpoint IS that statement's output VT (context/line_start).
     (15, "bdm", "⟐output", 0, "sup", 160, "TABLE_FLOW", 160),
     # Row 16 re-pinned 2026-08-10: the write src is the output VT
     # (output -> rrcdm@211), not sup directly.
@@ -363,8 +376,8 @@ CANONICAL_EDGES = [
     # rule-3 rewrite emits DML as TABLE_FLOW stamped flow_kind='write'
     # (id *_dml_out); the write-leg semantics are pinned by the R19.3
     # flow_kind='write' assertion.
-    {"row": 15, "seed": "bdm", "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
-    {"row": 16, "seed": "bdm", "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
+    {"row": 15, "seed": "bdm", "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep", "stmt": "TOP0"},
+    {"row": 16, "seed": "bdm", "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep", "stmt": "TOP1"},
     # Row 20 REMOVED 2026-08-11 (point 10): the write->read link
     # sup@160 -> sup@223 has NO served-L2 projection (R22 label-keyed
     # merge unifies the two instances into one node) -- the requirement
@@ -389,7 +402,7 @@ CANONICAL_EDGES = [
     # X4 (2026-08-10 canonization): the TOP1 value-write data_dt@213 ->
     # output@213 -- row 17 pins the same edge for the sup seed only; X4
     # closes the bdm side (doc closure asymmetry).
-    {"row": "X4", "seed": "bdm", "src": "data_dt@213", "dst": "⟐output@213", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep"},
+    {"row": "X4", "seed": "bdm", "src": "data_dt@213", "dst": "⟐output@213", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep", "stmt": "TOP1"},
     {"row": "E1", "seed": "bdm", "src": "bdm@29", "dst": "p1@29", "type": "ALIAS", "anchor": 29, "spec": "anchor_rel_ep"},
     {"row": "E2", "seed": "bdm", "src": "bdm@84", "dst": "p1@84", "type": "ALIAS", "anchor": 84, "spec": "anchor_rel_ep"},
     {"row": "S1", "seed": "bdm", "src": "p1@29", "dst": "p1.data_dt@43", "type": "SCHEMA", "anchor": 43, "spec": "anchor_rel"},
@@ -407,13 +420,13 @@ CANONICAL_EDGES = [
     # rule-3 rewrite emits DML as TABLE_FLOW stamped flow_kind='write'
     # (id *_dml_out); the write-leg semantics are pinned by the R19.3
     # flow_kind='write' assertion.
-    {"row": 15, "seed": "sup", "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
-    {"row": 16, "seed": "sup", "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
+    {"row": 15, "seed": "sup", "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep", "stmt": "TOP0"},
+    {"row": 16, "seed": "sup", "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep", "stmt": "TOP1"},
     # Row 20 (sup) REMOVED 2026-08-11 (point 10): the write->read link
     # sup@160 -> sup@223 has NO served-L2 projection (R22 label-keyed
     # merge unifies the two instances into one node) -- the requirement
     # is asserted by the R19.3 incidence checks, never as a row.
-    {"row": 17, "seed": "sup", "src": "data_dt@213", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep"},
+    {"row": 17, "seed": "sup", "src": "data_dt@213", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep", "stmt": "TOP1"},
     # X3 (sup) RE-INSTATED 2026-08-11 (point 10, probe-verified) -- the
     # P1 MOVE->COPY output-VT membership edge; served output -> data_dt
     # SCHEMA@213 (see bdm note).

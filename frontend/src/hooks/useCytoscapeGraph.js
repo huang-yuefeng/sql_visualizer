@@ -19,10 +19,11 @@ import fcose from 'cytoscape-fcose';
 cytoscape.use(fcose);
 import { NODE_STYLES, COMPOUND_STYLES, L1_PIPELINE_EDGE_STYLES, TURN_EDGE_STYLES,
   BUNDLED_EDGE_STYLES, CATEGORY_EDGE_STYLES, SCRIPT_CARD_STYLES,
-  OPERATION_NODE_STYLES, L2_DETAIL_STYLES } from '../utils/graphStyles';
+  OPERATION_NODE_STYLES, L2_DETAIL_STYLES, L2_NODE_ROLE_STYLES } from '../utils/graphStyles';
 import { stripFieldParents, computeFieldRelPos, positionTableFields } from '../utils/layoutCore';
 import { TABLE_SELECTOR } from '../config/layout';
 import { runSnakeLayout } from '../utils/snakeLayout';
+import { decorateLabelWithLine } from '../utils/labelDecoration';
 
 const TABLE_SEL = TABLE_SELECTOR;
 
@@ -82,7 +83,10 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     const isL2 = level === 'L2';
     const baseEdgeStyles = isL2
       ? [...TURN_EDGE_STYLES, ...BUNDLED_EDGE_STYLES,
-         ...CATEGORY_EDGE_STYLES, ...OPERATION_NODE_STYLES, ...L2_DETAIL_STYLES]
+         ...CATEGORY_EDGE_STYLES, ...OPERATION_NODE_STYLES, ...L2_DETAIL_STYLES,
+         // R28: source/target/waypoint role styles LAST — they must win
+         // the specificity tie against the compound-type styles below.
+         ...L2_NODE_ROLE_STYLES]
       : [...SCRIPT_CARD_STYLES];
     const edgeStyles = [...L1_PIPELINE_EDGE_STYLES, ...baseEdgeStyles];
 
@@ -131,6 +135,23 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     // SQL highlight-on-edge-click keeps working for visible edges.
     if (optsRef.current.showStructureEdges !== true) {
       cy.edges(SCHEMA_EDGE_SELECTOR).addClass('structure-hidden');
+    }
+
+    // ── R27: "@L{line}" after L2 node names (display-only projection) ──
+    // Append `@L{line_start}` to the RENDERED label of every L2 node
+    // carrying a valid line_start (table compounds incl. the ⟐ output
+    // VTs — `output@L160`/`output@L211` — exactly the reason-string
+    // convention). The payload labels are untouched (same pattern as
+    // the badge block below, which appends to n.data('label')). Labels
+    // that already end with @<digits> (aliases like `p1@29`) keep it
+    // as-is — never double-append. Nodes without a valid line_start
+    // pass through unchanged — the renderer never guesses.
+    if (isL2) {
+      cy.nodes().forEach(n => {
+        const d = n.data();
+        if (!d) return;
+        n.data('label', decorateLabelWithLine(d.label, d.line_start));
+      });
     }
 
     // ── Net-flow role badges on L2 table nodes (defensive) ──────────

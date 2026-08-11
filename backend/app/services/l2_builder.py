@@ -295,17 +295,21 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                              search_table: str | None = None,
                              physical_model=None) -> tuple:
     """Phase 3b (CW4): build the compound node structure — table parents and
-    field children (plus alias_map read from the graph cache).
+    field children, as a projection of the physical model (J12-10 stage 4).
 
-    J12-10 (stage 2): the keeper selection for physical tables is the
-    physical model's entity lookup (`entity_of_id`) instead of a raw
-    label-keyed scan — the model's entity key for a non-alias table/view
-    occurrence IS its raw name (kind "physical"), so the first occurrence
-    per entity stays the keeper and later same-entity occurrences merge
-    byte-identically (their nids are recorded for _build_id_map). Alias
-    detection, alias dedup and field parenting keep the display semantics
-    (the model's occurrence sets are entity-wide — alias instances and
-    merge_targets stay separate compounds at stage 2).
+    The model is the extraction-time truth the display mirrors: the keeper
+    selection for physical tables is the model's entity lookup
+    (`entity_of_id`) — one PhysicalTable per name by construction, keeper
+    = first occurrence, later same-entity occurrences merge (their nids
+    record `occ_to_id[nid] = keeper id`). Alias detection is the model's
+    alias truth (`alias_by_var_id` — the I4 alias_of extraction fact, with
+    the label-keyed rule for table/view/cte only; derived-subquery
+    aliases like p2@40 stay their own (name, context) entities); alias
+    dedup keys (parent, label, line) and field dedup keys
+    (parent, label) keep the display semantics (J12-16: same-named
+    field instances from different statements fold into ONE display
+    field per physical table) — every nid maps through occ_to_id to
+    its compound/field id.
 
     B3/P1: `search_table` names the searched base table (None for phase
     calls that don't carry a search context). is_target seed fields that
@@ -313,7 +317,7 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
     compound node when it has no same-named field yet — the seed shows on
     the searched table instead of a random alias instance.
 
-    Returns (table_nodes, field_nodes, other_nodes, alias_map).
+    Returns (table_nodes, field_nodes, alias_map, occ_to_id).
     """
     # ── Build compound node structure ──
     # Group field-level nodes by their parent table/CTE
@@ -329,44 +333,23 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
     alias_nodes_by_key = {}
     fields_by_key = {}     # (parent_id, field label) -> keeper field node (issue a)
     field_nodes = []       # field children
-    other_nodes = []       # expression, aggregate, etc. (non-compound)
     seen_ids = set()
+    # Issue a: original nid -> final compound/field id (the display's
+    # id_map replacement — every nid seen during classification maps to
+    # the node it became; merged-away nids map to their keeper).
+    occ_to_id = {}
 
-    # ── Phase 0: Build alias map before classifying nodes ──
-    # Bug 48: Read alias_map from graph cache (pre-built by extractor + folder_index_service).
-    # Falls back to node+edge scan if cache doesn't have alias_map (old test data).
-    alias_map = full_graph.get("alias_map", {})
-    if not alias_map:
-        # Fallback: reconstruct from nodes for backwards compatibility
-        _log.warning("L2 fallback: no alias_map in cache for %s — reconstructing from nodes (stale cache?)",
-                     script_name)
-        for n in nodes:
-            nd = n.get("data", n)
-            vt = nd.get("variable_type", "")
-            src_tables = nd.get("source_tables", [])
-            label = nd.get("label", "")
-            if vt in ("table", "view", "cte", "subquery", "virtual_table",
-                       "merge_target", "union_branch") and src_tables and len(src_tables) == 1:
-                alias_map[label] = src_tables[0]
-
-    # B3/P1: the cached alias map is label-keyed with last-writer-wins —
-    # when one alias label names different physical tables across scopes
-    # (p1 aliases bdm_acc_loan_info in the CTE scopes but loan_final at
-    # TOP0), the collapsed entry points the alias at the wrong table for
-    # the dominant usage. Rebuild first-writer-wins from the FULL graph's
-    # table variables and override the cached map.
-    node_alias_map = {}
-    for n in full_graph.get("nodes", []):
-        nd = n.get("data", n)
-        vt = nd.get("variable_type", "")
-        src_tables = nd.get("source_tables", [])
-        label = nd.get("label", "")
-        if (vt in ("table", "view", "cte", "subquery", "virtual_table",
-                   "merge_target", "union_branch") and src_tables
-                and len(src_tables) == 1):
-            node_alias_map.setdefault(label, src_tables[0])
-    if node_alias_map:
-        alias_map = node_alias_map
+    # ── Phase 0: alias parent-resolution map from the model's alias
+    # views (alias label → canonical entity name) — the alias/field
+    # parent fallback's one-hop resolution; the model's alias_by_var_id
+    # is the aliasness truth itself.
+    alias_map = {}
+    if physical_model is not None:
+        for tbl in physical_model.tables.values():
+            for av in tbl.alias_views:
+                canon = physical_model.tables.get(av["canonical_key"])
+                if canon is not None:
+                    alias_map[av["label"]] = canon.name
 
     # Classify each node
     for n in nodes:
@@ -388,30 +371,35 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             # Bug 28: Keep aliases as visible compound nodes
             # Aliases carry fields and show the data flow explicitly:
             #   canonical_table --ALIAS--> alias (with fields) --DML--> target_table
-            is_alias = (label in alias_map and alias_map[label] != label)
+            # J12-10 stage 4: aliasness is the model's alias truth (I4
+            # alias_of + the label-keyed rule for table/view/cte only) —
+            # derived-subquery aliases (p2@40 style) are their own
+            # (name, context) entities, not aliases of another table.
+            is_alias = (physical_model is not None
+                        and nid in physical_model.alias_by_var_id)
             # Issue a: one physical table must appear as exactly ONE L2
             # table node. The extractor emits one TABLE variable per scope,
             # so the same table read/written by N contexts produced N nodes.
-            # Non-alias table/view nodes are keyed by their label (the
+            # Non-alias table/view nodes are keyed by their entity (the
             # physical table name) instead of the context nid — the first
             # occurrence is the keeper, later contexts merge into it (their
-            # nids are recorded on the keeper so _build_id_map re-points
-            # every edge to it). Aliases/subqueries/CTEs keep per-context
-            # semantics (Bug 28 visible aliases; distinct subquery scopes).
+            # nids record occ_to_id to the keeper, re-pointing every edge).
+            # Aliases/subqueries/CTEs keep per-context semantics (Bug 28
+            # visible aliases; distinct subquery scopes).
             if vt in ("table", "view") and not is_alias:
                 # J12-10 stage 2: the keeper lookup is the physical model's
                 # entity key — for a non-alias table/view occurrence the
                 # model key IS the raw name (kind "physical"), so this is
                 # the old label-keyed merge by construction (one keeper per
                 # physical table, first occurrence wins; merged-away nids
-                # recorded for _build_id_map). The defensive fallback keeps
-                # the label key if the model ever misses an occurrence.
+                # record occ_to_id). The defensive fallback keeps the
+                # label key if the model ever misses an occurrence.
                 ekey = entity_by_var_id.get(nid)
                 if ekey is None:
                     ekey = (label, "physical")
                 keeper = keeper_by_entity.get(ekey)
                 if keeper is not None:
-                    keeper["merged_original_ids"].append(nid)
+                    occ_to_id[nid] = keeper["id"]
                     continue
 
             tbl_id = f"l2_tbl_{hashlib.md5(nid.encode()).hexdigest()[:10]}"
@@ -442,31 +430,36 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 # ("p1@29") so duplicate alias instances are distinguishable
                 # (review item #4). `table_name` keeps the raw label — all
                 # field-parent matching uses table_name, never the display
-                # label. Physical-table compound nodes keep the label-keyed
+                # label. Physical-table compound nodes keep the entity-keyed
                 # merge (R22: one compound node per physical table);
                 # ⟐/CTE/output nodes keep their existing keys.
                 alias_line = int(nd.get("line_start") or 0)
                 display_label = f"{display_label}@{alias_line}" if alias_line > 0 else display_label
-                # Resolve the alias's physical parent compound id (its own
-                # source_tables are reliable — design doc §4) for the dedup
-                # key; when the parent is not classified yet the key's
-                # parent slot is None (same-line duplicates still merge).
+                # Resolve the alias's canonical parent compound id for the
+                # dedup key — the model's alias view names the canonical
+                # entity; when the canonical compound is not classified yet
+                # the key's parent slot is None (same-line duplicates still
+                # merge).
                 alias_parent_id = None
-                if src_tables and len(src_tables) == 1:
-                    for tn in table_nodes.values():
-                        if tn["table_name"] == src_tables[0]:
-                            alias_parent_id = tn["id"]
-                            break
-                    if alias_parent_id is None:
-                        resolved_alias = alias_map.get(src_tables[0], src_tables[0])
-                        for tn in table_nodes.values():
-                            if tn["table_name"] == resolved_alias:
-                                alias_parent_id = tn["id"]
-                                break
+                canon_key = None
+                if physical_model is not None:
+                    canon_key = physical_model.alias_by_var_id.get(nid)
+                if canon_key is not None:
+                    keeper = keeper_by_entity.get(canon_key)
+                    if keeper is not None:
+                        alias_parent_id = keeper["id"]
+                    else:
+                        canon = physical_model.tables.get(canon_key)
+                        canon_name = canon.name if canon is not None else None
+                        if canon_name is not None:
+                            for tn in table_nodes.values():
+                                if tn["table_name"] == canon_name:
+                                    alias_parent_id = tn["id"]
+                                    break
                 alias_key = (alias_parent_id, label, alias_line)
                 dup_alias = alias_nodes_by_key.get(alias_key)
                 if dup_alias is not None:
-                    dup_alias["merged_original_ids"].append(nid)
+                    occ_to_id[nid] = dup_alias["id"]
                     continue
 
             table_nodes[nid] = {
@@ -481,11 +474,10 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 # "CTE{loan_final}/subq1"), surfaced in the L2 response.
                 "context": nd.get("context", ""),
             }
+            occ_to_id[nid] = tbl_id
             if vt in ("table", "view") and not is_alias:
-                table_nodes[nid]["merged_original_ids"] = []
                 keeper_by_entity[ekey] = table_nodes[nid]
             elif is_alias:
-                table_nodes[nid]["merged_original_ids"] = []
                 alias_nodes_by_key[alias_key] = table_nodes[nid]
             continue
 
@@ -539,20 +531,24 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 # Contexts merged into a keeper table all re-parent here, so
                 # the same physical field from two contexts would otherwise
                 # duplicate; later duplicates' edges re-point to the first
-                # via merged_original_ids in _build_id_map.
-                # C-9: the key is scoped by the field's STATEMENT index too —
-                # same-named vars from DIFFERENT top-level statements are
-                # distinct fields (per-statement dedup). stmt_idx is absent
-                # for CTE-body scopes → None (graceful fallback: still
-                # distinct from statement-scoped fields).
-                dedup_key = (parent_table_id, field_node["label"],
-                             nd.get("stmt_idx"))
+                # via occ_to_id.
+                # J12-16 (user ruling 2026-08-11): the key is NOT scoped by
+                # the statement index — same-named field instances from
+                # different statements fold into ONE display field per
+                # physical table (the merged field carries every incident
+                # line; its keeper is the first occurrence, whose context
+                # anchors per-statement trunk decisions in
+                # _simplify_dml_edges). The ⟐ output VTs themselves are
+                # NEVER merged (R19.6b — they are per-statement entities by
+                # construction); J12-15's per-statement DML trunk is
+                # independent of this field-level fold.
+                dedup_key = (parent_table_id, field_node["label"])
                 dup = fields_by_key.get(dedup_key)
                 if dup is not None:
-                    dup["merged_original_ids"].append(nid)
+                    occ_to_id[nid] = dup["id"]
                     continue
-                field_node["merged_original_ids"] = []
                 fields_by_key[dedup_key] = field_node
+            occ_to_id[nid] = field_id
             field_nodes.append(field_node)
             continue
 
@@ -591,16 +587,18 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             if parent_table_id:
                 field_node["parent"] = parent_table_id
                 # Issue a: same dedup semantics as the column branch — one
-                # computed field per (keeper table, label). C-9: scoped by
-                # the statement index (per-statement dedup).
-                dedup_key = (parent_table_id, field_node["label"],
-                             nd.get("stmt_idx"))
+                # computed field per (keeper table, label). J12-16 (user
+                # ruling 2026-08-11): the statement index is dropped from
+                # the key — same-named computed fields fold into one
+                # display field per physical table (per-statement identity
+                # is a table-level property; the ⟐ output VTs never merge).
+                dedup_key = (parent_table_id, field_node["label"])
                 dup = fields_by_key.get(dedup_key)
                 if dup is not None:
-                    dup["merged_original_ids"].append(nid)
+                    occ_to_id[nid] = dup["id"]
                     continue
-                field_node["merged_original_ids"] = []
                 fields_by_key[dedup_key] = field_node
+            occ_to_id[nid] = field_id
             field_nodes.append(field_node)
             continue
 
@@ -610,6 +608,7 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                          label, vt if vt else "unknown", list(table_nodes.values())[0]["table_name"])
             parent_table_id = list(table_nodes.values())[0]["id"]
             field_id = f"fld_{hashlib.md5(nid.encode()).hexdigest()[:10]}"
+            occ_to_id[nid] = field_id
             field_nodes.append({
                 "id": field_id,
                 "label": (label[:36] if len(label) > 36 else label) + " ·",
@@ -628,7 +627,7 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
     # occurrence to its entity, so the searched table's compound carries
     # the real field instance (nothing to synthesize).
 
-    return table_nodes, field_nodes, other_nodes, alias_map
+    return table_nodes, field_nodes, alias_map, occ_to_id
 
 
 def _map_search_target_ids(field_nodes: list, table_nodes: dict,
@@ -638,10 +637,11 @@ def _map_search_target_ids(field_nodes: list, table_nodes: dict,
 
     _compute_target_and_direct_ids yields ORIGINAL graph nids; after the
     table/field dedup those may belong to merged-away contexts. Mapping
-    every id through id_map resolves them to the merged keeper (single
-    table node / deduped field node), so the highlight never lands on a
-    ghost nid. Field nodes are re-marked in place: a target field that
-    arrived via a merged-away context still lights up on the keeper.
+    every id through id_map (the classification's occ_to_id) resolves
+    them to the merged keeper (single table node / deduped field node),
+    so the highlight never lands on a ghost nid. Field nodes are
+    re-marked in place: a target field that arrived via a merged-away
+    context still lights up on the keeper.
 
     Returns (target_mapped, direct_mapped).
     """
@@ -653,29 +653,6 @@ def _map_search_target_ids(field_nodes: list, table_nodes: dict,
         if fn["id"] in direct_mapped:
             fn["field_group"] = "direct"
     return target_mapped, direct_mapped
-
-
-def _build_id_map(table_nodes: dict, field_nodes: list, other_nodes: list) -> dict:
-    """Map original IDs to new compound IDs (shared by the edge phases).
-
-    Issue a: every nid merged into a keeper (recorded on the keeper's
-    merged_original_ids) maps to the keeper's new id, so _build_edge_list
-    re-points all edges that touched a merged context to the single
-    surviving table/field node. Self-loops created by the merge are
-    dropped downstream in _build_edge_list.
-    """
-    id_map = {}
-    for tn in table_nodes.values():
-        id_map[tn["original_id"]] = tn["id"]
-        for mnid in tn.get("merged_original_ids", []):
-            id_map[mnid] = tn["id"]
-    for fn in field_nodes:
-        id_map[fn["original_id"]] = fn["id"]
-        for mnid in fn.get("merged_original_ids", []):
-            id_map[mnid] = fn["id"]
-    for on in other_nodes:
-        id_map[on["original_id"]] = on["id"]
-    return id_map
 
 
 def _carry_edge_info(src_nd: dict, tgt_nd: dict, raw_edge: dict) -> dict:
@@ -710,6 +687,7 @@ def _carry_edge_info(src_nd: dict, tgt_nd: dict, raw_edge: dict) -> dict:
         "_tgt_vt": tgt_vt,
         "_src_tables": list(src_tables),
         "_tgt_tables": list(tgt_tables),
+        "_src_ctx": src_nd.get("context", ""),
         "_op": raw_edge.get("operation", ""),
         "_src_field_like": (src_vt in FIELD_LIKE_TYPES
                             or (src_nd.get("defined_in") or "").upper() == "PARTITION"),
@@ -968,12 +946,21 @@ def _survive_join_edges(new_edges: list, full_graph: dict, id_map: dict,
 
 
 def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
-                        table_nodes: dict, field_nodes: list = None) -> list:
+                        table_nodes: dict, field_nodes: list = None,
+                        physical_model=None) -> list:
     """Phase 8 (CW4): DML edges route through the ⟐ output (intermediate_table).
 
     J12-10 stage 3: returns just new_edges — the dml_pairs output fed the
     retired DML-phantom sync (_sync_alias_and_dml_fields, deleted); the
     write targets now resolve through the physical model's roles.
+
+    J12-15 (stage 4, BUG_ANALYSIS): the trunk is selected PER raw DML
+    edge — the owning statement's own ⟐ output VT (each output VT entity
+    has exactly one occurrence — the raw edge's source var), resolved via
+    the physical model's entity_of_id ('⟐ output', TOPn) per-context
+    keys. Edges whose statement's output VT is absent from the graph keep
+    the "⟐ output"-preferred global fallback (the first intermediate
+    table).
     """
     # P17 (§8.5): search-target seed fields keep field-level edges — the
     # value-edge retention below only fires for them.
@@ -1006,23 +993,100 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
             intermediate_id = tn.get("id")
             break
 
+    # ── J12-15: per-statement trunk map ──
+    # For every raw DML edge whose source var is a statement's ⟐ output VT
+    # (the model's entity_of_id key ('⟐ output', TOPn) — output VTs are
+    # (name, context)-keyed virtual entities with exactly one occurrence,
+    # the raw edge's source var), the statement's own output-VT compound
+    # becomes stmt_trunk[TOPn]. Statements without an output VT in the
+    # graph fall back to the global intermediate (mission contract: the
+    # "⟐ output"-preferred fallback stays for missing statement outputs).
+    by_orig = {tn.get("original_id"): tn for tn in table_nodes.values()}
+    stmt_trunk = {}
+    if physical_model is not None:
+        for fe in full_graph.get("edges", []):
+            fed = fe.get("data", fe)
+            rel = fed.get("edge_type", "") or fed.get("relationship", "")
+            if "DML" not in rel.upper():
+                continue
+            src = fed.get("source", "")
+            ekey = physical_model.entity_of_id.get(src)
+            if not (isinstance(ekey, tuple) and len(ekey) == 2
+                    and isinstance(ekey[0], str) and ekey[0] == "⟐ output"):
+                continue
+            tn = by_orig.get(src)
+            if tn is not None:
+                stmt_trunk[ekey[1]] = tn["id"]
+    # ALL ⟐ output compound ids — the per-statement trunk guards (rules
+    # 1/2 and pattern 2) must exempt every output compound, not just the
+    # global intermediate: the FIXED statement-1 write leg (output@TOP1
+    # → target) would otherwise be suppressed as a bypass edge.
+    output_ids = {tn["id"] for tn in table_nodes.values()
+                  if (tn.get("table_name") or "").startswith("⟐ output")}
+    # compound → owning statement: table compounds carry their own
+    # extraction context; field compounds' keeper occurrence context
+    # (J12-15: the statement of the edge's source var picks its trunk).
+    ctx_by_id = {}
+    for tn in table_nodes.values():
+        ctx_by_id[tn["id"]] = tn.get("context", "")
+    for fn in field_nodes or []:
+        if physical_model is not None:
+            occ = physical_model.occurrence(fn.get("original_id", "")) or {}
+            ctx_by_id[fn["id"]] = occ.get("context", "")
+
+    def _stmt_of(e: dict) -> str:
+        """The edge's OWN statement — the raw source occurrence's carried
+        context (`_src_ctx`; J12-16: a folded field compound collapses
+        per-statement identities, so the compound's keeper context is NOT
+        the edge's statement); compound-context fallback for synthetic
+        edges that carry no `_src_ctx`."""
+        return ((e.get("_src_ctx") or ctx_by_id.get(e.get("source", "")) or "")
+                .split("/", 1)[0])
+
+    def _trunk_for(e: dict) -> str | None:
+        """The ⟐ output compound of the edge's OWNING statement — the
+        statement of the edge's source OCCURRENCE (carried _src_ctx —
+        the J12-15 per-statement identity, which the J12-16 field fold
+        must not collapse), via the per-statement trunk map (J12-15);
+        the global fallback when the statement's output VT is missing
+        from the graph."""
+        return stmt_trunk.get(_stmt_of(e), intermediate_id)
+
     # Collect DML target tables and DML source→target pairs
     # Bug 46: Populate from full_graph.edges (unfiltered), not new_edges.
     # filter_relevant() removes DML edges whose source columns are not in
     # the lineage set, making dml_targets empty. The redirect pass at line
-    # ~635 needs dml_targets to route TABLE_FLOW through intermediate_id.
+    # ~635 needs dml_targets to route TABLE_FLOW through the trunk.
     dml_targets = set()
     dml_sources = set()
+    # J12-16: dml-sourcedness is per-OCCURRENCE — one folded field
+    # compound may be a DML source in statement A and a plain read in
+    # statement B (flagship sup data_dt: write column @160 in TOP0,
+    # reads @223/225 in TOP1). Rule 2's bypass redirect must key off the
+    # edge's OWN statement (pre-merge the per-statement field split
+    # provided that granularity; the fold erases it, so the per-statement
+    # map restores it). Sources whose occurrence context cannot be
+    # resolved land in the None bucket — a defensive superset consulted
+    # from any statement (no model → everything lands there, which
+    # reproduces the global pre-merge semantics exactly).
+    dml_sources_by_stmt = {}
     for fe in full_graph.get("edges", []):
         fed = fe.get("data", fe)
         rel = fed.get("edge_type", "") or fed.get("relationship", "")
-        if "DML" in rel.upper():
-            tgt_new = id_map.get(fed.get("target", ""))
-            src_new = id_map.get(fed.get("source", ""))
-            if tgt_new:
-                dml_targets.add(tgt_new)
-            if src_new:
-                dml_sources.add(src_new)
+        if "DML" not in rel.upper():
+            continue
+        tgt_new = id_map.get(fed.get("target", ""))
+        src_new = id_map.get(fed.get("source", ""))
+        if tgt_new:
+            dml_targets.add(tgt_new)
+        if src_new:
+            dml_sources.add(src_new)
+            stmt = None
+            if physical_model is not None:
+                occ = physical_model.occurrence(fed.get("source", "")) or {}
+                ctx = occ.get("context") or ""
+                stmt = ctx.split("/", 1)[0] if ctx else None
+            dml_sources_by_stmt.setdefault(stmt, set()).add(src_new)
 
     new_dml_edges = []
     for e in new_edges:
@@ -1032,22 +1096,37 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
         # 1. Suppress TABLE_FLOW bypass edges (replaced by source→⟐→target chain)
         if (src in dml_sources and tgt in dml_targets
             and etype == "TABLE_FLOW"
-            and src != intermediate_id and tgt != intermediate_id):
+            and src not in output_ids and tgt not in output_ids):
             continue
-        # 2. Redirect non-DML bypass edges to ⟐ output (TRANSFORM, AGGREGATE, etc.)
-        if (src in dml_sources and tgt in dml_targets
+        # 2. Redirect non-DML bypass edges to the statement's ⟐ output
+        # (TRANSFORM, AGGREGATE, etc.). J12-16: the source must be a DML
+        # source of the edge's OWN statement — a folded field that is a
+        # DML source in another statement only (the stmt-2 sup data_dt
+        # reads) is NOT a bypass (pre-merge, the per-statement field
+        # split exempted them; the fold restores the exemption here).
+        # J12-16: the retarget runs BEFORE _combine_edges (orchestrator
+        # order), so this divergence makes the folded field's per-statement
+        # edge instances survive the (source, target, edge_type) combine
+        # with DISTINCT targets — and the id must be recomputed from the
+        # retargeted endpoints (the raw id would collide with the un-
+        # retargeted sibling instance, and the benchmark's per-edge used
+        # id set consumes ids on first match).
+        if ((src in dml_sources_by_stmt.get(_stmt_of(e), set())
+             or src in dml_sources_by_stmt.get(None, set()))
+            and tgt in dml_targets
             and "DML" not in etype.upper()
             and etype != "TABLE_FLOW"
-            and src != intermediate_id and tgt != intermediate_id
+            and src not in output_ids and tgt not in output_ids
             and intermediate_id):
-            e["target"] = intermediate_id
+            e["target"] = _trunk_for(e)
+            e["id"] = f"l2e_{hashlib.md5(f'{e['source']}{e['target']}{e['edge_type']}'.encode()).hexdigest()[:12]}"
             new_dml_edges.append(e)
             continue
         # 3. Replace DML edges with ⟐ output → target (TABLE_FLOW)
         if "DML" in etype.upper() and intermediate_id:
             output_edge = dict(e)
             output_edge["id"] = f"{e['id']}_dml_out"
-            output_edge["source"] = intermediate_id
+            output_edge["source"] = _trunk_for(e)
             output_edge["edge_type"] = "TABLE_FLOW"
             output_edge["label"] = "TABLE_FLOW"
             # W5: the rewrite keeps the raw edge's carried extraction-time
@@ -1065,7 +1144,7 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
             if src in target_field_ids and src != intermediate_id:
                 value_edge = dict(e)
                 value_edge["id"] = f"{e['id']}_value"
-                value_edge["target"] = intermediate_id
+                value_edge["target"] = _trunk_for(e)
                 value_edge["edge_type"] = "TABLE_FLOW"
                 value_edge["label"] = "TABLE_FLOW"
                 value_edge["_dml_origin"] = True
@@ -1077,29 +1156,30 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
 
     # Bug 46 (Pattern 2): Redirect TABLE_FLOW edges that bypass ⟐ output.
     # After DML simplification, any surviving TABLE_FLOW edge into a DML target
-    # that doesn't go through intermediate_id should be redirected.
+    # that doesn't go through the statement's trunk should be redirected.
     #
-    # W5: when the bypass source already has a TABLE_FLOW edge into the
-    # intermediate (its qo/FROM edge), the redirect would collide with it in
+    # W5: when the bypass source already has a TABLE_FLOW edge into its
+    # trunk (its qo/FROM edge), the redirect would collide with it in
     # dedup — and the bypass edge can come FIRST, so its carried info (the
     # m1 source's own line) would corrupt the qo edge's payload (sup seed:
     # the p2→sup m1 redirect would overwrite pair 15's qo carried info,
     # anchoring 199 instead of the output node's creation line). Drop the
     # redundant bypass instead: its flow is already represented by
-    # src→intermediate + intermediate→target.
-    if intermediate_id:
+    # src→trunk + trunk→target.
+    if output_ids:
         to_intermediate = {(e["source"], e["target"]) for e in new_edges
-                           if e.get("target") == intermediate_id
+                           if e.get("target") in output_ids
                            and e.get("edge_type") == "TABLE_FLOW"}
         kept = []
         for e in new_edges:
             src = e.get("source", "")
             tgt = e.get("target", "")
             etype = e.get("edge_type", "")
-            if tgt in dml_targets and src != intermediate_id and etype == "TABLE_FLOW":
-                if (src, intermediate_id) in to_intermediate:
-                    continue  # redundant bypass — src already flows via the intermediate
-                e["source"] = intermediate_id
+            if tgt in dml_targets and src not in output_ids and etype == "TABLE_FLOW":
+                trunk = _trunk_for(e)
+                if (src, trunk) in to_intermediate:
+                    continue  # redundant bypass — src already flows via its trunk
+                e["source"] = trunk
             kept.append(e)
         new_edges = kept
 
@@ -1290,28 +1370,6 @@ def _field_part(label: str) -> str:
     return (label or "").rsplit(".", 1)[-1]
 
 
-def _stmt_anchor_lines_from_nodes(ndata: list) -> dict:
-    """Derive per-statement first-token anchors from the pre-filter node
-    index. The extractor's own _stmt_anchor_lines is extractor-internal
-    (not serialized), so the anchors are re-derived here: a write
-    statement's first token is its DML target var's def line (INSERT at
-    L160/L211 in the flagship); for reads, the minimum non-CTE var line
-    approximates it. CTE DEF vars are excluded — their lines sit at the
-    statement head but the compound's consumption window must start at
-    the statement's actual first token. Returns {TOP{idx}: line}."""
-    anchors: dict = {}
-    for nd in ndata:
-        ctx = nd.get("context") or ""
-        if not ctx.startswith("TOP") or nd.get("variable_type") == "cte":
-            continue
-        line = int(nd.get("line_start") or 0)
-        if line <= 0:
-            continue
-        stmt = ctx.split("/", 1)[0]
-        anchors[stmt] = min(anchors.get(stmt, 10 ** 9), line)
-    return anchors
-
-
 def _next_anchor_after(line: int, anchor_list: list) -> int:
     """The next statement anchor strictly after `line` (0 = none)."""
     for a in anchor_list:
@@ -1320,27 +1378,44 @@ def _next_anchor_after(line: int, anchor_list: list) -> int:
     return 0
 
 
-def _carry_node_lines(table_nodes: dict, full_graph: dict) -> dict:
+def _carry_node_lines(table_nodes: dict, physical_model) -> dict:
     """R11-3 — compound table nodes gain line_start/line_end/defined_in
-    from their keeper vars (the full-graph node the compound merged
-    around; per-var dicts carry the lines but the compound merge dropped
-    them). line_end = the next statement's first-token line − 1 (I1 vars
-    are single-line [L,L]; the compound's span is the consumption window
-    ref sites are scanned in). Returns the derived statement anchors."""
-    full_nodes = full_graph.get("nodes", [])
-    ndata = [n.get("data", n) for n in full_nodes]
-    anchors = _stmt_anchor_lines_from_nodes(ndata)
-    max_line = max((int(d.get("line_start") or 0) for d in ndata), default=0)
-    by_id = {d.get("id", ""): d for d in ndata}
+    from their keeper vars. J12-10 stage 4: the per-var facts ride the
+    physical model's occurrence index (context/variable_type/line_start/
+    line_end/defined_in for every var — the same universe as the
+    full-graph node index, in var order — the derived statement anchors
+    are byte-identical to the node-index derivation). line_end = the
+    next statement's first-token line − 1 (I1 vars are single-line
+    [L,L]; the compound's span is the consumption window ref sites are
+    scanned in). Returns the derived statement anchors."""
+    occurrences = physical_model.occurrences
+    anchors: dict = {}
+    for occ in occurrences.values():
+        ctx = occ.get("context") or ""
+        # a write statement's first token is its DML target var's def
+        # line (INSERT at L160/L211 in the flagship); for reads, the
+        # minimum non-CTE var line approximates it. CTE DEF vars are
+        # excluded — their lines sit at the statement head but the
+        # compound's consumption window must start at the statement's
+        # actual first token.
+        if not ctx.startswith("TOP") or occ.get("variable_type") == "cte":
+            continue
+        line = int(occ.get("line_start") or 0)
+        if line <= 0:
+            continue
+        stmt = ctx.split("/", 1)[0]
+        anchors[stmt] = min(anchors.get(stmt, 10 ** 9), line)
+    max_line = max((int(o.get("line_start") or 0)
+                    for o in occurrences.values()), default=0)
     anchor_list = sorted(anchors.values())
     for tn in table_nodes.values():
-        var = by_id.get(tn.get("original_id", ""))
-        if var is None:
+        occ = occurrences.get(tn.get("original_id", ""))
+        if occ is None:
             continue
-        ls = int(var.get("line_start") or 0)
+        ls = int(occ.get("line_start") or 0)
         tn["line_start"] = ls
-        tn["defined_in"] = var.get("defined_in", "")
-        le = int(var.get("line_end") or 0)
+        tn["defined_in"] = occ.get("defined_in", "")
+        le = int(occ.get("line_end") or 0)
         if ls > 0 and le <= ls:
             nxt = _next_anchor_after(ls, anchor_list)
             le = (nxt - 1) if nxt else max_line
@@ -1615,16 +1690,17 @@ def _attach_flow_roles(new_edges: list, table_nodes: dict, id_map: dict,
 def _assemble_output(table_nodes: dict, field_nodes: list, new_edges: list,
                      nodes: list, sql_text: str, script_name: str,
                      target_full: str) -> dict:
-    """Phase 11 (CW4): assemble the output graph."""
-    # ── Assemble output (only table+field compound nodes) ──
-    # Issue a: merged_original_ids is builder-internal bookkeeping (the
-    # dedup merge record) — it must never leak into the API response.
-    def _clean(d: dict) -> dict:
-        return {k: v for k, v in d.items() if k != "merged_original_ids"}
+    """Phase 11 (CW4): assemble the output graph.
 
+    J12-10 stage 4: no builder-internal bookkeeping exists anymore
+    (merged_original_ids is gone — the merge record rides occ_to_id,
+    which never enters the response) — the compound nodes are emitted
+    as-is.
+    """
+    # ── Assemble output (only table+field compound nodes) ──
     all_new_nodes = (
-        [{"data": _clean(tn)} for tn in table_nodes.values()] +
-        [{"data": _clean(fn)} for fn in field_nodes]
+        [{"data": dict(tn)} for tn in table_nodes.values()] +
+        [{"data": dict(fn)} for fn in field_nodes]
     )
 
     # W5: strip the builder-internal carriers (_src_line/_path_hops/_dml_
@@ -1694,13 +1770,18 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
 
     target_node_ids, direct_ids = _compute_target_and_direct_ids(
         nodes, edges, table, field, physical_model)
-    table_nodes, field_nodes, other_nodes, _alias_map = _classify_compound_nodes(
+    # J12-10 stage 4: the classification returns (table_nodes,
+    # field_nodes, alias_map, occ_to_id) — occ_to_id IS the id_map (every
+    # nid seen during classification maps to its compound/field id; the
+    # old _build_id_map is gone).
+    table_nodes, field_nodes, _alias_map, occ_to_id = _classify_compound_nodes(
         nodes, full_graph, script_name, target_node_ids, direct_ids, table,
         physical_model)
+    id_map = occ_to_id
     # R11-3: compound nodes gain line_start/line_end/defined_in from their
-    # keeper vars (def-site anchors; line_end = next stmt anchor − 1).
-    _carry_node_lines(table_nodes, full_graph)
-    id_map = _build_id_map(table_nodes, field_nodes, other_nodes)
+    # keeper vars (def-site anchors; line_end = next stmt anchor − 1) —
+    # the model's occurrence index carries the per-var facts.
+    _carry_node_lines(table_nodes, physical_model)
     # Issue a: resolve search-target/direct ids to the merged keepers so
     # highlighting lands on the single table node / deduped field node,
     # never on a merged-away ghost nid.
@@ -1708,6 +1789,20 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         field_nodes, table_nodes, target_node_ids, direct_ids, id_map)
 
     new_edges, node_labels = _build_edge_list(edges, nodes, id_map, sql_text)
+    # J12-15 (stage 4): per-statement DML trunk — the write/read legs of
+    # every statement route through that statement's own ⟐ output VT.
+    # J12-16: the DML simplification MUST run BEFORE _combine_edges — a
+    # folded field compound's per-instance edges (identical mapped
+    # endpoints, different occurrences: the flagship sup data_dt REF
+    # @160/TOP0 vs REF @223/TOP1) diverge ONLY through rule 2's
+    # retarget (the TOP0 instance → its statement's ⟐ output; the TOP1
+    # instance → its read target); _combine_edges keyed on
+    # (source, target, edge_type) would collapse the two instances into
+    # one (first-wins, keeping only the TOP0 carried info) before the
+    # divergence could happen.
+    new_edges = _simplify_dml_edges(new_edges, full_graph, id_map,
+                                    table_nodes, field_nodes,
+                                    physical_model=physical_model)
     new_edges = _combine_edges(new_edges)
     new_edges = _promote_field_edges(new_edges, field_nodes)
     # C6 (v3.3.140): under the strict table.field filter the JOIN survival
@@ -1716,8 +1811,6 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     new_edges = _survive_join_edges(new_edges, full_graph, id_map, table_nodes,
                                     field_nodes, node_labels, sql_text,
                                     strict=relevance_filter)
-    new_edges = _simplify_dml_edges(new_edges, full_graph, id_map,
-                                    table_nodes, field_nodes)
     new_edges = _dedup_edges(new_edges)
     # W5/R25: per-edge payload — highlight_line/flow_kind/reason from the
     # carried extraction-time info + the closure walk (never at render).

@@ -41,6 +41,15 @@ EXTRACTOR_VERSION = "2026-08-10.3"
 # carries this name — it is a marker for the stats report only.
 SYSTEM_TABLE_SENTINEL = "⟐system"
 OTHER_SENTINEL = "⟐pseudo"  # E4: S6-marked vars (pseudocolumns/trigger idioms)
+# Task B (audit: unregistered table-like constructs): the synthetic base
+# tables behind VALUES / UNNEST aliases. ⟐-prefixed like the other
+# synthetic container names ("⟐ output", "⟐ insert"); the alias var
+# carries source_tables=[synthetic] so dependency_graph Phase 1a emits
+# the read edge (gated on source_tables non-empty). No node is ever
+# created for these names — they are markers, exactly like
+# SYSTEM_TABLE_SENTINEL.
+VALUES_TABLE_NAME = "⟐ values"
+UNNEST_TABLE_NAME = "⟐ unnest"
 
 # S5: schema names that make a resolved table a "system table".
 _SYSTEM_SCHEMAS = {"information_schema", "mysql", "pg_catalog", "sys"}
@@ -830,6 +839,57 @@ class _RoleBasedExtractor:
         return min((a for c, a in self._stmt_anchor_lines.items()
                     if a > line and not _nested(c)), default=10**9)
 
+    def _first_keyword_token_after(self, keyword: str, line: int) -> int:
+        """Line of the first `keyword` token at line > `line` (0 if none).
+        Token-stream only (I1): the pre-tokenized stream's first-token
+        position index. STRING tokens and quoted identifiers never match —
+        a literal 'select' or a `select`-quoted column tokenizes with its
+        quotes, so only the unquoted KEYWORD hits.
+        """
+        for i in self._first_token_index.get(keyword, []):
+            tok = self._tokens_wo_as[i]
+            if tok.line > line:
+                return tok.line
+        return 0
+
+    def _vt_fallback_line(self, stmt, context: str) -> int:
+        """SELECT/statement-keyword line for a VIRTUAL_TABLE whose
+        def-site resolution failed (line 0). I1 token-stream only — never
+        a text search. E5 (audit item 1): render-head runs fail when
+        sqlglot canonicalizes tokens (substr→SUBSTRING in every dialect,
+        TSQL brackets→backticks, TOP→LIMIT), so the ⟐ VT's def-site comes
+        up empty. Fallback chain:
+          1. the statement's OWN anchor — its keyword line when the render
+             head matches;
+          2. the nearest ANCESTOR select with a valid anchor → the first
+             "select" keyword token strictly after that line;
+          3. the recorded statement anchor for the context prefix
+             (`_stmt_anchor_for`) → the first statement-keyword token
+             strictly after the ENCLOSING statement's keyword line;
+          4. the first statement-keyword token in the whole stream.
+        Returns 0 only when the stream has no matching keyword at all.
+        """
+        anch = self._statement_anchor(stmt)
+        if anch > 0:
+            return anch
+        p = stmt.parent
+        while p is not None:
+            if isinstance(p, exp.Select):
+                a = self._statement_anchor(p)
+                if a > 0:
+                    ln = self._first_keyword_token_after("select", a)
+                    if ln > 0:
+                        return ln
+            p = p.parent
+        head = _statement_head_run(stmt)
+        kw = head[0] if head else "select"
+        ca = self._stmt_anchor_for(context)
+        if ca > 0:
+            ln = self._first_keyword_token_after(kw, ca)
+            if ln > 0:
+                return ln
+        return self._first_keyword_token_after(kw, 0)
+
     def _find_def_position(self, runs: list[list[str]], node=None,
                            stmt_ctx: str = "",
                            ret_last: bool = False,
@@ -1331,10 +1391,22 @@ class _RoleBasedExtractor:
                 if exprs:
                     proj_run = _statement_head_run(exprs[0])
                 runs = ([proj_run, head_run] if proj_run else [head_run])
-            self._add(vt_name, VariableType.VIRTUAL_TABLE,
-                      sql_expr=_sql(select),
-                      defined_in=context, context=context,
-                      def_site=(runs, node, context))
+            vt_var = self._add(vt_name, VariableType.VIRTUAL_TABLE,
+                               sql_expr=_sql(select),
+                               defined_in=context, context=context,
+                               def_site=(runs, node, context))
+            # E5 (audit item 1): a ⟐ VT whose def-site resolution came up
+            # empty (line 0 — the render-head runs fail when sqlglot
+            # canonicalizes tokens: substr→SUBSTRING, TSQL brackets/TOP,
+            # probed on samples/tpcds/q62/q85/q99/q51/q8 + tsql_top_nolock)
+            # falls back to the statement's SELECT-keyword line (I1 token
+            # stream only). NEVER touches a valid line — the flagship's
+            # output@160/211 are baked into the ground-truth doc.
+            if vt_var is not None and vt_var.line_start < 1:
+                fl = self._vt_fallback_line(select, context)
+                if fl > 0:
+                    vt_var.line_start = fl
+                    vt_var.line_end = fl
             output_container = vt_name
             # E3a/3: when this SELECT is the source of an INSERT, its
             # expression outputs attribute to the INSERT TARGET table (the
@@ -1389,6 +1461,15 @@ class _RoleBasedExtractor:
         # JOIN clauses
         for join in (select.args.get("joins") or []):
             self._walk_join(join, context, scope)
+
+        # Task B: SELECT-level LATERAL VIEW (hive) — `LATERAL VIEW
+        # explode(t.arr) x AS c2` lives in select.args["laterals"], never
+        # in joins. Register the alias var (base = the physical table
+        # behind the exploded array column) so Phase 1a emits the read
+        # edge; the exploded column refs inside the lateral body walk
+        # through the normal expression walker downstream.
+        for lateral in (select.args.get("laterals") or []):
+            self._register_lateral_alias(lateral, context, scope)
 
         # USING clause (DELETE ... USING / MERGE USING)
         using_tables = select.args.get("using") or []
@@ -1485,6 +1566,14 @@ class _RoleBasedExtractor:
             # bare columns matching its output columns resolve via S2.
             if sub_alias and scope is not None:
                 scope.deriveds.append(sub_alias)
+        elif isinstance(from_exp, exp.Values):
+            # Task B: FROM (VALUES ...) v(c1) — register the alias (base =
+            # the synthetic VALUES table) so Phase 1a emits its read edge.
+            self._register_values_alias(from_exp, context, scope)
+        elif isinstance(from_exp, exp.Unnest):
+            # Task B: FROM UNNEST(arr) AS u(c2) — alias base = synthetic
+            # UNNEST table (duckdb/bigquery style, same registration).
+            self._register_unnest_alias(from_exp, context, scope)
 
     def _walk_join(self, join, context: str, scope: _SelectScope | None = None):
         """Extract from a JOIN clause (including LATERAL)."""
@@ -1530,6 +1619,21 @@ class _RoleBasedExtractor:
             # Fix C: the derived alias is visible to the enclosing scope.
             if sub_alias and scope is not None:
                 scope.deriveds.append(sub_alias)
+        elif isinstance(join_expr, exp.Unnest):
+            # Task B: CROSS JOIN UNNEST(t.arr) AS u(c2) — alias base =
+            # the synthetic UNNEST table (hive/spark/duckdb). A LATERAL
+            # UNNEST unwraps to the same exp.Unnest — the alias then sits
+            # on the LATERAL wrapper, so lateral_alias falls back in.
+            self._register_unnest_alias(join_expr, context, scope,
+                                        defined_in="JOIN",
+                                        alias_override=lateral_alias or "")
+        elif isinstance(join_expr, exp.Values):
+            # Task B: JOIN (VALUES ...) v(c1) — the VALUES-with-alias
+            # construct in JOIN position, same registration as FROM
+            # (alias base = the synthetic VALUES table). sqlglot parses
+            # `JOIN (VALUES (1)) v(c1)` as a bare exp.Values (no Subquery
+            # wrapper), so the FROM branch never sees it.
+            self._register_values_alias(join_expr, context, scope)
         elif lateral_alias and isinstance(join_expr, exp.Select):
             # LATERAL SELECT without Subquery wrapper
             self._add(lateral_alias, VariableType.SUBQUERY,
@@ -1786,6 +1890,102 @@ class _RoleBasedExtractor:
                 scope.tables.append((_clean(table.db or ""), name))
             if alias:
                 scope.aliases[alias] = name
+
+    # ── Task B: LATERAL VIEW / VALUES / UNNEST alias registration ────
+    # The audit found three table-like constructs whose table var/alias
+    # was never registered: `LATERAL VIEW explode(...) x AS c2`
+    # (SELECT-level laterals), `FROM (VALUES ...) v(c1)`, and
+    # `CROSS JOIN UNNEST(t.arr) AS u(c2)`. Without the alias var,
+    # dependency_graph Phase 1a (gated on `if not v.source_tables:
+    # continue`) emits no read edge — the exploded array / VALUES rows /
+    # UNNEST rows vanish from the graph. Registering mirrors `FROM base x`:
+    # a TABLE alias var carrying the base table name in source_tables.
+    # For VALUES/UNNEST the "base" is the synthetic table the clause
+    # itself represents (⟐ values / ⟐ unnest); for LATERAL VIEW it is the
+    # physical table whose array column is exploded. The alias is NOT
+    # added to scope.aliases/_table_aliases: columns referencing it
+    # (x.c2 / v.c1 / u.c2) keep their current registration and lines
+    # exactly as before.
+
+    def _lateral_base_table(self, lateral, scope: _SelectScope | None) -> str:
+        """Physical table whose array column a LATERAL VIEW explodes ("" if
+        unresolvable — honest, never a guess). The exploded argument is a
+        qualified column (explode(t.arr) → t resolves via _resolve_alias),
+        a bare column (explode(arr) → the single distinct FROM/JOIN table),
+        or absent → "".
+        """
+        fn = lateral.this
+        if fn is None:
+            return ""
+        arg = fn.this if isinstance(fn, exp.Func) else None
+        if arg is None and isinstance(fn, exp.Func):
+            exprs = fn.args.get("expressions") or []
+            arg = exprs[0] if exprs else None
+        if arg is None:
+            return ""
+        if isinstance(arg, exp.Column) and arg.table:
+            return self._resolve_alias(_clean(arg.table or ""), scope)
+        if scope is not None:
+            names = {n for _, n in scope.tables}
+            if len(names) == 1:
+                return names.pop()
+        return ""
+
+    def _register_synthetic_alias(self, alias: str, base: str, context: str,
+                                  defined_in: str, node,
+                                  sql_expr: str) -> None:
+        """Add a TABLE alias var with source_tables=[base] for a
+        LATERAL VIEW / VALUES / UNNEST clause. I1 def site: the alias
+        token right after the closing ')' of the clause — `[")", alias]`
+        with ret_last (report the ALIAS token's line), whole-stream
+        fallback `[alias]`. base may be "" (no source_tables → no read
+        edge, honest)."""
+        if not alias:
+            return
+        self._add(alias, VariableType.TABLE,
+                  sql_expr=sql_expr,
+                  defined_in=defined_in, context=context,
+                  source_tables=[base] if base else None,
+                  def_site=([[")", alias], [alias]], node, context, True))
+
+    def _register_values_alias(self, values, context: str,
+                               scope: _SelectScope | None) -> None:
+        """FROM (VALUES ...) v(c1) — the alias v is a TABLE var whose base
+        is the synthetic VALUES table (⟐ values)."""
+        alias = _clean(values.alias_or_name or "")
+        if not alias:
+            return
+        node = scope.owner if scope is not None else None
+        self._register_synthetic_alias(alias, VALUES_TABLE_NAME, context,
+                                       "FROM", node, _sql(values))
+
+    def _register_unnest_alias(self, unnest, context: str,
+                               scope: _SelectScope | None,
+                               defined_in: str = "FROM",
+                               alias_override: str = "") -> None:
+        """UNNEST(...) AS u(c2) in FROM or JOIN — the alias u is a TABLE
+        var whose base is the synthetic UNNEST table (⟐ unnest).
+        `alias_override` covers `JOIN LATERAL UNNEST(...) x` — the alias
+        sits on the LATERAL wrapper, never on the exp.Unnest itself."""
+        alias = _clean(alias_override or unnest.alias_or_name or "")
+        if not alias:
+            return
+        node = scope.owner if scope is not None else None
+        self._register_synthetic_alias(alias, UNNEST_TABLE_NAME, context,
+                                       defined_in, node, _sql(unnest))
+
+    def _register_lateral_alias(self, lateral, context: str,
+                                scope: _SelectScope | None) -> None:
+        """LATERAL VIEW explode(t.arr) x AS c2 — the alias x is a TABLE
+        var whose base is the physical table behind the exploded array
+        column (t → resolved)."""
+        alias = _clean(lateral.alias_or_name or "")
+        if not alias:
+            return
+        base = self._lateral_base_table(lateral, scope)
+        node = scope.owner if scope is not None else None
+        self._register_synthetic_alias(alias, base, context, "FROM", node,
+                                       _sql(lateral))
 
     # ── Column walker ───────────────────────────────────────────────
 
@@ -2655,9 +2855,19 @@ class _RoleBasedExtractor:
             label = context[4:context.index("}")]
         vt_name = f"⟐ {label}"
         head_run = _statement_head_run(update)
-        self._add(vt_name, VariableType.VIRTUAL_TABLE,
-                  sql_expr=_sql(update), defined_in=context, context=context,
-                  def_site=([head_run, head_run[:2]], update, context))
+        vt_var = self._add(vt_name, VariableType.VIRTUAL_TABLE,
+                           sql_expr=_sql(update), defined_in=context,
+                           context=context,
+                           def_site=([head_run, head_run[:2]], update,
+                                     context))
+        # E5 (audit item 1): same line<1 fallback as _walk_select — the
+        # ⟐ VT must land on the statement's own UPDATE-keyword line when
+        # def-site resolution came up empty. Never touches a valid line.
+        if vt_var is not None and vt_var.line_start < 1:
+            fl = self._vt_fallback_line(update, context)
+            if fl > 0:
+                vt_var.line_start = fl
+                vt_var.line_end = fl
 
         # Target table (exp.Update.this) — UPDATE-marked for the DML phase.
         target = update.args.get("this")

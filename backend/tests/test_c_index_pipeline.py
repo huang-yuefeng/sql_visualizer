@@ -146,9 +146,12 @@ class TestC2GraphCacheInvalidation:
         line_start/line_end/defined_in); stage 3 bumped to graph_3_2_22
         (the L2 served shape changed: seed_/sync_/dml_ proxy nodes are
         deleted — model entities replace them; extraction is unchanged,
-        extractor_version NOT bumped). The bump is the single-constant
-        invalidation."""
-        assert cache_keys.GRAPH_CACHE_PREFIX == "graph_3_2_22", \
+        extractor_version NOT bumped); stage 4 bumped to graph_3_2_23
+        (compound assembly is model-driven: keeper merges/alias dedup key
+        off the model's alias truth + occurrence index, node anchors come
+        from the model occurrences, the DML trunk is per-statement
+        J12-15). The bump is the single-constant invalidation."""
+        assert cache_keys.GRAPH_CACHE_PREFIX == "graph_3_2_23", \
             cache_keys.GRAPH_CACHE_PREFIX
         assert fis.GRAPH_CACHE_PREFIX == cache_keys.GRAPH_CACHE_PREFIX
 
