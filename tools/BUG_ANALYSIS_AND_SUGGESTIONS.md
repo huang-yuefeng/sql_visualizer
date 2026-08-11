@@ -4055,7 +4055,10 @@ extraction-semantics changes can never serve stale graphs again
   pre-drag + drag-to-resize handle),
   **Issue 2** (L2 "3 parallel lines, 1 inverse" — the inverse edge is
   the DML write leg, mis-styled as a chain; analysis in the Issue 2
-  section below; fix pick A/B OPEN),
+  section below; **fix DECIDED 2026-08-11: A — extractor-side DML
+  output→target edge, validated by simulation; benchmark blind spot:
+  the gate cannot see the kind flip (anchor/type unchanged) — needs
+  the R19.3 path-level assertions to pin it**),
   **Issue 3** (L2 missing the bdm → rrcdm / sup read chain — bare FROM
   refs get no source_tables → read edge only as a non-walkable SUBSET
   bridge; analysis in the Issue 3 section below; fix = extractor
@@ -4314,7 +4317,7 @@ handle — Option B + user control; supersedes A and C**:
 
 **Candidate for the batch** (waiting on user's "go").
 
-### Issue 2 · "3 parallel lines, 1 inverse" — the inverse edge is the write leg, mis-styled as a chain (backend, OPEN — awaiting user's fix pick)
+### Issue 2 · "3 parallel lines, 1 inverse" — the inverse edge is the write leg, mis-styled as a chain (backend, DECIDED 2026-08-11 — Fix A)
 
 **User question** (2026-08-11): "In L2, the edge direction should be in the
 data flow direction. When there are three parallel lines between the same
@@ -4367,24 +4370,52 @@ does flow `output → sup`. Semantically 100% correct.
      instead of blue-double like a write** — the root of the user's
      "wrong direction" reading.
 
-**Fix options** (no code changed; awaiting ruling):
-- **A (DG-side, preferred — builds on extraction-time info)**: Phase 1c
+**Fix options** — **RULING 2026-08-11: Fix A chosen** (user: "Let us use A
+solution"):
+- **A (DG-side — DECIDED, builds on extraction-time info)**: Phase 1c
   emits `DML output → target` whenever the statement has exactly one
   output VT AND the fallback branch did not already create it (i.e. the
   src_vars branch fired). Every DML target then gets the DML edge → the
-  L2 rewrite stamps it uniformly → the write leg renders 'write'. Raw
-  graph shape changes for every INSERT statement → re-run the Jaccard
-  gate (canonical rows 10/12/16/17/B1/C4 are endpoint-keyed, likely
-  unaffected; verify).
-- **B (narrow)**: in `_simplify_dml_edges`, stamp `_dml_origin=True` on
-  surviving `TABLE_FLOW output → target` edges whose `_op` is a DML word
-  and whose target is that statement's DML target. Smaller blast radius,
-  but decides a write role in L2 — the never-patch principle favors A.
+  L2 rewrite stamps it uniformly → the write leg renders 'write'.
+- **B (narrow, REJECTED)**: stamp `_dml_origin=True` in
+  `_simplify_dml_edges` on surviving unstamped output→target TABLE_FLOW.
+  Display-layer patch for an extraction-layer defect — the raw graph
+  keeps saying TABLE_FLOW for sup while DML for rrcdm; every future
+  raw-graph consumer re-hits the asymmetry (never-patch principle).
 - Pattern A (below) needs NO fix — direction is by design.
 
-**Pattern B Jaccard note**: the canonical set matches these three edges
-endpoint-keyed today with the chain kind — a kind-insensitive match means
-A/B pass the gate unchanged; the batch will verify.
+**Fix A — validated end-to-end by simulation 2026-08-11** (adapter-level
+monkeypatch adding the DML edge at the Phase-1c position, fresh ws ids to
+bypass the graph cache; seed bdm_acc_loan_info/data_dt, filtered L2):
+
+| edge (output→) | BASE (today) | FIX_A (simulated) |
+|---|---|---|
+| `→ sup` | flow_kind='chain' id `l2e_8bc2dd7b554e` | **flow_kind='write'** id `l2e_3b8e8e62b668_dml_out` |
+| `→ rrcdm` | flow_kind='write' (unchanged) | flow_kind='write' (unchanged) |
+
+Mechanics verified: (1) the filter keeps BOTH the DML edge and the
+1c-extra2 TABLE_FLOW twin (same endpoints, both in the closure); (2)
+`_simplify_dml_edges` rule 3 rewrites the DML edge to the stamped
+`_dml_out` form; (3) `_dedup_edges` keeps the FIRST occurrence
+(l2_builder.py:1072-1082) → **the fix must add the DML edge in Phase 1c,
+BEFORE 1c-extra2, or the unstamped twin wins**. Probe pitfalls recorded:
+appending the edge at deps end loses the dedup race; re-using a ws id
+serves the cached graph (fresh ids mandatory).
+
+**Cleaner formulation for batch time**: instead of adding a second edge
+in the src_vars branch, flip 1c-extra2 itself (:172-179) to emit
+`DML` instead of `TABLE_FLOW` for the output-VT→DML-target edge — the
+edge IS by definition the write leg; the src_vars/fallback DML edges
+already cover the duplicates and `_add_edge` dedup absorbs overlap.
+Same end state, one line, no ordering dependency.
+
+**Pattern B Jaccard note** (verified 2026-08-11): the canonical rows
+match by (anchor line, type prefix, endpoints) — Fix A changes NONE of
+those keys (anchor 160, type TABLE_FLOW both before/after; only the
+derived flow_kind flips) → **the benchmark cannot see this fix**. The
+kind flip must be pinned by the R19.3/R20 path-level assertions
+(J12-13 §4), not by the existing rows. Sup nodes floor stays 0.9
+(R11-2 phantom, parked per the benchmark docstring).
 
 #### Pattern A (bdm_acc_loan_info ↔ p1@29 / p1@84) — the SCHEMA containment edge
 

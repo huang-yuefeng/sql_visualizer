@@ -1234,6 +1234,14 @@ genuine flow:
 
 ## 6. Implementation deltas (updated)
 
+0. **Issue-2 fix (RULING 2026-08-11: Fix A — extractor-side)**: Phase
+   1c emits `DML output → target` uniformly for every DML statement
+   (cleanest form: 1c-extra2 itself emits DML instead of TABLE_FLOW).
+   Validated by simulation 2026-08-11: filtered L2 `output→sup` flips
+   chain→write (`l2e_3b8e8e62b668_dml_out`); ordering matters —
+   the DML edge must precede 1c-extra2 or `_dedup_edges` keeps the
+   unstamped twin; benchmark blind spot — anchor/type keys unchanged,
+   pin via the R19.3 path-level assertions (bug list Issue 2).
 1. Issue-3 fix (R19.3 + decision procedure 5a): Fix A (bare FROM/JOIN
    refs → source_tables) + closure admission of the same-table read
    instance + DML WRITE_READ routed through the reader (no-bypass).
@@ -1257,7 +1265,10 @@ genuine flow:
 > **Status:** Design + palette defined (sources: HSBC brand guidelines via
 > brandcolor.dev/Brandfetch; official HSBC careers-site red tint scale;
 > minimal-fintech design conventions — fluar.com, thefrontkit, Refraction).
-> NO source changes — batch item, waiting on the user's "go".
+> **Default-mode ruling 2026-08-11 (user): light — HSBC official (white
+> surfaces, near-black text, red accents), KEEPING the switch to dark
+> (black) mode.** NO source changes — batch item, waiting on the user's
+> "go".
 
 ## 1. The ask
 
