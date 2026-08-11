@@ -4461,4 +4461,10 @@ TABLE_FLOW (same endpoints, anchor 223 — doc repair with probe evidence
 per the repair-the-doc rule); the sup seed's closure gains the walkable
 read edge. Re-run the gate; raise floors with measured values.
 
+**MANDATED by R19.3/J12-13 (user ruling 2026-08-11)**: the flow-topology
+requirement — every flow edge on a source→target path, no dead-end
+branches, no-bypass — is violated exactly at this spot (sup = broken
+waypoint, DML WRITE_READ bypasses the reader). The Issue-3 fix is the
+first stage of J12-13 (see wiki/SOLUTION_DESIGN.md §J12-13).
+
 **Candidate for the batch** (waiting on user's "go").

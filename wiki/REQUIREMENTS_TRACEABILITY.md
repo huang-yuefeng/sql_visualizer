@@ -177,11 +177,25 @@
 | R18.1.1 | Remove tables with 0 field children | ✅ | v3.3.105 — primary + fallback paths |
 | R18.1.2 | Keep termination marker table | ✅ | v3.3.105 — terminal table + edge preserved |
 
+## R19 — L2 Flow Topology: one source, flow targets, every edge on a path (user ruling 2026-08-11)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R19.1 | The filtered L2 flow view has exactly one flow source: the searched table.field (the seed) | 📝 design | v3.3.140 seed semantics — the closure root |
+| R19.2 | The flow targets are the output tables the seed's data reaches (DML write targets; pure-SELECT scripts: the terminal output VT). One or more — e.g. the bdm seed reaches sup@160 AND rrcdm@211 | 📝 design | every path ends at a target |
+| R19.3 | Topological property: every flow edge lies on ≥1 path from the source to some target; no dead-end flow branches; no-bypass — cross-statement flow must route through the reader instance, never shortcut around it | 📝 design | currently VIOLATED at the Issue-3 spot (sup = broken waypoint; the DML WRITE_READ bypasses the statement-2 read) — mandates the Issue-3 fix |
+| R19.4 | Structure/containment edges (SCHEMA) are NOT flow — exempt from the path property, rendered visually distinct, their reason explains containment (owner→member by design) | 📝 design | by-design exemption, never forced onto a flow path |
+
+## R20 — Path-Scoped Flow Reason (user ruling 2026-08-11)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R20.1 | Every flow edge's reason renders the edge within its complete source→target path: `source@L… → … → ‖own segment‖ → … → target@L…` — upstream walk + downstream continuation, own segment emphasized (existing ‖…‖ wrap) | 📝 design | today the walk stops at the edge's target; leaf/SCHEMA/SUBSET edges show only their own segment |
+| R20.2 | The reason explains the edge's role in the scope of its path (write leg / read into output / alias hop / CTE chain …), derived from extraction-time info — never reconstructed at render | 📝 design | extends the current kind + flow-string payload |
+
 ## Summary
 | Metric | Count |
 |--------|-------|
 | ✅ Implemented | 75 (all) |
-| ❌ Not yet | 0 |
+| 📝 Design, not implemented (2026-08-11) | 6 (R19.1–R19.4, R20.1–R20.2) |
 | Version | 3.3.105 |
 
 ## Key Fixes since V3.2.1
