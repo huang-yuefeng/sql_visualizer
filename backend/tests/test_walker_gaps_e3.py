@@ -33,6 +33,7 @@ REPO_ROOT = BACKEND_DIR.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.extractor.lineage import compute_field_flow
+from app.extractor.physical_model import build_physical_model
 from app.extractor.variable_extractor_v2 import extract_variables_from_sql
 from app.models.variable import VariableType
 
@@ -309,8 +310,13 @@ def test_partition_seeds_scoped_to_own_dml_target():
         {"source": "p1", "target": "e1", "edge_type": "REF"},
         {"source": "p2", "target": "e2", "edge_type": "REF"},
     ]
-    cl = compute_field_flow({"nodes": nodes, "edges": edges},
-                            "ods_hie_ipacmsp", "data_dt")
+    # J12-10 stage 3: the walker consumes the physical model — build it
+    # from the synthetic graph data (the model's entity attribution is
+    # what scopes the PARTITION seed to its own DML target table).
+    graph_data = {"nodes": nodes, "edges": edges}
+    pm = build_physical_model(graph_data)
+    cl = compute_field_flow(graph_data, "ods_hie_ipacmsp", "data_dt",
+                            physical_model=pm)
     assert "p1" in cl, "own-table PARTITION var must seed"
     assert "e1" in cl, "own-table partition flow must expand"
     assert "p2" not in cl, \
@@ -331,6 +337,8 @@ def test_partition_seed_still_works_for_own_target():
          "context": "TOP0", "source_tables": ["ods_hie_ipacmsp"]},
     ]
     edges = [{"source": "p1", "target": "e1", "edge_type": "REF"}]
-    cl = compute_field_flow({"nodes": nodes, "edges": edges},
-                            "ods_hie_ipacmsp", "data_dt")
+    graph_data = {"nodes": nodes, "edges": edges}
+    pm = build_physical_model(graph_data)
+    cl = compute_field_flow(graph_data, "ods_hie_ipacmsp", "data_dt",
+                            physical_model=pm)
     assert "p1" in cl and "e1" in cl

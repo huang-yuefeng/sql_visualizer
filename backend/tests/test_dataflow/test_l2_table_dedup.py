@@ -214,7 +214,7 @@ def test_classify_compound_nodes_records_merged_nids(multi_ctx_ws):
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
     target_node_ids, direct_ids = l2b._compute_target_and_direct_ids(
-        nodes, edges, TABLE, "loan_id")
+        nodes, edges, TABLE, "loan_id", physical_model=physical_model)
     table_nodes, field_nodes, other_nodes, alias_map = _classify_compound_nodes(
         nodes, full_graph, "multi_ctx.sql", target_node_ids, direct_ids,
         None, physical_model)

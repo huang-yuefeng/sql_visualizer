@@ -1,6 +1,7 @@
 """Issue 2/3 probe (Team B) — run: docker exec -w /app/backend gps-sql-backend python3 app/_probe_issue23.py"""
 import json
 from app.extractor.adapter import run_full_analysis
+from app.extractor.physical_model import build_physical_model
 from app.services.graph_service import build_graph_data
 from app.extractor.lineage import compute_field_flow
 from app.services.l2_builder import _build_l2_graph
@@ -9,6 +10,7 @@ SQL_NAME = "BDM_ACC_LOAN_INFO_SUP_M.sql"
 sql = open("/app/samples/sql_sample_v1/BDM_ACC_LOAN_INFO_SUP_M.sql", encoding="utf-8").read()
 result = run_full_analysis(sql, SQL_NAME)
 g = build_graph_data(result)
+pm = build_physical_model(result, script_name=SQL_NAME)
 
 nodes = {n["data"]["id"]: n["data"] for n in g["nodes"]}
 edges = g["edges"]
@@ -29,7 +31,7 @@ for e in edges:
 print("\n=== bdm seed closure: key membership ===")
 for seed_name, tbl, fld in (("bdm", "bdm_acc_loan_info", "data_dt"),
                             ("sup", "bdm_acc_loan_info_sup", "data_dt")):
-    closure = compute_field_flow(g, tbl, fld)
+    closure = compute_field_flow(g, tbl, fld, physical_model=pm)
     print(f"  [{seed_name}] closure size={len(closure)}")
     # short-name -> (label, line) — L2-agnostic raw-node identity
     probes = {

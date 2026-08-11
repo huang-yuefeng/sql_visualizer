@@ -443,190 +443,161 @@ def _is_containment(ed) -> bool:
     return bool(getattr(ed, "containment", False))
 
 
-def _field_part(var):
-    """Last dotted segment of the label — the field name proper."""
-    return str(var.get("label") or "").rsplit(".", 1)[-1]
+def _occ_field_part(o) -> str:
+    """Last dotted segment of an occurrence's label — the field name
+    proper (mirror of the retired display-side _field_part)."""
+    return str((o or {}).get("name") or "").rsplit(".", 1)[-1]
 
 
-def _table_like(var):
-    """Table-like vars: declared source types, or vars with resolved source_tables."""
-    return (var.get("variable_type") in
+def _occ_table_like(o) -> bool:
+    """Table-like occurrence: declared source types, or resolved
+    source_tables (mirror of the retired display-side _table_like)."""
+    return (o.get("variable_type") in
             {"table", "view", "cte", "virtual_table", "subquery",
              "merge_target"}
-            or bool(var.get("source_tables")))
+            or bool(o.get("source_tables")))
 
 
-def _context_of(var):
-    return var.get("context") or ""
+def _occ_identity(o) -> str:
+    """Physical identity of an occurrence (chain matching key): the
+    attributed source table, else the resolved table_name/label (mirror
+    of the retired display-side _identity)."""
+    st = o.get("source_tables") or []
+    if st:
+        return st[0]
+    return o.get("table_name") or o.get("name") or ""
 
 
-def _owner_index(nodes):
-    """context -> label -> [ids] for table-like vars (identity lookup index)."""
-    idx = {}
-    for n in nodes:
-        nd = n.get("data", n)
-        if not _table_like(nd):
-            continue
-        label = nd.get("label")
-        if not label:
-            continue
-        idx.setdefault(_context_of(nd), {}).setdefault(label, []).append(nd.get("id"))
-    return idx
+def _pick_occurrence(pm, owner_key: str, label: str, ctx: str, occ):
+    """Model mirror of the retired display-side _find_labeled: the owner
+    entity's occurrence labeled `label` whose context is `ctx`, else the
+    nearest ancestor context (deepest first); None when absent.
 
-
-def _find_labeled(label, ctx, idx):
-    """Id of a table-like var labeled `label` in `ctx`, else nearest ancestor
-    context (context is a "/"-separated path; ancestor = rsplit("/", 1)[0],
-    walking up). Returns None if never found."""
+    The owner-entity restriction is the model truth: _find_labeled
+    searched EVERY table-like var with that label in that context (a
+    label can name different physical tables per scope — the exact
+    approximation the physical model banishes).
+    """
+    tbl = pm.tables.get(owner_key)
+    if tbl is None:
+        return None
+    cands = [vid for vid in tbl.occurrence_ids
+             if (occ(vid) or {}).get("name") == label]
+    if not cands:
+        return None
     cur = ctx
     while True:
-        ids = idx.get(cur, {}).get(label)
-        if ids:
-            return ids[0]
+        for vid in cands:
+            if (occ(vid) or {}).get("context") == cur:
+                return vid
         if not cur or "/" not in cur:
             return None
         cur = cur.rsplit("/", 1)[0]
 
 
-def _resolve_owner_holder(var, nodes, idx=None):
-    """Id of the table-like var that owns `var` (3-step identity rule), or None.
-
-    1. source_tables non-empty -> var labeled source_tables[0] in same context,
-       else nearest ancestor context;
-    2. else if label or sql_expression contains "." (qualified, e.g.
-       "p1.data_dt") -> qualifier = first segment -> table-like var labeled
-       qualifier in same context, else nearest ancestor;
-    3. else (unqualified) -> exactly ONE table-like var in the same context
-       (labels starting "⟐" excluded) -> that var; zero or several -> None.
-    """
-    if idx is None:
-        idx = _owner_index(nodes)
-    ctx = _context_of(var)
-
-    st = var.get("source_tables") or []
-    if st:
-        return _find_labeled(st[0], ctx, idx)
-
-    label = str(var.get("label") or "")
-    if "." in label:
-        return _find_labeled(label.split(".", 1)[0], ctx, idx)
-    expr = str(var.get("sql_expression") or "")
-    if "." in expr:
-        return _find_labeled(expr.split(".", 1)[0].strip(), ctx, idx)
-
-    # unqualified: exactly one table-like var in the same context (⟐ excluded)
-    cands = []
-    for lbl, ids in idx.get(ctx, {}).items():
-        if lbl.startswith("⟐"):
-            continue
-        cands.extend(ids)
-    if len(cands) == 1:
-        return cands[0]
-    return None
-
-
-def _owner_of(var, node_map, idx=None):
-    """Physical owner table of `var`: holder's source_tables[0], or None.
-
-    When the holder IS the physical table itself (its source_tables are empty
-    — it owns, nothing owns it), the holder's own physical identity
-    (table_name, else label) is the owner name."""
-    holder = _resolve_owner_holder(var, node_map, idx)
-    hv = node_map.get(holder) if holder else None
-    if not hv:
-        return None
-    hst = hv.get("source_tables") or []
-    if hst:
-        return hst[0]
-    return hv.get("table_name") or hv.get("label")
-
-
-def _cte_var(name, node_map):
-    """Id of the CTE var (variable_type == "cte") labeled `name`, any context
-    (the one with the longest context if several); None if absent."""
+def _cte_occurrence(pm, name: str, occ):
+    """Model mirror of the retired display-side _cte_var: the occurrence
+    with variable_type "cte" labeled `name`, the one with the longest
+    context; None when absent."""
     best, best_len = None, -1
-    for nid, var in node_map.items():
-        if var.get("variable_type") == "cte" and (var.get("label") or "") == name:
-            ctx = _context_of(var)
-            if len(ctx) > best_len:
-                best, best_len = nid, len(ctx)
+    for vid, o in pm.occurrences.items():
+        if o.get("variable_type") == "cte" and o.get("name") == name:
+            clen = len(o.get("context") or "")
+            if clen > best_len:
+                best, best_len = vid, clen
     return best
 
 
 def compute_field_flow(graph_data, target_table, target_field,
-                       table_schemas=None) -> set:
-    """Strict table.field data flow closure (v3.3.140+, L2 only).
+                       table_schemas=None, physical_model=None) -> set:
+    """Strict table.field data flow closure (v3.3.140+, L2 only) —
+    J12-10 stage 3: walks the PHYSICAL MODEL's edges and occurrences
+    instead of the display graph with reconstruction heuristics. The
+    model carries the truth (edge endpoints as raw var ids, containment,
+    per-occurrence structure); the walk rules below are unchanged from
+    v3.3.140 (see tools/PHYSICAL_MODEL_MIGRATION_MAP.md §stage 3):
 
-    Seeds by exact field identity (per-instance table.field vars owned by
-    target_table, plus PARTITION-defined write-side vars), then expands only
-    where the field itself participates. Returns the set of node ids in the
-    strict closure.
+      W1 seeds = PhysicalField occurrences of the searched name's
+         entities (fields[(target_keys, field)].occurrence_ids). The
+         PARTITION carve-out (a PARTITION var seeds only its own DML
+         target table) is automatic: the model attributes every
+         occurrence to its entity via source_tables/alias resolution, so
+         another table's PARTITION var never lands in these fields.
+      W2 FIELD_LAND both directions; REF/READ (field → its owning table)
+         forward-only, EXCEPT the reverse read of a var carrying the
+         target field part (Issue 3, R19.3 no-bypass completion).
+      W3 ALIAS iff the neighbor's source_tables[0] == target_table.
+      W4 FILTER/JOIN iff the seed zone (memoized BFS from the seeds over
+         FIELD_LAND) contains an endpoint.
+      W5 DML forward-only, plus backward for field-like vars carrying
+         the target field part (write-side VALUE appearances).
+      W6 TABLE_FLOW forward-only: (a) table-like source whose physical
+         identity is in the chain; (b) VT source whose context is an
+         ancestor-or-equal of a visited field var with the target field
+         part.
+    plus the identity-admission round (owner-holder + its physical table
+    via _pick_occurrence, CTE container rule, Issue-3 bare physical
+    instance) — every lookup through the model (entities, edges,
+    occurrence index), never display reconstruction.
 
-    table_schemas is accepted for signature parity with compute_field_lineage
-    but unused: SCHEMA-based validation is replaced by identity resolution
-    (wiki/SOLUTION_DESIGN.md §"v3.3.140" §4).
+    physical_model is REQUIRED (TypeError when None). table_schemas is
+    accepted for signature parity with compute_field_lineage but unused.
+    Returns the set of node ids in the strict closure.
     """
+    if physical_model is None:
+        raise TypeError(
+            "compute_field_flow: physical_model is required (J12-10 "
+            "stage 3 — the walker consumes the physical model)")
     if not graph_data:
         return set()
     nodes = graph_data.get("nodes", []) or []
-    edges = graph_data.get("edges", []) or []
 
     node_map = {}
     for n in nodes:
         nd = n.get("data", n)
         node_map[nd.get("id")] = nd
 
-    # adjacency: nid -> [(neighbor, etype, forward)] — forward = nid is the
-    # edge's source. etype from edge_type or relationship.
-    # I5 (v3.3.145): containment-tagged edges are excluded from the walk
-    # entirely — they express syntactic nesting (container -> nested VT),
-    # already visible via the nesting structure; they must not look like
-    # value flow. Skipped here so neither the expansion loop nor the
-    # seed-zone BFS ever follows them (type-agnostic: the tag governs, not
-    # the edge type).
-    adjacency = {}
-    for e in edges:
-        ed = e.get("data", e)
-        if _is_containment(ed):
-            continue
-        src, tgt = ed.get("source"), ed.get("target")
-        etype = ed.get("edge_type") or ed.get("relationship")
-        # `read` flag: REF edges with operation == "READ" are field→table
-        # reads — walkable ONLY from the field node to its holder (forward),
-        # never from the table back out into sibling fields (the L2
-        # field-flood defect). Value-copy REF (operation != READ) and all
-        # other FIELD_LAND types keep both directions. The flag rides the
-        # adjacency entries so the seed-zone BFS and the expansion loop
-        # apply the same rule.
-        read = bool(etype == "REF" and (ed.get("operation") or "") == "READ")
-        adjacency.setdefault(src, []).append((tgt, etype, True, read))
-        adjacency.setdefault(tgt, []).append((src, etype, False, read))
+    pm = physical_model
+    occ = pm.occurrence
 
-    idx = _owner_index(nodes)
-
-    # ── Seeds: field-like vars whose field part is target_field, with
-    # defined_in == "PARTITION" or owner == target_table. ──
+    # ── W1: seeds — occurrences of the PhysicalFields named target_field
+    # on the searched name's entities. target_keys = every entity named
+    # target_table (physical tables key by name; per-scope containers by
+    # (name, context) — the union mirrors the display's name-based owner
+    # match). ──
+    target_keys = {k for k, t in pm.tables.items() if t.name == target_table}
     seeds = set()
-    for nid, var in node_map.items():
-        if var.get("variable_type") not in FIELD_LIKE:
+    for (tkey, fname), fld in pm.fields.items():
+        if tkey not in target_keys or fname != target_field:
             continue
-        if _field_part(var) != target_field:
-            continue
-        if var.get("defined_in") == "PARTITION":
-            # E3a/6: a PARTITION var seeds only its own DML target table.
-            # Two scripts can both insert PARTITION(data_dt) into different
-            # tables — the data_dt partition var of another table must never
-            # seed this search (table-agnostic PARTITION seeds leaked
-            # write-side flows across unrelated inserts).
-            st = var.get("source_tables") or []
-            if st and st[0] == target_table:
-                seeds.add(nid)
-        elif _owner_of(var, node_map, idx) == target_table:
-            seeds.add(nid)
+        for vid in fld.occurrence_ids:
+            o = occ(vid)
+            if o is not None and o.get("variable_type") in FIELD_LIKE:
+                seeds.add(vid)
 
-    # ── seed_zone: memoized BFS from the seeds over FIELD_LAND edges (both
-    # directions), computed lazily per queried node. Field identity flows
-    # through these edges; used by the FILTER/JOIN admission rule. ──
+    # ── adjacency over the MODEL's PhysicalEdges (occurrence-level — the
+    # edge endpoints ARE the raw var ids the graph nodes carry).
+    # I5 (v3.3.145): containment-tagged edges are excluded from the walk
+    # entirely — syntactic nesting, not value flow (skipped here so
+    # neither the expansion loop nor the seed-zone BFS ever follows
+    # them). ──
+    adjacency = {}
+    for E in pm.edges:
+        if E.containment:
+            continue
+        # `read` flag: REF edges with operation == "READ" are field→table
+        # reads — walkable ONLY from the field node to its holder
+        # (forward), never from the table back out into sibling fields
+        # (the L2 field-flood defect). Value-copy REF and all other
+        # FIELD_LAND types keep both directions.
+        read = bool(E.edge_type == "REF" and E.operation == "READ")
+        adjacency.setdefault(E.source_id, []).append(
+            (E.target_id, E.edge_type, True, read))
+        adjacency.setdefault(E.target_id, []).append(
+            (E.source_id, E.edge_type, False, read))
+
+    # ── seed_zone: memoized BFS from the seeds over FIELD_LAND edges
+    # (both directions), computed lazily per queried node. ──
     _zone_memo = {}
 
     def _seed_zone(nid):
@@ -639,54 +610,50 @@ def compute_field_flow(graph_data, target_table, target_field,
                     continue
                 zone.add(cur)
                 for (nb, et, fwd, read) in adjacency.get(cur, []):
-                    # read edges traverse field → holder only (same rule as
-                    # the expansion loop).
+                    # read edges traverse field → holder only (same rule
+                    # as the expansion loop).
                     if (et in FIELD_LAND and nb not in zone
                             and not (read and not fwd)):
                         stack.append(nb)
             _zone_memo[nid] = nid in zone
         return _zone_memo[nid]
 
-    # ── Identity helper + chain ──
-    # Physical identity of a var (chain matching key): the attributed
-    # source table, else the declared table_name/label.
-    def _identity(var):
-        st = var.get("source_tables") or []
-        if st:
-            return st[0]
-        return var.get("table_name") or var.get("label") or ""
-
-    # chain: identities of table-like vars admitted into the closure.
+    # chain: identities of table-like admissions into the closure.
     # TABLE_FLOW is followed FORWARD only from a source whose identity is
     # already in the chain (Q1 clause a) — no reverse leakage.
     chain = {target_table}
     for sid in seeds:
-        var = node_map.get(sid)
-        if var is not None and _table_like(var):
-            ident = _identity(var)
+        o = occ(sid)
+        if o is not None and _occ_table_like(o):
+            ident = _occ_identity(o)
             if ident:
                 chain.add(ident)
 
-    def _register(nb):
+    def _register(nid):
         """Record a table-like admission's identity into the chain."""
-        var = node_map.get(nb)
-        if var is not None and _table_like(var):
-            ident = _identity(var)
+        o = occ(nid)
+        if o is not None and _occ_table_like(o):
+            ident = _occ_identity(o)
             if ident:
                 chain.add(ident)
+
+    # Field occurrence → owning entity key (the model's attribution —
+    # source_tables[0] resolved through the alias map; the display used
+    # to re-derive owners with a context walk).
+    owner_by_id = {}
+    for (tkey, _fname), fld in pm.fields.items():
+        for vid in fld.occurrence_ids:
+            owner_by_id[vid] = tkey
 
     # ── Joint fixpoint: expansion rounds and identity-admission rounds
-    # alternate until neither grows (monotone — terminates; rounds capped).
-    # Identity admissions used to run ONCE after the BFS, so ALIAS /
-    # TABLE_FLOW / DML edges from nodes that only enter via identity
-    # (owner holders, physical tables, CTE containers) never fired. ──
+    # alternate until neither grows (monotone — terminates; capped). ──
     visited = set(seeds)
     changed = True
     rounds = 0
     while changed and rounds < 100:
         changed = False
         rounds += 1
-        # ── expansion round ──
+        # ── expansion round (walks the model's PhysicalEdges) ──
         stack = list(visited)
         while stack:
             nid = stack.pop()
@@ -694,27 +661,23 @@ def compute_field_flow(graph_data, target_table, target_field,
                 if nb in visited:
                     continue
                 if et in FIELD_LAND:
-                    # REF/READ (field → its owning table) admits only in the
-                    # forward direction; the reverse traversal (table →
-                    # sibling fields) is what flooded the L2 closure.
-                    # Issue 3 (2026-08-11): EXCEPT the read of the SEARCHED
-                    # field itself — an in-closure holder's reverse read of
-                    # a field whose field part is the target field admits
-                    # (the statement-2 read data_dt@225 → sup@223; the
-                    # reader instance's read of the searched field joins
-                    # the closure so the REF edge renders — R19.3
-                    # no-bypass completion). Same guard as the DML value
-                    # rule below (field-like var carrying the target field
-                    # part).
+                    # REF/READ (field → its owning table) admits only in
+                    # the forward direction; the reverse traversal (table
+                    # → sibling fields) is what flooded the L2 closure.
+                    # Issue 3 (2026-08-11): EXCEPT the read of the
+                    # SEARCHED field itself — an in-closure holder's
+                    # reverse read of a field whose field part is the
+                    # target field admits (the reader instance's read of
+                    # the searched field joins the closure so the REF
+                    # edge renders — R19.3 no-bypass completion). Same
+                    # guard as the DML value rule below.
                     if read:
-                        admit = fwd or (
-                            _field_part(node_map.get(nb) or {}) == target_field
-                        )
+                        admit = fwd or (_occ_field_part(occ(nb)) == target_field)
                     else:
                         admit = True
                 elif et == "ALIAS":
-                    nb_var = node_map.get(nb)
-                    nb_st = (nb_var or {}).get("source_tables") or []
+                    nb_o = occ(nb)
+                    nb_st = (nb_o or {}).get("source_tables") or []
                     admit = bool(nb_st) and nb_st[0] == target_table
                 elif et in ("FILTER", "JOIN"):
                     admit = _seed_zone(nid) or _seed_zone(nb)
@@ -723,35 +686,38 @@ def compute_field_flow(graph_data, target_table, target_field,
                     # field's VALUE columns: a DML edge INTO an admitted
                     # node whose source is a field-like var carrying the
                     # target field part (the INSERT...SELECT value
-                    # '$(load_date)' AS data_dt at L213 → rrcdm, P17 §8.5)
-                    # is the write-side value appearance — admitted
+                    # '$(load_date)' AS data_dt at L213 → rrcdm, P17
+                    # §8.5) is the write-side value appearance — admitted
                     # backward so the value edge enters the closure.
-                    nb_var = node_map.get(nb)
+                    nb_o = occ(nb)
                     admit = fwd or (
-                        nb_var is not None
-                        and nb_var.get("variable_type") in FIELD_LIKE
-                        and _field_part(nb_var) == target_field
+                        nb_o is not None
+                        and nb_o.get("variable_type") in FIELD_LIKE
+                        and _occ_field_part(nb_o) == target_field
                     )
                 elif et == "TABLE_FLOW":
-                    # Q1, forward-only: (a) table-like source whose physical
-                    # identity is in the chain; (b) VT whose context is an
-                    # ancestor-or-equal of a visited field var's context
-                    # with the target field part.
+                    # Q1, forward-only: (a) table-like source whose
+                    # physical identity is in the chain; (b) VT whose
+                    # context is an ancestor-or-equal of a visited field
+                    # var's context with the target field part.
                     admit = False
                     if fwd:
-                        src_var = node_map.get(nid)
-                        if src_var and src_var.get("variable_type") == "virtual_table":
-                            sctx = _context_of(src_var)
+                        src_o = occ(nid)
+                        if src_o is not None and src_o.get(
+                                "variable_type") == "virtual_table":
+                            sctx = src_o.get("context") or ""
                             for fv in node_map.values():
                                 if (fv.get("variable_type") in FIELD_LIKE
                                         and fv.get("id") in visited
-                                        and _field_part(fv) == target_field):
-                                    fctx = _context_of(fv)
-                                    if fctx == sctx or fctx.startswith(sctx.rstrip("/") + "/"):
+                                        and _occ_field_part(
+                                            occ(fv.get("id"))) == target_field):
+                                    fctx = fv.get("context") or ""
+                                    if (fctx == sctx
+                                            or fctx.startswith(sctx.rstrip("/") + "/")):
                                         admit = True
                                         break
-                        elif _table_like(src_var):
-                            admit = _identity(src_var) in chain
+                        elif src_o is not None and _occ_table_like(src_o):
+                            admit = _occ_identity(src_o) in chain
                 else:
                     admit = False  # NEVER types and anything unknown
                 if admit:
@@ -759,32 +725,46 @@ def compute_field_flow(graph_data, target_table, target_field,
                     changed = True
                     _register(nb)
 
-        # ── identity-admission round (owner-holders, physical tables, CTE
-        # containers — existing rules unchanged) ──
+        # ── identity-admission round (owner-holders, physical tables,
+        # CTE containers — existing rules, model-sourced) ──
         for nid in list(visited):
-            var = node_map.get(nid)
-            if not var:
+            o = occ(nid)
+            if not o:
                 continue
-            if var.get("variable_type") in FIELD_LIKE:
-                holder = _resolve_owner_holder(var, nodes, idx)
+            if o.get("variable_type") in FIELD_LIKE:
+                # Owner-holder admission: the field's owning entity (the
+                # model's attribution) and its occurrence labeled
+                # source_tables[0] in the var's context (or the nearest
+                # ancestor context).
+                owner = owner_by_id.get(nid)
+                st = o.get("source_tables") or []
+                holder = None
+                if owner is not None and st and st[0]:
+                    holder = _pick_occurrence(pm, owner, st[0],
+                                              o.get("context") or "", occ)
                 if holder and holder not in visited:
                     visited.add(holder)
                     changed = True
                     _register(holder)
-                hv = node_map.get(holder) if holder else None
-                if hv:
-                    hst = hv.get("source_tables") or []
+                # The holder's own physical table (holder's st[0] → the
+                # entity's bare instance in the holder's context).
+                ho = occ(holder) if holder else None
+                if ho is not None:
+                    hst = ho.get("source_tables") or []
                     if hst and hst[0]:
-                        tv = _find_labeled(hst[0], _context_of(hv), idx)
-                        if tv and tv not in visited:
-                            visited.add(tv)
-                            changed = True
-                            _register(tv)
+                        hkey = pm.entity_of_id.get(holder)
+                        if hkey is not None:
+                            tv = _pick_occurrence(pm, hkey, hst[0],
+                                                  ho.get("context") or "", occ)
+                            if tv and tv not in visited:
+                                visited.add(tv)
+                                changed = True
+                                _register(tv)
             # Container rule: context segments "CTE{...}" -> the CTE var
             # labeled X (the scope that contains the reads).
-            for seg in _context_of(var).split("/"):
+            for seg in (o.get("context") or "").split("/"):
                 if seg.startswith("CTE{") and "}" in seg:
-                    cte_id = _cte_var(seg[4:seg.index("}")], node_map)
+                    cte_id = _cte_occurrence(pm, seg[4:seg.index("}")], occ)
                     if cte_id and cte_id not in visited:
                         visited.add(cte_id)
                         changed = True
@@ -796,20 +776,21 @@ def compute_field_flow(graph_data, target_table, target_field,
         # reader `bdm_acc_loan_info_sup@223` (bare FROM, line 223) shares
         # the physical identity of the in-closure writer sup@160 and joins
         # even without an incident walkable edge, so the read instance is
-        # always on the flow path (never a render-time reconstruction —
-        # identity comes from extraction-time source_tables/label).
-        # Aliases (identity != label) are hop nodes served by ALIAS edges
-        # and the ALIAS rule — they do not re-admit themselves here.
-        for nb, var in node_map.items():
+        # always on the flow path (identity comes from extraction-time
+        # source_tables/label). Aliases (identity != label) are hop nodes
+        # served by ALIAS edges and the ALIAS rule — they do not re-admit
+        # themselves here.
+        for nid, var in node_map.items():
             if var.get("variable_type") not in ("table", "view"):
                 continue
-            if nb in visited:
+            if nid in visited:
                 continue
-            ident = _identity(var)
-            if ident and ident == var.get("label") and ident in chain:
-                visited.add(nb)
+            o = occ(nid)
+            ident = _occ_identity(o) if o is not None else ""
+            if ident and ident == (o or {}).get("name") and ident in chain:
+                visited.add(nid)
                 changed = True
-                _register(nb)
+                _register(nid)
     # D1: the fixpoint is capped at 100 rounds (monotone — should never
     # fire); when it does, the closure may be incomplete — surface it in
     # the log instead of silently returning a partial closure.
@@ -821,7 +802,7 @@ def compute_field_flow(graph_data, target_table, target_field,
 
 
 def filter_by_field_flow(graph_data, target_table, target_field,
-                         table_schemas=None) -> dict:
+                         table_schemas=None, physical_model=None) -> dict:
     """Filter graph to the strict table.field flow closure (v3.3.140+, L2 only).
 
     Returns a dict identical to graph_data except nodes = those whose id is in
@@ -830,10 +811,14 @@ def filter_by_field_flow(graph_data, target_table, target_field,
     excluded even when both ends are in the closure — nesting is shown by the
     nesting structure, not as flow arrows. An empty closure yields 0 nodes —
     the caller handles the not-in-flow case; this never raises.
+
+    J12-10 stage 3: physical_model is REQUIRED (the walker consumes the
+    physical model — see compute_field_flow).
     """
     if not graph_data:
         return graph_data
-    closure = compute_field_flow(graph_data, target_table, target_field, table_schemas)
+    closure = compute_field_flow(graph_data, target_table, target_field,
+                                 table_schemas, physical_model=physical_model)
     nodes = graph_data.get("nodes", []) or []
     edges = graph_data.get("edges", []) or []
     filtered_nodes = [n for n in nodes if n.get("data", n).get("id") in closure]
@@ -944,99 +929,71 @@ def classify_flow_roles(edge_list, table_node_ids) -> dict:
     return roles
 
 
-def _dml_write_targets(nodes: list) -> dict:
-    """Extraction-time DML attribution (mirror of dependency_graph Phase
-    1c): {raw node id: write keyword} for MERGE_TARGET vars and TABLE vars
-    whose defined_in names a DML keyword. Never inferred from edges.
-    """
-    targets = {}
-    for n in nodes:
-        nd = n.get("data", n)
-        vt = nd.get("variable_type")
-        if vt == "merge_target":
-            targets[nd.get("id")] = "MERGE"
-        elif vt == "table":
-            di = (nd.get("defined_in") or "").upper()
-            for kw in _DML_WRITE_OPS:
-                if kw in di:
-                    targets[nd.get("id")] = kw
-                    break
-    return targets
-
-
-def _is_write_leg(ed: dict, node_map: dict) -> bool:
-    """Write leg `output → T` (dependency_graph Phase 1c-extra2): the DML
-    edge from the statement's output VT into the DML target table — or
-    its L2 rewrite (TABLE_FLOW stamped category/flow_kind "write" +
-    _dml_origin). WRITE_READ edges (table → table) are never write legs.
-    """
-    etype = (ed.get("edge_type") or ed.get("relationship") or "").upper()
-    if etype == "DML":
-        op = (ed.get("operation") or "").upper()
-        src = node_map.get(ed.get("source")) or {}
-        return (op in _DML_WRITE_OPS
-                and src.get("variable_type") == "virtual_table")
-    return bool(ed.get("_dml_origin")
-                or ed.get("category") == "write"
-                or ed.get("flow_kind") == "write")
-
-
-def flow_targets(graph_data, target_table, target_field) -> set:
-    """R19.2 flow targets of the searched table.field.
+def flow_targets(graph_data, target_table, target_field,
+                 physical_model=None) -> set:
+    """R19.2 flow targets of the searched table.field — J12-10 stage 3:
+    model-backed decision procedure (the model's roles and DML edges
+    carry the truth the display used to reconstruct).
 
     DECISION PROCEDURE (user ruling 2026-08-11): T is a flow target iff
-      (a) T is a DML statement's write target (extraction-time DML
-          attribution — dependency_graph Phase 1c), AND
-      (b) T's write leg `output → T` is in the seed's flow closure
-          (the compute_field_flow reachability walk — both endpoints of
-          the write leg are in the closure).
+      (a) T's entity carries the write or merge_target role (the model's
+          extraction-time DML attribution — mirror of dependency_graph
+          Phase 1c), AND
+      (b) T's write leg — the DML edge from a virtual source entity into
+          T — has both raw endpoints in the seed's flow closure (the
+          compute_field_flow reachability walk).
 
-    Operates on the RAW full graph (the same graph compute_field_flow
-    walks — the graph _apply_relevance_filter consumes). Returns the set
-    of raw node ids of the target tables; the caller maps them to the L2
-    compound keepers via id_map. A table can be BOTH target and waypoint
-    (sup: target of output1→sup, source of sup→output2) — roles are
-    per-edge/path, unified by physical identity; the decision procedure
-    here is purely mechanical.
+    physical_model is REQUIRED. Operates on the model's edges; returns
+    the set of raw node ids of the target tables (the caller maps them
+    to the L2 compound keepers via id_map). A table can be BOTH target
+    and waypoint (sup: target of output1→sup, source of sup→output2) —
+    roles are per-edge/path, unified by physical identity; the decision
+    procedure here is purely mechanical.
     """
+    if physical_model is None:
+        raise TypeError(
+            "flow_targets: physical_model is required (J12-10 stage 3)")
     if not graph_data or not target_table or not target_field:
         return set()
-    nodes = graph_data.get("nodes", []) or []
-    edges = graph_data.get("edges", []) or []
-    closure = compute_field_flow(graph_data, target_table, target_field)
+    closure = compute_field_flow(graph_data, target_table, target_field,
+                                 physical_model=physical_model)
     if not closure:
         return set()
-    node_map = {}
-    for n in nodes:
-        nd = n.get("data", n)
-        node_map[nd.get("id")] = nd
-    targets = _dml_write_targets(nodes)
+    write_keys = {key for key, tbl in physical_model.tables.items()
+                  if tbl.roles & {"write", "merge_target"}}
     out = set()
-    for e in edges:
-        ed = e.get("data", e)
-        tgt_id = ed.get("target")
-        if tgt_id not in targets:
+    for M in physical_model.edges:
+        if M.edge_type != "DML":
             continue
-        if not _is_write_leg(ed, node_map):
+        if (M.operation or "").upper() not in _DML_WRITE_OPS:
             continue
-        if ed.get("source") in closure and tgt_id in closure:
-            out.add(tgt_id)
+        src_tbl = (physical_model.tables.get(M.source[0])
+                   if M.source[0] else None)
+        if src_tbl is None or src_tbl.kind != "virtual":
+            continue
+        if M.target[0] not in write_keys:
+            continue
+        if M.source_id in closure and M.target_id in closure:
+            out.add(M.target_id)
     return out
 
 
-def flow_source_id(graph_data, target_table) -> str | None:
-    """R19.1 exposure: raw id of the searched table's physical table node.
+def flow_source_id(graph_data, target_table, physical_model=None) -> str | None:
+    """R19.1 exposure: raw id of the searched table's physical table node
+    — J12-10 stage 3: resolved through the model's occurrence index (var
+    order preserved) instead of a graph-node scan; semantics unchanged
+    (the first table/view occurrence labeled exactly target_table).
 
     The filtered L2 flow view's single flow source is the searched seed —
     a USER-DEFINED source (the search), never inferred. This helper only
-    exposes the seed's table node so the display can mark it; returns the
-    first table/view var whose label is exactly target_table, else None.
+    exposes the seed's table node so the display can mark it.
     """
+    if physical_model is None:
+        raise TypeError(
+            "flow_source_id: physical_model is required (J12-10 stage 3)")
     if not graph_data or not target_table:
         return None
-    for n in graph_data.get("nodes", []) or []:
-        nd = n.get("data", n)
-        if (nd.get("variable_type") in ("table", "view")
-                and nd.get("label") == target_table):
-            return nd.get("id")
+    for vid, o in physical_model.occurrences.items():
+        if o.get("variable_type") in ("table", "view") and o.get("name") == target_table:
+            return vid
     return None

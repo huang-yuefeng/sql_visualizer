@@ -141,11 +141,14 @@ class TestC1CtasClassification:
 
 class TestC2GraphCacheInvalidation:
     def test_graph_cache_prefix_bumped(self):
-        """C-2: GRAPH_CACHE_PREFIX is bumped to graph_3_2_21 (R11-3) —
-        the per-edge `mech` payload + compound-node line_start/line_end/
-        defined_in change the L2 response format; the bump is the
-        single-constant invalidation."""
-        assert cache_keys.GRAPH_CACHE_PREFIX == "graph_3_2_21", \
+        """C-2: GRAPH_CACHE_PREFIX is bumped (J12-10 stage 3) — R11-3
+        bumped to graph_3_2_21 (per-edge `mech` payload + compound-node
+        line_start/line_end/defined_in); stage 3 bumped to graph_3_2_22
+        (the L2 served shape changed: seed_/sync_/dml_ proxy nodes are
+        deleted — model entities replace them; extraction is unchanged,
+        extractor_version NOT bumped). The bump is the single-constant
+        invalidation."""
+        assert cache_keys.GRAPH_CACHE_PREFIX == "graph_3_2_22", \
             cache_keys.GRAPH_CACHE_PREFIX
         assert fis.GRAPH_CACHE_PREFIX == cache_keys.GRAPH_CACHE_PREFIX
 

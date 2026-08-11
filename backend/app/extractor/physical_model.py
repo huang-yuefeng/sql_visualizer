@@ -177,12 +177,25 @@ class PhysicalModel:
     entity_of_id: Dict[str, str] = dc_field(default_factory=dict)
     # alias var id -> canonical table key (I4 exact source var id)
     alias_by_var_id: Dict[str, str] = dc_field(default_factory=dict)
+    # Per-occurrence index (J12-10 stage 3): var id -> structured info —
+    # variable_type, name (label), context, defined_in, source_tables,
+    # source_columns, is_output, line_start, line_end, table_name. Built
+    # once from the same variables the graph is derived from; insertion
+    # order = var order (== graph node order). The strict walker and the
+    # L2 seed matcher consume this index instead of scanning display
+    # nodes with reconstruction heuristics.
+    occurrences: Dict[str, Dict[str, Any]] = dc_field(default_factory=dict)
 
     def table(self, key) -> Optional[PhysicalTable]:
         return self.tables.get(key)
 
     def field(self, key) -> Optional[PhysicalField]:
         return self.fields.get(key)
+
+    def occurrence(self, var_id: str) -> Optional[Dict[str, Any]]:
+        """Structured info of one original var occurrence (None when the
+        id is unknown to the model)."""
+        return self.occurrences.get(var_id)
 
     def resolve_alias(self, var_id: str) -> Optional[str]:
         """Canonical table key of an alias variable (None when not an
@@ -211,14 +224,24 @@ def _var_to_dict(v: Any) -> Dict[str, Any]:
 
 def _dep_to_dict(d: Any) -> Dict[str, Any]:
     if isinstance(d, dict):
-        return dict(d)
-    return {
-        "source_id": d.source_id,
-        "target_id": d.target_id,
-        "relationship": d.relationship,
-        "operation": getattr(d, "operation", ""),
-        "containment": bool(getattr(d, "containment", False)),
-    }
+        out = dict(d)
+    else:
+        out = {
+            "source_id": d.source_id,
+            "target_id": d.target_id,
+            "relationship": d.relationship,
+            "operation": getattr(d, "operation", ""),
+            "containment": bool(getattr(d, "containment", False)),
+        }
+    # Graph-data form: graph edges carry "source"/"target" (graph_service
+    # shape), not "source_id"/"target_id" — normalize so Pass 3 never
+    # drops every edge on the graph-backed model path (found by Team L1,
+    # stage 4: graph-backed models had zero PhysicalEdges).
+    if "source_id" not in out and "source" in out:
+        out["source_id"] = out.get("source")
+    if "target_id" not in out and "target" in out:
+        out["target_id"] = out.get("target")
+    return out
 
 
 def _normalize_input(extraction_result,
@@ -425,6 +448,38 @@ def build_physical_model(extraction_result,
             "display_label": f"{label}@{line}" if line > 0 else label,
             "canonical_key": key,
         })
+
+    # ── Pass 1c: the per-occurrence index ──
+    # var id -> structured info for EVERY original var (table-like and
+    # field-like; nothing lost). table_name mirrors the display's owner
+    # naming: table-like occurrences take their own name; column-family
+    # occurrences the resolved owner name (alias_map[prefix] or prefix).
+    def _occ_table_name(v: Dict[str, Any]) -> str:
+        if (v.get("variable_type") or "") in TABLE_LIKE_TYPES:
+            return v.get("name", "") or ""
+        st = v.get("source_tables") or []
+        prefix = st[0] if st else ""
+        if prefix and prefix in label_alias_map and label_alias_map[prefix] != prefix:
+            return label_alias_map[prefix]
+        return prefix
+
+    for v in vars_:
+        vid = v.get("id")
+        if not vid:
+            continue
+        model.occurrences[vid] = {
+            "id": vid,
+            "variable_type": v.get("variable_type") or "",
+            "name": v.get("name", "") or v.get("label", "") or "",
+            "context": v.get("context") or "",
+            "defined_in": v.get("defined_in") or "",
+            "source_tables": list(v.get("source_tables") or []),
+            "source_columns": list(v.get("source_columns") or []),
+            "is_output": bool(v.get("is_output")),
+            "line_start": int(v.get("line_start") or 0),
+            "line_end": int(v.get("line_end") or 0),
+            "table_name": _occ_table_name(v),
+        }
 
     # ── Pass 2: field-like occurrences → PhysicalFields ──
     first_key = next(iter(model.tables), None)

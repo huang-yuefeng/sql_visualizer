@@ -366,19 +366,25 @@ def node_realized(c_label, c_line, nodes, inc):
 
 
 def dml_phantom_field_dups(nodes):
-    """R11-2 regression guard (Round 12, 2026-08-10): no duplicate
-    (parent, label) pairs among Sync-2 DML phantom field nodes (id prefix
-    "dml_"). The R11-2 defect was two same-label data_dt phantoms under
-    ONE target table (rrcdm_job_log_exec_par), created by the stmt-aware
-    Sync-2 exists-check treating the two source instances as distinct.
-    Scope is the phantom set only: per-statement SOURCE-side fields (C-9
-    dedup key (parent_table_id, label, stmt_idx)) legitimately repeat a
-    label under one table node — only the target table's column display
-    must show each column once."""
+    """R11-2 regression guard (Round 12, 2026-08-10) + J12-10 stage 3.
+
+    Round 12: no duplicate (parent, label) pairs among Sync-2 DML phantom
+    field nodes (id prefix "dml_") — the R11-2 defect was two same-label
+    data_dt phantoms under ONE target table (rrcdm_job_log_exec_par).
+
+    Stage 3 extension: the seed_/sync_/dml_ proxy synthesis is DELETED —
+    model entities replace the reconstruction copies, so the guard now
+    flags ANY proxy field id (seed_/sync_/dml_) in the served output:
+    the display is a pure projection of the physical model. (Scope: the
+    served L2 payload; a lone proxy id is already a stage-3 violation,
+    dups among dml_ ids keep the R11-2 shape.)"""
     seen = {}
     dups = []
     for nid, nd in sorted(nodes.items()):
         if nd.get("variable_type") != "field":
+            continue
+        if nd.get("id", "").startswith(("seed_", "sync_", "dml_")):
+            dups.append(("proxy", None, nid))
             continue
         if not nd.get("id", "").startswith("dml_"):
             continue
@@ -443,8 +449,9 @@ def test_jaccard_benchmark(capsys):
             seed_problems.append(f"{seed}: {len(r['unrealized'])} canonical nodes "
                                  f"NOT realized: {r['unrealized']}")
         if r["field_dups"]:
-            seed_problems.append(f"{seed}: duplicate (parent, label) DML phantom "
-                                 f"field pairs (R11-2 defect class): {r['field_dups']}")
+            seed_problems.append(f"{seed}: DML phantom/proxy field invariant "
+                                 f"violated (R11-2 defect class / J12-10 stage-3 "
+                                 f"proxy ban): {r['field_dups']}")
         bad = [e for e in r["edges"] if int(e.get("highlight_line") or 0) < 1]
         if bad:
             seed_problems.append(
@@ -471,8 +478,9 @@ def test_jaccard_benchmark(capsys):
         for seed in SEEDS:
             r = results[seed]
             if r["field_dups"]:
-                print(f"\n{seed} — R11-2 field-dup invariant VIOLATED "
-                      f"(duplicate (parent, label) DML phantom pairs): {r['field_dups']}")
+                print(f"\n{seed} — R11-2/field proxy invariant VIOLATED "
+                      f"(DML phantom pairs / seed_ sync_ dml_ proxy ids): "
+                      f"{r['field_dups']}")
             if r["unrealized"]:
                 print(f"\n{seed} — canonical nodes NOT realized "
                       f"(J12-13 requirement nodes until Issues 2/3 land): {r['unrealized']}")

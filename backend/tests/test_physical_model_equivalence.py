@@ -59,8 +59,8 @@ def display_pipeline(sql_text, script_name):
     model = build_physical_model(analysis, script_name)
     nodes, edges = graph["nodes"], graph["edges"]
     target_ids, direct_ids = l2._compute_target_and_direct_ids(
-        nodes, edges, "", "")
-    table_nodes, field_nodes, _others, alias_map = (
+        nodes, edges, "", "", physical_model=model)
+    table_nodes, field_nodes, _others, _alias_map = (
         l2._classify_compound_nodes(nodes, graph, script_name,
                                     target_ids, direct_ids, None, model))
     id_map = l2._build_id_map(table_nodes, field_nodes, _others)
@@ -71,22 +71,15 @@ def display_pipeline(sql_text, script_name):
     new_edges = l2._survive_join_edges(new_edges, graph, id_map,
                                        table_nodes, field_nodes,
                                        node_labels, sql_text, strict=False)
-    new_edges, dml_pairs = l2._simplify_dml_edges(new_edges, graph,
-                                                  id_map, table_nodes,
-                                                  field_nodes)
+    # J12-10 stage 3: _simplify_dml_edges returns only new_edges — the
+    # dml_pairs collection it fed (the sync phase) is gone.
+    new_edges = l2._simplify_dml_edges(new_edges, graph, id_map,
+                                       table_nodes, field_nodes)
     new_edges = l2._dedup_edges(new_edges)
     l2._attach_flow_payload(
         new_edges, field_nodes, table_nodes=table_nodes,
         node_index=[n.get("data", n) for n in graph.get("nodes", [])])
-    return (table_nodes, field_nodes, new_edges, graph, nodes,
-            alias_map, dml_pairs)
-
-
-def run_sync(table_nodes, field_nodes, alias_map, dml_pairs, nodes, model):
-    """Phase 10 — Sync 1 (alias→canonical mirrors) + Sync 2 (DML
-    phantoms); mutates field_nodes like the served pipeline."""
-    l2._sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map,
-                                  dml_pairs, nodes, model)
+    return (table_nodes, field_nodes, new_edges, graph, nodes)
 
 
 # ── Display→model endpoint mapping ──────────────────────────────────────
@@ -266,15 +259,14 @@ def test_display_edge_types_present_in_sample():
     assert types <= {e.edge_type for e in model.edges}
 
 
-# ── Flagship: nothing lost after the sync phases ────────────────────────
+# ── Flagship: the display is a pure projection of the model ─────────────
 
-def test_post_sync_keeper_field_labels_in_model_universe():
-    """After Sync 1 (alias mirrors) + Sync 2 (DML phantoms), every field
-    label shown on a display keeper exists as a physical field name
-    somewhere in the model — the sync copies real model fields."""
-    model, (table_nodes, field_nodes, new_edges, graph, nodes,
-            alias_map, dml_pairs) = flagship()
-    run_sync(table_nodes, field_nodes, alias_map, dml_pairs, nodes, model)
+def test_keeper_field_labels_in_model_universe():
+    """J12-10 stage 3: the display shows model entities directly — every
+    field label shown on a display keeper exists as a physical field name
+    somewhere in the model (the sync mirrors that used to copy labels
+    onto keepers are deleted; nothing outside the model may render)."""
+    model, (table_nodes, field_nodes, *_rest) = flagship()
 
     universe = {fld.name for fld in model.fields.values()}
     by_tname = {tn["table_name"]: tn for tn in table_nodes.values()}
@@ -285,26 +277,23 @@ def test_post_sync_keeper_field_labels_in_model_universe():
         labels = {f["label"] for f in field_nodes
                   if f.get("parent") == tn["id"]}
         assert labels <= universe, (
-            f"{tbl.name} post-sync labels outside the model universe: "
+            f"{tbl.name} labels outside the model universe: "
             f"{sorted(labels - universe)}")
 
 
-def test_post_sync_keeper_field_sets_cover_pre_sync():
-    """The sync phases only add copies — the pre-sync field set of every
-    keeper survives post-sync."""
-    model, (table_nodes, field_nodes, new_edges, graph, nodes,
-            alias_map, dml_pairs) = flagship()
-    pre = {tn["table_name"]: {f["label"] for f in field_nodes
-                              if f.get("parent") == tn["id"]}
-           for tn in table_nodes.values()
-           if tn.get("type") == "source_table"}
-    run_sync(table_nodes, field_nodes, alias_map, dml_pairs, nodes, model)
-    for name, labels in pre.items():
-        tn = table_nodes[next(i for i, t in table_nodes.items()
-                              if t["table_name"] == name)]
-        post = {f["label"] for f in field_nodes
-                if f.get("parent") == tn["id"]}
-        assert post >= labels
+def test_no_proxy_nodes_in_display_output():
+    """J12-10 stage 3: the seed_/sync_/dml_ synthetic node synthesis is
+    deleted — no proxy ids may appear in the display output (the model
+    entities replace them)."""
+    model, (table_nodes, field_nodes, new_edges, *_rest) = flagship()
+    all_ids = [tn["id"] for tn in table_nodes.values()]
+    all_ids += [f["id"] for f in field_nodes]
+    proxies = [nid for nid in all_ids
+               if nid.startswith(("seed_", "sync_", "dml_"))]
+    assert proxies == [], f"proxy node ids in display output: {proxies}"
+    edge_ids = [e.get("id") for e in new_edges]
+    assert not [eid for eid in edge_ids
+                if eid and eid.startswith(("seed_", "sync_", "dml_"))]
 
 
 # ── fin_query4_merge_upsert: §9 merge invariants ────────────────────────

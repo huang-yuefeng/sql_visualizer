@@ -45,5 +45,16 @@ per-edge `mech` payload (ref_line/clause/alias/use_lines/sentence) and
 compound-node line_start/line_end/defined_in. Old graphs (no mech) would
 serve forever without the bump; format_version stays 4 (the walker/
 filter inputs are unchanged).
+
+J12-10 stage 3 (2026-08-11): bumped to 3_2_22 — INVALIDATION bump. The
+L2 filter and node assembly now derive from the physical model (the
+strict walker consumes PhysicalEdges; seed search resolves against
+PhysicalField entities; the seed_/sync_/dml_ proxy synthesis is
+deleted), and _dep_to_dict now normalizes the graph-data edge form
+(source/target → source_id/target_id) so graph-backed models carry
+their edges. The graph JSON shape (full_graph) is unchanged, but caches
+written before this batch must not feed the new assembly path — mass
+invalidate, rebuild lazily. extractor_version is NOT bumped (the
+extractor is unchanged).
 """
-GRAPH_CACHE_PREFIX = "graph_3_2_21"
+GRAPH_CACHE_PREFIX = "graph_3_2_22"
