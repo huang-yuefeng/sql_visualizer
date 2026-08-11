@@ -1150,3 +1150,203 @@ entity per table makes sup a single waypoint (writer instance + reader
 instance = one physical node), so paths pass through it naturally. R19/
 J12-13 is a forward-compatible statement of the same model. Order:
 Issue-3 fix (property holds on the sample) → path payload → J12-10 stages.
+
+## 5a. Decision procedure for source/target (user question 2026-08-11)
+
+How the system decides which tables are sources and which are targets:
+
+- **Source (filtered L2)**: USER-DEFINED, never inferred — the searched
+  table.field IS the flow source (v3.3.140 seed semantics). The engine
+  resolves it to the physical table's compound node (seed re-parent,
+  P1 MOVE→COPY).
+- **Source (full L2, no search)**: no single source; origins = tables
+  that are read but never written within the script (in-degree 0 in the
+  flow — requires read recognition: every FROM/JOIN reference carries
+  source_tables = Fix A; today bare refs are invisible, so this
+  classification is impossible — the Issue-3 connection).
+- **Targets (filtered L2)**: T is a flow target iff (a) T is a DML
+  statement's write target (extraction-time DML attribution — exists)
+  AND (b) T's write leg `output → T` is in the seed's flow closure
+  (the `compute_field_flow` reachability walk, DML forward-only).
+  On the sample: statement-1's output is reachable → sup is a target;
+  statement-2's output reachable through the sup read → rrcdm is a
+  target. Today the rrcdm attach arrives only via the cross-statement
+  DML WRITE_READ shortcut — the no-bypass fix routes it through the
+  reader so the closure decides it genuinely.
+- **Targets (full L2)**: flow sinks = tables with write legs and no
+  outgoing read legs (leaf DML targets); pure-SELECT scripts: the
+  terminal output VT.
+- **Both roles**: a table is BOTH target and waypoint when it has an
+  incoming write leg AND an outgoing read leg (sup: target of
+  output1→sup @L160, source of sup→output2 @L223). Roles are decided
+  PER-EDGE/PATH, not per-table; physical identity (J12-10) unifies the
+  node, the paths pass through it.
+- The procedure is extraction-driven end to end — read recognition
+  (Fix A) + DML target attribution + the closure walk. No heuristics,
+  no render-time reconstruction.
+
+## 5b. L1 roles + full-view net-flow classification (user question 2026-08-11)
+
+- **L1 (multiple scripts)**: roles are EDGE-DECIDED and unambiguous — a
+  script reads table A (data flows A → script) and writes table B
+  (script → B); A is the source of that hop, B the target. No
+  inference.
+- **L2 full view (no search seed)**: net-flow rule — per physical
+  table, count in/out FLOW edges (structure excluded; self-loops
+  excluded — sup reading its own partition is a cycle, not direction):
+  out > in → source; in > out → target; multiple of each allowed;
+  balanced → waypoint (BOTH roles). On the sample: bdm = source
+  (out-heavy), rrcdm = target (in-heavy), sup = waypoint (in: write
+  leg output1→sup; out: read leg sup→output2 + DML). Dominance only
+  orders the display; membership in both sets is allowed.
+- **Prerequisite**: read recognition (Fix A) — without source_tables
+  on bare FROM refs, sup's out-flow is undercounted and it
+  misclassifies as a pure target.
+
+## 5c. Inverse-edge simplification (user suggestion 2026-08-11)
+
+Two distinct inverse-edge families; remove the cause, never the
+genuine flow:
+
+- **(a) Structure/containment inverses** (Issue-2 Pattern A — SCHEMA
+  owner→member): removable from the flow view — the info already
+  lives in the compound-node nesting (fields render inside their
+  tables). Hide by default, "show structure edges" display toggle.
+  Payload + benchmark unchanged (canonical S1/S3/S5 untouched — the
+  rows still match; only the VIEW hides them).
+- **(b) Write/read leg pairs** (Issue-2 Pattern B — sup ↔ output):
+  BOTH legs are genuine flow (output1→sup is stmt-1's write, sup→output2
+  is stmt-2's read); neither is removable. The inverse look is the
+  label-merge artifact: the two `⟐output` VTs (TOP0/TOP1) collapse
+  into one node, hiding the statement boundary. Fix: un-merge the
+  SYNTHETIC output VTs by statement — `output@L160` and `output@L211`
+  as distinct nodes (they are VTs, not physical tables; R22's
+  one-node-per-table applies to physical tables; C-9 already keys
+  fields by stmt_idx). The clean path
+  `… → output1 → sup → output2 → rrcdm` then renders with NO inverse
+  pair — and R19.3's no-bypass path passes through output2 genuinely.
+- After (a)+(b): zero inverse edges in the flow view; every edge
+  points with the flow; net-flow classification is trivial.
+- **Jaccard/canonical impact**: merged-output canonical rows (15/16,
+  `⟐output@0 → sup@160` / `→ rrcdm@211`) become statement-pinned
+  (`output@160 → sup@160`, `output@211 → rrcdm@211`) — doc repair
+  with evidence; B1 type change (SUBSET→TABLE_FLOW) already recorded.
+
+## 6. Implementation deltas (updated)
+
+1. Issue-3 fix (R19.3 + decision procedure 5a): Fix A (bare FROM/JOIN
+   refs → source_tables) + closure admission of the same-table read
+   instance + DML WRITE_READ routed through the reader (no-bypass).
+2. Source/target annotation on L2 nodes: the seed's physical node
+   marked `flow_source`; every reachable DML target marked
+   `flow_target` (node data, computed in `_build_l2_graph` from the
+   closure + DML attribution — build-time, extraction-time info only).
+3. Path payload + role prose (R20) — the complete source→target path
+   per edge, downstream continuation walked over the closure DAG.
+4. Structure edges exempt (R19.4) — unchanged.
+5. Full-view role annotation (R19.5): per-table net-flow classification
+   (FLOW edges only, self-loops excluded) → `flow_source` /
+   `flow_target` / `waypoint` node data, computed at build time.
+6. No-inverse-view (R19.6): un-merge synthetic output VTs by statement
+   (output@L160 / output@L211 — distinct nodes, statement boundary
+   visible); structure edges hidden by default behind a display
+   toggle. Canonical rows 15/16 re-pinned to statement outputs.
+
+# J12-14 — HSBC red/white/black theme (frontend, user request 2026-08-11)
+
+> **Status:** Design + palette defined (sources: HSBC brand guidelines via
+> brandcolor.dev/Brandfetch; official HSBC careers-site red tint scale;
+> minimal-fintech design conventions — fluar.com, thefrontkit, Refraction).
+> NO source changes — batch item, waiting on the user's "go".
+
+## 1. The ask
+
+The tool is developed for HSBC; the frontend should use a well-defined
+red / white / black color style. Current theme is dark-navy blue
+(app.css backgrounds `#16213e`/`#0a0a1a`, accents `#4A90D9` blue +
+`#5CB85C`/`#2ECC71` green) with the graph's 16 edge-type colors served
+from the backend (`graph_service.py` EDGE_TYPE_STYLE/NODE_STYLES).
+
+## 2. Brand core (verified sources)
+
+- **HSBC Red `#DB0011`** (RGB 219,0,17) — official brand red
+- **White `#FFFFFF`** + **Black `#000000`** — the core tricolor
+- **Official red tint scale** (HSBC careers-site theme):
+  `100 #DB0011` `90 #DF1A29` `80 #E23341` `70 #E64C58` `60 #E96670`
+  `50 #ED8088` `40 #F199A0` `30 #F4B2B8` `20 #F8CCCF` `10 #FBE6E7`
+
+## 3. Design rules (from minimal-fintech design systems)
+
+1. Neutrals carry the UI: near-black ink (NOT harsh `#000` for body
+   text — `#0A0A0A`, per fluar.com's "deliberately not harsh black")
+   and white/grey surfaces; pure black/white reserved for brand marks,
+   headers, and the DML edge.
+2. Red is the SINGLE controlled accent: primary actions, active states,
+   seed/target highlights, brand moments — never decoration (fintech
+   rule: red is semantic, used sparingly).
+3. The 16 edge-type colors are SEMANTIC data-flow meanings — a strict
+   red/white/black edge palette would destroy readability. They are
+   KEPT as hues, harmonized to the brand (red-family edges move to the
+   HSBC red scale; DML — the write edge — becomes black/white
+   mode-dependent double line: "the signature edge").
+4. Both modes defined via the same tokens: **light** (HSBC official:
+   white surfaces, near-black text, red accents) and **dark** (black
+   surfaces, white text, red accents — matches the current dark feel).
+
+## 4. Token table (proposal)
+
+| Token | Light | Dark | Use |
+|---|---|---|---|
+| `--bg-app` | `#FFFFFF` | `#0A0A0A` | app background |
+| `--bg-surface` | `#F5F5F5` | `#141414` | panels/sidebars |
+| `--bg-elevated` | `#FFFFFF` | `#1F1F1F` | cards, dropdowns, hover |
+| `--ink-900` | `#0A0A0A` | `#F5F5F5` | primary text |
+| `--ink-600` | `#4A4A4A` | `#B0B0B0` | secondary text |
+| `--ink-400` | `#8E8E8E` | `#6E6E6E` | muted text / meta |
+| `--border` | `#EAEAEA` | `#2E2E2E` | hairlines |
+| `--border-strong` | `#D0D0D0` | `#4A4A4A` | emphasized borders |
+| `--accent` | `#DB0011` | `#DB0011` | HSBC red — primary actions, active, seed |
+| `--accent-hover` | `#A8000E` | `#E23341` | hover/depressed red |
+| `--accent-soft` | `#FBE6E7` | `#3A0A0E` | red-10 tint: badges, selected rows |
+| `--accent-ring` | `#DB0011` | `#DB0011` | focus rings |
+| `--success` | `#1A7F37` | `#3FB950` | positive (fintech discipline — green reserved) |
+| `--warning` | `#B26A00` | `#E3A008` | warnings |
+| `--danger` | `#DB0011` | `#FF5A66` | destructive (HSBC red family) |
+
+## 5. Edge palette harmonization (graph_service.py, 16 types)
+
+Keep all hues; retune the red-family + DML to the brand:
+FILTER `#E74C3C` → `#DB0011` (HSBC red — the strongest filter semantic),
+INDIRECT `#C0392B` → `#A80F1C`, CORRELATED `#FF5722` → `#E64C58` (red-70),
+JOIN `#E91E63` → keep (pink, distinguishable),
+DML `#2980B9` → `#000000` light / `#FFFFFF` dark (double-line signature),
+SCHEMA `#3498DB` → `#6E6E6E` (structure = neutral grey — reads as
+"not flow", aligning with R19.4),
+SUBSET `#7F8C8D` → `#B0B0B0` (lighter bridge),
+TABLE_FLOW/ALIAS/REF/AGGREGATE/TRANSFORM/WINDOW/COMPUTED/SET_OP/SUBQUERY:
+keep hues, verify contrast on both modes (nodes: same treatment).
+Node shape colors (NODE_STYLES) retuned to harmonize with neutrals.
+
+## 6. Files to change (implementation, on "go")
+
+1. `frontend/src/styles/app.css` — `:root` token block (light default)
+   + `[data-theme="dark"]` overrides; replace ~100 hardcoded hex values
+   with `var(--token)`.
+2. `frontend/src/styles/resizable.css` — same treatment.
+3. `backend/app/services/graph_service.py` — EDGE_TYPE_STYLE +
+   NODE_STYLES + DEFAULT_NODE_STYLE to the harmonized palette (served
+   in the Cytoscape payload; no cache-key impact — colors are not part
+   of graph semantics, but the frontend picks them up per request).
+4. Optional: a light/dark toggle (localStorage-persisted; R23 clean
+   start applies). Default mode = user's choice (open question).
+5. Any inline hex in JSX (audit during implementation).
+
+## 7. Verification
+
+- Contrast: text/on-red and text/on-surface pairs ≥ AA (4.5:1);
+  red on white `#DB0011`/`#FFFFFF` is 5.8:1 (AA for normal text);
+  white on red is 3.6:1 (AA large text — use for buttons with
+  bold/large labels, dark text alternative available).
+- Visual review of L2 graph on the flagship sample in both modes.
+- Full pytest + vitest suites green (frontend CSS changes are
+  non-functional; backend palette change is data-only).
