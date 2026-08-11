@@ -12,11 +12,6 @@
           "id": "l2e_e7e00344daf5",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 1,
-            "sentence": "\u27d0 output (L111) reads ssr (L1) in its FROM clause at L1"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016ssr@L1 \u2192 \u27d0 output@L111\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "l2_tbl_11194c0158",
@@ -34,11 +29,6 @@
           "id": "l2e_d27b949659c8",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 28,
-            "sentence": "\u27d0 output (L111) reads csr (L28) in its FROM clause at L28"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016csr@L28 \u2192 \u27d0 output@L111\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "l2_tbl_11194c0158",
@@ -56,11 +46,6 @@
           "id": "l2e_486be29aa624",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 55,
-            "sentence": "\u27d0 output (L111) reads wsr (L55) in its FROM clause at L55"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016wsr@L55 \u2192 \u27d0 output@L111\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "l2_tbl_11194c0158",
@@ -78,24 +63,6 @@
           "id": "l2e_a2e2f4de8fbb",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0/SUBQ/FOO/UNION0/UNION0",
-            "ref_line": 111,
-            "sentence": "structural: \u27d0 output (111) references results (84) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              112,
-              113,
-              114,
-              115,
-              123,
-              125,
-              126,
-              127,
-              132,
-              133,
-              134
-            ]
-          },
           "reason": "chain (CTE chain) \u2014 \u2016results@L84 \u2192 \u27d0 output@L111\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "l2_tbl_11194c0158",
@@ -232,7 +199,7 @@
           "id": "l2e_1dcb40f3bba1",
           "label": "REF",
           "line_style": "solid",
-          "reason": "field flow (value copy) \u2014 \u2016sales@L113 \u2192 sales@L113\u2016",
+          "reason": "field flow (value copy) \u2014 \u2016sales@L113 \u2192 sales@L119\u2016",
           "source": "fld_45d7cbe21d",
           "target": "fld_b25a651640",
           "width": 1
@@ -266,20 +233,6 @@
           "id": "l2e_d3f222314c01",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}",
-            "ref_line": 3,
-            "sentence": "structural: ssr (1) references ssr (1) \u2014 see ssr's definition",
-            "use_lines": [
-              4,
-              5,
-              6,
-              92,
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 sales@L3\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_68bfa566ce",
@@ -297,20 +250,6 @@
           "id": "l2e_ff7c342e6655",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}",
-            "ref_line": 30,
-            "sentence": "structural: csr (28) references csr (28) \u2014 see csr's definition",
-            "use_lines": [
-              31,
-              32,
-              33,
-              98,
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 sales@L30\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_612bcd421c",
@@ -328,20 +267,6 @@
           "id": "l2e_cf9b0de12f3c",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: wsr (55) references wsr (55) \u2014 see wsr's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 sales@L57\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_f2ec82e4bd",
@@ -359,15 +284,6 @@
           "id": "l2e_549f3b8dcb46",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: ssr (1) references results (84) \u2014 see ssr's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 sales@L93\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_68bfa566ce",
@@ -385,15 +301,6 @@
           "id": "l2e_d98b879a788a",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: csr (28) references results (84) \u2014 see csr's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 sales@L99\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_612bcd421c",
@@ -411,15 +318,6 @@
           "id": "l2e_c700471b2633",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: wsr (55) references results (84) \u2014 see wsr's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 sales@L105\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_f2ec82e4bd",
@@ -437,15 +335,6 @@
           "id": "l2e_84183c39458f",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: results (84) references results (84) \u2014 see results's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 sales@L87\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_b25a651640",
@@ -480,21 +369,6 @@
           "id": "l2e_c03019bdde2b",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0/SUBQ/FOO/UNION0/UNION1",
-            "ref_line": 124,
-            "sentence": "structural: \u27d0 union1 (123) references \u27d0 union1 (123) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              125,
-              126,
-              127,
-              130,
-              131,
-              132,
-              133,
-              134
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L123 \u2192 SUMsales@L125\u2016",
           "source": "l2_tbl_6631eeae28",
           "target": "fld_a7c495e9d3",
@@ -512,21 +386,6 @@
           "id": "l2e_709a3e37f149",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0/SUBQ/FOO/UNION0/UNION1",
-            "ref_line": 124,
-            "sentence": "structural: \u27d0 union1 (123) references \u27d0 union1 (130) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              125,
-              126,
-              127,
-              130,
-              131,
-              132,
-              133,
-              134
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L130 \u2192 SUMsales@L132\u2016",
           "source": "l2_tbl_061561b0b4",
           "target": "fld_a7c495e9d3",
@@ -544,16 +403,6 @@
           "id": "l2e_c642a1155f02",
           "label": "INDIRECT",
           "line_style": "dot-dash",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: results (84) references ssr (1) \u2014 see results's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "filter (filter step) \u2014 \u2016sales@L3 \u2192 sales@L125\u2016",
           "source": "fld_68bfa566ce",
           "target": "fld_b25a651640",
@@ -571,19 +420,6 @@
           "id": "l2e_5ab8ecefb689",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0/SUBQ/FOO/UNION0/UNION1",
-            "ref_line": 123,
-            "sentence": "structural: \u27d0 union1 (123) references results (84) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              125,
-              126,
-              127,
-              132,
-              133,
-              134
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016sales@L125 \u2192 \u27d0 union1@L123\u2016",
           "source": "fld_b25a651640",
           "target": "l2_tbl_6631eeae28",
@@ -601,15 +437,6 @@
           "id": "l2e_fe1445f4d4e5",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 132,
-            "sentence": "structural: \u27d0 union1 (130) references results (84) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              133,
-              134
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016sales@L132 \u2192 \u27d0 union1@L130\u2016",
           "source": "fld_b25a651640",
           "target": "l2_tbl_061561b0b4",
@@ -826,11 +653,6 @@
           "id": "l2e_e7e00344daf5",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 1,
-            "sentence": "\u27d0 output (L111) reads ssr (L1) in its FROM clause at L1"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016ssr@L1 \u2192 \u27d0 output@L111\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "l2_tbl_11194c0158",
@@ -848,18 +670,6 @@
           "id": "l2e_9a122626ecdd",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "store_sales",
-            "clause": "FROM",
-            "ref_line": 14,
-            "sentence": "\u27d0 union0 (L8) reads store_sales (L14) in its FROM clause at L14",
-            "use_lines": [
-              8,
-              9,
-              10,
-              11
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016store_sales@L14 \u2192 \u27d0 union0@L8\u2016",
           "source": "l2_tbl_a3c0020850",
           "target": "l2_tbl_dbfefb796a",
@@ -877,18 +687,6 @@
           "id": "l2e_3b120d35f921",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "store_returns",
-            "clause": "FROM",
-            "ref_line": 21,
-            "sentence": "\u27d0 union1 (L15) reads store_returns (L21) in its FROM clause at L21",
-            "use_lines": [
-              15,
-              16,
-              19,
-              20
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016store_returns@L21 \u2192 \u27d0 union1@L15\u2016",
           "source": "l2_tbl_48ee902308",
           "target": "l2_tbl_6dd4f029ae",
@@ -906,16 +704,6 @@
           "id": "l2e_96ea7dddc7df",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 22,
-            "sentence": "ssr (L1) reads date_dim (L22) via LEFT JOIN at L22 (alias date_dim)",
-            "use_lines": [
-              49,
-              78
-            ]
-          },
           "reason": "chain (CTE chain) \u2014 \u2016date_dim@L22 \u2192 ssr@L1\u2016",
           "source": "l2_tbl_a570fd53b4",
           "target": "l2_tbl_7ff2417036",
@@ -933,12 +721,6 @@
           "id": "l2e_12589384b400",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "store",
-            "clause": "JOIN",
-            "ref_line": 23,
-            "sentence": "ssr (L1) reads store (L23) via LEFT JOIN at L23 (alias store)"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016store@L23 \u2192 ssr@L1\u2016",
           "source": "l2_tbl_9e5bb15170",
           "target": "l2_tbl_7ff2417036",
@@ -956,11 +738,6 @@
           "id": "l2e_d27b949659c8",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 28,
-            "sentence": "\u27d0 output (L111) reads csr (L28) in its FROM clause at L28"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016csr@L28 \u2192 \u27d0 output@L111\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "l2_tbl_11194c0158",
@@ -978,18 +755,6 @@
           "id": "l2e_87dbc15c256b",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "catalog_sales",
-            "clause": "FROM",
-            "ref_line": 41,
-            "sentence": "\u27d0 union0 (L35) reads catalog_sales (L41) in its FROM clause at L41",
-            "use_lines": [
-              35,
-              36,
-              37,
-              38
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016catalog_sales@L41 \u2192 \u27d0 union0@L35\u2016",
           "source": "l2_tbl_001d4764f0",
           "target": "l2_tbl_3ac3d440cd",
@@ -1007,18 +772,6 @@
           "id": "l2e_50331c163a13",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "catalog_returns",
-            "clause": "FROM",
-            "ref_line": 48,
-            "sentence": "\u27d0 union1 (L42) reads catalog_returns (L48) in its FROM clause at L48",
-            "use_lines": [
-              42,
-              43,
-              46,
-              47
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016catalog_returns@L48 \u2192 \u27d0 union1@L42\u2016",
           "source": "l2_tbl_246185be8d",
           "target": "l2_tbl_4c6268c03e",
@@ -1036,15 +789,6 @@
           "id": "l2e_32b0616c56fd",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 49,
-            "sentence": "csr (L28) reads date_dim (L22) via LEFT JOIN at L49 (alias date_dim)",
-            "use_lines": [
-              78
-            ]
-          },
           "reason": "chain (CTE chain) \u2014 \u2016date_dim@L49 \u2192 csr@L28\u2016",
           "source": "l2_tbl_a570fd53b4",
           "target": "l2_tbl_ecdbb99e9b",
@@ -1062,12 +806,6 @@
           "id": "l2e_996756940e3b",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "catalog_page",
-            "clause": "JOIN",
-            "ref_line": 50,
-            "sentence": "csr (L28) reads catalog_page (L50) via LEFT JOIN at L50 (alias catalog_page)"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016catalog_page@L50 \u2192 csr@L28\u2016",
           "source": "l2_tbl_6e311a6047",
           "target": "l2_tbl_ecdbb99e9b",
@@ -1085,11 +823,6 @@
           "id": "l2e_486be29aa624",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 55,
-            "sentence": "\u27d0 output (L111) reads wsr (L55) in its FROM clause at L55"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016wsr@L55 \u2192 \u27d0 output@L111\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "l2_tbl_11194c0158",
@@ -1107,19 +840,6 @@
           "id": "l2e_793dc7009a91",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "web_sales",
-            "clause": "FROM",
-            "ref_line": 68,
-            "sentence": "\u27d0 union0 (L62) reads web_sales (L68) in its FROM clause at L68",
-            "use_lines": [
-              62,
-              63,
-              64,
-              65,
-              76
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016web_sales@L68 \u2192 \u27d0 union0@L62\u2016",
           "source": "l2_tbl_c043bb0474",
           "target": "l2_tbl_0e48f31898",
@@ -1137,12 +857,6 @@
           "id": "l2e_177e6d74b268",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "web_returns",
-            "clause": "FROM",
-            "ref_line": 75,
-            "sentence": "\u27d0 union1 (L69) reads web_returns (L75) in its FROM clause at L75"
-          },
           "reason": "chain (read into output) \u2014 \u2016web_returns@L75 \u2192 \u27d0 union1@L69\u2016",
           "source": "l2_tbl_1207e6c0aa",
           "target": "l2_tbl_86f7be3322",
@@ -1160,12 +874,6 @@
           "id": "l2e_93917698fdd7",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "web_sales",
-            "clause": "JOIN",
-            "ref_line": 76,
-            "sentence": "\u27d0 union1 (L69) reads web_sales (L68) via LEFT JOIN at L76 (alias web_sales)"
-          },
           "reason": "chain (read into output) \u2014 \u2016web_sales@L76 \u2192 \u27d0 union1@L69\u2016",
           "source": "l2_tbl_c043bb0474",
           "target": "l2_tbl_86f7be3322",
@@ -1183,12 +891,6 @@
           "id": "l2e_084e9d3667a1",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 78,
-            "sentence": "wsr (L55) reads date_dim (L22) via LEFT JOIN at L78 (alias date_dim)"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016date_dim@L78 \u2192 wsr@L55\u2016",
           "source": "l2_tbl_a570fd53b4",
           "target": "l2_tbl_66414b16bd",
@@ -1206,12 +908,6 @@
           "id": "l2e_30f7b13db438",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "web_site",
-            "clause": "JOIN",
-            "ref_line": 79,
-            "sentence": "wsr (L55) reads web_site (L79) via LEFT JOIN at L79 (alias web_site)"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016web_site@L79 \u2192 wsr@L55\u2016",
           "source": "l2_tbl_404dd28ef2",
           "target": "l2_tbl_66414b16bd",
@@ -1229,24 +925,6 @@
           "id": "l2e_a2e2f4de8fbb",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0/SUBQ/FOO/UNION0/UNION0",
-            "ref_line": 111,
-            "sentence": "structural: \u27d0 output (111) references results (84) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              112,
-              113,
-              114,
-              115,
-              123,
-              125,
-              126,
-              127,
-              132,
-              133,
-              134
-            ]
-          },
           "reason": "chain (CTE chain) \u2014 \u2016results@L84 \u2192 \u27d0 output@L111\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "l2_tbl_11194c0158",
@@ -1281,27 +959,6 @@
           "id": "l2e_5bd40efe52cf",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 3,
-            "sentence": "structural: ssr (1) references salesreturns (21) \u2014 see ssr's definition",
-            "use_lines": [
-              5,
-              6,
-              24,
-              26,
-              30,
-              32,
-              33,
-              51,
-              53,
-              57,
-              59,
-              60,
-              80,
-              82
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L57 \u2192 sales@L3\u2016",
           "source": "l2_tbl_38d9cef7a8",
           "target": "l2_tbl_7ff2417036",
@@ -1319,11 +976,6 @@
           "id": "l2e_600cb821e679",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "AGGREGATE",
-            "ref_line": 115,
-            "sentence": "structural: ssr (1) references foo (135) \u2014 see ssr's definition"
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016profit@L115 \u2192 profit@L4\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_7ff2417036",
@@ -1358,22 +1010,6 @@
           "id": "l2e_50e179da9680",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 30,
-            "sentence": "structural: csr (28) references salesreturns (21) \u2014 see csr's definition",
-            "use_lines": [
-              32,
-              33,
-              51,
-              53,
-              57,
-              59,
-              60,
-              80,
-              82
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L57 \u2192 sales@L30\u2016",
           "source": "l2_tbl_38d9cef7a8",
           "target": "l2_tbl_ecdbb99e9b",
@@ -1391,11 +1027,6 @@
           "id": "l2e_58e96b477677",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "AGGREGATE",
-            "ref_line": 115,
-            "sentence": "structural: csr (28) references foo (135) \u2014 see csr's definition"
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016profit@L115 \u2192 profit@L31\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_ecdbb99e9b",
@@ -1515,17 +1146,6 @@
           "id": "l2e_578b99bb2a0a",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 57,
-            "sentence": "structural: wsr (55) references salesreturns (21) \u2014 see wsr's definition",
-            "use_lines": [
-              59,
-              60,
-              80,
-              82
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L57 \u2192 sales@L57\u2016",
           "source": "l2_tbl_38d9cef7a8",
           "target": "l2_tbl_66414b16bd",
@@ -1543,11 +1163,6 @@
           "id": "l2e_16ad45f16551",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "AGGREGATE",
-            "ref_line": 115,
-            "sentence": "structural: wsr (55) references foo (135) \u2014 see wsr's definition"
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016profit@L115 \u2192 profit@L58\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_66414b16bd",
@@ -1565,16 +1180,6 @@
           "id": "l2e_7fdd2573a73b",
           "label": "TRANSFORM",
           "line_style": "dashed",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: \u27d0 union0 (8) references ssr (1) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "field flow (compute step) \u2014 \u2016s_store_id@L92 \u2192 id@L92\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "l2_tbl_dbfefb796a",
@@ -1592,11 +1197,6 @@
           "id": "l2e_a57c3bb0be47",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 113,
-            "sentence": "structural: ssr (1) references foo (135) \u2014 see ssr's definition"
-          },
           "reason": "field flow (value copy) \u2014 \u2016sales@L113 \u2192 sales@L93\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_7ff2417036",
@@ -1614,20 +1214,6 @@
           "id": "l2e_18121c56a48c",
           "label": "TRANSFORM",
           "line_style": "dashed",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: \u27d0 union0 (8) references wsr (55) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "field flow (compute step) \u2014 \u2016profit_loss@L107 \u2192 profit@L95\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "l2_tbl_dbfefb796a",
@@ -1645,11 +1231,6 @@
           "id": "l2e_e93053fef37d",
           "label": "TRANSFORM",
           "line_style": "dashed",
-          "mech": {
-            "clause": "TRANSFORM",
-            "ref_line": 115,
-            "sentence": "structural: \u27d0 union0 (8) references foo (135) \u2014 see \u27d0 union0's definition"
-          },
           "reason": "field flow (compute step) \u2014 \u2016profit@L115 \u2192 profit@L95\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_dbfefb796a",
@@ -1667,20 +1248,6 @@
           "id": "l2e_419249b45d9e",
           "label": "TRANSFORM",
           "line_style": "dashed",
-          "mech": {
-            "clause": "CTE{CSR}",
-            "ref_line": 30,
-            "sentence": "structural: \u27d0 union1 (15) references csr (28) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              31,
-              32,
-              33,
-              98,
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "field flow (compute step) \u2014 \u2016cp_catalog_page_id@L98 \u2192 id@L98\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "l2_tbl_6dd4f029ae",
@@ -1698,11 +1265,6 @@
           "id": "l2e_5e9f1a956c46",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 113,
-            "sentence": "structural: csr (28) references foo (135) \u2014 see csr's definition"
-          },
           "reason": "field flow (value copy) \u2014 \u2016sales@L113 \u2192 sales@L99\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_ecdbb99e9b",
@@ -1720,20 +1282,6 @@
           "id": "l2e_21590070edcd",
           "label": "TRANSFORM",
           "line_style": "dashed",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: \u27d0 union1 (15) references wsr (55) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "field flow (compute step) \u2014 \u2016profit_loss@L107 \u2192 profit@L101\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "l2_tbl_6dd4f029ae",
@@ -1751,11 +1299,6 @@
           "id": "l2e_98e1be4e6a65",
           "label": "TRANSFORM",
           "line_style": "dashed",
-          "mech": {
-            "clause": "TRANSFORM",
-            "ref_line": 115,
-            "sentence": "structural: \u27d0 union1 (15) references foo (135) \u2014 see \u27d0 union1's definition"
-          },
           "reason": "field flow (compute step) \u2014 \u2016profit@L115 \u2192 profit@L101\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_6dd4f029ae",
@@ -1773,11 +1316,6 @@
           "id": "l2e_afc6a91daf1d",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 113,
-            "sentence": "structural: wsr (55) references foo (135) \u2014 see wsr's definition"
-          },
           "reason": "field flow (value copy) \u2014 \u2016sales@L113 \u2192 sales@L105\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_66414b16bd",
@@ -1795,11 +1333,6 @@
           "id": "l2e_87cfa11c766d",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 111,
-            "sentence": "structural: x (108) references foo (135) \u2014 see x's definition"
-          },
           "reason": "field flow (value copy) \u2014 \u2016channel@L111 \u2192 channel@L85\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_aa900fe0cb",
@@ -1817,11 +1350,6 @@
           "id": "l2e_1dadf6968cbf",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "AGGREGATE",
-            "ref_line": 113,
-            "sentence": "structural: results (84) references foo (135) \u2014 see results's definition"
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales@L113 \u2192 sales@L87\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_4d8f9492ff",
@@ -1839,12 +1367,7 @@
           "id": "l2e_7c33233e831c",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 111,
-            "sentence": "structural: results (84) references foo (135) \u2014 see results's definition"
-          },
-          "reason": "field flow (value copy) \u2014 \u2016channel@L111 \u2192 channel@L111\u2016",
+          "reason": "field flow (value copy) \u2014 \u2016channel@L111 \u2192 channel@L117\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_4d8f9492ff",
           "width": 1
@@ -1861,11 +1384,6 @@
           "id": "l2e_0556c7f2fea8",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "AGGREGATE",
-            "ref_line": 113,
-            "sentence": "structural: \u27d0 union1 (15) references foo (135) \u2014 see \u27d0 union1's definition"
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales@L113 \u2192 SUMsales@L125\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_6dd4f029ae",
@@ -1883,16 +1401,6 @@
           "id": "l2e_c65649d4932c",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: \u27d0 union0 (8) references ssr (1) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 \u27d0 union0@L8\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "l2_tbl_dbfefb796a",
@@ -1910,16 +1418,6 @@
           "id": "l2e_4ca589fb2a0a",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: store_sales (14) references ssr (1) \u2014 see store_sales's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 store_sk@L8\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_9b0522e44f",
@@ -1937,16 +1435,6 @@
           "id": "l2e_e593a96652fe",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: store_sales (14) references ssr (1) \u2014 see store_sales's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 date_sk@L9\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_2c0c10063b",
@@ -1964,16 +1452,6 @@
           "id": "l2e_388bbc545892",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: store_sales (14) references ssr (1) \u2014 see store_sales's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 sales_price@L10\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_67a55d02a4",
@@ -1991,16 +1469,6 @@
           "id": "l2e_c38bb94f5979",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: store_sales (14) references ssr (1) \u2014 see store_sales's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 profit@L11\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_40e798d90e",
@@ -2018,16 +1486,6 @@
           "id": "l2e_69a0e536651f",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: \u27d0 union0 (8) references ssr (1) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 return_amt@L12\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_5455baede4",
@@ -2045,16 +1503,6 @@
           "id": "l2e_95495b235e9d",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: \u27d0 union0 (8) references ssr (1) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 net_loss@L13\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_bc68ae9263",
@@ -2072,16 +1520,6 @@
           "id": "l2e_3b34f97e4cb3",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: \u27d0 union1 (15) references ssr (1) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 \u27d0 union1@L15\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "l2_tbl_6dd4f029ae",
@@ -2099,16 +1537,6 @@
           "id": "l2e_6361d7eaa30e",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: store_returns (21) references ssr (1) \u2014 see store_returns's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 store_sk@L15\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_9a83cc0102",
@@ -2126,16 +1554,6 @@
           "id": "l2e_85f48af664bf",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: store_returns (21) references ssr (1) \u2014 see store_returns's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 date_sk@L16\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_c475dfda65",
@@ -2153,16 +1571,6 @@
           "id": "l2e_7251b62ecb18",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: \u27d0 union1 (15) references ssr (1) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 sales_price@L17\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_4da3ebc5ab",
@@ -2180,16 +1588,6 @@
           "id": "l2e_0c33c4cf1a24",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: \u27d0 union1 (15) references ssr (1) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 profit@L18\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_39996989f6",
@@ -2207,16 +1605,6 @@
           "id": "l2e_857c938fbfd2",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: store_returns (21) references ssr (1) \u2014 see store_returns's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 return_amt@L19\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_6904adfa82",
@@ -2234,16 +1622,6 @@
           "id": "l2e_855b1ce9abdf",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: store_returns (21) references ssr (1) \u2014 see store_returns's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 net_loss@L20\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_9658ffa57b",
@@ -2278,20 +1656,6 @@
           "id": "l2e_d3f222314c01",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}",
-            "ref_line": 3,
-            "sentence": "structural: ssr (1) references ssr (1) \u2014 see ssr's definition",
-            "use_lines": [
-              4,
-              5,
-              6,
-              92,
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 sales@L3\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_68bfa566ce",
@@ -2309,20 +1673,6 @@
           "id": "l2e_c8ced4a2d2c0",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}",
-            "ref_line": 3,
-            "sentence": "structural: ssr (1) references ssr (1) \u2014 see ssr's definition",
-            "use_lines": [
-              4,
-              5,
-              6,
-              92,
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 profit@L4\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_21e44f2be3",
@@ -2340,20 +1690,6 @@
           "id": "l2e_e56aff5c28cc",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}",
-            "ref_line": 3,
-            "sentence": "structural: ssr (1) references ssr (1) \u2014 see ssr's definition",
-            "use_lines": [
-              4,
-              5,
-              6,
-              92,
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 returns_@L5\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_5f988b88c4",
@@ -2371,20 +1707,6 @@
           "id": "l2e_d8dff8c5eade",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}",
-            "ref_line": 3,
-            "sentence": "structural: ssr (1) references ssr (1) \u2014 see ssr's definition",
-            "use_lines": [
-              4,
-              5,
-              6,
-              92,
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016ssr@L1 \u2192 profit_loss@L6\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "fld_7558cb8d8b",
@@ -2402,16 +1724,6 @@
           "id": "l2e_8d5ac483cedc",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 98,
-            "sentence": "structural: \u27d0 union0 (35) references csr (28) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 \u27d0 union0@L35\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "l2_tbl_3ac3d440cd",
@@ -2429,16 +1741,6 @@
           "id": "l2e_630693368b49",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 98,
-            "sentence": "structural: catalog_sales (41) references csr (28) \u2014 see catalog_sales's definition",
-            "use_lines": [
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 page_sk@L35\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_94dd51e3a7",
@@ -2456,16 +1758,6 @@
           "id": "l2e_1716fc7175b9",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 98,
-            "sentence": "structural: catalog_sales (41) references csr (28) \u2014 see catalog_sales's definition",
-            "use_lines": [
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 date_sk@L36\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_222fd35f7e",
@@ -2483,16 +1775,6 @@
           "id": "l2e_b0cd492510ad",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 98,
-            "sentence": "structural: catalog_sales (41) references csr (28) \u2014 see catalog_sales's definition",
-            "use_lines": [
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 sales_price@L37\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_e63477f557",
@@ -2510,16 +1792,6 @@
           "id": "l2e_6ce74454dd01",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 98,
-            "sentence": "structural: catalog_sales (41) references csr (28) \u2014 see catalog_sales's definition",
-            "use_lines": [
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 profit@L38\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_dba93b1320",
@@ -2537,20 +1809,6 @@
           "id": "l2e_efd5486c3b03",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}",
-            "ref_line": 30,
-            "sentence": "structural: \u27d0 union0 (8) references csr (28) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              31,
-              32,
-              33,
-              98,
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 return_amt@L39\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_5455baede4",
@@ -2568,20 +1826,6 @@
           "id": "l2e_6e20c63e01cd",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}",
-            "ref_line": 30,
-            "sentence": "structural: \u27d0 union0 (8) references csr (28) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              31,
-              32,
-              33,
-              98,
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 net_loss@L40\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_bc68ae9263",
@@ -2599,16 +1843,6 @@
           "id": "l2e_0893b0acbc5a",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 98,
-            "sentence": "structural: \u27d0 union1 (42) references csr (28) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 \u27d0 union1@L42\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "l2_tbl_4c6268c03e",
@@ -2626,16 +1860,6 @@
           "id": "l2e_9aad3390d0b3",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 98,
-            "sentence": "structural: catalog_returns (48) references csr (28) \u2014 see catalog_returns's definition",
-            "use_lines": [
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 page_sk@L42\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_f9c9d07758",
@@ -2653,16 +1877,6 @@
           "id": "l2e_e81098e7f873",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 98,
-            "sentence": "structural: catalog_returns (48) references csr (28) \u2014 see catalog_returns's definition",
-            "use_lines": [
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 date_sk@L43\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_49c03ac2cf",
@@ -2680,20 +1894,6 @@
           "id": "l2e_648843507310",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}",
-            "ref_line": 30,
-            "sentence": "structural: \u27d0 union1 (15) references csr (28) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              31,
-              32,
-              33,
-              98,
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 sales_price@L44\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_4da3ebc5ab",
@@ -2711,20 +1911,6 @@
           "id": "l2e_ffe4f0b41ab1",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}",
-            "ref_line": 30,
-            "sentence": "structural: \u27d0 union1 (15) references csr (28) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              31,
-              32,
-              33,
-              98,
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 profit@L45\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_39996989f6",
@@ -2742,16 +1928,6 @@
           "id": "l2e_a740649fe038",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 98,
-            "sentence": "structural: catalog_returns (48) references csr (28) \u2014 see catalog_returns's definition",
-            "use_lines": [
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 return_amt@L46\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_abd63e2579",
@@ -2769,16 +1945,6 @@
           "id": "l2e_b1e70cceb211",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 98,
-            "sentence": "structural: catalog_returns (48) references csr (28) \u2014 see catalog_returns's definition",
-            "use_lines": [
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 net_loss@L47\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_83080a8afb",
@@ -2813,20 +1979,6 @@
           "id": "l2e_ff7c342e6655",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}",
-            "ref_line": 30,
-            "sentence": "structural: csr (28) references csr (28) \u2014 see csr's definition",
-            "use_lines": [
-              31,
-              32,
-              33,
-              98,
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 sales@L30\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_612bcd421c",
@@ -2844,20 +1996,6 @@
           "id": "l2e_de0018e07ce4",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}",
-            "ref_line": 30,
-            "sentence": "structural: csr (28) references csr (28) \u2014 see csr's definition",
-            "use_lines": [
-              31,
-              32,
-              33,
-              98,
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 profit@L31\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_8b6e0cf144",
@@ -2875,20 +2013,6 @@
           "id": "l2e_b0769e093344",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}",
-            "ref_line": 30,
-            "sentence": "structural: csr (28) references csr (28) \u2014 see csr's definition",
-            "use_lines": [
-              31,
-              32,
-              33,
-              98,
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 returns_@L32\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_ab093813e1",
@@ -2906,20 +2030,6 @@
           "id": "l2e_87df791df7a3",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}",
-            "ref_line": 30,
-            "sentence": "structural: csr (28) references csr (28) \u2014 see csr's definition",
-            "use_lines": [
-              31,
-              32,
-              33,
-              98,
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "structure \u2014 \u2016csr@L28 \u2192 profit_loss@L33\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "fld_11f9d6a23d",
@@ -2937,16 +2047,6 @@
           "id": "l2e_1f7194165668",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 104,
-            "sentence": "structural: \u27d0 union0 (62) references wsr (55) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 \u27d0 union0@L62\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "l2_tbl_0e48f31898",
@@ -2964,16 +2064,6 @@
           "id": "l2e_32511edfec0a",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 104,
-            "sentence": "structural: web_sales (68) references wsr (55) \u2014 see web_sales's definition",
-            "use_lines": [
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 wsr_web_site_sk@L62\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_7c55a01dcc",
@@ -2991,16 +2081,6 @@
           "id": "l2e_94a86aa37916",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 104,
-            "sentence": "structural: web_sales (68) references wsr (55) \u2014 see web_sales's definition",
-            "use_lines": [
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 date_sk@L63\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_42534b4ee6",
@@ -3018,16 +2098,6 @@
           "id": "l2e_0e3a2192c276",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 104,
-            "sentence": "structural: web_sales (68) references wsr (55) \u2014 see web_sales's definition",
-            "use_lines": [
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 sales_price@L64\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_e8a789f370",
@@ -3045,16 +2115,6 @@
           "id": "l2e_d9a9578b5212",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 104,
-            "sentence": "structural: web_sales (68) references wsr (55) \u2014 see web_sales's definition",
-            "use_lines": [
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 profit@L65\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_10aa905450",
@@ -3072,20 +2132,6 @@
           "id": "l2e_a5b8635d2058",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: \u27d0 union0 (8) references wsr (55) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 return_amt@L66\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_5455baede4",
@@ -3103,20 +2149,6 @@
           "id": "l2e_6b5d5dc1c708",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: \u27d0 union0 (8) references wsr (55) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 net_loss@L67\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_bc68ae9263",
@@ -3134,16 +2166,6 @@
           "id": "l2e_fda06990060d",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 104,
-            "sentence": "structural: \u27d0 union1 (69) references wsr (55) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 \u27d0 union1@L69\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "l2_tbl_86f7be3322",
@@ -3161,20 +2183,6 @@
           "id": "l2e_8ddff1faa051",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: \u27d0 union1 (15) references wsr (55) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 wsr_web_site_sk@L69\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_e6cd180caf",
@@ -3192,20 +2200,6 @@
           "id": "l2e_45f4673e2355",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: \u27d0 union1 (15) references wsr (55) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 date_sk@L70\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_55fdeb6f06",
@@ -3223,20 +2217,6 @@
           "id": "l2e_81b338650f26",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: \u27d0 union1 (15) references wsr (55) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 sales_price@L71\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_4da3ebc5ab",
@@ -3254,20 +2234,6 @@
           "id": "l2e_e7f9766e2e17",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: \u27d0 union1 (15) references wsr (55) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 profit@L72\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_39996989f6",
@@ -3285,20 +2251,6 @@
           "id": "l2e_fcc426d76f07",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: \u27d0 union1 (15) references wsr (55) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 return_amt@L73\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_c488166a38",
@@ -3316,20 +2268,6 @@
           "id": "l2e_570446da92f3",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: \u27d0 union1 (15) references wsr (55) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 net_loss@L74\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_673d288e57",
@@ -3364,20 +2302,6 @@
           "id": "l2e_cf9b0de12f3c",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: wsr (55) references wsr (55) \u2014 see wsr's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 sales@L57\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_f2ec82e4bd",
@@ -3395,20 +2319,6 @@
           "id": "l2e_dd4b66562e13",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: wsr (55) references wsr (55) \u2014 see wsr's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 profit@L58\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_6a88b6ecca",
@@ -3426,20 +2336,6 @@
           "id": "l2e_050c24b3a513",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: wsr (55) references wsr (55) \u2014 see wsr's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 returns_@L59\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_01689ae8bf",
@@ -3457,20 +2353,6 @@
           "id": "l2e_d22d58184434",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}",
-            "ref_line": 57,
-            "sentence": "structural: wsr (55) references wsr (55) \u2014 see wsr's definition",
-            "use_lines": [
-              58,
-              59,
-              60,
-              104,
-              105,
-              106,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016wsr@L55 \u2192 profit_loss@L60\u2016",
           "source": "l2_tbl_66414b16bd",
           "target": "fld_8916a88ca0",
@@ -3488,11 +2370,6 @@
           "id": "l2e_96b2ee6cf125",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 91,
-            "sentence": "structural: \u27d0 union0 (91) references results (84) \u2014 see \u27d0 union0's definition"
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 \u27d0 union0@L91\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "l2_tbl_ed8f322172",
@@ -3510,15 +2387,6 @@
           "id": "l2e_78e45f2daf82",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: \u27d0 union0 (8) references results (84) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 channel@L91\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_8f20ca7bdc",
@@ -3536,15 +2404,6 @@
           "id": "l2e_29d836df3631",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: \u27d0 union0 (8) references results (84) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 id@L92\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_9d7fc88e46",
@@ -3562,15 +2421,6 @@
           "id": "l2e_549f3b8dcb46",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: ssr (1) references results (84) \u2014 see ssr's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 sales@L93\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_68bfa566ce",
@@ -3588,15 +2438,6 @@
           "id": "l2e_9e5aa64fd518",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: ssr (1) references results (84) \u2014 see ssr's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 returns_@L94\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_5f988b88c4",
@@ -3614,15 +2455,6 @@
           "id": "l2e_73a904b3b5f5",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: \u27d0 union0 (8) references results (84) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 profit@L95\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_90df6e059e",
@@ -3640,11 +2472,6 @@
           "id": "l2e_5c74968e9314",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 97,
-            "sentence": "structural: \u27d0 union1 (97) references results (84) \u2014 see \u27d0 union1's definition"
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 \u27d0 union1@L97\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "l2_tbl_8df4fed419",
@@ -3662,15 +2489,6 @@
           "id": "l2e_fa3511ba787c",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: \u27d0 union1 (15) references results (84) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 channel@L97\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_114d7fc645",
@@ -3688,15 +2506,6 @@
           "id": "l2e_474ffa3f78a9",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: \u27d0 union1 (15) references results (84) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 id@L98\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_7cedba261f",
@@ -3714,15 +2523,6 @@
           "id": "l2e_d98b879a788a",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: csr (28) references results (84) \u2014 see csr's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 sales@L99\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_612bcd421c",
@@ -3740,15 +2540,6 @@
           "id": "l2e_b134c69a6c74",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: csr (28) references results (84) \u2014 see csr's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 returns_@L100\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_ab093813e1",
@@ -3766,15 +2557,6 @@
           "id": "l2e_402973f3563c",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: \u27d0 union1 (15) references results (84) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 profit@L101\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_39996989f6",
@@ -3792,11 +2574,6 @@
           "id": "l2e_12aa9497e2a9",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 103,
-            "sentence": "structural: \u27d0 union1 (103) references results (84) \u2014 see \u27d0 union1's definition"
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 \u27d0 union1@L103\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "l2_tbl_74d9c9c57b",
@@ -3814,15 +2591,6 @@
           "id": "l2e_c700471b2633",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: wsr (55) references results (84) \u2014 see wsr's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 sales@L105\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_f2ec82e4bd",
@@ -3840,15 +2608,6 @@
           "id": "l2e_ddeff01cb8e3",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: wsr (55) references results (84) \u2014 see wsr's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 returns_@L106\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_01689ae8bf",
@@ -3866,11 +2625,6 @@
           "id": "l2e_dfa338a217f8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 85,
-            "sentence": "structural: x (108) references results (84) \u2014 see x's definition"
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 channel@L85\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_6c1e3acc96",
@@ -3888,11 +2642,6 @@
           "id": "l2e_c903861fa9b3",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 86,
-            "sentence": "structural: x (108) references results (84) \u2014 see x's definition"
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 id@L86\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_641fc5977f",
@@ -3910,15 +2659,6 @@
           "id": "l2e_84183c39458f",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: results (84) references results (84) \u2014 see results's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 sales@L87\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_b25a651640",
@@ -3936,15 +2676,6 @@
           "id": "l2e_b5a1931e5e25",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: results (84) references results (84) \u2014 see results's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 returns_@L88\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_40040fc840",
@@ -3962,15 +2693,6 @@
           "id": "l2e_2b862edc4a6e",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 87,
-            "sentence": "structural: results (84) references results (84) \u2014 see results's definition",
-            "use_lines": [
-              88,
-              89
-            ]
-          },
           "reason": "structure \u2014 \u2016results@L84 \u2192 profit@L89\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "fld_dfb5ff8a39",
@@ -3988,19 +2710,6 @@
           "id": "l2e_dc5d1204517a",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 39,
-            "sentence": "structural: store_sales (14) references \u27d0 union0 (8) \u2014 see store_sales's definition",
-            "use_lines": [
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L8 \u2192 store_sk@L8\u2016",
           "source": "l2_tbl_dbfefb796a",
           "target": "fld_9b0522e44f",
@@ -4018,19 +2727,6 @@
           "id": "l2e_db164f96f556",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 39,
-            "sentence": "structural: store_sales (14) references \u27d0 union0 (8) \u2014 see store_sales's definition",
-            "use_lines": [
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L8 \u2192 date_sk@L9\u2016",
           "source": "l2_tbl_dbfefb796a",
           "target": "fld_2c0c10063b",
@@ -4048,19 +2744,6 @@
           "id": "l2e_f528713f8348",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 39,
-            "sentence": "structural: store_sales (14) references \u27d0 union0 (8) \u2014 see store_sales's definition",
-            "use_lines": [
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L8 \u2192 sales_price@L10\u2016",
           "source": "l2_tbl_dbfefb796a",
           "target": "fld_67a55d02a4",
@@ -4078,19 +2761,6 @@
           "id": "l2e_1baf4d620f1c",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 39,
-            "sentence": "structural: store_sales (14) references \u27d0 union0 (8) \u2014 see store_sales's definition",
-            "use_lines": [
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L8 \u2192 profit@L11\u2016",
           "source": "l2_tbl_dbfefb796a",
           "target": "fld_40e798d90e",
@@ -4108,21 +2778,6 @@
           "id": "l2e_5da655e11909",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: \u27d0 union0 (8) references \u27d0 union0 (8) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L8 \u2192 return_amt@L12\u2016",
           "source": "l2_tbl_dbfefb796a",
           "target": "fld_5455baede4",
@@ -4140,21 +2795,6 @@
           "id": "l2e_0579896e3a1b",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: \u27d0 union0 (8) references \u27d0 union0 (8) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L8 \u2192 net_loss@L13\u2016",
           "source": "l2_tbl_dbfefb796a",
           "target": "fld_bc68ae9263",
@@ -4172,26 +2812,6 @@
           "id": "l2e_8bf22de8fb5f",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 44,
-            "sentence": "structural: store_returns (21) references \u27d0 union1 (15) \u2014 see store_returns's definition",
-            "use_lines": [
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L15 \u2192 store_sk@L15\u2016",
           "source": "l2_tbl_6dd4f029ae",
           "target": "fld_9a83cc0102",
@@ -4209,26 +2829,6 @@
           "id": "l2e_f0a52a6d4bc5",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 44,
-            "sentence": "structural: store_returns (21) references \u27d0 union1 (15) \u2014 see store_returns's definition",
-            "use_lines": [
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L15 \u2192 date_sk@L16\u2016",
           "source": "l2_tbl_6dd4f029ae",
           "target": "fld_c475dfda65",
@@ -4246,28 +2846,6 @@
           "id": "l2e_36bc2db7c3b8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (15) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L15 \u2192 sales_price@L17\u2016",
           "source": "l2_tbl_6dd4f029ae",
           "target": "fld_4da3ebc5ab",
@@ -4285,28 +2863,6 @@
           "id": "l2e_9bb23e59e15b",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (15) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L15 \u2192 profit@L18\u2016",
           "source": "l2_tbl_6dd4f029ae",
           "target": "fld_39996989f6",
@@ -4324,26 +2880,6 @@
           "id": "l2e_b2122c71afe9",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 44,
-            "sentence": "structural: store_returns (21) references \u27d0 union1 (15) \u2014 see store_returns's definition",
-            "use_lines": [
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L15 \u2192 return_amt@L19\u2016",
           "source": "l2_tbl_6dd4f029ae",
           "target": "fld_6904adfa82",
@@ -4361,26 +2897,6 @@
           "id": "l2e_66e1d1b88089",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 44,
-            "sentence": "structural: store_returns (21) references \u27d0 union1 (15) \u2014 see store_returns's definition",
-            "use_lines": [
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L15 \u2192 net_loss@L20\u2016",
           "source": "l2_tbl_6dd4f029ae",
           "target": "fld_9658ffa57b",
@@ -4398,17 +2914,6 @@
           "id": "l2e_3f010564fdfc",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 66,
-            "sentence": "structural: catalog_sales (41) references \u27d0 union0 (35) \u2014 see catalog_sales's definition",
-            "use_lines": [
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L35 \u2192 page_sk@L35\u2016",
           "source": "l2_tbl_3ac3d440cd",
           "target": "fld_94dd51e3a7",
@@ -4426,17 +2931,6 @@
           "id": "l2e_3c142dd544f7",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 66,
-            "sentence": "structural: catalog_sales (41) references \u27d0 union0 (35) \u2014 see catalog_sales's definition",
-            "use_lines": [
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L35 \u2192 date_sk@L36\u2016",
           "source": "l2_tbl_3ac3d440cd",
           "target": "fld_222fd35f7e",
@@ -4454,17 +2948,6 @@
           "id": "l2e_73d4c8fe9ff3",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 66,
-            "sentence": "structural: catalog_sales (41) references \u27d0 union0 (35) \u2014 see catalog_sales's definition",
-            "use_lines": [
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L35 \u2192 sales_price@L37\u2016",
           "source": "l2_tbl_3ac3d440cd",
           "target": "fld_e63477f557",
@@ -4482,17 +2965,6 @@
           "id": "l2e_6f62c41d5167",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 66,
-            "sentence": "structural: catalog_sales (41) references \u27d0 union0 (35) \u2014 see catalog_sales's definition",
-            "use_lines": [
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L35 \u2192 profit@L38\u2016",
           "source": "l2_tbl_3ac3d440cd",
           "target": "fld_dba93b1320",
@@ -4510,21 +2982,6 @@
           "id": "l2e_a2b27405b9bf",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: \u27d0 union0 (8) references \u27d0 union0 (35) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L35 \u2192 return_amt@L39\u2016",
           "source": "l2_tbl_3ac3d440cd",
           "target": "fld_5455baede4",
@@ -4542,21 +2999,6 @@
           "id": "l2e_cb03fb5919ba",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: \u27d0 union0 (8) references \u27d0 union0 (35) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L35 \u2192 net_loss@L40\u2016",
           "source": "l2_tbl_3ac3d440cd",
           "target": "fld_bc68ae9263",
@@ -4574,24 +3016,6 @@
           "id": "l2e_9bf75c7e8ce7",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 69,
-            "sentence": "structural: catalog_returns (48) references \u27d0 union1 (42) \u2014 see catalog_returns's definition",
-            "use_lines": [
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L42 \u2192 page_sk@L42\u2016",
           "source": "l2_tbl_4c6268c03e",
           "target": "fld_f9c9d07758",
@@ -4609,24 +3033,6 @@
           "id": "l2e_eb806d1b4052",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 69,
-            "sentence": "structural: catalog_returns (48) references \u27d0 union1 (42) \u2014 see catalog_returns's definition",
-            "use_lines": [
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L42 \u2192 date_sk@L43\u2016",
           "source": "l2_tbl_4c6268c03e",
           "target": "fld_49c03ac2cf",
@@ -4644,28 +3050,6 @@
           "id": "l2e_5a44658674e8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (42) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L42 \u2192 sales_price@L44\u2016",
           "source": "l2_tbl_4c6268c03e",
           "target": "fld_4da3ebc5ab",
@@ -4683,28 +3067,6 @@
           "id": "l2e_1f312e3a91ef",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (42) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L42 \u2192 profit@L45\u2016",
           "source": "l2_tbl_4c6268c03e",
           "target": "fld_39996989f6",
@@ -4722,24 +3084,6 @@
           "id": "l2e_a79b88d80533",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 69,
-            "sentence": "structural: catalog_returns (48) references \u27d0 union1 (42) \u2014 see catalog_returns's definition",
-            "use_lines": [
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L42 \u2192 return_amt@L46\u2016",
           "source": "l2_tbl_4c6268c03e",
           "target": "fld_abd63e2579",
@@ -4757,24 +3101,6 @@
           "id": "l2e_2041fdb5c1b8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 69,
-            "sentence": "structural: catalog_returns (48) references \u27d0 union1 (42) \u2014 see catalog_returns's definition",
-            "use_lines": [
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L42 \u2192 net_loss@L47\u2016",
           "source": "l2_tbl_4c6268c03e",
           "target": "fld_83080a8afb",
@@ -4792,15 +3118,6 @@
           "id": "l2e_a271a1ca6c75",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}/SUBQ/X/UNION0/UNION0",
-            "ref_line": 91,
-            "sentence": "structural: web_sales (68) references \u27d0 union0 (62) \u2014 see web_sales's definition",
-            "use_lines": [
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L62 \u2192 wsr_web_site_sk@L62\u2016",
           "source": "l2_tbl_0e48f31898",
           "target": "fld_7c55a01dcc",
@@ -4818,15 +3135,6 @@
           "id": "l2e_281230d68ec2",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}/SUBQ/X/UNION0/UNION0",
-            "ref_line": 91,
-            "sentence": "structural: web_sales (68) references \u27d0 union0 (62) \u2014 see web_sales's definition",
-            "use_lines": [
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L62 \u2192 date_sk@L63\u2016",
           "source": "l2_tbl_0e48f31898",
           "target": "fld_42534b4ee6",
@@ -4844,15 +3152,6 @@
           "id": "l2e_7cedf1c1ed12",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}/SUBQ/X/UNION0/UNION0",
-            "ref_line": 91,
-            "sentence": "structural: web_sales (68) references \u27d0 union0 (62) \u2014 see web_sales's definition",
-            "use_lines": [
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L62 \u2192 sales_price@L64\u2016",
           "source": "l2_tbl_0e48f31898",
           "target": "fld_e8a789f370",
@@ -4870,15 +3169,6 @@
           "id": "l2e_b672e9dc9561",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}/SUBQ/X/UNION0/UNION0",
-            "ref_line": 91,
-            "sentence": "structural: web_sales (68) references \u27d0 union0 (62) \u2014 see web_sales's definition",
-            "use_lines": [
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L62 \u2192 profit@L65\u2016",
           "source": "l2_tbl_0e48f31898",
           "target": "fld_10aa905450",
@@ -4896,21 +3186,6 @@
           "id": "l2e_fb9705a663d2",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: \u27d0 union0 (8) references \u27d0 union0 (62) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L62 \u2192 return_amt@L66\u2016",
           "source": "l2_tbl_0e48f31898",
           "target": "fld_5455baede4",
@@ -4928,21 +3203,6 @@
           "id": "l2e_712e8f5ca1d9",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: \u27d0 union0 (8) references \u27d0 union0 (62) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L62 \u2192 net_loss@L67\u2016",
           "source": "l2_tbl_0e48f31898",
           "target": "fld_bc68ae9263",
@@ -4960,28 +3220,6 @@
           "id": "l2e_8b3b8b4b9d6d",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (69) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L69 \u2192 wsr_web_site_sk@L69\u2016",
           "source": "l2_tbl_86f7be3322",
           "target": "fld_e6cd180caf",
@@ -4999,28 +3237,6 @@
           "id": "l2e_4f58010a0c61",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (69) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L69 \u2192 date_sk@L70\u2016",
           "source": "l2_tbl_86f7be3322",
           "target": "fld_55fdeb6f06",
@@ -5038,28 +3254,6 @@
           "id": "l2e_9985c881cea8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (69) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L69 \u2192 sales_price@L71\u2016",
           "source": "l2_tbl_86f7be3322",
           "target": "fld_4da3ebc5ab",
@@ -5077,28 +3271,6 @@
           "id": "l2e_2810fae8810e",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (69) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L69 \u2192 profit@L72\u2016",
           "source": "l2_tbl_86f7be3322",
           "target": "fld_39996989f6",
@@ -5116,28 +3288,6 @@
           "id": "l2e_386a9da8f754",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (69) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L69 \u2192 return_amt@L73\u2016",
           "source": "l2_tbl_86f7be3322",
           "target": "fld_c488166a38",
@@ -5155,28 +3305,6 @@
           "id": "l2e_f2749151f99e",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (69) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L69 \u2192 net_loss@L74\u2016",
           "source": "l2_tbl_86f7be3322",
           "target": "fld_673d288e57",
@@ -5194,21 +3322,6 @@
           "id": "l2e_33faa5f51421",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: \u27d0 union0 (8) references \u27d0 union0 (91) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L91 \u2192 channel@L91\u2016",
           "source": "l2_tbl_ed8f322172",
           "target": "fld_8f20ca7bdc",
@@ -5226,21 +3339,6 @@
           "id": "l2e_13224405d8d2",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: \u27d0 union0 (8) references \u27d0 union0 (91) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L91 \u2192 id@L92\u2016",
           "source": "l2_tbl_ed8f322172",
           "target": "fld_9d7fc88e46",
@@ -5258,21 +3356,6 @@
           "id": "l2e_3d3bba288d49",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: ssr (1) references \u27d0 union0 (91) \u2014 see ssr's definition",
-            "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L91 \u2192 sales@L93\u2016",
           "source": "l2_tbl_ed8f322172",
           "target": "fld_68bfa566ce",
@@ -5290,21 +3373,6 @@
           "id": "l2e_e0823adf6bea",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: ssr (1) references \u27d0 union0 (91) \u2014 see ssr's definition",
-            "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L91 \u2192 returns_@L94\u2016",
           "source": "l2_tbl_ed8f322172",
           "target": "fld_5f988b88c4",
@@ -5322,21 +3390,6 @@
           "id": "l2e_f1507fb0e790",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: \u27d0 union0 (8) references \u27d0 union0 (91) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L91 \u2192 profit@L95\u2016",
           "source": "l2_tbl_ed8f322172",
           "target": "fld_90df6e059e",
@@ -5354,28 +3407,6 @@
           "id": "l2e_5c5d912ad1bf",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (97) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L97 \u2192 channel@L97\u2016",
           "source": "l2_tbl_8df4fed419",
           "target": "fld_114d7fc645",
@@ -5393,28 +3424,6 @@
           "id": "l2e_09ff55eaa34f",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (97) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L97 \u2192 id@L98\u2016",
           "source": "l2_tbl_8df4fed419",
           "target": "fld_7cedba261f",
@@ -5432,26 +3441,6 @@
           "id": "l2e_016351349921",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 44,
-            "sentence": "structural: csr (28) references \u27d0 union1 (97) \u2014 see csr's definition",
-            "use_lines": [
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L97 \u2192 sales@L99\u2016",
           "source": "l2_tbl_8df4fed419",
           "target": "fld_612bcd421c",
@@ -5469,26 +3458,6 @@
           "id": "l2e_bf6399d27584",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 44,
-            "sentence": "structural: csr (28) references \u27d0 union1 (97) \u2014 see csr's definition",
-            "use_lines": [
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L97 \u2192 returns_@L100\u2016",
           "source": "l2_tbl_8df4fed419",
           "target": "fld_ab093813e1",
@@ -5506,28 +3475,6 @@
           "id": "l2e_778a3c98956b",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (97) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L97 \u2192 profit@L101\u2016",
           "source": "l2_tbl_8df4fed419",
           "target": "fld_39996989f6",
@@ -5545,28 +3492,6 @@
           "id": "l2e_64e60f249a64",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (103) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L103 \u2192 channel@L103\u2016",
           "source": "l2_tbl_74d9c9c57b",
           "target": "fld_114d7fc645",
@@ -5584,28 +3509,6 @@
           "id": "l2e_37364e3f39f7",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (103) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L103 \u2192 id@L104\u2016",
           "source": "l2_tbl_74d9c9c57b",
           "target": "fld_7cedba261f",
@@ -5623,24 +3526,6 @@
           "id": "l2e_797a5cdc3a98",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 69,
-            "sentence": "structural: wsr (55) references \u27d0 union1 (103) \u2014 see wsr's definition",
-            "use_lines": [
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L103 \u2192 sales@L105\u2016",
           "source": "l2_tbl_74d9c9c57b",
           "target": "fld_f2ec82e4bd",
@@ -5658,24 +3543,6 @@
           "id": "l2e_6e2d5aea0057",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 69,
-            "sentence": "structural: wsr (55) references \u27d0 union1 (103) \u2014 see wsr's definition",
-            "use_lines": [
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L103 \u2192 returns_@L106\u2016",
           "source": "l2_tbl_74d9c9c57b",
           "target": "fld_01689ae8bf",
@@ -5693,28 +3560,6 @@
           "id": "l2e_ff56be2de9c2",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (103) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L103 \u2192 profit@L107\u2016",
           "source": "l2_tbl_74d9c9c57b",
           "target": "fld_39996989f6",
@@ -5732,11 +3577,6 @@
           "id": "l2e_32d2ebb73123",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 111,
-            "sentence": "structural: foo (135) references \u27d0 output (111) \u2014 see foo's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L111 \u2192 channel@L111\u2016",
           "source": "l2_tbl_11194c0158",
           "target": "fld_34e9317249",
@@ -5754,11 +3594,6 @@
           "id": "l2e_c4c28dd41844",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 112,
-            "sentence": "structural: foo (135) references \u27d0 output (111) \u2014 see foo's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L111 \u2192 id@L112\u2016",
           "source": "l2_tbl_11194c0158",
           "target": "fld_e103a3b1d2",
@@ -5776,11 +3611,6 @@
           "id": "l2e_1977f3f45656",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 113,
-            "sentence": "structural: foo (135) references \u27d0 output (111) \u2014 see foo's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L111 \u2192 sales@L113\u2016",
           "source": "l2_tbl_11194c0158",
           "target": "fld_45d7cbe21d",
@@ -5798,11 +3628,6 @@
           "id": "l2e_b22036dd9021",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 114,
-            "sentence": "structural: foo (135) references \u27d0 output (111) \u2014 see foo's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L111 \u2192 returns_@L114\u2016",
           "source": "l2_tbl_11194c0158",
           "target": "fld_a05d42fd50",
@@ -5820,11 +3645,6 @@
           "id": "l2e_829435bf4cdd",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 115,
-            "sentence": "structural: foo (135) references \u27d0 output (111) \u2014 see foo's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L111 \u2192 profit@L115\u2016",
           "source": "l2_tbl_11194c0158",
           "target": "fld_860d96b8b0",
@@ -5838,20 +3658,11 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 111,
+          "highlight_line": 117,
           "id": "l2e_3354f9827fce",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}/SUBQ/X/UNION0/UNION0",
-            "ref_line": 91,
-            "sentence": "structural: results (84) references \u27d0 union0 (111) \u2014 see results's definition",
-            "use_lines": [
-              92,
-              95
-            ]
-          },
-          "reason": "structure \u2014 \u2016\u27d0 union0@L111 \u2192 channel@L111\u2016",
+          "reason": "structure \u2014 \u2016\u27d0 union0@L117 \u2192 channel@L117\u2016",
           "source": "l2_tbl_f39ef94e5c",
           "target": "fld_82779d7514",
           "width": 1
@@ -5864,20 +3675,11 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 112,
+          "highlight_line": 118,
           "id": "l2e_0c53e63fa9fb",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}/SUBQ/X/UNION0/UNION0",
-            "ref_line": 91,
-            "sentence": "structural: results (84) references \u27d0 union0 (111) \u2014 see results's definition",
-            "use_lines": [
-              92,
-              95
-            ]
-          },
-          "reason": "structure \u2014 \u2016\u27d0 union0@L111 \u2192 id@L112\u2016",
+          "reason": "structure \u2014 \u2016\u27d0 union0@L117 \u2192 id@L118\u2016",
           "source": "l2_tbl_f39ef94e5c",
           "target": "fld_005ff37681",
           "width": 1
@@ -5890,20 +3692,11 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 113,
+          "highlight_line": 119,
           "id": "l2e_67f6f35d60d2",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}/SUBQ/X/UNION0/UNION0",
-            "ref_line": 91,
-            "sentence": "structural: results (84) references \u27d0 union0 (111) \u2014 see results's definition",
-            "use_lines": [
-              92,
-              95
-            ]
-          },
-          "reason": "structure \u2014 \u2016\u27d0 union0@L111 \u2192 sales@L113\u2016",
+          "reason": "structure \u2014 \u2016\u27d0 union0@L117 \u2192 sales@L119\u2016",
           "source": "l2_tbl_f39ef94e5c",
           "target": "fld_b25a651640",
           "width": 1
@@ -5916,20 +3709,11 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 114,
+          "highlight_line": 120,
           "id": "l2e_2b602c674950",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}/SUBQ/X/UNION0/UNION0",
-            "ref_line": 91,
-            "sentence": "structural: results (84) references \u27d0 union0 (111) \u2014 see results's definition",
-            "use_lines": [
-              92,
-              95
-            ]
-          },
-          "reason": "structure \u2014 \u2016\u27d0 union0@L111 \u2192 returns_@L114\u2016",
+          "reason": "structure \u2014 \u2016\u27d0 union0@L117 \u2192 returns_@L120\u2016",
           "source": "l2_tbl_f39ef94e5c",
           "target": "fld_40040fc840",
           "width": 1
@@ -5942,20 +3726,11 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 115,
+          "highlight_line": 121,
           "id": "l2e_2353d1978c2e",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}/SUBQ/X/UNION0/UNION0",
-            "ref_line": 91,
-            "sentence": "structural: results (84) references \u27d0 union0 (111) \u2014 see results's definition",
-            "use_lines": [
-              92,
-              95
-            ]
-          },
-          "reason": "structure \u2014 \u2016\u27d0 union0@L111 \u2192 profit@L115\u2016",
+          "reason": "structure \u2014 \u2016\u27d0 union0@L117 \u2192 profit@L121\u2016",
           "source": "l2_tbl_f39ef94e5c",
           "target": "fld_dfb5ff8a39",
           "width": 1
@@ -5972,18 +3747,6 @@
           "id": "l2e_b02fa8508d6d",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{RESULTS}/SUBQ/X/UNION0/UNION1",
-            "ref_line": 97,
-            "sentence": "structural: results (84) references \u27d0 union1 (123) \u2014 see results's definition",
-            "use_lines": [
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L123 \u2192 channel@L123\u2016",
           "source": "l2_tbl_6631eeae28",
           "target": "fld_82779d7514",
@@ -6001,28 +3764,6 @@
           "id": "l2e_30edb47f8286",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (123) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L123 \u2192 id@L124\u2016",
           "source": "l2_tbl_6631eeae28",
           "target": "fld_7cedba261f",
@@ -6040,28 +3781,6 @@
           "id": "l2e_c03019bdde2b",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (123) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L123 \u2192 SUMsales@L125\u2016",
           "source": "l2_tbl_6631eeae28",
           "target": "fld_a7c495e9d3",
@@ -6079,28 +3798,6 @@
           "id": "l2e_c6604a143f7a",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (123) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L123 \u2192 SUMreturns_@L126\u2016",
           "source": "l2_tbl_6631eeae28",
           "target": "fld_1f43fe20a5",
@@ -6118,28 +3815,6 @@
           "id": "l2e_0885870ae111",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (123) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L123 \u2192 SUMprofit@L127\u2016",
           "source": "l2_tbl_6631eeae28",
           "target": "fld_cf6a11ed4b",
@@ -6157,28 +3832,6 @@
           "id": "l2e_2ea98e8fef4d",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (130) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L130 \u2192 channel@L130\u2016",
           "source": "l2_tbl_061561b0b4",
           "target": "fld_114d7fc645",
@@ -6196,28 +3849,6 @@
           "id": "l2e_ef796602031a",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (130) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L130 \u2192 id@L131\u2016",
           "source": "l2_tbl_061561b0b4",
           "target": "fld_7cedba261f",
@@ -6235,28 +3866,6 @@
           "id": "l2e_709a3e37f149",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (130) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L130 \u2192 SUMsales@L132\u2016",
           "source": "l2_tbl_061561b0b4",
           "target": "fld_a7c495e9d3",
@@ -6274,28 +3883,6 @@
           "id": "l2e_547fd5f85c57",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (130) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L130 \u2192 SUMreturns_@L133\u2016",
           "source": "l2_tbl_061561b0b4",
           "target": "fld_1f43fe20a5",
@@ -6313,28 +3900,6 @@
           "id": "l2e_fc7b2cdb60aa",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 17,
-            "sentence": "structural: \u27d0 union1 (15) references \u27d0 union1 (130) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              18,
-              44,
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L130 \u2192 SUMprofit@L134\u2016",
           "source": "l2_tbl_061561b0b4",
           "target": "fld_cf6a11ed4b",
@@ -6352,26 +3917,6 @@
           "id": "l2e_e3e58464a855",
           "label": "INDIRECT",
           "line_style": "dot-dash",
-          "mech": {
-            "clause": "CTE{CSR}/SUBQ/SALESRETURNS/UNION1",
-            "ref_line": 44,
-            "sentence": "structural: salesreturns (21) references \u27d0 union1 (15) \u2014 see salesreturns's definition",
-            "use_lines": [
-              45,
-              69,
-              70,
-              71,
-              72,
-              73,
-              74,
-              97,
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "filter (filter step) \u2014 \u2016sales_price@L17 \u2192 sales_price@L3\u2016",
           "source": "l2_tbl_6dd4f029ae",
           "target": "l2_tbl_38d9cef7a8",
@@ -6389,19 +3934,6 @@
           "id": "l2e_ea3cf6bc849c",
           "label": "INDIRECT",
           "line_style": "dot-dash",
-          "mech": {
-            "clause": "CTE{CSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 39,
-            "sentence": "structural: salesreturns (21) references \u27d0 union0 (8) \u2014 see salesreturns's definition",
-            "use_lines": [
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
-            ]
-          },
           "reason": "filter (filter step) \u2014 \u2016return_amt@L12 \u2192 return_amt@L5\u2016",
           "source": "l2_tbl_dbfefb796a",
           "target": "l2_tbl_38d9cef7a8",
@@ -6419,16 +3951,6 @@
           "id": "l2e_7098ac3b64b5",
           "label": "INDIRECT",
           "line_style": "dot-dash",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: csr (28) references ssr (1) \u2014 see csr's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "filter (filter step) \u2014 \u2016profit_loss@L6 \u2192 profit_loss@L101\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "l2_tbl_ecdbb99e9b",
@@ -6446,16 +3968,6 @@
           "id": "l2e_3522b431aab4",
           "label": "INDIRECT",
           "line_style": "dot-dash",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: wsr (55) references ssr (1) \u2014 see wsr's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "filter (filter step) \u2014 \u2016profit_loss@L6 \u2192 profit_loss@L107\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "l2_tbl_66414b16bd",
@@ -6473,16 +3985,6 @@
           "id": "l2e_c642a1155f02",
           "label": "INDIRECT",
           "line_style": "dot-dash",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: results (84) references ssr (1) \u2014 see results's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "filter (filter step) \u2014 \u2016sales@L3 \u2192 sales@L125\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "l2_tbl_4d8f9492ff",
@@ -6500,18 +4002,6 @@
           "id": "l2e_3decac74ac03",
           "label": "INDIRECT",
           "line_style": "dot-dash",
-          "mech": {
-            "clause": "CTE{RESULTS}/SUBQ/X/UNION0/UNION1",
-            "ref_line": 97,
-            "sentence": "structural: results (84) references \u27d0 union1 (15) \u2014 see results's definition",
-            "use_lines": [
-              98,
-              101,
-              103,
-              104,
-              107
-            ]
-          },
           "reason": "filter (filter step) \u2014 \u2016profit@L18 \u2192 profit@L127\u2016",
           "source": "l2_tbl_6dd4f029ae",
           "target": "l2_tbl_4d8f9492ff",
@@ -6529,27 +4019,6 @@
           "id": "l2e_5cf199d0e290",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 3,
-            "sentence": "structural: ssr (1) references salesreturns (21) \u2014 see ssr's definition",
-            "use_lines": [
-              5,
-              6,
-              24,
-              26,
-              30,
-              32,
-              33,
-              51,
-              53,
-              57,
-              59,
-              60,
-              80,
-              82
-            ]
-          },
           "reason": "read \u2014 \u2016salesreturns@L21 \u2192 ssr@L1\u2016",
           "source": "l2_tbl_38d9cef7a8",
           "target": "l2_tbl_7ff2417036",
@@ -6567,11 +4036,6 @@
           "id": "l2e_d9465ce6f55d",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 21,
-            "sentence": "structural: salesreturns (21) references union_result (0) \u2014 see salesreturns's definition"
-          },
           "reason": "read (read into output) \u2014 \u2016union_result@L0 \u2192 salesreturns@L21\u2016",
           "source": "l2_tbl_77f5b67bdc",
           "target": "l2_tbl_38d9cef7a8",
@@ -6589,24 +4053,6 @@
           "id": "l2e_ae0ab8c14a44",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "clause": "WHERE",
-            "ref_line": 24,
-            "sentence": "salesreturns.date_sk is filtered at L24 inside store",
-            "use_lines": [
-              26,
-              30,
-              32,
-              33,
-              51,
-              53,
-              57,
-              59,
-              60,
-              80,
-              82
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016store_sk@L26 \u2192 store@L23\u2016",
           "source": "l2_tbl_38d9cef7a8",
           "target": "l2_tbl_9e5bb15170",
@@ -6675,22 +4121,6 @@
           "id": "l2e_bd24c02ddafe",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 30,
-            "sentence": "structural: csr (28) references salesreturns (48) \u2014 see csr's definition",
-            "use_lines": [
-              32,
-              33,
-              51,
-              53,
-              57,
-              59,
-              60,
-              80,
-              82
-            ]
-          },
           "reason": "read \u2014 \u2016salesreturns@L48 \u2192 csr@L28\u2016",
           "source": "l2_tbl_bafb6fd3a3",
           "target": "l2_tbl_ecdbb99e9b",
@@ -6708,11 +4138,6 @@
           "id": "l2e_2a9f1c09c33a",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 48,
-            "sentence": "structural: salesreturns (48) references union_result (0) \u2014 see salesreturns's definition"
-          },
           "reason": "read (read into output) \u2014 \u2016union_result@L0 \u2192 salesreturns@L48\u2016",
           "source": "l2_tbl_e89c749979",
           "target": "l2_tbl_bafb6fd3a3",
@@ -6730,19 +4155,6 @@
           "id": "l2e_2a9bf39b89ea",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "clause": "WHERE",
-            "ref_line": 51,
-            "sentence": "salesreturns.date_sk is filtered at L51 inside catalog_page",
-            "use_lines": [
-              53,
-              57,
-              59,
-              60,
-              80,
-              82
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016page_sk@L53 \u2192 catalog_page@L50\u2016",
           "source": "l2_tbl_38d9cef7a8",
           "target": "l2_tbl_6e311a6047",
@@ -6811,17 +4223,6 @@
           "id": "l2e_51f1d45ef519",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 57,
-            "sentence": "structural: wsr (55) references salesreturns (77) \u2014 see wsr's definition",
-            "use_lines": [
-              59,
-              60,
-              80,
-              82
-            ]
-          },
           "reason": "read \u2014 \u2016salesreturns@L77 \u2192 wsr@L55\u2016",
           "source": "l2_tbl_c158eeb1a8",
           "target": "l2_tbl_66414b16bd",
@@ -6839,11 +4240,6 @@
           "id": "l2e_834c5a81bf2c",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 77,
-            "sentence": "structural: salesreturns (77) references union_result (0) \u2014 see salesreturns's definition"
-          },
           "reason": "read (read into output) \u2014 \u2016union_result@L0 \u2192 salesreturns@L77\u2016",
           "source": "l2_tbl_70f551861e",
           "target": "l2_tbl_c158eeb1a8",
@@ -6929,14 +4325,6 @@
           "id": "l2e_45d1a414a2e6",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "clause": "WHERE",
-            "ref_line": 80,
-            "sentence": "salesreturns.date_sk is filtered at L80 inside web_site",
-            "use_lines": [
-              82
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016wsr_web_site_sk@L82 \u2192 web_site@L79\u2016",
           "source": "l2_tbl_38d9cef7a8",
           "target": "l2_tbl_404dd28ef2",
@@ -7005,14 +4393,6 @@
           "id": "l2e_bdba27bf93a5",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "CTE{RESULTS}",
-            "ref_line": 85,
-            "sentence": "structural: results (84) references x (108) \u2014 see results's definition",
-            "use_lines": [
-              86
-            ]
-          },
           "reason": "read \u2014 \u2016x@L108 \u2192 results@L84\u2016",
           "source": "l2_tbl_aa900fe0cb",
           "target": "l2_tbl_4d8f9492ff",
@@ -7030,11 +4410,6 @@
           "id": "l2e_a9eac1b4d836",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 108,
-            "sentence": "structural: x (108) references union_result (0) \u2014 see x's definition"
-          },
           "reason": "read (read into output) \u2014 \u2016union_result@L0 \u2192 x@L108\u2016",
           "source": "l2_tbl_5515734aa4",
           "target": "l2_tbl_aa900fe0cb",
@@ -7052,11 +4427,6 @@
           "id": "l2e_baa3d3c8cb38",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 108,
-            "sentence": "structural: x (108) references union_result (0) \u2014 see x's definition"
-          },
           "reason": "read (read into output) \u2014 \u2016union_result@L0 \u2192 x@L108\u2016",
           "source": "l2_tbl_edeba4b6d4",
           "target": "l2_tbl_aa900fe0cb",
@@ -7074,17 +4444,6 @@
           "id": "l2e_9937002e4cbf",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 111,
-            "sentence": "structural: \u27d0 output (111) references foo (135) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              112,
-              113,
-              114,
-              115
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016foo@L135 \u2192 \u27d0 output@L111\u2016",
           "source": "l2_tbl_47823f27e3",
           "target": "l2_tbl_11194c0158",
@@ -7102,11 +4461,6 @@
           "id": "l2e_a91ba1de1f25",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 135,
-            "sentence": "structural: foo (135) references union_result (0) \u2014 see foo's definition"
-          },
           "reason": "read (read into output) \u2014 \u2016union_result@L0 \u2192 foo@L135\u2016",
           "source": "l2_tbl_73a6332497",
           "target": "l2_tbl_47823f27e3",
@@ -7124,11 +4478,6 @@
           "id": "l2e_4cc9dc48f8a2",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 135,
-            "sentence": "structural: foo (135) references union_result (0) \u2014 see foo's definition"
-          },
           "reason": "read (read into output) \u2014 \u2016union_result@L0 \u2192 foo@L135\u2016",
           "source": "l2_tbl_dd186d2ea4",
           "target": "l2_tbl_47823f27e3",
@@ -7146,22 +4495,6 @@
           "id": "l2e_7eb6736dfd2a",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 30,
-            "sentence": "structural: csr (28) references salesreturns (21) \u2014 see csr's definition",
-            "use_lines": [
-              32,
-              33,
-              51,
-              53,
-              57,
-              59,
-              60,
-              80,
-              82
-            ]
-          },
           "reason": "read \u2014 \u2016sales_price@L30 \u2192 csr@L28\u2016",
           "source": "l2_tbl_38d9cef7a8",
           "target": "l2_tbl_ecdbb99e9b",
@@ -7179,19 +4512,6 @@
           "id": "l2e_b7ed7db1a75f",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "web_sales",
-            "clause": "FROM",
-            "ref_line": 68,
-            "sentence": "\u27d0 union0 (L62) reads web_sales (L68) in its FROM clause at L68",
-            "use_lines": [
-              62,
-              63,
-              64,
-              65,
-              76
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016ws_web_site_sk@L62 \u2192 \u27d0 union0@L62\u2016",
           "source": "l2_tbl_c043bb0474",
           "target": "l2_tbl_0e48f31898",
@@ -7260,16 +4580,6 @@
           "id": "l2e_3f119c57e23b",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: \u27d0 union0 (91) references ssr (1) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              93,
-              94,
-              95
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016profit_loss@L95 \u2192 \u27d0 union0@L91\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "l2_tbl_ed8f322172",
@@ -7287,16 +4597,6 @@
           "id": "l2e_64a2a4286580",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 98,
-            "sentence": "structural: \u27d0 union1 (97) references csr (28) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              99,
-              100,
-              101
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016profit_loss@L101 \u2192 \u27d0 union1@L97\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "l2_tbl_8df4fed419",
@@ -7314,21 +4614,6 @@
           "id": "l2e_beb2d4e75d62",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0/SUBQ/FOO/UNION0/UNION1",
-            "ref_line": 124,
-            "sentence": "structural: \u27d0 union1 (123) references \u27d0 union1 (15) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              125,
-              126,
-              127,
-              130,
-              131,
-              132,
-              133,
-              134
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016id@L124 \u2192 \u27d0 union1@L123\u2016",
           "source": "l2_tbl_6dd4f029ae",
           "target": "l2_tbl_6631eeae28",
@@ -7346,19 +4631,6 @@
           "id": "l2e_5ab8ecefb689",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0/SUBQ/FOO/UNION0/UNION1",
-            "ref_line": 123,
-            "sentence": "structural: \u27d0 union1 (123) references results (84) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              125,
-              126,
-              127,
-              132,
-              133,
-              134
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016sales@L125 \u2192 \u27d0 union1@L123\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "l2_tbl_6631eeae28",
@@ -7376,17 +4648,6 @@
           "id": "l2e_03d47711ff50",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0/SUBQ/FOO/UNION1",
-            "ref_line": 130,
-            "sentence": "structural: \u27d0 union1 (130) references \u27d0 union1 (15) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              131,
-              132,
-              133,
-              134
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016channel@L130 \u2192 \u27d0 union1@L130\u2016",
           "source": "l2_tbl_6dd4f029ae",
           "target": "l2_tbl_061561b0b4",
@@ -7404,15 +4665,6 @@
           "id": "l2e_fe1445f4d4e5",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 132,
-            "sentence": "structural: \u27d0 union1 (130) references results (84) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              133,
-              134
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016sales@L132 \u2192 \u27d0 union1@L130\u2016",
           "source": "l2_tbl_4d8f9492ff",
           "target": "l2_tbl_061561b0b4",
@@ -7943,7 +5195,7 @@
           "id": "l2_tbl_f39ef94e5c",
           "label": "union0",
           "line_end": 135,
-          "line_start": 111,
+          "line_start": 117,
           "original_id": "ad63b961d2bdc266",
           "table_name": "\u27d0 union0",
           "type": "intermediate_table",

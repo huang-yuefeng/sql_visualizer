@@ -207,11 +207,7 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
                                         table_nodes, field_nodes,
                                         node_labels, sql)
     new_edges = l2b._dedup_edges(new_edges)
-    # R11-3: the mech payload rides the W5 phase — pass table_nodes + the
-    # PRE-FILTER node index exactly like the orchestrator.
-    l2b._attach_flow_payload(new_edges, field_nodes, table_nodes=table_nodes,
-                             node_index=[n.get("data", n)
-                                         for n in full_graph.get("nodes", [])])
+    l2b._attach_flow_payload(new_edges, field_nodes, table_nodes=table_nodes)
     # Wave 2 (R19.1/R19.2): flow-role phase — the orchestrator calls it
     # before assembly (mirror for identity).
     l2b._attach_flow_roles(new_edges, table_nodes, id_map, full_graph,

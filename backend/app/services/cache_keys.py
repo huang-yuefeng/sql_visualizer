@@ -40,6 +40,12 @@ attribution is extraction-time source_tables only, I2) and the new
 parse_errors key on the graph cache (def-line changes invalidate old
 graphs). Graph JSON format_version stays 4.
 
+v3.3.148 (2026-08-10, commit 3590bcc): bumped to 3_2_20 — INVALIDATION
+bump for the L2 field-flood fixes (REF/read direction gating in
+compute_field_flow, Bug-31 SCHEMA-edge output-field injection removal,
+hl=0 def-site fixes; extractor_version 2026-08-10.1). Superseded the
+same day by 3_2_21 — the 3_2_20 constant never shipped.
+
 R11-3 (2026-08-10): bumped to 3_2_21 — the L2 response format changed:
 per-edge `mech` payload (ref_line/clause/alias/use_lines/sentence) and
 compound-node line_start/line_end/defined_in. Old graphs (no mech) would
@@ -75,5 +81,27 @@ statement-anchored fallback for line<1 virtual nodes + LATERAL
 VIEW / VALUES / UNNEST alias registration) — the analysis caches
 written before that code change carry pre-fallback extraction and
 would otherwise pass the load-time version check.
+
+[2026-08-12 integration] extractor_version bumped to "2026-08-11.2" —
+occurrence-aware statement anchors (E5 round 2, same release) changed
+extraction behavior; analysis caches written by 2026-08-11.1 must be
+invalidated. The read-side analysis-key contract is now versioned
+everywhere: folder_index_service (write), l2_builder + dataflow_service
++ sql_highlight_service (read) all key md5 over
+(EXTRACTOR_VERSION, script/rel_path, sql_text).
+
+R26.3 integration (2026-08-11): bumped to 3_2_24 — INVALIDATION bump,
+not a format-version change (format_version stays 4). The per-edge
+`mech` payload (ref_line/clause/alias/use_lines/sentence) is REMOVED
+from the L2 graph JSON shape: R26 deleted the frontend renderer
+(EdgeReasonPanel renders kind + anchor + reason only), and this
+integration turn retires the dormant backend emitter under the
+no-dormant-machinery rule (_build_mechanism/_mech_sentence/
+_mech_fallback_clause/_ref_site_vars/_field_part deleted;
+_attach_flow_payload drops its node_index parameter). Caches written
+by earlier builds carry mech edges and must not serve — mass
+invalidate, rebuild lazily. Compound-node line_start/line_end/
+defined_in and the R25 per-edge payload (highlight_line/flow_kind/
+reason) are unchanged.
 """
-GRAPH_CACHE_PREFIX = "graph_3_2_23"
+GRAPH_CACHE_PREFIX = "graph_3_2_24"

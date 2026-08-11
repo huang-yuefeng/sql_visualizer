@@ -81,9 +81,7 @@ def display_pipeline(sql_text, script_name):
                                        table_nodes, field_nodes,
                                        physical_model=model)
     new_edges = l2._dedup_edges(new_edges)
-    l2._attach_flow_payload(
-        new_edges, field_nodes, table_nodes=table_nodes,
-        node_index=[n.get("data", n) for n in graph.get("nodes", [])])
+    l2._attach_flow_payload(new_edges, field_nodes, table_nodes=table_nodes)
     return (table_nodes, field_nodes, new_edges, graph, nodes)
 
 

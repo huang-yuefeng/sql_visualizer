@@ -12,17 +12,6 @@
           "id": "l2e_9e9ca4b21ab2",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "item",
-            "clause": "JOIN",
-            "ref_line": 2,
-            "sentence": "\u27d0 output (L1) reads item (L2) via LEFT JOIN at L2 (alias item)",
-            "use_lines": [
-              3,
-              9,
-              10
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016item@L2 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_c38b59735c",
           "target": "l2_tbl_6f5935ee28",
@@ -57,11 +46,6 @@
           "id": "l2e_c3d34b5c60d4",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 4,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 sum_agg@L4\u2016",
           "source": "l2_tbl_6f5935ee28",
           "target": "fld_69cc5659e5",
@@ -161,11 +145,6 @@
           "id": "l2e_dac34ed46f9b",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 5,
-            "sentence": "\u27d0 output (L1) reads dt (L5) in its FROM clause at L5"
-          },
           "reason": "chain (read into output) \u2014 \u2016dt@L5 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_fc74533c4b",
           "target": "l2_tbl_6f5935ee28",
@@ -183,16 +162,6 @@
           "id": "l2e_63176c390dce",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "store_sales",
-            "clause": "JOIN",
-            "ref_line": 6,
-            "sentence": "\u27d0 output (L1) reads store_sales (L6) via LEFT JOIN at L6 (alias store_sales)",
-            "use_lines": [
-              8,
-              9
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016store_sales@L6 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_bfa2bb049a",
           "target": "l2_tbl_6f5935ee28",
@@ -210,17 +179,6 @@
           "id": "l2e_9e9ca4b21ab2",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "item",
-            "clause": "JOIN",
-            "ref_line": 2,
-            "sentence": "\u27d0 output (L1) reads item (L2) via LEFT JOIN at L2 (alias item)",
-            "use_lines": [
-              3,
-              9,
-              10
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016item@L2 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_c38b59735c",
           "target": "l2_tbl_6f5935ee28",
@@ -238,16 +196,6 @@
           "id": "l2e_80912c38c24d",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "dt",
-            "clause": "FROM",
-            "ref_line": 5,
-            "sentence": "dt (L5) reads date_dim (L5) in its FROM clause at L5",
-            "use_lines": [
-              8,
-              11
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016date_dim@L5 \u2192 dt@L5\u2016",
           "source": "l2_tbl_97b25f7b6d",
           "target": "l2_tbl_fc74533c4b",
@@ -282,11 +230,6 @@
           "id": "l2e_37cde3a9e0ff",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 1,
-            "sentence": "structural: date_dim (5) references dt (5) \u2014 see date_dim's definition"
-          },
           "reason": "structure \u2014 \u2016dt@L5 \u2192 dt.d_year@L1\u2016",
           "source": "l2_tbl_fc74533c4b",
           "target": "fld_2154765e23",
@@ -304,17 +247,6 @@
           "id": "l2e_973af80b52d8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "alias": "item",
-            "clause": "JOIN",
-            "ref_line": 2,
-            "sentence": "item (L2) reads item (L2) via LEFT JOIN at L2 (alias item)",
-            "use_lines": [
-              3,
-              9,
-              10
-            ]
-          },
           "reason": "structure \u2014 \u2016item@L2 \u2192 item.i_brand_id@L2\u2016",
           "source": "l2_tbl_c38b59735c",
           "target": "fld_c672a5b3ba",
@@ -332,17 +264,6 @@
           "id": "l2e_8f3b047f4140",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "alias": "item",
-            "clause": "JOIN",
-            "ref_line": 2,
-            "sentence": "item (L2) reads item (L2) via LEFT JOIN at L2 (alias item)",
-            "use_lines": [
-              3,
-              9,
-              10
-            ]
-          },
           "reason": "structure \u2014 \u2016item@L2 \u2192 item.i_brand@L3\u2016",
           "source": "l2_tbl_c38b59735c",
           "target": "fld_bf361edf56",
@@ -360,11 +281,6 @@
           "id": "l2e_7b1964c9d9b7",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 11,
-            "sentence": "structural: date_dim (5) references dt (5) \u2014 see date_dim's definition"
-          },
           "reason": "structure \u2014 \u2016dt@L5 \u2192 dt.d_moy@L11\u2016",
           "source": "l2_tbl_fc74533c4b",
           "target": "fld_5a46b64b3c",
@@ -382,17 +298,6 @@
           "id": "l2e_d19c04406433",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "alias": "item",
-            "clause": "JOIN",
-            "ref_line": 2,
-            "sentence": "item (L2) reads item (L2) via LEFT JOIN at L2 (alias item)",
-            "use_lines": [
-              3,
-              9,
-              10
-            ]
-          },
           "reason": "structure \u2014 \u2016item@L2 \u2192 item.i_manufact_id@L10\u2016",
           "source": "l2_tbl_c38b59735c",
           "target": "fld_ff432ccc62",
@@ -410,11 +315,6 @@
           "id": "l2e_f2f8bfde0a38",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 8,
-            "sentence": "structural: date_dim (5) references dt (5) \u2014 see date_dim's definition"
-          },
           "reason": "structure \u2014 \u2016dt@L5 \u2192 dt.d_date_sk@L8\u2016",
           "source": "l2_tbl_fc74533c4b",
           "target": "fld_ac09ffe0b1",
@@ -432,16 +332,6 @@
           "id": "l2e_49820dc51c80",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "alias": "store_sales",
-            "clause": "JOIN",
-            "ref_line": 6,
-            "sentence": "store_sales (L6) reads store_sales (L6) via LEFT JOIN at L6 (alias store_sales)",
-            "use_lines": [
-              8,
-              9
-            ]
-          },
           "reason": "structure \u2014 \u2016store_sales@L6 \u2192 store_sales.ss_sold_date_sk@L8\u2016",
           "source": "l2_tbl_bfa2bb049a",
           "target": "fld_c3ec9d7bff",
@@ -459,16 +349,6 @@
           "id": "l2e_546cdc199203",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "alias": "store_sales",
-            "clause": "JOIN",
-            "ref_line": 6,
-            "sentence": "store_sales (L6) reads store_sales (L6) via LEFT JOIN at L6 (alias store_sales)",
-            "use_lines": [
-              8,
-              9
-            ]
-          },
           "reason": "structure \u2014 \u2016store_sales@L6 \u2192 store_sales.ss_item_sk@L9\u2016",
           "source": "l2_tbl_bfa2bb049a",
           "target": "fld_207ebb1e7f",
@@ -486,17 +366,6 @@
           "id": "l2e_0f90d996a4de",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "alias": "item",
-            "clause": "JOIN",
-            "ref_line": 2,
-            "sentence": "item (L2) reads item (L2) via LEFT JOIN at L2 (alias item)",
-            "use_lines": [
-              3,
-              9,
-              10
-            ]
-          },
           "reason": "structure \u2014 \u2016item@L2 \u2192 item.i_item_sk@L9\u2016",
           "source": "l2_tbl_c38b59735c",
           "target": "fld_eb237d9cbb",
@@ -514,11 +383,6 @@
           "id": "l2e_bfd642d679f8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 1,
-            "sentence": "structural: date_dim (5) references \u27d0 output (1) \u2014 see date_dim's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 dt.d_year@L1\u2016",
           "source": "l2_tbl_6f5935ee28",
           "target": "fld_2154765e23",
@@ -536,11 +400,6 @@
           "id": "l2e_c28d38ba3a5e",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 4,
-            "sentence": "structural: item (2) references \u27d0 output (1) \u2014 see item's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 brand_id@L2\u2016",
           "source": "l2_tbl_6f5935ee28",
           "target": "fld_31a67de5eb",
@@ -558,11 +417,6 @@
           "id": "l2e_76af5d7d905b",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 4,
-            "sentence": "structural: item (2) references \u27d0 output (1) \u2014 see item's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 brand@L3\u2016",
           "source": "l2_tbl_6f5935ee28",
           "target": "fld_7acfb06804",
@@ -580,11 +434,6 @@
           "id": "l2e_c3d34b5c60d4",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 4,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 sum_agg@L4\u2016",
           "source": "l2_tbl_6f5935ee28",
           "target": "fld_69cc5659e5",
@@ -602,16 +451,6 @@
           "id": "l2e_50fa6abe6999",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "dt",
-            "clause": "FROM",
-            "ref_line": 5,
-            "sentence": "dt (L5) reads date_dim (L5) in its FROM clause at L5",
-            "use_lines": [
-              8,
-              11
-            ]
-          },
           "reason": "read \u2014 \u2016dt.d_year@L1 \u2192 dt@L5\u2016",
           "source": "l2_tbl_97b25f7b6d",
           "target": "l2_tbl_fc74533c4b",
@@ -629,17 +468,6 @@
           "id": "l2e_1b9f35c5149f",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "dt",
-            "clause": "FROM",
-            "ref_line": 5,
-            "sentence": "\u27d0 output (L1) reads date_dim (L5) in its FROM clause at L5",
-            "use_lines": [
-              1,
-              8,
-              11
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016dt.d_moy@L11 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_97b25f7b6d",
           "target": "l2_tbl_6f5935ee28",
@@ -657,17 +485,6 @@
           "id": "l2e_4cc396b652ba",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "item",
-            "clause": "JOIN",
-            "ref_line": 2,
-            "sentence": "\u27d0 output (L1) reads item (L2) via LEFT JOIN at L2 (alias item)",
-            "use_lines": [
-              3,
-              9,
-              10
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016item.i_manufact_id@L10 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_c38b59735c",
           "target": "l2_tbl_6f5935ee28",
@@ -685,16 +502,6 @@
           "id": "l2e_fe1ffa76d825",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "store_sales",
-            "clause": "JOIN",
-            "ref_line": 6,
-            "sentence": "\u27d0 output (L1) reads store_sales (L6) via LEFT JOIN at L6 (alias store_sales)",
-            "use_lines": [
-              8,
-              9
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016store_sales.ss_sold_date_sk@L8 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_bfa2bb049a",
           "target": "l2_tbl_6f5935ee28",

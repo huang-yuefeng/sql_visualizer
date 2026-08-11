@@ -5,6 +5,8 @@ by the FastAPI app — no Node.js needed at runtime.
 """
 
 import logging
+import os
+import socket
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -17,6 +19,14 @@ from app.config import CORS_ORIGINS, DEBUG, CACHE_DIR
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 VERSION_FILE = Path(__file__).resolve().parent.parent.parent / "VERSION"
 
+# J12-8: the purge gate's marker file, kept in the workspace volume so it
+# survives container recreation (named volume workspace_data at
+# /tmp/workspaces). A dotfile: workspace enumeration (create/cleanup/
+# purge) only descends into directories, so the marker is never mistaken
+# for a workspace nor swept by the age-based cleanup.
+_PURGE_MARKER_NAME = ".cache_purge_marker"
+
+
 def _read_version() -> str:
     try:
         return VERSION_FILE.read_text().strip()
@@ -24,26 +34,46 @@ def _read_version() -> str:
         return "0.0.0"
 
 
+def _process_start_identity() -> str:
+    """Identity of this process start, for the J12-8 purge gate.
+
+    ``hostname | pid-of-process-1 | pid-1 starttime`` — the starttime is
+    field 22 of /proc/1/stat (clock ticks since boot). The pid NUMBER of
+    process 1 is always 1 inside a container, so the starttime carries the
+    instance identity: docker restart / new deploy spawn a NEW pid-1
+    process (starttime differs); uvicorn --reload keeps pid 1 — the
+    reloader parent — alive across code-save reloads (starttime
+    unchanged). Verified 2026-08-11 in the dev container (uvicorn 0.51
+    --reload): pid-1 starttime stable across a StatReload, new after
+    docker restart. Fallback on platforms without /proc/1 (no reloader
+    there): the app's own pid — every process start there is a real
+    start.
+    """
+    try:
+        stat = Path("/proc/1/stat").read_text()
+        starttime = stat.rsplit(")", 1)[-1].split()[19]
+        return f"{socket.gethostname()}|1|{starttime}"
+    except Exception:
+        try:
+            return f"{socket.gethostname()}|{os.getpid()}"
+        except Exception:
+            return ""
+
+
 def purge_workspace_caches(root: Path | None = None) -> int:
-    """J12-8 (user ruling 2026-08-11): restart-time cache purge.
+    """J12-8 (user ruling 2026-08-11): restart-time cache purge — the
+    deletion core (called by purge_workspace_caches_if_new_process).
 
     Removes ALL rebuildable cache files under every workspace's cache dir —
-    graph_*.json, analysis_*.json, schemas_*.json. Runs on every process
-    start: the service does not promise to keep user data; caches exist
-    only to save rebuild time, and redoing the calculation after a restart
-    is accepted. No version marker, no gating; the existing
+    graph_*.json, analysis_*.json, schemas_*.json. The service does not
+    promise to keep user data; caches exist only to save rebuild time, and
+    redoing the calculation after a restart is accepted. The existing
     format_version/extractor_version stamps remain the read-time backstop
     for anything that slips through between restarts.
 
     Never touches views.json (user-created views are data, not cache) and
     never user scripts/samples. Index caches (pair_index/table_index/
     field_index/orphan_fields) are out of scope per the ruling.
-
-    Dev note: the dev compose runs uvicorn --reload (docker-compose.yml),
-    which re-runs the lifespan on every code save → purge on every dev
-    save. Accepted by the ruling (dev workspaces are small, caches rebuild
-    lazily on the next request); production (release.sh image) has no
-    reload, so it purges exactly on restarts/deploys as intended.
 
     Returns the number of files removed.
     """
@@ -68,15 +98,58 @@ def purge_workspace_caches(root: Path | None = None) -> int:
     return removed
 
 
+def purge_workspace_caches_if_new_process(root: Path | None = None) -> int:
+    """J12-8 gate: purge the rebuildable caches only on a real container
+    start, never on a uvicorn --reload code-save restart.
+
+    A marker file in the workspace volume records the pid-1 identity of
+    the process start that last purged; only a DIFFERENT identity purges:
+    docker restart / deploy = new pid-1 process → marker differs → purge
+    (the marker is then rewritten). A code-save reload keeps pid 1 (the
+    reloader parent) → marker same → no purge. Without this guard the dev
+    container's --reload would wipe every cache on every file save (each
+    save re-runs the lifespan; verified 2026-08-11 — StatReload re-runs
+    the lifespan with pid-1 starttime unchanged).
+
+    A missing marker (first start after this guard is deployed) purges and
+    writes the marker. Returns the number of files removed.
+    """
+    from app.services.workspace_service import WORKSPACE_ROOT
+    if root is None:
+        root = WORKSPACE_ROOT
+    marker = root / _PURGE_MARKER_NAME
+    identity = _process_start_identity()
+    if not identity:
+        # No usable process-start identity (exotic platform) — skip both
+        # the purge and the marker write (an empty marker would match
+        # itself and disable all future purges). The format_version/
+        # extractor_version stamps remain the read-time backstop.
+        return 0
+    try:
+        if marker.is_file() and marker.read_text().strip() == identity:
+            return 0  # same pid-1 start → a reload, not a container start
+    except OSError:
+        pass
+    removed = purge_workspace_caches(root)
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        marker.write_text(identity)
+    except OSError:
+        logging.getLogger("uvicorn").warning(
+            "Cache purge: could not write marker %s", marker)
+    return removed
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    # J12-8: every process start wipes the rebuildable workspace caches —
+    # J12-8: every container start wipes the rebuildable workspace caches —
     # stale/corrupt cache carriers were the only source of a served
     # highlight_line: 0 (the hl=0 item); purging at restart removes that
-    # source entirely.
-    purged = purge_workspace_caches()
+    # source entirely. Guarded by the pid-1 marker so uvicorn --reload
+    # code-save restarts (same pid 1) do NOT purge.
+    purged = purge_workspace_caches_if_new_process()
     if purged:
         logging.getLogger("uvicorn").info(
             f"Purged {purged} workspace cache file(s) on startup")

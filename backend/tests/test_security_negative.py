@@ -106,7 +106,12 @@ def unit_ws():
 def _unit_cache_paths(ws_id: str) -> tuple[Path, Path]:
     ws_dir = get_workspace_dir(ws_id)
     sql_text = (ws_dir / "scripts" / UNIT_SCRIPT).read_text(encoding="utf-8")
-    key = hashlib.md5((UNIT_SCRIPT + sql_text).encode()).hexdigest()[:12]
+    # #197: the analysis-key contract is versioned (md5 over
+    # (EXTRACTOR_VERSION, script_name, sql_text)) — match the write side
+    # (folder_index_service) exactly or the fixture is never found.
+    key = hashlib.md5(
+        (EXTRACTOR_VERSION + "|" + UNIT_SCRIPT + sql_text)
+        .encode()).hexdigest()[:12]
     return (ws_dir / "cache" / f"{GRAPH_CACHE_PREFIX}_{key}.json",
             ws_dir / "cache" / f"schemas_{key}.json")
 

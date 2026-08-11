@@ -150,8 +150,11 @@ class TestC2GraphCacheInvalidation:
         (compound assembly is model-driven: keeper merges/alias dedup key
         off the model's alias truth + occurrence index, node anchors come
         from the model occurrences, the DML trunk is per-statement
-        J12-15). The bump is the single-constant invalidation."""
-        assert cache_keys.GRAPH_CACHE_PREFIX == "graph_3_2_23", \
+        J12-15); R26.3 integration bumped to graph_3_2_24 (the per-edge
+        `mech` payload is removed from the graph JSON shape — R26
+        deleted the frontend renderer, the backend emitter is retired).
+        The bump is the single-constant invalidation."""
+        assert cache_keys.GRAPH_CACHE_PREFIX == "graph_3_2_24", \
             cache_keys.GRAPH_CACHE_PREFIX
         assert fis.GRAPH_CACHE_PREFIX == cache_keys.GRAPH_CACHE_PREFIX
 

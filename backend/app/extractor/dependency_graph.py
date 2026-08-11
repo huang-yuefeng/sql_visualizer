@@ -10,6 +10,7 @@ from collections import defaultdict
 
 from app.models.variable import VariableDefinition, VariableDependency, VariableType
 from app.extractor.variable_extractor_v2 import ExtractionResult
+from app.extractor.walkable_set import BRIDGE_EMIT_TYPES
 
 
 # ── Table-like types that participate in table-level data flow ──────────
@@ -754,12 +755,24 @@ def build_dependency_graph(
     #   (f) TABLE/VIEW → physical TABLE/MERGE_TARGET      → SUBSET/BRIDGE
     #       (the only SUBSET that may leave this phase — B1
     #       sup@223 → rrcdm@211 must stay SUBSET)
+    #   (g) Every emitted type is a member of BRIDGE_EMIT_TYPES — the
+    #       walkable-set contract (app/extractor/walkable_set.py): REF is
+    #       FIELD_WALKABLE, FILTER/JOIN/DML/TABLE_FLOW are CONDITIONAL,
+    #       SUBSET is NEVER_WALKED (the honest fallback for physical-
+    #       table bridges). The bridge palette IS the walker's own
+    #       vocabulary, pinned by tests/test_walkable_set.py — a new
+    #       bridge type is a contract change, never a local one.
     _QUERY_ANCHOR_TYPES = {VariableType.CTE, VariableType.SUBQUERY,
                            VariableType.VIRTUAL_TABLE,
                            VariableType.UNION_BRANCH}
     _DML_WORDS = ("UPDATE", "DELETE", "MERGE", "INSERT")
 
     def _bridge_typing(v, anchor) -> tuple[str, str]:
+        """W3 honest Phase-8 bridge typing (rules (a)-(f) above). Emits
+        only BRIDGE_EMIT_TYPES (walkable-set contract) — a bridge must
+        land on a type the strict walker classifies: REF is
+        FIELD_WALKABLE, FILTER/JOIN/DML/TABLE_FLOW are CONDITIONAL,
+        SUBSET is NEVER_WALKED."""
         di = (v.defined_in or "").strip().upper()
         ai = (anchor.defined_in or "").upper()
         if v.variable_type == VariableType.COLUMN \

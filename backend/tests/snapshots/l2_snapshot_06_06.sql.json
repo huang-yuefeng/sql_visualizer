@@ -12,11 +12,6 @@
           "id": "l2e_6e46bf8160b8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 2,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 cnt@L2\u2016",
           "source": "l2_tbl_1085c90995",
           "target": "fld_c492bc6ea9",
@@ -73,11 +68,6 @@
           "id": "l2e_2f6e694fae5d",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 3,
-            "sentence": "\u27d0 output (L1) reads a (L3) in its FROM clause at L3"
-          },
           "reason": "chain (read into output) \u2014 \u2016a@L3 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_b4259fa710",
           "target": "l2_tbl_1085c90995",
@@ -95,11 +85,6 @@
           "id": "l2e_c4daccd8bdd2",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 4,
-            "sentence": "\u27d0 output (L1) reads c (L4) in its FROM clause at L4"
-          },
           "reason": "chain (read into output) \u2014 \u2016c@L4 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_5dd02cc45d",
           "target": "l2_tbl_1085c90995",
@@ -117,11 +102,6 @@
           "id": "l2e_794783e63a4c",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 5,
-            "sentence": "\u27d0 output (L1) reads s (L5) in its FROM clause at L5"
-          },
           "reason": "chain (read into output) \u2014 \u2016s@L5 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_551ef9e6e1",
           "target": "l2_tbl_1085c90995",
@@ -139,11 +119,6 @@
           "id": "l2e_3b466e6963e7",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 6,
-            "sentence": "\u27d0 output (L1) reads d (L6) in its FROM clause at L6"
-          },
           "reason": "chain (read into output) \u2014 \u2016d@L6 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_4d1141f1f2",
           "target": "l2_tbl_1085c90995",
@@ -161,11 +136,6 @@
           "id": "l2e_0ddd3eb2edc6",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 7,
-            "sentence": "\u27d0 output (L1) reads i (L7) in its FROM clause at L7"
-          },
           "reason": "chain (read into output) \u2014 \u2016i@L7 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_d5843cdba1",
           "target": "l2_tbl_1085c90995",
@@ -183,17 +153,6 @@
           "id": "l2e_0efd2a72a8d4",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "FROM",
-            "ref_line": 14,
-            "sentence": "\u27d0 subq1 (L13) reads date_dim (L6) in its FROM clause at L14",
-            "use_lines": [
-              13,
-              15,
-              16
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016date_dim@L14 \u2192 \u27d0 subq1@L13\u2016",
           "source": "l2_tbl_a200cd1d63",
           "target": "l2_tbl_2846ec4ff5",
@@ -211,11 +170,6 @@
           "id": "l2e_d6a1ef4bf9fd",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 19,
-            "sentence": "\u27d0 subq2 (L18) reads j (L19) in its FROM clause at L19"
-          },
           "reason": "chain (read into output) \u2014 \u2016j@L19 \u2192 \u27d0 subq2@L18\u2016",
           "source": "l2_tbl_a3ed48df5c",
           "target": "l2_tbl_de895bb8c3",
@@ -233,11 +187,6 @@
           "id": "l2e_f54f834d6a65",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 13,
-            "sentence": "\u27d0 output (L1) reads \u27d0 subq1 (L13) in its FROM clause at L13"
-          },
           "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq1@L13 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_2846ec4ff5",
           "target": "l2_tbl_1085c90995",
@@ -255,11 +204,6 @@
           "id": "l2e_62f1d8fe42c7",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0/SUBQ2",
-            "ref_line": 18,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 subq2 (18) \u2014 see \u27d0 output's definition"
-          },
           "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq2@L18 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_de895bb8c3",
           "target": "l2_tbl_1085c90995",
@@ -277,15 +221,6 @@
           "id": "l2e_826148c8c7d8",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "a",
-            "clause": "FROM",
-            "ref_line": 3,
-            "sentence": "a (L3) reads customer_address (L3) in its FROM clause at L3",
-            "use_lines": [
-              8
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016customer_address@L3 \u2192 a@L3\u2016",
           "source": "l2_tbl_831889a4f0",
           "target": "l2_tbl_b4259fa710",
@@ -303,16 +238,6 @@
           "id": "l2e_2ccac644aa2c",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "c",
-            "clause": "JOIN",
-            "ref_line": 4,
-            "sentence": "c (L4) reads customer (L4) via LEFT JOIN at L4 (alias c)",
-            "use_lines": [
-              8,
-              9
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016customer@L4 \u2192 c@L4\u2016",
           "source": "l2_tbl_914ccaaf01",
           "target": "l2_tbl_5dd02cc45d",
@@ -330,17 +255,6 @@
           "id": "l2e_6a09c6774556",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "s",
-            "clause": "JOIN",
-            "ref_line": 5,
-            "sentence": "s (L5) reads store_sales (L5) via LEFT JOIN at L5 (alias s)",
-            "use_lines": [
-              9,
-              10,
-              11
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016store_sales@L5 \u2192 s@L5\u2016",
           "source": "l2_tbl_fedbbe0537",
           "target": "l2_tbl_551ef9e6e1",
@@ -358,20 +272,6 @@
           "id": "l2e_48e106ed7277",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "d",
-            "clause": "JOIN",
-            "ref_line": 6,
-            "sentence": "d (L6) reads date_dim (L6) via LEFT JOIN at L6 (alias d)",
-            "use_lines": [
-              10,
-              12,
-              13,
-              14,
-              15,
-              16
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016date_dim@L6 \u2192 d@L6\u2016",
           "source": "l2_tbl_a200cd1d63",
           "target": "l2_tbl_4d1141f1f2",
@@ -389,19 +289,6 @@
           "id": "l2e_2dc7b9813a03",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "i",
-            "clause": "JOIN",
-            "ref_line": 7,
-            "sentence": "i (L7) reads item (L7) via LEFT JOIN at L7 (alias i)",
-            "use_lines": [
-              11,
-              17,
-              18,
-              19,
-              20
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016item@L7 \u2192 i@L7\u2016",
           "source": "l2_tbl_57591f607e",
           "target": "l2_tbl_d5843cdba1",
@@ -419,15 +306,6 @@
           "id": "l2e_764bbdbfbad5",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "j",
-            "clause": "FROM",
-            "ref_line": 19,
-            "sentence": "j (L19) reads item (L7) in its FROM clause at L19",
-            "use_lines": [
-              20
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016item@L19 \u2192 j@L19\u2016",
           "source": "l2_tbl_57591f607e",
           "target": "l2_tbl_a3ed48df5c",
@@ -445,17 +323,6 @@
           "id": "l2e_96a2c4c73943",
           "label": "TRANSFORM",
           "line_style": "dashed",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "FROM",
-            "ref_line": 14,
-            "sentence": "\u27d0 subq1 (L13) reads date_dim (L6) in its FROM clause at L14",
-            "use_lines": [
-              13,
-              15,
-              16
-            ]
-          },
           "reason": "field flow (compute step) \u2014 \u2016d_month_seq@L13 \u2192 __d_month_seq@L0\u2016",
           "source": "l2_tbl_a200cd1d63",
           "target": "l2_tbl_2846ec4ff5",
@@ -473,16 +340,6 @@
           "id": "l2e_a89aebf4ad8c",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "alias": "j",
-            "clause": "FROM",
-            "ref_line": 19,
-            "sentence": "\u27d0 subq2 (L18) reads item (L7) in its FROM clause at L19",
-            "use_lines": [
-              18,
-              20
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016j.i_current_price@L18 \u2192 AVGj.i_current_price@L18\u2016",
           "source": "l2_tbl_57591f607e",
           "target": "l2_tbl_de895bb8c3",
@@ -500,11 +357,6 @@
           "id": "l2e_d461d9f5987f",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 1,
-            "sentence": "structural: customer_address (3) references a (3) \u2014 see customer_address's definition"
-          },
           "reason": "structure \u2014 \u2016a@L3 \u2192 a.ca_state@L1\u2016",
           "source": "l2_tbl_b4259fa710",
           "target": "fld_c753e3f8a6",
@@ -522,11 +374,6 @@
           "id": "l2e_01c71c2cc8ad",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 17,
-            "sentence": "structural: item (7) references i (7) \u2014 see item's definition"
-          },
           "reason": "structure \u2014 \u2016i@L7 \u2192 i.i_current_price@L17\u2016",
           "source": "l2_tbl_d5843cdba1",
           "target": "fld_eef999f631",
@@ -544,11 +391,6 @@
           "id": "l2e_46bddc8bf6a5",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 12,
-            "sentence": "structural: date_dim (6) references d (6) \u2014 see date_dim's definition"
-          },
           "reason": "structure \u2014 \u2016d@L6 \u2192 d.d_month_seq@L12\u2016",
           "source": "l2_tbl_4d1141f1f2",
           "target": "fld_69beba5609",
@@ -566,11 +408,6 @@
           "id": "l2e_13ca1c804d51",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 18,
-            "sentence": "structural: item (7) references j (19) \u2014 see item's definition"
-          },
           "reason": "structure \u2014 \u2016j@L19 \u2192 j.i_current_price@L18\u2016",
           "source": "l2_tbl_a3ed48df5c",
           "target": "fld_eef999f631",
@@ -588,11 +425,6 @@
           "id": "l2e_e060c08c1399",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 20,
-            "sentence": "structural: item (7) references j (19) \u2014 see item's definition"
-          },
           "reason": "structure \u2014 \u2016j@L19 \u2192 j.i_category@L20\u2016",
           "source": "l2_tbl_a3ed48df5c",
           "target": "fld_684b7be390",
@@ -610,11 +442,6 @@
           "id": "l2e_608a040ac7a8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 20,
-            "sentence": "structural: item (7) references i (7) \u2014 see item's definition"
-          },
           "reason": "structure \u2014 \u2016i@L7 \u2192 i.i_category@L20\u2016",
           "source": "l2_tbl_d5843cdba1",
           "target": "fld_684b7be390",
@@ -632,11 +459,6 @@
           "id": "l2e_e043f8fb2952",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 11,
-            "sentence": "structural: store_sales (5) references s (5) \u2014 see store_sales's definition"
-          },
           "reason": "structure \u2014 \u2016s@L5 \u2192 s.ss_item_sk@L11\u2016",
           "source": "l2_tbl_551ef9e6e1",
           "target": "fld_282b20429e",
@@ -654,11 +476,6 @@
           "id": "l2e_1542e979fe5a",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 11,
-            "sentence": "structural: item (7) references i (7) \u2014 see item's definition"
-          },
           "reason": "structure \u2014 \u2016i@L7 \u2192 i.i_item_sk@L11\u2016",
           "source": "l2_tbl_d5843cdba1",
           "target": "fld_808fea6fd4",
@@ -676,11 +493,6 @@
           "id": "l2e_80c0561df993",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 10,
-            "sentence": "structural: store_sales (5) references s (5) \u2014 see store_sales's definition"
-          },
           "reason": "structure \u2014 \u2016s@L5 \u2192 s.ss_sold_date_sk@L10\u2016",
           "source": "l2_tbl_551ef9e6e1",
           "target": "fld_9a1c49dc6d",
@@ -698,11 +510,6 @@
           "id": "l2e_75142b641ada",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 10,
-            "sentence": "structural: date_dim (6) references d (6) \u2014 see date_dim's definition"
-          },
           "reason": "structure \u2014 \u2016d@L6 \u2192 d.d_date_sk@L10\u2016",
           "source": "l2_tbl_4d1141f1f2",
           "target": "fld_3ef4a76048",
@@ -720,11 +527,6 @@
           "id": "l2e_58f7a8cf77c4",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 8,
-            "sentence": "structural: customer_address (3) references a (3) \u2014 see customer_address's definition"
-          },
           "reason": "structure \u2014 \u2016a@L3 \u2192 a.ca_address_sk@L8\u2016",
           "source": "l2_tbl_b4259fa710",
           "target": "fld_aa9bb5f761",
@@ -742,11 +544,6 @@
           "id": "l2e_b4b2eac680ab",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 8,
-            "sentence": "structural: customer (4) references c (4) \u2014 see customer's definition"
-          },
           "reason": "structure \u2014 \u2016c@L4 \u2192 c.c_current_addr_sk@L8\u2016",
           "source": "l2_tbl_5dd02cc45d",
           "target": "fld_ad8674f6b5",
@@ -764,11 +561,6 @@
           "id": "l2e_c3fde4f4e4d4",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 9,
-            "sentence": "structural: customer (4) references c (4) \u2014 see customer's definition"
-          },
           "reason": "structure \u2014 \u2016c@L4 \u2192 c.c_customer_sk@L9\u2016",
           "source": "l2_tbl_5dd02cc45d",
           "target": "fld_c8ccae3334",
@@ -786,11 +578,6 @@
           "id": "l2e_70074877e7e4",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 9,
-            "sentence": "structural: store_sales (5) references s (5) \u2014 see store_sales's definition"
-          },
           "reason": "structure \u2014 \u2016s@L5 \u2192 s.ss_customer_sk@L9\u2016",
           "source": "l2_tbl_551ef9e6e1",
           "target": "fld_cb6a6c4251",
@@ -808,11 +595,6 @@
           "id": "l2e_0b2ca4b45145",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 1,
-            "sentence": "structural: customer_address (3) references \u27d0 output (1) \u2014 see customer_address's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 state@L1\u2016",
           "source": "l2_tbl_1085c90995",
           "target": "fld_cc21bc8b8f",
@@ -830,11 +612,6 @@
           "id": "l2e_6e46bf8160b8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 2,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 cnt@L2\u2016",
           "source": "l2_tbl_1085c90995",
           "target": "fld_c492bc6ea9",
@@ -869,11 +646,6 @@
           "id": "l2e_c8fddcf14aa2",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0/SUBQ2",
-            "ref_line": 18,
-            "sentence": "structural: \u27d0 subq2 (18) references \u27d0 subq2 (18) \u2014 see \u27d0 subq2's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 subq2@L18 \u2192 AVGj.i_current_price@L18\u2016",
           "source": "l2_tbl_de895bb8c3",
           "target": "fld_780a456cbc",
@@ -891,15 +663,6 @@
           "id": "l2e_87d84c8f415c",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "a",
-            "clause": "FROM",
-            "ref_line": 3,
-            "sentence": "a (L3) reads customer_address (L3) in its FROM clause at L3",
-            "use_lines": [
-              8
-            ]
-          },
           "reason": "read \u2014 \u2016a.ca_state@L1 \u2192 a@L3\u2016",
           "source": "l2_tbl_831889a4f0",
           "target": "l2_tbl_b4259fa710",
@@ -917,19 +680,6 @@
           "id": "l2e_b8ba4bd0bd37",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "i",
-            "clause": "JOIN",
-            "ref_line": 7,
-            "sentence": "i (L7) reads item (L7) via LEFT JOIN at L7 (alias i)",
-            "use_lines": [
-              11,
-              17,
-              18,
-              19,
-              20
-            ]
-          },
           "reason": "read \u2014 \u2016i.i_current_price@L17 \u2192 i@L7\u2016",
           "source": "l2_tbl_57591f607e",
           "target": "l2_tbl_d5843cdba1",
@@ -947,20 +697,6 @@
           "id": "l2e_80e7f37b5ee8",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "d",
-            "clause": "JOIN",
-            "ref_line": 6,
-            "sentence": "d (L6) reads date_dim (L6) via LEFT JOIN at L6 (alias d)",
-            "use_lines": [
-              10,
-              12,
-              13,
-              14,
-              15,
-              16
-            ]
-          },
           "reason": "read \u2014 \u2016d.d_month_seq@L12 \u2192 d@L6\u2016",
           "source": "l2_tbl_a200cd1d63",
           "target": "l2_tbl_4d1141f1f2",
@@ -978,15 +714,6 @@
           "id": "l2e_ff976658793c",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "j",
-            "clause": "FROM",
-            "ref_line": 19,
-            "sentence": "j (L19) reads item (L7) in its FROM clause at L19",
-            "use_lines": [
-              20
-            ]
-          },
           "reason": "read \u2014 \u2016j.i_current_price@L18 \u2192 j@L19\u2016",
           "source": "l2_tbl_57591f607e",
           "target": "l2_tbl_a3ed48df5c",
@@ -1004,17 +731,6 @@
           "id": "l2e_ce576da49387",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "s",
-            "clause": "JOIN",
-            "ref_line": 5,
-            "sentence": "s (L5) reads store_sales (L5) via LEFT JOIN at L5 (alias s)",
-            "use_lines": [
-              9,
-              10,
-              11
-            ]
-          },
           "reason": "read \u2014 \u2016s.ss_item_sk@L11 \u2192 s@L5\u2016",
           "source": "l2_tbl_fedbbe0537",
           "target": "l2_tbl_551ef9e6e1",
@@ -1032,16 +748,6 @@
           "id": "l2e_3befcf6014fb",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "c",
-            "clause": "JOIN",
-            "ref_line": 4,
-            "sentence": "c (L4) reads customer (L4) via LEFT JOIN at L4 (alias c)",
-            "use_lines": [
-              8,
-              9
-            ]
-          },
           "reason": "read \u2014 \u2016c.c_current_addr_sk@L8 \u2192 c@L4\u2016",
           "source": "l2_tbl_914ccaaf01",
           "target": "l2_tbl_5dd02cc45d",
@@ -1059,19 +765,6 @@
           "id": "l2e_9445d56431db",
           "label": "INDIRECT",
           "line_style": "dot-dash",
-          "mech": {
-            "alias": "i",
-            "clause": "JOIN",
-            "ref_line": 7,
-            "sentence": "customer_address (L3) reads item (L7) via LEFT JOIN at L7 (alias i)",
-            "use_lines": [
-              11,
-              17,
-              18,
-              19,
-              20
-            ]
-          },
           "reason": "filter (filter step) \u2014 \u2016i.i_category@L20 \u2192 state@L1\u2016",
           "source": "l2_tbl_57591f607e",
           "target": "l2_tbl_831889a4f0",
@@ -1089,19 +782,6 @@
           "id": "l2e_255603aa713b",
           "label": "INDIRECT",
           "line_style": "dot-dash",
-          "mech": {
-            "alias": "i",
-            "clause": "JOIN",
-            "ref_line": 7,
-            "sentence": "\u27d0 output (L1) reads item (L7) via LEFT JOIN at L7 (alias i)",
-            "use_lines": [
-              11,
-              17,
-              18,
-              19,
-              20
-            ]
-          },
           "reason": "filter (filter step) \u2014 \u2016i.i_category@L20 \u2192 cnt@L2\u2016",
           "source": "l2_tbl_57591f607e",
           "target": "l2_tbl_1085c90995",
@@ -1119,19 +799,6 @@
           "id": "l2e_f25c006521f6",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "i",
-            "clause": "JOIN",
-            "ref_line": 7,
-            "sentence": "\u27d0 output (L1) reads item (L7) via LEFT JOIN at L7 (alias i)",
-            "use_lines": [
-              11,
-              17,
-              18,
-              19,
-              20
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016i.i_current_price@L17 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_57591f607e",
           "target": "l2_tbl_1085c90995",
@@ -1149,20 +816,6 @@
           "id": "l2e_7dccf9ec08b8",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "d",
-            "clause": "JOIN",
-            "ref_line": 6,
-            "sentence": "\u27d0 output (L1) reads date_dim (L6) via LEFT JOIN at L6 (alias d)",
-            "use_lines": [
-              10,
-              12,
-              13,
-              14,
-              15,
-              16
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016d.d_month_seq@L12 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_a200cd1d63",
           "target": "l2_tbl_1085c90995",
@@ -1180,16 +833,6 @@
           "id": "l2e_8fd4ad06677c",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "j",
-            "clause": "FROM",
-            "ref_line": 19,
-            "sentence": "\u27d0 subq2 (L18) reads item (L7) in its FROM clause at L19",
-            "use_lines": [
-              18,
-              20
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016j.i_category@L20 \u2192 \u27d0 subq2@L18\u2016",
           "source": "l2_tbl_57591f607e",
           "target": "l2_tbl_de895bb8c3",
@@ -1207,17 +850,6 @@
           "id": "l2e_3a522d48edb5",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "s",
-            "clause": "JOIN",
-            "ref_line": 5,
-            "sentence": "\u27d0 output (L1) reads store_sales (L5) via LEFT JOIN at L5 (alias s)",
-            "use_lines": [
-              9,
-              10,
-              11
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016s.ss_item_sk@L11 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_fedbbe0537",
           "target": "l2_tbl_1085c90995",
@@ -1235,16 +867,6 @@
           "id": "l2e_6d78b93c8f1e",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "a",
-            "clause": "FROM",
-            "ref_line": 3,
-            "sentence": "\u27d0 output (L1) reads customer_address (L3) in its FROM clause at L3",
-            "use_lines": [
-              1,
-              8
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016a.ca_address_sk@L8 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_831889a4f0",
           "target": "l2_tbl_1085c90995",
@@ -1262,16 +884,6 @@
           "id": "l2e_a21db861957c",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "c",
-            "clause": "JOIN",
-            "ref_line": 4,
-            "sentence": "\u27d0 output (L1) reads customer (L4) via LEFT JOIN at L4 (alias c)",
-            "use_lines": [
-              8,
-              9
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016c.c_current_addr_sk@L8 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_914ccaaf01",
           "target": "l2_tbl_1085c90995",

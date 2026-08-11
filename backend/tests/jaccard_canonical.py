@@ -7,7 +7,7 @@ canonization (point 7), the X3 removal (point 8 -- E3a fix-3
 DML-target attribution) + re-instatement (point 10), the J12-13
 requirement rows 20/21 (point 9 -- 2026-08-11, doc §4.2/§4.3) and the
 2026-08-11 re-pin round (point 10 -- Issues 2/3 landed)) and the
-closure-seeds block ("bdm = 18 nodes / 27 edges", "sup = 10 nodes / 14
+closure-seeds block ("bdm = 18 nodes / 27 edges", "sup = 9 nodes / 14
 edges"). Data-only module; the matching logic lives in the test that
 consumes it.
 
@@ -82,11 +82,18 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
    identity; applied as NORMALIZE_MAP.get(label, label)). Also carries the
    field folds: canonical "p1.data_dt"/"p2.data_dt" -> "data_dt" (the
    response merges both instances into one bare "data_dt" field node per
-   table, dedup key (parent_table_id, undecorated_label, stmt_idx) -- doc
-   §8.5 probe finding). Applied to BOTH sides of every comparison (response
+   table, dedup key (parent_table_id, undecorated_label) -- the J12-16
+   merge (2026-08-11) dropped stmt_idx from the C-9 key; doc §8.5 probe
+   finding). Applied to BOTH sides of every comparison (response
    labels and canonical endpoint labels). I1 alias identity is NOT folded
    here ("p1@29" -> "p1", NOT -> "bdm@29"); the alias hop stays its own
    canonical node and line evidence separates p1@29 / p1@84 / p2@199.
+   "pl" seed folds (2026-08-11 pl-seed round, BDM_ACC_LOAN_INFO_PL.sql):
+   the seed's physical tables fold to short canonical names (probe
+   decides the served forms; the entries are inert for bdm/sup -- those
+   labels never appear in their payloads). Alias folds for the pl seed's
+   derived-subquery aliases (c@L/D@L/T_BRANCH@L/a@L) are added by the pl
+   probe round -- the stage-4 relabeling may render them bare.
 
 4. CANONICAL_NODES -- per-seed canonical closure nodes as dicts
    {"label": name, "line": int|None, "kind": "table"|"alias"|"cte"|"vt"|
@@ -465,6 +472,17 @@ NORMALIZE_MAP = {
     # field folds: canonical qualified spelling -> bare response spelling
     "p1.data_dt": "data_dt",
     "p2.data_dt": "data_dt",
+    # ── "pl" seed folds (2026-08-11 pl-seed round, BDM_ACC_LOAN_INFO_PL.sql):
+    #    physical-table folds per the ground-truth doc §2 (plan Part 6).
+    #    Inert for the bdm/sup seeds (these labels never appear in their
+    #    payloads). Alias folds (c@L -> c etc.) land with the pl probe —
+    #    the stage-4 relabeling may already render derived aliases bare.
+    "ods_cupd_ploan_acctm_new5": "acctm",
+    "ods_cupd_ploan_aps_credinf5": "credinf",
+    "bdm_pub_branch": "branch",
+    "bdm_fin_lrr_key_base_info": "lrr",
+    "bdm_pub_hsbc_acct_branch": "hsbc_branch",
+    "ods_cdp_gdc_table_coa_list": "coa",
 }
 
 # Per-seed canonical closure nodes: {"label", "line", "kind"}.

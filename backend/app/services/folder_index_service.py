@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlglot
 from sqlglot import exp
 
+from app.extractor.variable_extractor_v2 import EXTRACTOR_VERSION
 from app.services.cache_keys import GRAPH_CACHE_PREFIX
 from app.services.workspace_service import get_workspace_dir, get_script_path
 from app.services.logger import _push
@@ -405,8 +406,31 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
             # Cache analysis result
             cache_dir = get_workspace_dir(ws_id) / "cache"
             import hashlib
-            cache_key = hashlib.md5((rel_path + sql_text).encode()).hexdigest()[:12]
+            # C-3 (review): the analysis cache key discriminates the
+            # extractor engine — md5 over (EXTRACTOR_VERSION, rel_path,
+            # sql_text). A stale cache written by an older engine can never
+            # match this key (the load-time extractor_version stamps in
+            # l2_builder/dataflow_service guard SERVING; the discriminator
+            # guards the key itself — exact-key consumers miss and rebuild
+            # lazily, same philosophy as the J12-8 cache-purge ruling:
+            # caches are a rebuild-time optimization). Glob consumers
+            # (l1_builder, filter_service) are key-agnostic, so the legacy
+            # versionless file for the same script is deleted below —
+            # otherwise it would coexist and could serve pre-this-run
+            # analysis under a sorted-name pick.
+            cache_key = hashlib.md5(
+                (EXTRACTOR_VERSION + "|" + rel_path + sql_text)
+                .encode()).hexdigest()[:12]
             cache_path = cache_dir / f"analysis_{cache_key}.json"
+            _legacy_path = cache_dir / ("analysis_"
+                                        + hashlib.md5((rel_path + sql_text)
+                                                      .encode())
+                                        .hexdigest()[:12] + ".json")
+            if _legacy_path.exists():
+                try:
+                    _legacy_path.unlink()  # best-effort — leftover rebuilds on demand
+                except OSError:
+                    pass
             cache_path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
             cache_by_script[rel_path] = str(cache_path)  # S4b persists attributions
 
@@ -693,6 +717,10 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
         else:
             # Cross-run: not in the current field_index — prior-run cache
             # attribution only. No owner known → revoke any owner.
+            # C-3: mirror the current-index branch — the revoked field
+            # returns to the unresolved pool (the star-expansion exclusion
+            # and the orphan-report unresolved set both read it).
+            extractor_unresolved.add(_f)
             for _apath in sorted((get_workspace_dir(ws_id) / "cache")
                                  .glob("analysis_*.json")):
                 _revoke_s4b_cache_update(str(_apath), _f, None)

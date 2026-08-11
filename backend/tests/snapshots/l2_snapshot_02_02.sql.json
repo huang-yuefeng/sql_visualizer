@@ -12,11 +12,6 @@
           "id": "l2e_20dc90d0ebe2",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 1,
-            "sentence": "\u27d0 output (L45) reads wscs (L1) in its FROM clause at L1"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016wscs@L1 \u2192 \u27d0 output@L45\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "l2_tbl_6834f799e2",
@@ -34,21 +29,6 @@
           "id": "l2e_6ce91e74be8b",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 45,
-            "sentence": "structural: \u27d0 output (45) references wswscs (11) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              54,
-              55,
-              56,
-              57,
-              58,
-              59,
-              60,
-              61
-            ]
-          },
           "reason": "chain (CTE chain) \u2014 \u2016wswscs@L11 \u2192 \u27d0 output@L45\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "l2_tbl_6834f799e2",
@@ -66,17 +46,6 @@
           "id": "l2e_739b84f029b3",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 42,
-            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
-            "use_lines": [
-              12,
-              14,
-              43
-            ]
-          },
           "reason": "chain (CTE chain) \u2014 \u2016date_dim@L42 \u2192 wswscs@L11\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "l2_tbl_f2b42dcb33",
@@ -94,16 +63,6 @@
           "id": "l2e_32fe0c56b0a2",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 63,
-            "sentence": "\u27d0 y (L54) reads date_dim (L42) via LEFT JOIN at L63 (alias date_dim)",
-            "use_lines": [
-              64,
-              65
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016date_dim@L63 \u2192 \u27d0 y@L54\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "l2_tbl_44eea57c4d",
@@ -121,16 +80,6 @@
           "id": "l2e_08e7ab99e09e",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 75,
-            "sentence": "\u27d0 z (L66) reads date_dim (L42) via LEFT JOIN at L75 (alias date_dim)",
-            "use_lines": [
-              76,
-              77
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016date_dim@L75 \u2192 \u27d0 z@L66\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "l2_tbl_61c02cb9ab",
@@ -182,17 +131,6 @@
           "id": "l2e_d1474ab3d1c3",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 42,
-            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
-            "use_lines": [
-              12,
-              14,
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 sun_sales@L16\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "fld_f8f65c4dba",
@@ -210,14 +148,6 @@
           "id": "l2e_3212486b9399",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 sun_sales@L16\u2016",
           "source": "fld_e9a7531b27",
           "target": "fld_f8f65c4dba",
@@ -235,17 +165,6 @@
           "id": "l2e_368741af3df2",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 42,
-            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
-            "use_lines": [
-              12,
-              14,
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 mon_sales@L20\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "fld_742c352486",
@@ -263,14 +182,6 @@
           "id": "l2e_8287e8e9f6c8",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 mon_sales@L20\u2016",
           "source": "fld_e9a7531b27",
           "target": "fld_742c352486",
@@ -288,17 +199,6 @@
           "id": "l2e_95ab43fb3398",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 42,
-            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
-            "use_lines": [
-              12,
-              14,
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 tue_sales@L24\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "fld_2e8b20d22e",
@@ -316,14 +216,6 @@
           "id": "l2e_316d58798e52",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 tue_sales@L24\u2016",
           "source": "fld_e9a7531b27",
           "target": "fld_2e8b20d22e",
@@ -341,17 +233,6 @@
           "id": "l2e_8a0ab93bd6c9",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 42,
-            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
-            "use_lines": [
-              12,
-              14,
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 wed_sales@L28\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "fld_5b77ae8e07",
@@ -369,14 +250,6 @@
           "id": "l2e_462343fd372d",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 wed_sales@L28\u2016",
           "source": "fld_e9a7531b27",
           "target": "fld_5b77ae8e07",
@@ -394,17 +267,6 @@
           "id": "l2e_8cf66bcad1b1",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 42,
-            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
-            "use_lines": [
-              12,
-              14,
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 thu_sales@L32\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "fld_77a4a3e96f",
@@ -422,14 +284,6 @@
           "id": "l2e_96cca0e804ac",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 thu_sales@L32\u2016",
           "source": "fld_e9a7531b27",
           "target": "fld_77a4a3e96f",
@@ -447,17 +301,6 @@
           "id": "l2e_4068a7464f33",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 42,
-            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
-            "use_lines": [
-              12,
-              14,
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 fri_sales@L36\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "fld_f8c861d0df",
@@ -475,14 +318,6 @@
           "id": "l2e_3ea4d91ed3cb",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 fri_sales@L36\u2016",
           "source": "fld_e9a7531b27",
           "target": "fld_f8c861d0df",
@@ -500,17 +335,6 @@
           "id": "l2e_89d0f97aa14d",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 42,
-            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
-            "use_lines": [
-              12,
-              14,
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 sat_sales@L40\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "fld_d01b0d3913",
@@ -528,14 +352,6 @@
           "id": "l2e_a02ef370730b",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 sat_sales@L40\u2016",
           "source": "fld_e9a7531b27",
           "target": "fld_d01b0d3913",
@@ -587,19 +403,6 @@
           "id": "l2e_b9b1777a0e5f",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 sun_sales@L16\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_f8f65c4dba",
@@ -617,19 +420,6 @@
           "id": "l2e_7095317e3939",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 mon_sales@L20\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_742c352486",
@@ -647,19 +437,6 @@
           "id": "l2e_294012a13176",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 tue_sales@L24\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_2e8b20d22e",
@@ -677,19 +454,6 @@
           "id": "l2e_308889b59cee",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 wed_sales@L28\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_5b77ae8e07",
@@ -707,19 +471,6 @@
           "id": "l2e_af3aff54c930",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 thu_sales@L32\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_77a4a3e96f",
@@ -737,19 +488,6 @@
           "id": "l2e_bc9a238c64c0",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 fri_sales@L36\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_f8c861d0df",
@@ -767,19 +505,6 @@
           "id": "l2e_506ca687d2b2",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 sat_sales@L40\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_d01b0d3913",
@@ -797,11 +522,6 @@
           "id": "l2e_e70d9146a32a",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "clause": "WHERE",
-            "ref_line": 43,
-            "sentence": "wscs.sold_date_sk is filtered at L43 inside date_dim"
-          },
           "reason": "field flow (filter step) \u2014 \u2016sold_date_sk@L43 \u2192 date_dim@L42\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "l2_tbl_63ccc55e0c",
@@ -1082,11 +802,6 @@
           "id": "l2e_20dc90d0ebe2",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 1,
-            "sentence": "\u27d0 output (L45) reads wscs (L1) in its FROM clause at L1"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016wscs@L1 \u2192 \u27d0 output@L45\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "l2_tbl_6834f799e2",
@@ -1104,16 +819,6 @@
           "id": "l2e_c88dea80ce06",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "web_sales",
-            "clause": "FROM",
-            "ref_line": 7,
-            "sentence": "\u27d0 union0 (L5) reads web_sales (L7) in its FROM clause at L7",
-            "use_lines": [
-              5,
-              6
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016web_sales@L7 \u2192 \u27d0 union0@L5\u2016",
           "source": "l2_tbl_524c18932a",
           "target": "l2_tbl_94ae67c146",
@@ -1131,16 +836,6 @@
           "id": "l2e_40b9091c7b86",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "catalog_sales",
-            "clause": "FROM",
-            "ref_line": 10,
-            "sentence": "\u27d0 union1 (L8) reads catalog_sales (L10) in its FROM clause at L10",
-            "use_lines": [
-              8,
-              9
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016catalog_sales@L10 \u2192 \u27d0 union1@L8\u2016",
           "source": "l2_tbl_3f4d4ae89e",
           "target": "l2_tbl_cff70185e4",
@@ -1158,21 +853,6 @@
           "id": "l2e_6ce91e74be8b",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 45,
-            "sentence": "structural: \u27d0 output (45) references wswscs (11) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              54,
-              55,
-              56,
-              57,
-              58,
-              59,
-              60,
-              61
-            ]
-          },
           "reason": "chain (CTE chain) \u2014 \u2016wswscs@L11 \u2192 \u27d0 output@L45\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "l2_tbl_6834f799e2",
@@ -1190,17 +870,6 @@
           "id": "l2e_739b84f029b3",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 42,
-            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
-            "use_lines": [
-              12,
-              14,
-              43
-            ]
-          },
           "reason": "chain (CTE chain) \u2014 \u2016date_dim@L42 \u2192 wswscs@L11\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "l2_tbl_f2b42dcb33",
@@ -1218,11 +887,6 @@
           "id": "l2e_c0497ce20592",
           "label": "SUBQUERY",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SUBQUERY",
-            "ref_line": 65,
-            "sentence": "structural: \u27d0 y (54) references y (65) \u2014 see \u27d0 y's definition"
-          },
           "reason": "field flow (combine step) \u2014 \u2016y@L65 \u2192 \u27d0 y@L54\u2016",
           "source": "l2_tbl_3529881358",
           "target": "l2_tbl_44eea57c4d",
@@ -1240,16 +904,6 @@
           "id": "l2e_32fe0c56b0a2",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 63,
-            "sentence": "\u27d0 y (L54) reads date_dim (L42) via LEFT JOIN at L63 (alias date_dim)",
-            "use_lines": [
-              64,
-              65
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016date_dim@L63 \u2192 \u27d0 y@L54\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "l2_tbl_44eea57c4d",
@@ -1267,11 +921,6 @@
           "id": "l2e_e6827e8b666c",
           "label": "SUBQUERY",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SUBQUERY",
-            "ref_line": 77,
-            "sentence": "structural: \u27d0 z (66) references z (77) \u2014 see \u27d0 z's definition"
-          },
           "reason": "field flow (combine step) \u2014 \u2016z@L77 \u2192 \u27d0 z@L66\u2016",
           "source": "l2_tbl_5faf3ab449",
           "target": "l2_tbl_61c02cb9ab",
@@ -1289,16 +938,6 @@
           "id": "l2e_08e7ab99e09e",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 75,
-            "sentence": "\u27d0 z (L66) reads date_dim (L42) via LEFT JOIN at L75 (alias date_dim)",
-            "use_lines": [
-              76,
-              77
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016date_dim@L75 \u2192 \u27d0 z@L66\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "l2_tbl_61c02cb9ab",
@@ -1316,14 +955,6 @@
           "id": "l2e_5630cc8fe6b1",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: sq1 (10) references wscs (1) \u2014 see sq1's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "field flow (value copy) \u2014 \u2016sold_date_sk@L43 \u2192 sold_date_sk@L2\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "l2_tbl_29c33f27f7",
@@ -1341,17 +972,6 @@
           "id": "l2e_d1474ab3d1c3",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 42,
-            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
-            "use_lines": [
-              12,
-              14,
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 sun_sales@L16\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "l2_tbl_f2b42dcb33",
@@ -1369,14 +989,6 @@
           "id": "l2e_3212486b9399",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 sun_sales@L16\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "l2_tbl_f2b42dcb33",
@@ -1394,11 +1006,6 @@
           "id": "l2e_09bf636e5757",
           "label": "TRANSFORM",
           "line_style": "dashed",
-          "mech": {
-            "clause": "TRANSFORM",
-            "ref_line": 46,
-            "sentence": "structural: wscs (1) references y (65) \u2014 see wscs's definition"
-          },
           "reason": "field flow (compute step) \u2014 \u2016sun_sales1@L46 \u2192 ROUNDsun_sales1_/_sun_sales2,@L0\u2016",
           "source": "l2_tbl_3529881358",
           "target": "l2_tbl_112241c5cd",
@@ -1416,11 +1023,6 @@
           "id": "l2e_75a6efb3a507",
           "label": "TRANSFORM",
           "line_style": "dashed",
-          "mech": {
-            "clause": "TRANSFORM",
-            "ref_line": 46,
-            "sentence": "structural: wscs (1) references z (77) \u2014 see wscs's definition"
-          },
           "reason": "field flow (compute step) \u2014 \u2016sun_sales2@L46 \u2192 ROUNDsun_sales1_/_sun_sales2,@L0\u2016",
           "source": "l2_tbl_5faf3ab449",
           "target": "l2_tbl_112241c5cd",
@@ -1438,19 +1040,6 @@
           "id": "l2e_7c073cf159cb",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 wswscs.d_week_seq@L54\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_967f6b237d",
@@ -1468,15 +1057,6 @@
           "id": "l2e_ca9212fbd045",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 42,
-            "sentence": "date_dim (L42) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "structure \u2014 \u2016date_dim@L42 \u2192 date_dim.d_week_seq@L64\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "fld_093c77093e",
@@ -1494,14 +1074,6 @@
           "id": "l2e_7bae52b85740",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: \u27d0 union0 (5) references wscs (1) \u2014 see \u27d0 union0's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "structure \u2014 \u2016wscs@L1 \u2192 \u27d0 union0@L5\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "l2_tbl_94ae67c146",
@@ -1519,14 +1091,6 @@
           "id": "l2e_38e939b5a1d4",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: web_sales (7) references wscs (1) \u2014 see web_sales's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "structure \u2014 \u2016wscs@L1 \u2192 sold_date_sk@L5\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "fld_91acace104",
@@ -1544,14 +1108,6 @@
           "id": "l2e_ec577e7cc0ce",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: web_sales (7) references wscs (1) \u2014 see web_sales's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "structure \u2014 \u2016wscs@L1 \u2192 sales_price@L6\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "fld_07c1c1ccb5",
@@ -1569,14 +1125,6 @@
           "id": "l2e_46a8cbbb3750",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: \u27d0 union1 (8) references wscs (1) \u2014 see \u27d0 union1's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "structure \u2014 \u2016wscs@L1 \u2192 \u27d0 union1@L8\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "l2_tbl_cff70185e4",
@@ -1594,14 +1142,6 @@
           "id": "l2e_8a007f7f83fa",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: catalog_sales (10) references wscs (1) \u2014 see catalog_sales's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "structure \u2014 \u2016wscs@L1 \u2192 sold_date_sk@L8\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "fld_0403ddf247",
@@ -1619,14 +1159,6 @@
           "id": "l2e_80600f715e50",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: catalog_sales (10) references wscs (1) \u2014 see catalog_sales's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "structure \u2014 \u2016wscs@L1 \u2192 sales_price@L9\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "fld_695e759f2e",
@@ -1644,14 +1176,6 @@
           "id": "l2e_25715421ae56",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: sq1 (10) references wscs (1) \u2014 see sq1's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "structure \u2014 \u2016wscs@L1 \u2192 sold_date_sk@L2\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "fld_7d0fdb92a3",
@@ -1669,14 +1193,6 @@
           "id": "l2e_ff0c41b1424b",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: sq1 (10) references wscs (1) \u2014 see sq1's definition",
-            "use_lines": [
-              43
-            ]
-          },
           "reason": "structure \u2014 \u2016wscs@L1 \u2192 sales_price@L3\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "fld_4696a8cea7",
@@ -1694,11 +1210,6 @@
           "id": "l2e_1ed5d8b58010",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 12,
-            "sentence": "structural: date_dim (42) references wswscs (11) \u2014 see date_dim's definition"
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 d_week_seq@L12\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_093c77093e",
@@ -1716,19 +1227,6 @@
           "id": "l2e_b9b1777a0e5f",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 sun_sales@L16\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_f8f65c4dba",
@@ -1746,19 +1244,6 @@
           "id": "l2e_7095317e3939",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 mon_sales@L20\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_742c352486",
@@ -1776,19 +1261,6 @@
           "id": "l2e_294012a13176",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 tue_sales@L24\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_2e8b20d22e",
@@ -1806,19 +1278,6 @@
           "id": "l2e_308889b59cee",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 wed_sales@L28\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_5b77ae8e07",
@@ -1836,19 +1295,6 @@
           "id": "l2e_af3aff54c930",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 thu_sales@L32\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_77a4a3e96f",
@@ -1866,19 +1312,6 @@
           "id": "l2e_bc9a238c64c0",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 fri_sales@L36\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_f8c861d0df",
@@ -1896,19 +1329,6 @@
           "id": "l2e_506ca687d2b2",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{WSWSCS}",
-            "ref_line": 16,
-            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
-            "use_lines": [
-              20,
-              24,
-              28,
-              32,
-              36,
-              40
-            ]
-          },
           "reason": "structure \u2014 \u2016wswscs@L11 \u2192 sat_sales@L40\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "fld_d01b0d3913",
@@ -1926,11 +1346,6 @@
           "id": "l2e_24800c214113",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 5,
-            "sentence": "structural: web_sales (7) references \u27d0 union0 (5) \u2014 see web_sales's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L5 \u2192 sold_date_sk@L5\u2016",
           "source": "l2_tbl_94ae67c146",
           "target": "fld_91acace104",
@@ -1948,11 +1363,6 @@
           "id": "l2e_cbcb016b773f",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 6,
-            "sentence": "structural: web_sales (7) references \u27d0 union0 (5) \u2014 see web_sales's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 union0@L5 \u2192 sales_price@L6\u2016",
           "source": "l2_tbl_94ae67c146",
           "target": "fld_07c1c1ccb5",
@@ -1970,11 +1380,6 @@
           "id": "l2e_3b20d5ab31ec",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 8,
-            "sentence": "structural: catalog_sales (10) references \u27d0 union1 (8) \u2014 see catalog_sales's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L8 \u2192 sold_date_sk@L8\u2016",
           "source": "l2_tbl_cff70185e4",
           "target": "fld_0403ddf247",
@@ -1992,11 +1397,6 @@
           "id": "l2e_b1aa0eb58b6b",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 9,
-            "sentence": "structural: catalog_sales (10) references \u27d0 union1 (8) \u2014 see catalog_sales's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 union1@L8 \u2192 sales_price@L9\u2016",
           "source": "l2_tbl_cff70185e4",
           "target": "fld_695e759f2e",
@@ -2014,11 +1414,6 @@
           "id": "l2e_69ba10b71bca",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 45,
-            "sentence": "structural: wswscs (11) references \u27d0 output (45) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L45 \u2192 d_week_seq1@L45\u2016",
           "source": "l2_tbl_6834f799e2",
           "target": "fld_33f0dfca8e",
@@ -2155,11 +1550,6 @@
           "id": "l2e_e36ddf7bffc6",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 54,
-            "sentence": "structural: wswscs (11) references \u27d0 y (54) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 y@L54 \u2192 d_week_seq1@L54\u2016",
           "source": "l2_tbl_44eea57c4d",
           "target": "fld_33f0dfca8e",
@@ -2177,11 +1567,6 @@
           "id": "l2e_d827d0d19bb6",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 55,
-            "sentence": "structural: wswscs (11) references \u27d0 y (54) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 y@L54 \u2192 sun_sales1@L55\u2016",
           "source": "l2_tbl_44eea57c4d",
           "target": "fld_60bcc553c7",
@@ -2199,11 +1584,6 @@
           "id": "l2e_25f307d70db8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 56,
-            "sentence": "structural: wswscs (11) references \u27d0 y (54) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 y@L54 \u2192 mon_sales1@L56\u2016",
           "source": "l2_tbl_44eea57c4d",
           "target": "fld_cc89a42051",
@@ -2221,11 +1601,6 @@
           "id": "l2e_183434be105a",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 57,
-            "sentence": "structural: wswscs (11) references \u27d0 y (54) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 y@L54 \u2192 tue_sales1@L57\u2016",
           "source": "l2_tbl_44eea57c4d",
           "target": "fld_ae0f459160",
@@ -2243,11 +1618,6 @@
           "id": "l2e_94d3c52adeb8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 58,
-            "sentence": "structural: wswscs (11) references \u27d0 y (54) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 y@L54 \u2192 wed_sales1@L58\u2016",
           "source": "l2_tbl_44eea57c4d",
           "target": "fld_93ce0010c9",
@@ -2265,11 +1635,6 @@
           "id": "l2e_38ecfbffe581",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 59,
-            "sentence": "structural: wswscs (11) references \u27d0 y (54) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 y@L54 \u2192 thu_sales1@L59\u2016",
           "source": "l2_tbl_44eea57c4d",
           "target": "fld_6bb460f663",
@@ -2287,11 +1652,6 @@
           "id": "l2e_88beba662021",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 60,
-            "sentence": "structural: wswscs (11) references \u27d0 y (54) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 y@L54 \u2192 fri_sales1@L60\u2016",
           "source": "l2_tbl_44eea57c4d",
           "target": "fld_448be5f4ec",
@@ -2309,11 +1669,6 @@
           "id": "l2e_e05936d321b3",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 61,
-            "sentence": "structural: wswscs (11) references \u27d0 y (54) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 y@L54 \u2192 sat_sales1@L61\u2016",
           "source": "l2_tbl_44eea57c4d",
           "target": "fld_d6f2556bf7",
@@ -2331,11 +1686,6 @@
           "id": "l2e_df835299b330",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 66,
-            "sentence": "structural: wswscs (11) references \u27d0 z (66) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 z@L66 \u2192 d_week_seq2@L66\u2016",
           "source": "l2_tbl_61c02cb9ab",
           "target": "fld_ea50cf27b4",
@@ -2353,11 +1703,6 @@
           "id": "l2e_d63bdf385fd3",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 67,
-            "sentence": "structural: wswscs (11) references \u27d0 z (66) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 z@L66 \u2192 sun_sales2@L67\u2016",
           "source": "l2_tbl_61c02cb9ab",
           "target": "fld_48f14ecada",
@@ -2375,11 +1720,6 @@
           "id": "l2e_52b07538c391",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 68,
-            "sentence": "structural: wswscs (11) references \u27d0 z (66) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 z@L66 \u2192 mon_sales2@L68\u2016",
           "source": "l2_tbl_61c02cb9ab",
           "target": "fld_d3d653a6e0",
@@ -2397,11 +1737,6 @@
           "id": "l2e_efea497a1522",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 69,
-            "sentence": "structural: wswscs (11) references \u27d0 z (66) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 z@L66 \u2192 tue_sales2@L69\u2016",
           "source": "l2_tbl_61c02cb9ab",
           "target": "fld_848a9cb533",
@@ -2419,11 +1754,6 @@
           "id": "l2e_5a6ef9770b75",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 70,
-            "sentence": "structural: wswscs (11) references \u27d0 z (66) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 z@L66 \u2192 wed_sales2@L70\u2016",
           "source": "l2_tbl_61c02cb9ab",
           "target": "fld_4ab4417455",
@@ -2441,11 +1771,6 @@
           "id": "l2e_60e92224e815",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 71,
-            "sentence": "structural: wswscs (11) references \u27d0 z (66) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 z@L66 \u2192 thu_sales2@L71\u2016",
           "source": "l2_tbl_61c02cb9ab",
           "target": "fld_46d50a0086",
@@ -2463,11 +1788,6 @@
           "id": "l2e_980430ca5fb8",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 72,
-            "sentence": "structural: wswscs (11) references \u27d0 z (66) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 z@L66 \u2192 fri_sales2@L72\u2016",
           "source": "l2_tbl_61c02cb9ab",
           "target": "fld_877fc2539d",
@@ -2485,11 +1805,6 @@
           "id": "l2e_ec029416afbd",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 73,
-            "sentence": "structural: wswscs (11) references \u27d0 z (66) \u2014 see wswscs's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 z@L66 \u2192 sat_sales2@L73\u2016",
           "source": "l2_tbl_61c02cb9ab",
           "target": "fld_17a02a27e8",
@@ -2507,16 +1822,6 @@
           "id": "l2e_a32654dc5f04",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 63,
-            "sentence": "\u27d0 y (L54) reads date_dim (L42) via LEFT JOIN at L63 (alias date_dim)",
-            "use_lines": [
-              64,
-              65
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016date_dim.d_week_seq@L64 \u2192 \u27d0 y@L54\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "l2_tbl_44eea57c4d",
@@ -2534,16 +1839,6 @@
           "id": "l2e_1ec79cf6e04f",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 75,
-            "sentence": "\u27d0 z (L66) reads date_dim (L42) via LEFT JOIN at L75 (alias date_dim)",
-            "use_lines": [
-              76,
-              77
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016date_dim.d_week_seq@L76 \u2192 \u27d0 z@L66\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "l2_tbl_61c02cb9ab",
@@ -2561,14 +1856,6 @@
           "id": "l2e_18b5d678080f",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "CTE{WSCS}",
-            "ref_line": 2,
-            "sentence": "structural: wscs (1) references sq1 (10) \u2014 see wscs's definition",
-            "use_lines": [
-              3
-            ]
-          },
           "reason": "read \u2014 \u2016sq1@L10 \u2192 wscs@L1\u2016",
           "source": "l2_tbl_29c33f27f7",
           "target": "l2_tbl_112241c5cd",
@@ -2586,11 +1873,6 @@
           "id": "l2e_287486a9263c",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 10,
-            "sentence": "structural: sq1 (10) references union_result (0) \u2014 see sq1's definition"
-          },
           "reason": "read (read into output) \u2014 \u2016union_result@L0 \u2192 sq1@L10\u2016",
           "source": "l2_tbl_cd96e5b0e4",
           "target": "l2_tbl_29c33f27f7",
@@ -2608,21 +1890,6 @@
           "id": "l2e_edaea77f8d6c",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 45,
-            "sentence": "structural: \u27d0 output (45) references wswscs (11) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              54,
-              55,
-              56,
-              57,
-              58,
-              59,
-              60,
-              61
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016d_week_seq2@L66 \u2192 \u27d0 output@L45\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "l2_tbl_6834f799e2",
@@ -2640,11 +1907,6 @@
           "id": "l2e_e70d9146a32a",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "clause": "WHERE",
-            "ref_line": 43,
-            "sentence": "wscs.sold_date_sk is filtered at L43 inside date_dim"
-          },
           "reason": "field flow (filter step) \u2014 \u2016sold_date_sk@L43 \u2192 date_dim@L42\u2016",
           "source": "l2_tbl_112241c5cd",
           "target": "l2_tbl_63ccc55e0c",
@@ -2662,11 +1924,6 @@
           "id": "l2e_dbfdef1d3a6a",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 63,
-            "sentence": "structural: date_dim (42) references y (65) \u2014 see date_dim's definition"
-          },
           "reason": "read \u2014 \u2016y@L65 \u2192 date_dim@L63\u2016",
           "source": "l2_tbl_3529881358",
           "target": "l2_tbl_63ccc55e0c",
@@ -2684,20 +1941,6 @@
           "id": "l2e_fe18397d24cd",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0/SUBQ/Y",
-            "ref_line": 54,
-            "sentence": "structural: \u27d0 y (54) references wswscs (11) \u2014 see \u27d0 y's definition",
-            "use_lines": [
-              55,
-              56,
-              57,
-              58,
-              59,
-              60,
-              61
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016wswscs.d_week_seq@L54 \u2192 \u27d0 y@L54\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "l2_tbl_44eea57c4d",
@@ -2715,11 +1958,6 @@
           "id": "l2e_70c4fb020209",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "clause": "WHERE",
-            "ref_line": 65,
-            "sentence": "date_dim.d_year is filtered at L65 inside y"
-          },
           "reason": "field flow (filter step) \u2014 \u2016d_year@L65 \u2192 y@L65\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "l2_tbl_3529881358",
@@ -2737,11 +1975,6 @@
           "id": "l2e_36d29b7a9758",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "REF",
-            "ref_line": 75,
-            "sentence": "structural: date_dim (42) references z (77) \u2014 see date_dim's definition"
-          },
           "reason": "read \u2014 \u2016z@L77 \u2192 date_dim@L75\u2016",
           "source": "l2_tbl_5faf3ab449",
           "target": "l2_tbl_63ccc55e0c",
@@ -2759,11 +1992,6 @@
           "id": "l2e_a4b4a32d4f61",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "clause": "WHERE",
-            "ref_line": 77,
-            "sentence": "date_dim.d_year is filtered at L77 inside z"
-          },
           "reason": "field flow (filter step) \u2014 \u2016d_year@L77 \u2192 z@L77\u2016",
           "source": "l2_tbl_63ccc55e0c",
           "target": "l2_tbl_5faf3ab449",
@@ -2781,21 +2009,6 @@
           "id": "l2e_63b05e94807b",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 45,
-            "sentence": "structural: \u27d0 output (45) references wswscs (11) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              54,
-              55,
-              56,
-              57,
-              58,
-              59,
-              60,
-              61
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016d_week_seq1@L45 \u2192 \u27d0 output@L45\u2016",
           "source": "l2_tbl_f2b42dcb33",
           "target": "l2_tbl_6834f799e2",
@@ -2813,19 +2026,6 @@
           "id": "l2e_534eb7b60aa0",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 46,
-            "sentence": "structural: \u27d0 output (45) references y (65) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              47,
-              48,
-              49,
-              50,
-              51,
-              52
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016sun_sales1@L46 \u2192 \u27d0 output@L45\u2016",
           "source": "l2_tbl_3529881358",
           "target": "l2_tbl_6834f799e2",
@@ -2843,19 +2043,6 @@
           "id": "l2e_e69a9e16d338",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 46,
-            "sentence": "structural: \u27d0 output (45) references z (77) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              47,
-              48,
-              49,
-              50,
-              51,
-              52
-            ]
-          },
           "reason": "read (read into output) \u2014 \u2016sun_sales2@L46 \u2192 \u27d0 output@L45\u2016",
           "source": "l2_tbl_5faf3ab449",
           "target": "l2_tbl_6834f799e2",

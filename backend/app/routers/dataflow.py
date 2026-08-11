@@ -310,13 +310,18 @@ def get_level2(ws_id: str, view_id: str, script: str = Query(...),
 
 
 @router.get("/workspace/{ws_id}/scripts/{script_name}/highlight")
-async def get_highlight(ws_id: str, script_name: str,
-                         table: str = Query(...), field: str = Query(...)):
+def get_highlight(ws_id: str, script_name: str,
+                  table: str = Query(...), field: str = Query(...)):
     """Get SQL highlight ranges for a script.
 
     E4 (item 3): `script_name` previously joined raw into the scripts path
     — `script=..` raised IsADirectoryError (500). Route through the
     containment resolver; missing / not-a-file → 404.
+
+    E4 (threadpool, code review #5): plain `def`, not `async def` —
+    `get_highlight_ranges` runs `build_graph_data` + `filter_relevant`
+    synchronously; a sync route runs in FastAPI's threadpool, never on the
+    event loop (mirror of the `get_level2` conversion above).
     """
     from app.services.filter_service import resolve_script
     ws = get_workspace(ws_id)
