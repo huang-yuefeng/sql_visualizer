@@ -31,7 +31,7 @@ from app.models.variable import VariableDefinition, VariableType
 
 
 # Bump to invalidate analysis caches when extraction semantics change.
-EXTRACTOR_VERSION = "2026-08-10.3"
+EXTRACTOR_VERSION = "2026-08-11.1"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
