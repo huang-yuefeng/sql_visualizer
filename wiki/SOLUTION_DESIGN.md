@@ -922,3 +922,231 @@ filter_relevant()                     (convenience wrapper)
 - Sample probe: closure labels ≈ {data_dt×4 seeds, p1@29, p1@84, bdm_acc_loan_info,
   bdm_acc_loan_info_sup, rollover_loan_info, loan_final, ⟐subq} (~10 raw → ~8 L2 nodes).
 - Highlights byte-exact `[[18,18],[43,43],[158,158],[160,160]]`.
+
+# J12-10 — Physical Model Layer (design proposal, 2026-08-11)
+
+> Status: **proposal** — user-requested design write-up. Referenced from
+> `tools/BUG_ANALYSIS_AND_SUGGESTIONS.md` J12-10 as further work. NOT part of
+> the current execution batch (J12-8/J12-9 + small items). Multi-round
+> refactor, staged and gated.
+
+## 1. Motivation — the missing layer
+
+The pipeline today is: syntax layer (per-occurrence vars + deps) → display
+layer (L2 graph). The display layer is forced to synthesize physical
+identity at render time, and every one of those mechanisms is a workaround
+for the absence of a real physical table/field model:
+
+| Display-time machinery | Workaround for |
+|---|---|
+| label-keyed keeper merge + `merged_original_ids` | "one node per physical table" decided at render, by label approximation |
+| `seed_`/`sync_`/`dml_` proxy copies | one field instance shown on several parents (physical + alias + target) by COPYING |
+| alias nodes as compound nodes (Bug 28) | alias context promoted to first-class data nodes |
+| merge_target/table split (bug-list #7) | same physical table, two var types → two nodes |
+| floating fields rescue (#8/#9) | fields with no parent at display time |
+| dml_dml_ proxy chaining (#12) | chains between write copies |
+
+Root cause: physical identity (table, field) exists only as a display-time
+inference from labels. The fix direction (user proposal, 2026-08-11):
+a **physical layer** between syntax and display — one entity per physical
+table and per physical field, built at extraction time — with the data
+flow built FROM this layer.
+
+This aligns with the standing never-patch rule: the keeper merge and the
+proxies are reconstruction machinery; a physical model built at
+extraction time is extraction-time info, structured.
+
+## 2. Architecture
+
+```
+syntax layer ──→ PHYSICAL LAYER (new) ──→ data flow ──→ display layer
+vars + deps      one entity per            walk/closure   pure projection
+(unchanged)      physical table/field      from the      (no merge logic,
+                 (built once, at           model          no proxies)
+                 extraction time)
+```
+
+## 3. Entities
+
+| Entity | Key | Content |
+|--------|-----|---------|
+| `PhysicalTable` | physical table name (qualified when present in SQL) | field map; **roles** set (`read`, `write`, `merge_target`, `cte_fed`, …); occurrence ids (original var ids — nothing lost); alias views pointing at it |
+| `PhysicalField` | `table + field` | line info (first/last appearance); value sources (feeding var ids); uses; display label |
+| `PhysicalEdge` | source field → target field | typed (the 16 edge types stay); derived once from the dependency graph |
+
+Rules:
+- One `PhysicalTable` per physical name — the merge_target/table split
+  (#7) cannot occur by construction.
+- One `PhysicalField` per (table, field) — a field shown on several
+  parents (physical + alias + target partition) is a **reference**, never
+  a copy; proxies die.
+- Roles are per-table sets of occurrence roles, NOT a single type — this
+  answers "can one table be two types": yes, at the physical level roles
+  accumulate; occurrence-level var types stay one-of (see §6).
+- Same-name-different-database tables become an explicit model choice:
+  qualified names (when the SQL qualifies) are distinct keys; unqualified
+  names in one script resolve to one key (SQL semantics). No invisible
+  label-keyed approximation.
+
+## 4. What changes downstream
+
+- **L2 builder** becomes a pure projection of the model → display graph.
+  No keeper selection, no proxy synthesis, no floating-field rescue — a
+  field always has a parent by construction (#8/#9 dissolved).
+- **Seed search** = exact `table.field` key lookup in the model — the
+  J12-9 exact-match ruling becomes a dict key; the 5-path matcher
+  collapses to one lookup.
+- **Flow walker** (`filter_by_field_flow`/closure) walks physical edges —
+  "which physical fields does the seed's value reach" — replacing the
+  occurrence graph + zone rules.
+- **Aliases** become *views* (`alias → physical table` mapping): still
+  renderable as context boxes for readability, but no longer first-class
+  data nodes.
+- **DML routing**: the synthetic ⟐ output (`virtual_table`) stays a
+  write-event concept (its result set), attached to the PhysicalTable's
+  write role — rendering unchanged.
+- dml_dml_ chains (#12) become ordinary paths between physical entities.
+
+## 5. What does NOT change
+
+- The 15 `VariableType` members — they remain the occurrence roles that
+  feed the model (per-occurrence one-of typing is correct extraction).
+- The 16 edge types and their styles/categories.
+- The canonical taxonomy (`models/sql_model.py`), extraction semantics,
+  node/edge *display* labels (kept stable through the migration so the
+  Jaccard gate and pinned tests stay comparable).
+
+## 6. Type-vs-role semantics (the "two types" question, settled)
+
+- Per occurrence: one var, one type (one-of) — unchanged.
+- Per physical table: a set of occurrence roles; `gps_accounts` is both
+  `read` and `merge_target` — accumulated at the physical level. The
+  model holds both, the display shows one node with edges for both roles.
+
+## 7. Migration stages (each stage gated by the Jaccard benchmark + full suite)
+
+| Stage | Change | Gate expectation |
+|-------|--------|------------------|
+| 1 | Build the physical model as a NEW module alongside existing code (unused in responses) + tests asserting model ≡ today's merged display graph | zero behavior change; gate GREEN unchanged |
+| 2 | L2 consumes the model for node construction only — ids/labels byte-identical | gate GREEN unchanged |
+| 3 | Walkers + seed search consume the model; proxies removed (ids may change → documented diff, re-anchor) | gate GREEN at re-anchored floors |
+| 4 | l1_builder + graph_service adopt; delete keeper-merge/proxy machinery; alias views | gate GREEN at final anchors |
+
+Each stage lands as its own round with the benchmark as the acceptance
+test. The gate is the safety net that makes the refactor safe.
+
+## 8. Risks / costs (honest)
+
+- Node/edge ids feed the frontend (layout persistence, cytoscape state) —
+  id changes at stage 3 need frontend re-verification (vitest suite).
+- Tests pinned to current ids/labels and the canonical rows — updated
+  per stage with documented diffs.
+- Largest single refactor since the C-series split; budgeted as several
+  rounds, not one change.
+- No benchmark coverage for MERGE scripts today (flagship has zero MERGE
+  vars) — stage 1 should add a physical-model invariant test on
+  `fin_query4_merge_upsert.sql` (gps_accounts appears exactly once) so
+  the fix is verified even outside the Jaccard rows.
+
+## 9. Verification targets for stage 1
+
+- `fin_query4_merge_upsert.sql`: PhysicalTable `gps_accounts` exactly
+  once, roles = {read, merge_target}; `balance` one PhysicalField with
+  both write and read occurrences.
+- `06_merge_update.sql`: `customer_summary` once; `target` alias view →
+  `customer_summary`.
+- Flagship `BDM_ACC_LOAN_INFO_SUP_M.sql`: model ≡ current merged display
+  graph (byte-level equality on labels/edges/highlights).
+
+# J12-13 — L2 Flow Topology + Path-Scoped Reasons (user ruling 2026-08-11)
+
+> **Status:** Requirement recorded (R19/R20 in REQUIREMENTS_TRACEABILITY.md).
+> Design; NO source changes yet — batch item, waiting on the user's "go".
+
+## 1. The requirement (user's words, formalized)
+
+> "In the L2, there should be sources of data flow … and targets of data
+> flow. Every edge should be on one path from one source to one target —
+> the topological property. In the flow reason, show the clicked edge in
+> its path from the source to the target, and explain this edge in the
+> scope of its path."
+
+Formalized:
+- **Flow source** = the searched table.field (the seed) — exactly one per
+  L2 view (R19.1; v3.3.140 seed semantics).
+- **Flow targets** = the output tables the seed's data reaches — the DML
+  write targets (sup@160 AND rrcdm@211 on the flagship sample), or the
+  terminal output VT for pure-SELECT scripts. One or more; every path ends
+  at a target (R19.2).
+- **Topological property** (R19.3): the filtered L2 flow is a rooted DAG
+  from the source to the targets —
+  1. every flow edge lies on ≥1 source→target path,
+  2. no dead-end flow branches (every flow path extends to a target),
+  3. **no-bypass**: cross-statement flow must route through the reader
+     instance, never shortcut around it.
+- **Structure exemption** (R19.4): SCHEMA/containment edges are NOT flow —
+  they point owner→member by design; exempt from the path property,
+  rendered visually distinct, their reason explains containment.
+- **Path-scoped reason** (R20): every flow edge's payload renders the
+  complete path `source@L… → … → ‖own segment‖ → … → target@L…` and
+  explains the edge's role within that path.
+
+## 2. Why the property does / does not hold today (verified)
+
+On `BDM_ACC_LOAN_INFO_SUP_M.sql`, bdm seed, filtered L2 (probe 2026-08-11):
+- **Holds** for the drawn flow: `data_dt → bdm → rollover → loan_final →
+  output → sup` chains, the subq/subq1 branch, alias hops (bdm→p1@29),
+  seed field edges (REF/FILTER data_dt→…), value writes (data_dt→output) —
+  all lie on paths to sup or rrcdm.
+- **VIOLATED at the Issue-3 spot**: sup renders as a dead-end sink — only
+  the write leg `output → sup` (hl=160) attaches it; the true continuation
+  sup → output2 → rrcdm (statement-2 read @L223) is missing. The
+  cross-statement DML WRITE_READ (`sup(TOP0) → rrcdm`) bypasses the reader
+  instance and is consumed by the L2 rewrite into `output → rrcdm`
+  (hl=211) — a shortcut that hides the waypoint. This is exactly the
+  user-reported "L2 does not show the flow".
+- **Structure exception** is real: SCHEMA `p1@L29 → p1.data_dt@L43` etc.
+  point backwards by design — exempt, never forced onto a flow path.
+
+## 3. Design deltas
+
+1. **Issue-3 fix (mandated by R19.3)**: bare FROM/JOIN refs get
+   `source_tables=[name]` in `_register_table` (Fix A, NOT DML targets) →
+   the read edge `sup@L223 → output2` exists as a real TABLE_FLOW;
+   the L2 closure admits the same-table read instance (physical-label
+   identity admission, or route the DML WRITE_READ through the reader);
+   the bypass shortcut is superseded by the real chain. Result: sup is a
+   waypoint on the path `… → output1 → sup → output2 → rrcdm`, and the
+   property holds.
+2. **Path payload (build-time, extraction-time info only)**: extend the
+   builder's `_path_hops` to a COMPLETE source→target path — the upstream
+   walk (exists today) + the downstream continuation to the nearest flow
+   target (walked forward over the closure DAG at build time; only
+   meaningful once the graph is complete — post Issue-3 — so nothing is
+   reconstructed at render).
+3. **Role prose (R20.2)**: the reason gains a role descriptor — write
+   leg / read into output / alias hop / CTE chain / value write … —
+   derived from carried fields (`_op`, `edge_type`, endpoint roles, DML
+   flags), extending the §8.8 `kind — flow string` format. Never
+   reconstructed at render.
+4. **Structure edges (R19.4)**: keep rendering as `structure` with the
+   containment explanation; excluded from the path property. Possible
+   future display separation (distinct arrowhead) — not this round.
+
+## 4. Verification targets
+
+- Sample: byte-exact reasons — e.g. the sup write leg shows
+  `… → ‖output@L0 → sup@L160‖` inside the full path ending at rrcdm@L211;
+  the statement-2 read shows `… → ‖sup@L223 → output@L211‖`.
+- Jaccard gate: canonical B1 type change SUBSET → TABLE_FLOW
+  (evidence-backed doc repair — same endpoints, anchor 223); floors
+  re-measured; full suite green.
+- Frontend: reason payload format is additive — no UI change required.
+
+## 5. Relation to J12-10 (Physical Model Layer)
+
+The property is exactly what the physical layer formalizes: one physical
+entity per table makes sup a single waypoint (writer instance + reader
+instance = one physical node), so paths pass through it naturally. R19/
+J12-13 is a forward-compatible statement of the same model. Order:
+Issue-3 fix (property holds on the sample) → path payload → J12-10 stages.
