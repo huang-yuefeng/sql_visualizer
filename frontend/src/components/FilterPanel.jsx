@@ -265,7 +265,7 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
               <div key={f} className="ac-item" onMouseDown={() => { setField(f); setShowFieldDrop(false); }}>
                 <span className="ac-color-dot" style={{ 
                   display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
-                  background: fieldIndex[f]?.tables?.[0] ? getTableColor(fieldIndex[f].tables[0]) : '#666',
+                  background: fieldIndex[f]?.tables?.[0] ? getTableColor(fieldIndex[f].tables[0]) : 'var(--ink-400)',
                   marginRight: 6, flexShrink: 0
                 }} />
                 {f}

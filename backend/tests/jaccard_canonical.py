@@ -1,21 +1,27 @@
 """Canonical ground truth for the Jaccard benchmark -- BDM_ACC_LOAN_INFO_SUP_M.sql.
 
 Source: tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_SUP.md, section 8.5
-(CANONICAL_EDGE_LINES table, 36 entries; 34 rows canonical after the
+(CANONICAL_EDGE_LINES table, 41 entries; 37 rows canonical after the
 2026-08-10 DML-routing repair (point 6), the row-11 removal, the X1-X5
-canonization (point 7) and the X3 removal (point 8 -- E3a fix-3
-DML-target attribution)) and the closure-seeds block ("bdm = 16 nodes /
-23 edges", "sup = 10 nodes / 13 edges"). Data-only module; the matching
-logic lives in the test that consumes it.
+canonization (point 7), the X3 removal (point 8 -- E3a fix-3
+DML-target attribution) + re-instatement (point 10), the J12-13
+requirement rows 20/21 (point 9 -- 2026-08-11, doc §4.2/§4.3) and the
+2026-08-11 re-pin round (point 10 -- Issues 2/3 landed)) and the
+closure-seeds block ("bdm = 18 nodes / 27 edges", "sup = 10 nodes / 14
+edges"). Data-only module; the matching logic lives in the test that
+consumes it.
 
 Conventions (drift-free, pinned 2026-08-10 from the doc):
 
 1. CANONICAL_ROWS -- one entry per doc table row:
    (row_id, seed, src_label, src_line, dst_label, dst_line, edge_type, anchor)
-   - row_id: int 1..19 (pairs; 10/11 struck in the doc -- merged/removed),
-     str "E1".."E4", "S1".."S5", "B1", "C1".."C4", "X1".."X5" (2026-08-10
-     canonization, point 7).
-   - seed: "bdm" or "sup". Rows 12, 15, 16 and X2 have Seed column
+   - row_id: int 1..21 (pairs; 10/11 struck in the doc -- merged/removed;
+     rows 20/21 = the J12-13 requirement rows, point 9; row 20 removed
+     by the point-10 re-pin -- no served-L2 projection; rows 22/23 =
+     the point-10 bdm mirrors), str "E1".."E4",
+     "S1".."S5", "B1", "C1".."C4", "X1".."X5" (2026-08-10 canonization,
+     point 7; X3 re-instated point 10).
+   - seed: "bdm" or "sup". Rows 12, 15, 16, X2 and X3 have Seed column
      "bdm+sup" in the doc (asserted on BOTH seeds; X3 was dual-seed too
      until the point-8 removal); the single-seed schema stores them under
      "bdm" -- a test reading the sup closure must include them too. S5's
@@ -31,13 +37,23 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
      taxonomy string (doc 8.7 per-pair map: SUBSET/BRIDGE -> promote ->
      value-write); the 2026-08-10 DML-routing repair re-pinned them as
      "TABLE_FLOW" (the emitted type of the routed write -- see point 6).
+     Rows 15/20 were "DML" (point 9, J12-13 -- the doc's REQUIREMENT,
+     §4.3 MISSING items 3/4). The point-10 re-pin (Issues 2/3 landed):
+     row 15 is TABLE_FLOW again (the engine's rule-3 rewrite emits DML
+     as TABLE_FLOW stamped flow_kind='write'; the write semantics are
+     pinned by the R19.3 assertion, never the row type) and row 20 is
+     REMOVED from B (R22 merge -- no served-L2 projection; asserted via
+     the R19.3 incidence checks).
 
 2. CANONICAL_EDGES -- FLAT list of the per-seed closure edges (B sets),
-   deduped: 23 entries for the bdm closure + 13 for the sup closure = 36
-   (filter by entry["seed"]; rows 12/15/16 and X2 are dual-seed, one
-   entry per seed; X3 removed both seeds by point 8). S2/S4 collapse into
-   S1/S3 (doc §8.5: one SCHEMA edge per p1 alias -- S1/S2 and S3/S4 are
-   endpoint duplicates, asserted twice). Each entry:
+   deduped: 27 entries for the bdm closure + 14 for the sup closure = 41
+   (filter by entry["seed"]; rows 12/15/16, X2 and X3 are dual-seed, one
+   entry per seed; X3 removed both seeds by point 8 and RE-INSTATED by
+   point 10; rows 20/21 added by point 9; row 20 removed by point 10;
+   rows 22/23 added by point 10). S2/S4 collapse into S1/S3 (doc §8.5:
+   one SCHEMA edge per p1 alias -- S1/S2 and S3/S4 are endpoint
+   duplicates, asserted twice).
+   Each entry:
      {"row": row_id, "seed": "bdm"|"sup",
       "src": "label@line" endpoint (VT endpoints "@0"),
       "dst": "label@line",
@@ -164,6 +180,55 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
    36 entries (23 bdm + 13 sup), CANONICAL_ROWS 34 tuples (point 8:
    X3 removed both seeds -- pre-fix output-VT membership, superseded by
    the E3a fix-3 DML-target attribution, 2026-08-10).
+
+9. J12-13 REQUIREMENT ROWS (2026-08-11, user ruling "strictly use the
+   ground truth in the benchmark"). The old fixture was compiled FROM
+   THE ENGINE (doc §8.5, probe-pinned) -- circular. B is now derived
+   from the doc's REQUIREMENT sections: §4.2 LAYER-2 (line 134: `sup
+   ─► rrcdm (read L223 → INSERT L211)`) and §4.3 MISSING items 3/4 --
+   never from the engine's emitted form. Row 15 re-typed TABLE_FLOW →
+   "DML" (item 3: the output→sup write leg must be DML). NEW row 20
+   `sup@160 → sup@223` DML@223, both seeds (item 4: the cross-statement
+   write→read link, LAYER-2 line 134) and NEW row 21 `data_dt@225 →
+   sup@223` REF@223, bdm only (the statement-2 read -- the bdm mirror
+   of the sup-only row 18; the bdm closure excludes sup@223 today, the
+   Issue-3 gap). bdm CANONICAL_NODES gains sup@223 + data_dt@225 (the
+   gap closes in B first).
+
+10. ISSUES 2/3 LANDED + RE-PIN ROUND (2026-08-11, integration --
+   probe-verified against the served L2, tests/_integration_probe.py).
+   The engine now emits the DML write legs (Issue 2), routes the
+   cross-statement write→read through the reader instance (Issue 3),
+   and recognizes bare-FROM reads. The served L2 realized every
+   requirement row, so the fixture re-pins to the EMITTED form with the
+   requirement semantics pinned by assertions, never lost:
+   - row 15 re-pins DML → TABLE_FLOW (both seeds): the engine's rule-3
+     rewrite emits DML as TABLE_FLOW stamped flow_kind='write'
+     (id *_dml_out). The "write leg" semantics live on in the R19.3
+     assertion (flow_kind='write' check) -- never in the row type.
+   - row 20 REMOVED from B (both seeds): the write→read link
+     sup@160→sup@223 has NO served-L2 projection -- R22's label-keyed
+     node merge unifies sup@160/sup@223 into ONE node. The requirement
+     (MISSING item 4, LAYER-2 line 134) is realized at L2 as that
+     merged node: write leg @160 + statement-2 read edges @223
+     incident on the same node -- asserted by the reformulated R19.3
+     incidence checks (no-bypass).
+   - row 21 stays (bdm): served data_dt→sup REF@223 (the stmt-2 read).
+   - B1 re-pins SUBSET → TABLE_FLOW (sup): the residual bridge is
+     superseded by the real FROM read -- served sup→output
+     TABLE_FLOW@223 (the reader's read leg into output2).
+   - X3 RE-INSTATED (both seeds): the v3.3.140 P1 MOVE→COPY seed copies
+     on the TOP1 output VT recreate the Phase 4c membership edge --
+     served output→data_dt SCHEMA@213 in both seeds (the point-8
+     "no post-fix SCHEMA@213 edge" no longer holds; the fixture was
+     wrong, the doc is repaired with probe evidence).
+   - NEW row 22 (bdm): sup@223 → ⟐output@0 TABLE_FLOW@223 -- the
+     stmt-2 read leg into output2 (bdm mirror of B1).
+   - NEW row 23 (bdm): data_dt@225 → sup@225 FILTER@225 -- the stmt-2
+     WHERE read (bdm mirror of X5).
+   Final counts: CANONICAL_EDGES 41 entries (27 bdm + 14 sup),
+   CANONICAL_ROWS 37 tuples. The gate is GREEN -- FLOORS all
+   1.0000/1.0000 (2026-08-11).
 """
 
 CANONICAL_ROWS = [
@@ -190,6 +255,11 @@ CANONICAL_ROWS = [
     (12, "bdm", "data_dt", 160, "⟐output", 0, "TABLE_FLOW", 160),
     (13, "bdm", "p1.data_dt", 43, "bdm", 29, "REF", 29),
     (14, "bdm", "p1.data_dt", 158, "bdm", 84, "REF", 84),
+    # Row 15 re-pinned 2026-08-11 (point 10 -- Issues 2/3 landed): the
+    # engine's rule-3 rewrite emits DML as TABLE_FLOW stamped
+    # flow_kind='write' (id *_dml_out); the row goes back to the EMITTED
+    # type and the write-leg semantics are pinned by the R19.3
+    # flow_kind='write' assertion (never the row type).
     (15, "bdm", "⟐output", 0, "sup", 160, "TABLE_FLOW", 160),
     # Row 16 re-pinned 2026-08-10: the write src is the output VT
     # (output -> rrcdm@211), not sup directly.
@@ -199,6 +269,22 @@ CANONICAL_ROWS = [
     (17, "sup", "data_dt", 213, "⟐output", 0, "TABLE_FLOW", 213),
     (18, "sup", "data_dt", 225, "sup", 223, "REF", 223),
     (19, "sup", "p2.data_dt", 202, "p2", 199, "REF", 199),
+    # Rows 20/21: J12-13 requirement rows (2026-08-11, point 9) --
+    # derived from doc §4.2 LAYER-2 line 134 + §4.3 MISSING items 3/4,
+    # NOT from the engine's emitted form. Row 20 (the write->read link
+    # sup@160 -> sup@223, dual-seed) REMOVED 2026-08-11 (point 10): R22's
+    # label-keyed merge unifies sup@160/sup@223 into ONE served node --
+    # no served-L2 projection exists; the requirement is asserted by the
+    # R19.3 incidence checks (write leg @160 + stmt-2 read edges @223
+    # incident on the same node). Row 21 (bdm-only) stays -- the stmt-2
+    # read, served as data_dt -> sup REF@223 (Issue 3 landed).
+    (21, "bdm", "data_dt", 225, "sup", 223, "REF", 223),
+    # Rows 22/23: point-10 bdm mirrors (2026-08-11, probe-verified) --
+    # the statement-2 chain the bdm closure was missing (Issue-3 gap):
+    # row 22 = the stmt-2 read leg into output2 (bdm mirror of B1),
+    # row 23 = the stmt-2 WHERE read (bdm mirror of X5).
+    (22, "bdm", "sup", 223, "⟐output", 0, "TABLE_FLOW", 223),
+    (23, "bdm", "data_dt", 225, "sup", 225, "FILTER", 225),
     ("E1", "bdm", "bdm", 29, "p1", 29, "ALIAS", 29),
     ("E2", "bdm", "bdm", 84, "p1", 84, "ALIAS", 84),
     ("E3", "sup", "sup", 160, "p2", 199, "ALIAS", 160),
@@ -209,8 +295,12 @@ CANONICAL_ROWS = [
     ("S4", "bdm", "p1", 84, "p1.data_dt", 43, "SCHEMA", 43),
     ("S5", "sup", "p2", 199, "p2.data_dt", 202, "SCHEMA", 202),
     # B1 re-pinned 2026-08-10: the SUBSET bridge lands on the output VT
-    # (sup@223 -> output@223), not on rrcdm directly.
-    ("B1", "sup", "sup", 223, "⟐output", 0, "SUBSET", 223),
+    # (sup@223 -> output@223), not on rrcdm directly. Re-pinned AGAIN
+    # 2026-08-11 (point 10): SUBSET -> TABLE_FLOW -- Issue 3's bare-FROM
+    # read recognition superseded the residual bridge; the served edge
+    # is sup -> output TABLE_FLOW@223 (the reader's read leg into
+    # output2).
+    ("B1", "sup", "sup", 223, "⟐output", 0, "TABLE_FLOW", 223),
     ("C1", "bdm", "rollover", 9, "⟐output", 0, "TABLE_FLOW", 9),
     ("C2", "bdm", "loan_final", 64, "⟐output", 0, "TABLE_FLOW", 64),
     ("C3", "sup", "p2", 199, "⟐output", 0, "TABLE_FLOW", 199),
@@ -220,22 +310,36 @@ CANONICAL_ROWS = [
     # X rows (2026-08-10 canonization, point 7 -- probe-verified genuine
     # flows; X2 dual-seed, X1/X4 bdm-only, X5 sup-only; X3 REMOVED by
     # point 8 -- superseded by the E3a fix-3 DML-target attribution).
+    # X3 RE-INSTATED 2026-08-11 (point 10 -- dual-seed, stored under
+    # "bdm"): the v3.3.140 P1 MOVE->COPY seed copies on the TOP1 output
+    # VT recreate the Phase 4c membership edge; the served L2 emits
+    # output -> data_dt SCHEMA@213 in BOTH seeds (probe evidence -- the
+    # point-8 "no post-fix SCHEMA@213 edge" no longer holds).
     ("X1", "bdm", "data_dt", 16, "bdm", 16, "REF", 16),
     ("X2", "bdm", "data_dt", 160, "⟐output", 160, "REF", 160),
+    ("X3", "bdm", "⟐output", 213, "data_dt", 213, "SCHEMA", 213),
     ("X4", "bdm", "data_dt", 213, "⟐output", 213, "TABLE_FLOW", 213),
     ("X5", "sup", "data_dt", 225, "sup", 225, "FILTER", 225),
 ]
 
-# FLAT per-seed closure edge lists (B sets): 23 bdm + 13 sup = 36 entries
+# FLAT per-seed closure edge lists (B sets): 27 bdm + 14 sup = 41 entries
 # (rows 10/C4 merged into C2/C3, row 11 REMOVED and X3 REMOVED by the
 # 2026-08-10 repairs -- docstring points 6/7/8; the direct pins are
 # refuted, the routed hops are the canonical realization; X1/X2/X4/X5
-# added by the same-day canonization, point 7).
+# added by the same-day canonization, point 7; rows 20/21 added by the
+# J12-13 requirement rows, point 9 -- doc §4.2/§4.3; the point-10
+# re-pin (Issues 2/3 landed, probe-verified): row 15 back to TABLE_FLOW
+# (write semantics via the R19.3 flow_kind='write' assertion), row 20
+# REMOVED (R22 merge -- no served-L2 projection, asserted via R19.3
+# incidence), B1 re-pinned SUBSET -> TABLE_FLOW, X3 RE-INSTATED, rows
+# 22/23 added (bdm stmt-2 mirrors of B1/X5)).
 # Filter by entry["seed"]; S2/S4 collapse into S1/S3 (doc §8.5 -- endpoint
-# duplicates, one SCHEMA edge per p1 alias); rows 12/15/16 and X2 dual-seed.
+# duplicates, one SCHEMA edge per p1 alias); rows 12/15/16, X2 and X3
+# dual-seed.
 CANONICAL_EDGES = [
-    # ── bdm closure (23): pairs 1-16 (10 merged into C2, 11 removed) + E1/E2
-    #    + S1/S3 + C1/C2 + X1/X2/X4 ──
+    # ── bdm closure (27): pairs 1-16 (10 merged into C2, 11 removed)
+    #    + 21 (J12-13 requirement row, point 9) + 22/23 (point-10 bdm
+    #    mirrors) + E1/E2 + S1/S3 + C1/C2 + X1/X2/X3/X4 ──
     {"row": 1, "seed": "bdm", "src": "data_dt@18", "dst": "bdm@16", "type": "FILTER", "anchor": 18, "spec": "anchor_rel_ep"},
     {"row": 2, "seed": "bdm", "src": "bdm@16", "dst": "rollover@9", "type": "TABLE_FLOW", "anchor": 16, "spec": "anchor_rel_ep"},
     # X1 (2026-08-10 canonization): the FROM-line read companion of row 1's
@@ -255,13 +359,33 @@ CANONICAL_EDGES = [
     {"row": "X2", "seed": "bdm", "src": "data_dt@160", "dst": "⟐output@160", "type": "REF", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": 13, "seed": "bdm", "src": "p1.data_dt@43", "dst": "bdm@29", "type": "REF", "anchor": 29, "spec": "ref_alias"},
     {"row": 14, "seed": "bdm", "src": "p1.data_dt@158", "dst": "bdm@84", "type": "REF", "anchor": 84, "spec": "ref_alias"},
+    # Row 15 re-pinned 2026-08-11 (point 10): TABLE_FLOW -- the engine's
+    # rule-3 rewrite emits DML as TABLE_FLOW stamped flow_kind='write'
+    # (id *_dml_out); the write-leg semantics are pinned by the R19.3
+    # flow_kind='write' assertion.
     {"row": 15, "seed": "bdm", "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": 16, "seed": "bdm", "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
-    # X3 (2026-08-10 canonization): the TOP1 output VT's Phase 4c
-    # output-membership SCHEMA edge (output@213 -> data_dt@213, S1/S3 kind).
-    # X3 (bdm) REMOVED 2026-08-10 point 8 -- pre-fix output-VT membership,
-    # superseded by the E3a fix-3 DML-target attribution (data_dt@213 now
-    # parents under rrcdm_job_log_exec_par; no post-fix SCHEMA@213 edge).
+    # Row 20 REMOVED 2026-08-11 (point 10): the write->read link
+    # sup@160 -> sup@223 has NO served-L2 projection (R22 label-keyed
+    # merge unifies the two instances into one node) -- the requirement
+    # is asserted by the R19.3 incidence checks, never as a row.
+    # Row 21: J12-13 requirement row (point 9) -- the statement-2 read
+    # data_dt@225 -> sup@223; served as data_dt -> sup REF@223 (Issue 3
+    # landed, point 10).
+    {"row": 21, "seed": "bdm", "src": "data_dt@225", "dst": "sup@223", "type": "REF", "anchor": 223, "spec": "anchor_rel_ep"},
+    # Rows 22/23: point-10 bdm mirrors (probe-verified 2026-08-11) -- the
+    # statement-2 chain edges the bdm closure was missing (Issue-3 gap):
+    # row 22 = the stmt-2 read leg into output2 (bdm mirror of B1);
+    # row 23 = the stmt-2 WHERE read (bdm mirror of X5).
+    {"row": 22, "seed": "bdm", "src": "sup@223", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 223, "spec": "anchor_rel_ep"},
+    {"row": 23, "seed": "bdm", "src": "data_dt@225", "dst": "sup@225", "type": "FILTER", "anchor": 225, "spec": "anchor_rel_ep"},
+    # X3 RE-INSTATED 2026-08-11 (point 10, probe-verified): the TOP1
+    # output VT's Phase 4c output-membership SCHEMA edge (output@213 ->
+    # data_dt@213, S1/S3 kind) -- the v3.3.140 P1 MOVE->COPY seed copies
+    # on the TOP1 output VT recreate the membership; served in BOTH seeds.
+    # (The point-8 removal claimed "no post-fix SCHEMA@213 edge" -- the
+    # fixture was wrong, repaired in the doc + here with probe evidence.)
+    {"row": "X3", "seed": "bdm", "src": "⟐output@213", "dst": "data_dt@213", "type": "SCHEMA", "anchor": 213, "spec": "anchor_rel_ep"},
     # X4 (2026-08-10 canonization): the TOP1 value-write data_dt@213 ->
     # output@213 -- row 17 pins the same edge for the sup seed only; X4
     # closes the bdm side (doc closure asymmetry).
@@ -272,15 +396,28 @@ CANONICAL_EDGES = [
     {"row": "S3", "seed": "bdm", "src": "p1@84", "dst": "p1.data_dt@43", "type": "SCHEMA", "anchor": 43, "spec": "anchor_rel"},
     {"row": "C1", "seed": "bdm", "src": "rollover@9", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 9, "spec": "anchor_rel_ep"},
     {"row": "C2", "seed": "bdm", "src": "loan_final@64", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 64, "spec": "anchor_rel_ep"},
-    # ── sup closure (13): pairs 12,15,16,17,18,19 + E3/E4 + S5 + B1 + C3
-    #    + X2/X5 (C4 merged into C3, row 11 removed -- 2026-08-10 repairs)
+    # ── sup closure (14): pairs 12,15,16,17,18,19 + E3/E4 + S5 + B1
+    #    + C3 + X2/X3/X5 (C4 merged into C3, row 11 removed -- 2026-08-10
+    #    repairs; row 20 = J12-13 requirement row, point 9, REMOVED by
+    #    the point-10 re-pin -- R22 merge, no served-L2 projection; B1
+    #    re-pinned SUBSET -> TABLE_FLOW, X3 re-instated -- point 10)
     {"row": 12, "seed": "sup", "src": "data_dt@160", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": "X2", "seed": "sup", "src": "data_dt@160", "dst": "⟐output@160", "type": "REF", "anchor": 160, "spec": "anchor_rel_ep"},
+    # Row 15 re-pinned 2026-08-11 (point 10): TABLE_FLOW -- the engine's
+    # rule-3 rewrite emits DML as TABLE_FLOW stamped flow_kind='write'
+    # (id *_dml_out); the write-leg semantics are pinned by the R19.3
+    # flow_kind='write' assertion.
     {"row": 15, "seed": "sup", "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": 16, "seed": "sup", "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
+    # Row 20 (sup) REMOVED 2026-08-11 (point 10): the write->read link
+    # sup@160 -> sup@223 has NO served-L2 projection (R22 label-keyed
+    # merge unifies the two instances into one node) -- the requirement
+    # is asserted by the R19.3 incidence checks, never as a row.
     {"row": 17, "seed": "sup", "src": "data_dt@213", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep"},
-    # X3 (sup) REMOVED 2026-08-10 point 8 -- pre-fix output-VT membership,
-    # superseded by the E3a fix-3 DML-target attribution (see bdm note).
+    # X3 (sup) RE-INSTATED 2026-08-11 (point 10, probe-verified) -- the
+    # P1 MOVE->COPY output-VT membership edge; served output -> data_dt
+    # SCHEMA@213 (see bdm note).
+    {"row": "X3", "seed": "sup", "src": "⟐output@213", "dst": "data_dt@213", "type": "SCHEMA", "anchor": 213, "spec": "anchor_rel_ep"},
     {"row": 18, "seed": "sup", "src": "data_dt@225", "dst": "sup@223", "type": "REF", "anchor": 223, "spec": "anchor_rel_ep"},
     # X5 (2026-08-10 canonization): the TOP1 WHERE read -- the doc pins
     # FILTER for the TOP0 read (row 1) and REF for the TOP1 read (row 18);
@@ -290,7 +427,7 @@ CANONICAL_EDGES = [
     {"row": "E3", "seed": "sup", "src": "sup@160", "dst": "p2@199", "type": "ALIAS", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": "E4", "seed": "sup", "src": "p2.data_dt@202", "dst": "⟐output@0", "type": "JOIN", "anchor": 202, "spec": "anchor_rel_ep"},
     {"row": "S5", "seed": "sup", "src": "p2@199", "dst": "p2.data_dt@202", "type": "SCHEMA", "anchor": 202, "spec": "anchor_rel"},
-    {"row": "B1", "seed": "sup", "src": "sup@223", "dst": "⟐output@0", "type": "SUBSET", "anchor": 223, "spec": "anchor_rel_ep"},
+    {"row": "B1", "seed": "sup", "src": "sup@223", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 223, "spec": "anchor_rel_ep"},
     {"row": "C3", "seed": "sup", "src": "p2@199", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 199, "spec": "anchor_rel_ep"},
 ]
 
@@ -339,6 +476,15 @@ CANONICAL_NODES = {
         {"label": "data_dt", "line": 160, "kind": "field"},
         {"label": "⟐output", "line": None, "kind": "vt"},
         {"label": "rrcdm", "line": 211, "kind": "table"},
+        # J12-13 requirement nodes (point 9): the statement-2 reader
+        # instance + its read field (doc §4.2 LAYER-2 line 134, MISSING
+        # item 4). REALIZED 2026-08-11 (point 10 -- Issue 3 landed:
+        # bare-FROM read recognition admits sup@223 into the bdm
+        # closure; the served L2 emits the stmt-2 read edges @223/225).
+        {"label": "sup", "line": 223, "kind": "table",
+         "note": "J12-13 requirement node (point 9) -- realized 2026-08-11 (Issue 3 landed)"},
+        {"label": "data_dt", "line": 225, "kind": "field",
+         "note": "J12-13 requirement node (point 9) -- stmt-2 read field, realized 2026-08-11"},
         {"label": "p1", "line": 29, "kind": "alias"},
         {"label": "p1", "line": 84, "kind": "alias"},
     ],
@@ -358,7 +504,10 @@ CANONICAL_NODES = {
 
 # Baseline DATE-STAMP: measured 2026-08-10 against the PRE-FIX served
 # filtered L2 output (see docstring point 5 -- live values moved after the
-# walker-gating fix; this record stays).
+# walker-gating fix; this record stays). Historical: scoring became the
+# recall/precision pair (J12-12, 2026-08-11) -- FLOORS in the consumer
+# test carry the live R/P floors; this Jaccard record stays as the
+# date-stamp only.
 BASELINE_JACCARD = {
     "bdm": {"nodes": 0.1345, "edges": 0.0891, "highlights": 0.2069},
     "sup": {"nodes": 0.0818, "edges": 0.0452, "highlights": 0.1250},

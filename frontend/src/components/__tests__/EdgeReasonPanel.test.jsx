@@ -67,6 +67,26 @@ describe('EdgeReasonPanel — R25/§8.8 (below the SQL panel)', () => {
     expect(contentPanel).toHaveAttribute('role', 'status');
     expect(contentPanel).toHaveAttribute('aria-live', 'polite');
   });
+
+  it('keeps a CONSTANT height in both states (Issue 1 — edge click never changes the panel height)', () => {
+    // Issue 1 (fix 2026-08-11): the height prop (DataFlowApp's
+    // reasonPanelHeight state) applies to the EMPTY state and the
+    // content state alike. A constant height means an edge click causes
+    // no flex reflow → the graph-canvas ResizeObserver never fires on
+    // click → the L2 viewport never auto-refits. Content overflow
+    // scrolls internally (overflow-y: auto in CSS).
+    const { container, rerender } = render(<EdgeReasonPanel edge={null} height={160} />);
+    const emptyPanel = container.querySelector('[data-testid="edge-reason-panel"]');
+    expect(emptyPanel).toHaveStyle({ height: '160px' });
+    rerender(<EdgeReasonPanel edge={edge} height={160} />);
+    const contentPanel = container.querySelector('[data-testid="edge-reason-panel"]');
+    expect(contentPanel).toHaveStyle({ height: '160px' });
+    // Without the height prop no inline height is forced — the panel
+    // falls back to the constant CSS default (.edge-reason-panel has a
+    // fixed height, never height:auto).
+    rerender(<EdgeReasonPanel edge={edge} />);
+    expect(container.querySelector('[data-testid="edge-reason-panel"]')).not.toHaveStyle({ height: '160px' });
+  });
 });
 
 // ── R11-3: code evidence (backend `mech` payload) ─────────────────────

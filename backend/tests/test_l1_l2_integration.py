@@ -292,16 +292,32 @@ def test_detect_role_no_table_part_false_match():
 
 
 def test_target_field_sc_matches_field_part_only():
-    """B2/CW9: _target_field_sc compares only the field part (after the last
-    dot) of a source_column — the old word-boundary regex matched the
-    alias/table part ("item" inside "item.i_brand")."""
-    from app.services.l2_builder import _target_field_sc
+    """B2/CW9 + J12-9: the seed matcher compares only the field part (after
+    the last dot) of a label or source_column — the old word-boundary regex
+    matched the alias/table part ("item" inside "item.i_brand"). The retired
+    _target_field_sc helper is inlined in _compute_target_and_direct_ids as
+    the unified rsplit predicate (J12-9 ruling 2026-08-11)."""
+    from app.services.l2_builder import _compute_target_and_direct_ids
 
-    assert _target_field_sc("item.i_brand", "item") is False
-    assert _target_field_sc("item.i_brand", "i_brand") is True
-    assert _target_field_sc("customer_id", "customer_id") is True
-    assert _target_field_sc("sc.customer_id", "customer_id") is True
-    assert _target_field_sc("sc.customer_id_x", "customer_id") is False
+    def _targets(label, variable_type, source_columns, field):
+        nodes = [{"data": {"id": "v1", "label": label,
+                           "variable_type": variable_type,
+                           "source_columns": source_columns}}]
+        ids, _ = _compute_target_and_direct_ids(nodes, [], "store", field)
+        return ids
+
+    # the alias/table part of a qualified column never matches (B2/CW9) —
+    # and short names never match inside longer ones (R4, no substring)
+    assert _targets("x.i_brand", "column", ["item.i_brand"], "item") == set()
+    assert _targets("x.i_brand", "column", ["sc.customer_id_x"],
+                    "customer_id") == set()
+    # field part still matches — positive paths intact
+    assert "v1" in _targets("x.i_brand", "column", ["item.i_brand"], "i_brand")
+    assert "v1" in _targets("customer_id", "column", [], "customer_id")
+    assert "v1" in _targets("sc.customer_id", "column", [], "customer_id")
+    # J12-9 kept semantics: alias-qualified labels match by suffix (the
+    # alias-copy seed `p1.data_dt` matching `bdm_acc_loan_info.data_dt`)
+    assert "v1" in _targets("p1.data_dt", "column", [], "data_dt")
 
 
 # ══════════════════════════════════════════════════════════════════════

@@ -273,7 +273,7 @@ const SqlPanel = React.forwardRef(function SqlPanel({ sqlText, sqlHighlightLine,
           <button className="btn btn-outline btn-sm" onClick={handleExport}>⬇ Export</button>
           <button className="btn btn-outline btn-sm"
             onClick={() => setShowConfig(!showConfig)}
-            style={showConfig ? { borderColor: '#F39C12', color: '#F39C12' } : {}}>
+            style={showConfig ? { borderColor: 'var(--warning)', color: 'var(--warning)' } : {}}>
             ⚙ Config
           </button>
           {saveStatus && (

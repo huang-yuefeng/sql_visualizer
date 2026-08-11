@@ -65,9 +65,17 @@ export default function DataFlowApp() {
   const [l2PanelHeight, setL2PanelHeight] = useState(420);
   const [l2PanelWidth, setL2PanelWidth] = useState(420);
   const [sqlPanelHeight, setSqlPanelHeight] = useState(250);
+  // Issue 1 (fix 2026-08-11): the flow-reason panel has a CONSTANT height
+  // in every state (empty / simple / with-evidence) until the user drags.
+  // Content-driven height changes are impossible → an edge click never
+  // changes the panel height → no flex reflow → the graph-canvas
+  // ResizeObserver never fires on click → the L2 viewport stops
+  // auto-refitting. After a drag the height is user-set — still constant
+  // across clicks (height changes only when the user drags).
+  const [reasonPanelHeight, setReasonPanelHeight] = useState(160);
 
   const leftResize = useResizable({
-    direction: 'horizontal', value: leftPanelWidth, defaultValue: 260, min: 0, max: 9999, 
+    direction: 'horizontal', value: leftPanelWidth, defaultValue: 260, min: 0, max: 9999,
     onResize: (v) => { setLeftPanelWidth(v); document.documentElement.style.setProperty('--left-width', v + 'px'); },
   });
   const l2Resize = useResizable({
@@ -77,6 +85,14 @@ export default function DataFlowApp() {
   const sqlResize = useResizable({
     direction: 'vertical', value: sqlPanelHeight, defaultValue: 250, min: 0, max: 9999, invert: true,
     onResize: (v) => { setSqlPanelHeight(v); document.documentElement.style.setProperty('--sql-height', v + 'px'); },
+  });
+  // Issue 1: drag-to-resize handle on the reason panel's TOP edge (between
+  // the SQL panel and the reason panel). Dragging squeezes the GRAPH (the
+  // flex-1 item that gives up space) — the same behavior as the SQL-panel
+  // handle. State not persisted (R23 clean start, like the SQL panel).
+  const reasonResize = useResizable({
+    direction: 'vertical', value: reasonPanelHeight, defaultValue: 160, min: 60, max: 9999, invert: true,
+    onResize: setReasonPanelHeight,
   });
 
   const activeView = views.find(v => v.view_id === activeViewId)
@@ -682,11 +698,19 @@ export default function DataFlowApp() {
                   is selected. R11-3: with a `mech` payload the panel adds
                   the flow sentence + clickable code-evidence rows that
                   scroll the SQL panel via onJumpToLine. R10-#18: only
-                  rendered when there is a script (sqlText) to jump to. */}
+                  rendered when there is a script (sqlText) to jump to.
+                  Issue 1 (fix 2026-08-11): the panel's height is
+                  CONSTANT in every state (reasonPanelHeight, like
+                  sqlPanelHeight) — it never grows with the code-evidence
+                  block; it grows ONLY by dragging the handle below. */}
+              {/* Issue 1: drag-to-resize handle on the reason panel's TOP
+                  edge (between SQL panel and reason panel). */}
+              <div {...reasonResize.handleProps} />
               <EdgeReasonPanel
                 edge={selectedEdge}
                 sqlText={sqlText}
                 onJumpToLine={handleJumpToLine}
+                height={reasonPanelHeight}
               />
             </>
           )}

@@ -37,7 +37,7 @@
   transition: background 0.2s;
 }
 .l2-wrap-row:hover {
-  background: #F39C12;
+  background: var(--accent);
 }
 .l2-wrap-row::after {
   content: '';
@@ -69,7 +69,7 @@
   transition: background 0.2s;
 }
 .resize-handle:hover {
-  background: #F39C12;
+  background: var(--accent);
 }
 .resize-handle::after {
   content: '';
@@ -92,7 +92,7 @@
   transition: background 0.2s;
 }
 .resize-handle-h:hover {
-  background: #F39C12;
+  background: var(--accent);
 }
 .resize-handle-h::after {
   content: '';
@@ -121,8 +121,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 4px 8px;
-  background: #1e1e3a;
-  border-bottom: 1px solid #2a2a4a;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .inline-l2-actions {

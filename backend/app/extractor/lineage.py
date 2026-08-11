@@ -697,9 +697,21 @@ def compute_field_flow(graph_data, target_table, target_field,
                     # REF/READ (field → its owning table) admits only in the
                     # forward direction; the reverse traversal (table →
                     # sibling fields) is what flooded the L2 closure.
-                    # Value-copy REF and the other FIELD_LAND types remain
-                    # bidirectional.
-                    admit = fwd if read else True
+                    # Issue 3 (2026-08-11): EXCEPT the read of the SEARCHED
+                    # field itself — an in-closure holder's reverse read of
+                    # a field whose field part is the target field admits
+                    # (the statement-2 read data_dt@225 → sup@223; the
+                    # reader instance's read of the searched field joins
+                    # the closure so the REF edge renders — R19.3
+                    # no-bypass completion). Same guard as the DML value
+                    # rule below (field-like var carrying the target field
+                    # part).
+                    if read:
+                        admit = fwd or (
+                            _field_part(node_map.get(nb) or {}) == target_field
+                        )
+                    else:
+                        admit = True
                 elif et == "ALIAS":
                     nb_var = node_map.get(nb)
                     nb_st = (nb_var or {}).get("source_tables") or []
@@ -777,6 +789,27 @@ def compute_field_flow(graph_data, target_table, target_field,
                         visited.add(cte_id)
                         changed = True
                         _register(cte_id)
+        # Issue 3 (same-table physical-identity admission, R19.2 read
+        # recognition — ruling 2026-08-11): a BARE TABLE/VIEW instance
+        # (physical identity == its own label) whose physical identity
+        # matches an in-closure table joins the closure — the statement-2
+        # reader `bdm_acc_loan_info_sup@223` (bare FROM, line 223) shares
+        # the physical identity of the in-closure writer sup@160 and joins
+        # even without an incident walkable edge, so the read instance is
+        # always on the flow path (never a render-time reconstruction —
+        # identity comes from extraction-time source_tables/label).
+        # Aliases (identity != label) are hop nodes served by ALIAS edges
+        # and the ALIAS rule — they do not re-admit themselves here.
+        for nb, var in node_map.items():
+            if var.get("variable_type") not in ("table", "view"):
+                continue
+            if nb in visited:
+                continue
+            ident = _identity(var)
+            if ident and ident == var.get("label") and ident in chain:
+                visited.add(nb)
+                changed = True
+                _register(nb)
     # D1: the fixpoint is capped at 100 rounds (monotone — should never
     # fire); when it does, the closure may be incomplete — surface it in
     # the log instead of silently returning a partial closure.

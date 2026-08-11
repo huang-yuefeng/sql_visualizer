@@ -352,7 +352,16 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             for v in s.get("_all_vars", []):
                 src_tables = v.get("source_tables", [])
                 name = v.get("name", "")
-                if src_tables:
+                # Issue 3 (2026-08-11, Team B): a BARE FROM/JOIN reference
+                # (no alias — alias_or_name yields the table's own name)
+                # carries source_tables == [its own name] so the flow
+                # walker sees the read instance. It is NOT an alias: only
+                # a variable resolving to a DIFFERENT table is one (rule
+                # (a) above already says "pointing to another table").
+                # Without this guard a bare-referenced input table would
+                # be misclassified as an alias, dropped from the L1 table
+                # set, and R18.1 would prune the graph to the script node.
+                if src_tables and src_tables[0] != name:
                     aliases.add(name)
                 # Bug 5 fix: removed length heuristic — semantic check above covers real aliases
         # (Analysis cache aliases collected below after cache_map is built)

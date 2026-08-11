@@ -4,10 +4,12 @@ import { summarizeResolutionStats, STRATEGY_ORDER, strategyLabel } from '../util
 const MAX_NAMES = 20;
 
 function coverageColor(pct) {
-  if (pct === null) return '#888';
-  if (pct >= 90) return '#2ECC71';
-  if (pct >= 70) return '#F39C12';
-  return '#E74C3C';
+  // J12-14: theme tokens (success/warning/danger) so the badge stays
+  // legible in both light and dark modes.
+  if (pct === null) return 'var(--ink-400)';
+  if (pct >= 90) return 'var(--success)';
+  if (pct >= 70) return 'var(--warning)';
+  return 'var(--danger)';
 }
 
 /**

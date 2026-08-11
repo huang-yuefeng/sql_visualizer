@@ -451,7 +451,7 @@ export default function App() {
   return (
     <div className="app-container">
       <header className="app-header">
-        <h1>GPS SQL Data Flow Visualizer {version && <span style={{fontSize:'0.6rem',color:'#666',fontWeight:400}}>v{version}</span>}</h1>
+        <h1>GPS SQL Data Flow Visualizer {version && <span style={{fontSize:'0.6rem',color:'var(--ink-400)',fontWeight:400}}>v{version}</span>}</h1>
         <div className="header-actions">
           <label className="btn btn-primary" style={{cursor:'pointer'}}>Multi SQL<input ref={multiRef} type="file" accept=".sql,.txt" multiple onChange={async e=>{
             const fs=[...e.target.files]; if(fs.length<2) return;
@@ -548,7 +548,7 @@ export default function App() {
             }
             e.target.value='';
           }} hidden/></label>}
-          {multiView && filterTables && <button className="btn btn-outline" onClick={()=>setFilterTables(null)} style={{color:'#2ECC71'}}>✕ Filter</button>}
+          {multiView && filterTables && <button className="btn btn-outline" onClick={()=>setFilterTables(null)} style={{color:'var(--success)'}}>✕ Filter</button>}
           {sel && <button className="btn btn-outline" onClick={()=>setShowSQL(!showSQL)}>{showSQL?'Hide SQL':'Show SQL'}</button>}
           {(sel||multiView) && <button className="btn btn-outline" onClick={()=>exportCurrentView({multiView,gd,sel,multiOriginal,filteredViews})}>Export CSV</button>}
           <button className="btn btn-outline" onClick={()=>{if(cyR.current)cyR.current.fit(undefined,50)}}>Fit</button>
@@ -559,12 +559,12 @@ export default function App() {
         <aside className="sidebar">
           <h3>Scripts</h3>
           <div className="script-list">
-            {multiView && <div key="multi_tag" className={`script-item ${!sel&&!ioGraph&&multiView===multiOriginal.current?'active':''}`} style={{borderColor:'#F39C12'}} onClick={()=>{if(multiOriginal.current){setMultiView(multiOriginal.current)};setSel(null);setMultiDetail(null);setPanel(null);setShowInfo(true);setIoGraph(null);setIoPaths([]);setGd(null)}}>
-              <div className="script-name" style={{color:'#F39C12'}}>📊 Multi ({(multiOriginal.current||multiView).scripts.length} scripts)</div>
+            {multiView && <div key="multi_tag" className={`script-item ${!sel&&!ioGraph&&multiView===multiOriginal.current?'active':''}`} style={{borderColor:'var(--warning)'}} onClick={()=>{if(multiOriginal.current){setMultiView(multiOriginal.current)};setSel(null);setMultiDetail(null);setPanel(null);setShowInfo(true);setIoGraph(null);setIoPaths([]);setGd(null)}}>
+              <div className="script-name" style={{color:'var(--warning)'}}>📊 Multi ({(multiOriginal.current||multiView).scripts.length} scripts)</div>
               <div className="script-meta">{(multiOriginal.current||multiView).meta_edges.filter(e=>e.data.edge_type==='data_lineage').length} lineage links</div>
             </div>}
-            {filteredViews.map(fv => <div key={fv.id} className={`script-item ${!sel&&multiView===fv?'active':''}`} style={{borderColor:'#2ECC71'}} onClick={()=>{setMultiView(fv);setSel(null);setMultiDetail(null);setPanel(null);setShowInfo(true);setGd(null);}}>
-              <div className="script-name" style={{color:'#2ECC71'}}>{fv.name}</div>
+            {filteredViews.map(fv => <div key={fv.id} className={`script-item ${!sel&&multiView===fv?'active':''}`} style={{borderColor:'var(--success)'}} onClick={()=>{setMultiView(fv);setSel(null);setMultiDetail(null);setPanel(null);setShowInfo(true);setGd(null);}}>
+              <div className="script-name" style={{color:'var(--success)'}}>{fv.name}</div>
               <div className="script-meta">{fv.scripts.length} scripts</div>
             </div>)}
             {scripts.map(s=><div key={s.script_id} className={`script-item ${(sel?.script_id===s.script_id||(!sel&&ioGraph&&s.ioGraph===ioGraph))?'active':''}`} onClick={()=>{ if(s.ioGraph){ setIoGraph(s.ioGraph); setIoPaths(s.ioPaths||[]); setSel(null); setGd(null); setShowInfo(true); } else { setSel(s); setIoGraph(null); setIoPaths([]); } }}><div className="script-name" style={s.ioGraph?{paddingLeft:16,fontSize:'0.85rem'}:{}}>{s.script_name}</div><div className="script-meta">{s.total_variables}v · {s.total_dependencies}e</div></div>)}
@@ -579,22 +579,22 @@ export default function App() {
             const lineageEdges=multiView.meta_edges.filter(e=>e.data.edge_type==='data_lineage').length;
             const inputEdges=multiView.meta_edges.filter(e=>e.data.edge_type==='shared_input').length;
             const shown=filterTables?filterTables.length:multiView.scripts.length;
-            return <div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'6px 10px',borderRadius:4,fontSize:'0.65rem',color:'#F39C12',zIndex:5,lineHeight:1.4}}>
+            return <div style={{position:'absolute',top:4,left:4,background:'var(--bg-surface)',padding:'6px 10px',borderRadius:4,fontSize:'0.65rem',color:'var(--warning)',zIndex:5,lineHeight:1.4}}>
               <b>{shown}/{multiView.scripts.length} scripts</b> | 🟢 {lineageEdges} lineage &nbsp; 🔵 {inputEdges} shared
-              {filterTables && <span style={{color:'#2ECC71'}}> | 🔍 filtered</span>}<br/>
-              <span style={{color:'#888',fontSize:'0.55rem'}}>Click a circle to open &nbsp;|&nbsp; 🟢=output→input &nbsp; 🔵=shared source</span>
+              {filterTables && <span style={{color:'var(--success)'}}> | 🔍 filtered</span>}<br/>
+              <span style={{color:'var(--ink-400)',fontSize:'0.55rem'}}>Click a circle to open &nbsp;|&nbsp; 🟢=output→input &nbsp; 🔵=shared source</span>
             </div>;
           })()}
           {!sel&&!loading&&!multiView&&<div className="welcome"><h2>GPS SQL Data Flow Visualizer</h2><p>Upload SQL to see variables as an interactive graph.</p><p>Use <b>Multi</b> to compare scripts sharing variables.</p></div>}
           {loading&&<div className="loading-overlay">{prog.s||'Loading...'}</div>}
           <div ref={ctR} className="graph-container" style={{opacity:(sel||multiView||ioGraph)&&!loading?1:0,pointerEvents:(sel||multiView||ioGraph)&&!loading?'auto':'none'}}/>
-          {ioGraph && <div style={{position:'absolute',top:4,left:4,background:'#16213e',padding:'8px 12px',borderRadius:4,fontSize:'0.7rem',color:'#2ECC71',zIndex:5,maxWidth:300}}><b>IO View</b> — {ioGraph.input_count} inputs, {ioGraph.output_count} outputs, {ioGraph.path_count} paths{csvContent && <pre style={{margin:'4px 0 0',fontSize:'0.6rem',color:'#aaa',maxHeight:120,overflow:'auto',whiteSpace:'pre'}}>{csvContent}</pre>}</div>}
+          {ioGraph && <div style={{position:'absolute',top:4,left:4,background:'var(--bg-surface)',padding:'8px 12px',borderRadius:4,fontSize:'0.7rem',color:'var(--success)',zIndex:5,maxWidth:300}}><b>IO View</b> — {ioGraph.input_count} inputs, {ioGraph.output_count} outputs, {ioGraph.path_count} paths{csvContent && <pre style={{margin:'4px 0 0',fontSize:'0.6rem',color:'var(--ink-600)',maxHeight:120,overflow:'auto',whiteSpace:'pre'}}>{csvContent}</pre>}</div>}
         </main>
         {D('📋 PanelCheck: showInfo='+!!showInfo+' panel='+!!panel+' multiDetail='+!!multiDetail+' multiView='+!!multiView+' ioGraph='+!!ioGraph+' sel='+!!sel),(showInfo||panel||multiDetail||multiView)&&<aside className="detail-panel">
           <div className="detail-header">
             <h3>{multiDetail ? multiDetail.script_name : panel ? panel.title : ioGraph ? '📊 IO Graph' : multiView ? '📊 Multi-Script Overview' : 'Overview'}</h3>
             <div style={{display:'flex',gap:4}}>
-              {multiDetail && <button onClick={()=>{setMultiDetail(null);setPanel(null)}} style={{background:'#F39C12',color:'#000',border:'none',borderRadius:3,padding:'2px 8px',cursor:'pointer',fontSize:'0.7rem',fontWeight:600}}>✕</button>}
+              {multiDetail && <button onClick={()=>{setMultiDetail(null);setPanel(null)}} style={{background:'var(--warning)',color:'var(--on-warning)',border:'none',borderRadius:3,padding:'2px 8px',cursor:'pointer',fontSize:'0.7rem',fontWeight:600}}>✕</button>}
               {!multiDetail && <button onClick={()=>{setPanel(null);setShowInfo(false)}} className="close-btn">✕</button>}
             </div>
           </div>
@@ -605,8 +605,8 @@ export default function App() {
                 <Row k="Inputs" v={ioGraph.input_count||0}/>
                 <Row k="Outputs" v={ioGraph.output_count||0}/>
                 <Row k="Paths" v={ioGraph.path_count||0}/>
-                {(ioGraph.nodes||[]).length===0 && <div style={{fontSize:'0.8rem',color:'#F39C12',marginTop:8}}>⚠️ No matching data flow found for this filter.</div>}
-                {csvContent && <div className="detail-section"><div className="ds-title">Filter CSV</div><pre style={{fontSize:'0.65rem',color:'#aaa',maxHeight:150,overflow:'auto',whiteSpace:'pre',background:'#0a0a1a',padding:6,borderRadius:3}}>{csvContent}</pre></div>}
+                {(ioGraph.nodes||[]).length===0 && <div style={{fontSize:'0.8rem',color:'var(--warning)',marginTop:8}}>⚠️ No matching data flow found for this filter.</div>}
+                {csvContent && <div className="detail-section"><div className="ds-title">Filter CSV</div><pre style={{fontSize:'0.65rem',color:'var(--ink-600)',maxHeight:150,overflow:'auto',whiteSpace:'pre',background:'var(--bg-app)',padding:6,borderRadius:3}}>{csvContent}</pre></div>}
               </div>
             </div>}
             {/* Multi-script detail */}
@@ -616,9 +616,9 @@ export default function App() {
             {/* Single-script overview */}
             {!ioGraph && !panel&&!multiDetail&&sel&&<div className="detail-scroll">
               <div className="detail-section"><div className="ds-title">Script</div><Row k="Name" v={sel.script_name}/><Row k="Variables" v={gd?.total_variables+' variables'}/><Row k="Edges" v={gd?.total_dependencies+' edges'}/></div>
-              <div className="detail-section"><div className="ds-title">How to Explore</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Click any <b>node</b> to see its variable details.<br/>Click any <b>edge</b> to see the data flow between variables.<br/>Use the <b>search</b> and <b>filter</b> to find specific variables.</div></div>
+              <div className="detail-section"><div className="ds-title">How to Explore</div><div style={{fontSize:'0.8rem',color:'var(--ink-600)',lineHeight:1.6}}>Click any <b>node</b> to see its variable details.<br/>Click any <b>edge</b> to see the data flow between variables.<br/>Use the <b>search</b> and <b>filter</b> to find specific variables.</div></div>
             </div>}
-            {!ioGraph && !panel&&!multiDetail&&!sel&&!multiView&&<div className="detail-scroll"><div className="detail-section"><div className="ds-title">Welcome</div><div style={{fontSize:'0.8rem',color:'#aaa',lineHeight:1.6}}>Upload a SQL script to begin.<br/>The graph and details will appear here.</div></div></div>}
+            {!ioGraph && !panel&&!multiDetail&&!sel&&!multiView&&<div className="detail-scroll"><div className="detail-section"><div className="ds-title">Welcome</div><div style={{fontSize:'0.8rem',color:'var(--ink-600)',lineHeight:1.6}}>Upload a SQL script to begin.<br/>The graph and details will appear here.</div></div></div>}
             {panel&&(panel.type==='node'?<NodePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>:panel.type==='io_path'?<IOPathPanel p={panel}/>:panel.type==='script_meta'?<ScriptSummary sc={panel.script} multiView={multiView}/>:panel.type==='meta_edge'?<MetaEdgePanel p={panel} scripts={multiView?.scripts||[]}/>:<EdgePanel p={panel} vi={viR.current} lm={lmR.current} sql={sqlR.current} snip={snipR.current}/>)}
           </div>
         </aside>}
@@ -658,8 +658,8 @@ function NodePanel({p,vi,lm,sql,snip}) {
       {n.sql_expression&&<div className="detail-section"><div className="ds-title">SQL Expression</div><pre className="sql-expr">{n.sql_expression}</pre></div>}
       {srcLines&&<div className="detail-section"><div className="ds-title">Source Lines {ls[0]}–{ls[1]}</div><pre className="sql-expr">{srcLines}</pre></div>}
       {(n.source_tables||[]).length>0&&<div className="detail-section"><div className="ds-title">Source Tables</div><div className="tag-list">{(n.source_tables||[]).map((t,i)=><span key={i} className="tag">{t}</span>)}</div></div>}
-      {upstream.length>0&&<div className="detail-section"><div className="ds-title">Depends On ({upstream.length})</div>{upstream.map((e,i)=><div key={i} className="dep-row"><span className="dep-arrow" style={{color:EC[e.rel]||'#555'}}>↑</span><span style={{color:C[vi[e.sid]?.variable_type]||'#ccc'}}>{vi[e.sid]?.label||e.sid}</span><span className="dep-rel">[{e.rel}]</span></div>)}</div>}
-      {downstream.length>0&&<div className="detail-section"><div className="ds-title">Used By ({downstream.length})</div>{downstream.map((e,i)=><div key={i} className="dep-row"><span className="dep-arrow" style={{color:EC[e.rel]||'#555'}}>↓</span><span style={{color:C[vi[e.tid]?.variable_type]||'#ccc'}}>{vi[e.tid]?.label||e.tid}</span><span className="dep-rel">[{e.rel}]</span></div>)}</div>}
+      {upstream.length>0&&<div className="detail-section"><div className="ds-title">Depends On ({upstream.length})</div>{upstream.map((e,i)=><div key={i} className="dep-row"><span className="dep-arrow" style={{color:EC[e.rel]||'var(--ink-400)'}}>↑</span><span style={{color:C[vi[e.sid]?.variable_type]||'var(--ink-600)'}}>{vi[e.sid]?.label||e.sid}</span><span className="dep-rel">[{e.rel}]</span></div>)}</div>}
+      {downstream.length>0&&<div className="detail-section"><div className="ds-title">Used By ({downstream.length})</div>{downstream.map((e,i)=><div key={i} className="dep-row"><span className="dep-arrow" style={{color:EC[e.rel]||'var(--ink-400)'}}>↓</span><span style={{color:C[vi[e.tid]?.variable_type]||'var(--ink-600)'}}>{vi[e.tid]?.label||e.tid}</span><span className="dep-rel">[{e.rel}]</span></div>)}</div>}
       {!n.sql_expression&&!upstream.length&&!downstream.length&&<div className="ds-empty">No additional data available for this node.</div>}
       {snip?.node_snippets?.[p.id]&&<div className="detail-section"><div className="ds-title">Resolved SQL</div><pre className="sql-expr" style={{maxHeight:200}}>{snip.node_snippets[p.id]}</pre></div>}
     </div>
@@ -679,10 +679,10 @@ function EdgePanel({p,vi,lm,sql,snip}) {
       <div className="detail-section"><div className="ds-title">Connection</div>
         <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0'}}>
           <span className="type-badge" style={{background:C[s.variable_type]||'#999'}}>{s.label||p.sid}</span>
-          <span style={{fontSize:'1.2rem',color:EC[e.relationship]||'#555'}}>→</span>
+          <span style={{fontSize:'1.2rem',color:EC[e.relationship]||'var(--ink-400)'}}>→</span>
           <span className="type-badge" style={{background:C[t.variable_type]||'#999'}}>{t.label||p.tid}</span>
         </div>
-        <Row k="Relationship"><span style={{color:EC[e.relationship]||'#888',fontWeight:600}}>{e.relationship}</span></Row>
+        <Row k="Relationship"><span style={{color:EC[e.relationship]||'var(--ink-400)',fontWeight:600}}>{e.relationship}</span></Row>
         {e.operation&&<Row k="Operation" v={e.operation}/>}
         {e.sql_context&&<Row k="Context" v={e.sql_context} small/>}
       </div>
@@ -690,13 +690,13 @@ function EdgePanel({p,vi,lm,sql,snip}) {
         <Row k="Type"><span className="type-badge" style={{background:C[s.variable_type]||'#999'}}>{s.variable_type}</span></Row>
         <Row k="Lines" v={sl[0]?`${sl[0]}–${sl[1]}`:'N/A'}/>
         {s.sql_expression&&<pre className="sql-expr">{s.sql_expression}</pre>}
-        {srcSQL&&<pre className="sql-expr" style={{borderLeft:`3px solid ${EC[e.relationship]||'#555'}`}}>{srcSQL}</pre>}
+        {srcSQL&&<pre className="sql-expr" style={{borderLeft:`3px solid ${EC[e.relationship]||'var(--ink-400)'}`}}>{srcSQL}</pre>}
       </div>
       <div className="detail-section"><div className="ds-title">Target — {t.label||p.tid}</div>
         <Row k="Type"><span className="type-badge" style={{background:C[t.variable_type]||'#999'}}>{t.variable_type}</span></Row>
         <Row k="Lines" v={tl[0]?`${tl[0]}–${tl[1]}`:'N/A'}/>
         {t.sql_expression&&<pre className="sql-expr">{t.sql_expression}</pre>}
-        {tgtSQL&&<pre className="sql-expr" style={{borderLeft:`3px solid ${EC[e.relationship]||'#555'}`}}>{tgtSQL}</pre>}
+        {tgtSQL&&<pre className="sql-expr" style={{borderLeft:`3px solid ${EC[e.relationship]||'var(--ink-400)'}`}}>{tgtSQL}</pre>}
       </div>
       {ctxLines.length>0&&<div className="detail-section"><div className="ds-title">Connecting SQL (lines {sl[0]}–{tl[1]})</div><pre className="sql-expr">{ctxLines.join('\n')}</pre></div>}
       {snip?.edge_snippets?.[`${p.sid}->${p.tid}`]&&<div className="detail-section"><div className="ds-title">Resolved SQL Segment</div><pre className="sql-expr">{snip.edge_snippets[`${p.sid}->${p.tid}`]}</pre></div>}
@@ -717,17 +717,17 @@ function IOPathPanel({p}) {
       <div className="detail-section"><div className="ds-title">Path Nodes ({pi.nodes.length})</div>
         {pi.nodes.map((n,i) => (
           <div key={i} style={{padding:'3px 0',fontSize:'0.75rem',display:'flex',alignItems:'center',gap:4}}>
-            <span style={{color:'#888',width:20}}>{i+1}.</span>
-            <span style={{color:'#ccc'}}>{n.name}</span>
-            {n.table && <span style={{color:'#666',fontSize:'0.65rem'}}>({n.table})</span>}
+            <span style={{color:'var(--ink-400)',width:20}}>{i+1}.</span>
+            <span style={{color:'var(--ink-600)'}}>{n.name}</span>
+            {n.table && <span style={{color:'var(--ink-400)',fontSize:'0.65rem'}}>({n.table})</span>}
             <span className="type-badge" style={{background:'#555',fontSize:'0.6rem',padding:'1px 4px'}}>{n.type}</span>
           </div>
         ))}
       </div>
       {pi.edges.length>0 && <div className="detail-section"><div className="ds-title">Path Edges ({pi.edges.length})</div>
         {pi.edges.map((e,i) => (
-          <div key={i} className="dep-item" style={{padding:4,background:'#0a1a2e',borderRadius:4,marginBottom:3}}>
-            <span style={{color:'#888',fontSize:'0.65rem'}}>{e.relationship}</span>
+          <div key={i} className="dep-item" style={{padding:4,background:'var(--bg-surface)',borderRadius:4,marginBottom:3}}>
+            <span style={{color:'var(--ink-400)',fontSize:'0.65rem'}}>{e.relationship}</span>
           </div>
         ))}
       </div>}
@@ -751,7 +751,7 @@ function LegendIcon({type}) {
 
 function Row({k,v,small,children}) {
   if (!v && !children) return null;
-  return <div className="var-field"><span className="field-label">{k}</span>{children||<span className="field-value" style={small?{fontSize:'0.7rem',color:'#888'}:{}}>{v}</span>}</div>;
+  return <div className="var-field"><span className="field-label">{k}</span>{children||<span className="field-value" style={small?{fontSize:'0.7rem',color:'var(--ink-400)'}:{}}>{v}</span>}</div>;
 }
 
 // ── Script Summary (shown in panel when script circle is tapped) ───────────
@@ -768,19 +768,19 @@ function MultiOverview({mv, ft, ftCsv, ftName}) {
       <Row k="Scripts" v={shown+'/'+total+(ft?' filtered':'')}/>
       <Row k="Data lineage" v={lineage+' edges'}/>
       <Row k="Shared inputs" v={shared+' edges'}/>
-      {ft && <Row k="Filter"><span style={{color:'#2ECC71'}}>{ftNames.join(', ')||ftName||'active'}</span></Row>}
+      {ft && <Row k="Filter"><span style={{color:'var(--success)'}}>{ftNames.join(', ')||ftName||'active'}</span></Row>}
     </div>
     {mv?.scripts?.map(s=>{
       const match = !ft || ft.some(id=>s.script_id===id);
       if (ft && !match) return null;
       return <div key={s.script_id} className="detail-section">
-        <div className="ds-title" style={{color:'#F39C12'}}>{s.script_name}</div>
+        <div className="ds-title" style={{color:'var(--warning)'}}>{s.script_name}</div>
         <Row k="Vars" v={s.total_variables+'v '+s.total_dependencies+'e'}/>
-        <Row k="📥 In"><span style={{color:'#4A90D9',fontSize:'0.7rem'}}>{(s.input_tables||[]).join(', ')||'(none)'}</span></Row>
-        <Row k="📤 Out"><span style={{color:'#2ECC71',fontSize:'0.7rem'}}>{(s.output_tables||[]).join(', ')||'(none)'}</span></Row>
+        <Row k="📥 In"><span style={{color:'var(--accent)',fontSize:'0.7rem'}}>{(s.input_tables||[]).join(', ')||'(none)'}</span></Row>
+        <Row k="📤 Out"><span style={{color:'var(--success)',fontSize:'0.7rem'}}>{(s.output_tables||[]).join(', ')||'(none)'}</span></Row>
       </div>;
     })}
-    <div className="detail-section" style={{fontSize:'0.65rem',color:'#666',textAlign:'center'}}>
+    <div className="detail-section" style={{fontSize:'0.65rem',color:'var(--ink-400)',textAlign:'center'}}>
       Click a script node for detail &nbsp;|&nbsp; Double-click to open
     </div>
   </div>;
@@ -802,22 +802,22 @@ function ScriptSummary({sc, multiView, onDrill}) {
           const alsoOut = allScripts.filter(s=>s.script_id!==sc.script_id&&(s.output_tables||[]).includes(t));
           return <div key={i} style={{marginBottom:6}}>
             <span className="tag" style={{background:'#4A90D9',marginRight:4}}>{t}</span>
-            {alsoOut.length>0 && <span style={{fontSize:'0.65rem',color:'#2ECC71'}}>← {alsoOut.map(s=>s.script_name).join(', ')}</span>}
-            {alsoIn.length>0 && <span style={{fontSize:'0.65rem',color:'#888',marginLeft:4}}>also in: {alsoIn.map(s=>s.script_name).join(', ')}</span>}
+            {alsoOut.length>0 && <span style={{fontSize:'0.65rem',color:'var(--success)'}}>← {alsoOut.map(s=>s.script_name).join(', ')}</span>}
+            {alsoIn.length>0 && <span style={{fontSize:'0.65rem',color:'var(--ink-400)',marginLeft:4}}>also in: {alsoIn.map(s=>s.script_name).join(', ')}</span>}
           </div>;
-        }) : <div style={{fontSize:'0.75rem',color:'#888'}}>(none)</div>}
+        }) : <div style={{fontSize:'0.75rem',color:'var(--ink-400)'}}>(none)</div>}
       </div>
       <div className="detail-section">
         <div className="ds-title">📤 Output Tables ({sc.output_tables?.length||0})</div>
         {sc.output_tables?.length ? sc.output_tables.map((t,i)=>{
           const consumers = allScripts.filter(s=>s.script_id!==sc.script_id&&(s.input_tables||[]).includes(t));
           return <div key={i} style={{marginBottom:4}}>
-            <span className="tag" style={{background:'#2ECC71',color:'#000',marginRight:4}}>{t}</span>
-            {consumers.length>0 && <span style={{fontSize:'0.65rem',color:'#4A90D9'}}>→ {consumers.map(s=>s.script_name).join(', ')}</span>}
+            <span className="tag" style={{background:'var(--success)',color:'var(--on-success)',marginRight:4}}>{t}</span>
+            {consumers.length>0 && <span style={{fontSize:'0.65rem',color:'var(--accent)'}}>→ {consumers.map(s=>s.script_name).join(', ')}</span>}
           </div>;
-        }) : <div style={{fontSize:'0.75rem',color:'#888'}}>(read-only)</div>}
+        }) : <div style={{fontSize:'0.75rem',color:'var(--ink-400)'}}>(read-only)</div>}
       </div>
-      <div className="detail-section" style={{fontSize:'0.65rem',color:'#666',textAlign:'center'}}>
+      <div className="detail-section" style={{fontSize:'0.65rem',color:'var(--ink-400)',textAlign:'center'}}>
         Double-click to open full graph
       </div>
     </div>
@@ -841,7 +841,7 @@ function MetaEdgePanel({p, scripts}) {
         <span className="type-badge" style={{background:e.edge_type==='data_lineage'?'#2ECC71':e.edge_type==='shared_input'?'#3498DB':'#7F8C8D',color:'#000',fontSize:'0.8rem'}}>
           {e.edge_type==='data_lineage'?'📤→📥 Data Lineage':e.edge_type==='shared_input'?'📥 Shared Input':'🔗 Shared Variable'}
         </span>
-        <div style={{fontSize:'0.75rem',color:'#aaa',marginTop:4}}>{descs[e.edge_type]||''}</div>
+        <div style={{fontSize:'0.75rem',color:'var(--ink-600)',marginTop:4}}>{descs[e.edge_type]||''}</div>
       </div>
       {e.label && <div className="detail-section">
         <div className="ds-title">Table / Variable</div>
@@ -849,8 +849,8 @@ function MetaEdgePanel({p, scripts}) {
       </div>}
       <div className="detail-section">
         <div className="ds-title">Scripts</div>
-        <Row k="Source">{srcScript ? <span style={{color:'#F39C12'}}>{srcScript.script_name}</span> : e.source}</Row>
-        <Row k="Target">{tgtScript ? <span style={{color:'#F39C12'}}>{tgtScript.script_name}</span> : e.target}</Row>
+        <Row k="Source">{srcScript ? <span style={{color:'var(--warning)'}}>{srcScript.script_name}</span> : e.source}</Row>
+        <Row k="Target">{tgtScript ? <span style={{color:'var(--warning)'}}>{tgtScript.script_name}</span> : e.target}</Row>
       </div>
     </div>
   );

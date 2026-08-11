@@ -4,6 +4,7 @@ In production, the built frontend (backend/app/static/) is served directly
 by the FastAPI app — no Node.js needed at runtime.
 """
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -23,15 +24,66 @@ def _read_version() -> str:
         return "0.0.0"
 
 
+def purge_workspace_caches(root: Path | None = None) -> int:
+    """J12-8 (user ruling 2026-08-11): restart-time cache purge.
+
+    Removes ALL rebuildable cache files under every workspace's cache dir —
+    graph_*.json, analysis_*.json, schemas_*.json. Runs on every process
+    start: the service does not promise to keep user data; caches exist
+    only to save rebuild time, and redoing the calculation after a restart
+    is accepted. No version marker, no gating; the existing
+    format_version/extractor_version stamps remain the read-time backstop
+    for anything that slips through between restarts.
+
+    Never touches views.json (user-created views are data, not cache) and
+    never user scripts/samples. Index caches (pair_index/table_index/
+    field_index/orphan_fields) are out of scope per the ruling.
+
+    Dev note: the dev compose runs uvicorn --reload (docker-compose.yml),
+    which re-runs the lifespan on every code save → purge on every dev
+    save. Accepted by the ruling (dev workspaces are small, caches rebuild
+    lazily on the next request); production (release.sh image) has no
+    reload, so it purges exactly on restarts/deploys as intended.
+
+    Returns the number of files removed.
+    """
+    from app.services.workspace_service import WORKSPACE_ROOT
+    if root is None:
+        root = WORKSPACE_ROOT
+    removed = 0
+    if not root.is_dir():
+        return 0
+    for ws_dir in root.iterdir():
+        cache_dir = ws_dir / "cache"
+        if not cache_dir.is_dir():
+            continue
+        for pattern in ("graph_*.json", "analysis_*.json", "schemas_*.json"):
+            for path in cache_dir.glob(pattern):
+                try:
+                    path.unlink()
+                    removed += 1
+                except OSError:
+                    logging.getLogger("uvicorn").warning(
+                        "Cache purge: could not remove %s", path)
+    return removed
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    # J12-8: every process start wipes the rebuildable workspace caches —
+    # stale/corrupt cache carriers were the only source of a served
+    # highlight_line: 0 (the hl=0 item); purging at restart removes that
+    # source entirely.
+    purged = purge_workspace_caches()
+    if purged:
+        logging.getLogger("uvicorn").info(
+            f"Purged {purged} workspace cache file(s) on startup")
     # Auto-cleanup old workspace data (>24h)
     from app.services.workspace_service import cleanup_old_workspaces
     removed = cleanup_old_workspaces(24)
     if removed:
-        import logging
         logging.getLogger("uvicorn").info(f"Cleaned up {removed} old workspace(s)")
     yield
 
