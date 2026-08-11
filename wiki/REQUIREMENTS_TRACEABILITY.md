@@ -197,8 +197,8 @@
 | Metric | Count |
 |--------|-------|
 | ✅ Implemented | 75 (all) |
-| 📝 Design, not implemented (2026-08-11) | 6 (R19.1–R19.4, R20.1–R20.2) |
-| Version | 3.3.105 |
+| 📝 Design, not implemented (2026-08-11) | 8 (R19.1–R19.6, R20.1–R20.2) |
+| Version | 3.3.145 |
 
 ## Key Fixes since V3.2.1
 | Fix | Description |
