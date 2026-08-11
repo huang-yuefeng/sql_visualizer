@@ -1,7 +1,8 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import useCytoscapeGraph from '../hooks/useCytoscapeGraph';
 import DataFlowLegend from './DataFlowLegend';
 import { FIT_PADDING } from '../config/layout';
+import { countStructureEdges } from '../utils/structureEdges';
 
 /**
  * L1/L2 Data Flow Graph — V4.1
@@ -11,16 +12,22 @@ export default function DataFlowGraph(props) {
   const {
     graphData, level, layoutMode, onOpenL2,
     onToggleFilter, l2Filtered, onEdgeClick, onToggleLayout, selectedEdgeId,
-    onCanvasTap
+    onCanvasTap, showStructureEdges, onToggleStructureEdges
   } = props;
 
   const containerRef = useRef(null);
   const [edgeHover, setEdgeHover] = useState(null);
 
+  // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — the
+  // client-side count feeds the toggle badge + the legend note; the
+  // edges stay in the graph model (payload untouched, nothing re-fetches).
+  const structureEdgeCount = useMemo(() => countStructureEdges(graphData), [graphData]);
+
   const { cyRef, fit, relayout } = useCytoscapeGraph(containerRef, graphData, {
     level: level || 'L1',
     layoutMode: layoutMode || 'snake',
     showRoleBadges: true,
+    showStructureEdges,
     onEdgeTap: (e) => {
       // R25/§8.8: the per-edge payload (highlight_line / flow_kind /
       // reason) is the single source of truth — pass the full edge data
@@ -137,8 +144,25 @@ export default function DataFlowGraph(props) {
             {l2Filtered ? 'Show All' : 'Show Relevant'}
           </button>
         )}
+        {/* R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow.
+            Display toggle (client-side only) — default OFF = hidden. The
+            edge count on the button reflects what is hidden/shown. */}
+        {level === 'L2' && (
+          <button className={`btn btn-sm ${showStructureEdges ? 'btn-active' : 'btn-outline'}`}
+            onClick={onToggleStructureEdges}
+            title={showStructureEdges
+              ? 'Structure edges visible — click to hide (SCHEMA containment is not data flow)'
+              : 'Structure edges hidden — click to show (SCHEMA containment is not data flow)'}>
+            Structure {showStructureEdges ? 'on' : 'off'}
+            {structureEdgeCount > 0 ? ` (${structureEdgeCount})` : ''}
+          </button>
+        )}
       </div>
-      <DataFlowLegend level={level === 'L2' ? 'L2' : 'L1'} />
+      <DataFlowLegend
+        level={level === 'L2' ? 'L2' : 'L1'}
+        structureEdgesHidden={level === 'L2' && !showStructureEdges}
+        structureEdgeCount={structureEdgeCount}
+      />
       <div className="graph-extra-controls">
         <button className="btn btn-outline btn-sm" onClick={() => fit(FIT_PADDING)} title="Fit (F)">🗺</button>
         <button className="btn btn-outline btn-sm" onClick={() => {

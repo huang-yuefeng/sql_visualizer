@@ -10,7 +10,8 @@ import LogPanel from './components/LogPanel';
 import ResolutionReport from './components/ResolutionReport';
 import * as api from './api/client';
 import pickAutoEdge from './utils/pickAutoEdge';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { countStructureEdges } from './utils/structureEdges';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useResizable } from './utils/useResizable';
 import './styles/resizable.css';
 
@@ -30,6 +31,10 @@ export default function DataFlowApp() {
   const [graphLevel, setGraphLevel] = useState('L1');
   // R11-3: imperative handle for the SQL panel's scrollToLine (code-evidence rows).
   const sqlPanelRef = useRef(null);
+  // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — the
+  // L2 graph hides them by default (toggle default OFF). Client-side
+  // display preference only: the payload is untouched, nothing re-fetches.
+  const [showStructureEdges, setShowStructureEdges] = useState(false);
   const [layoutMode, setLayoutMode] = useState('snake'); // 'snake' or 'pipeline'
   const [l1Graph, setL1Graph] = useState(null);
   const [l2Graph, setL2Graph] = useState(null);
@@ -411,6 +416,15 @@ export default function DataFlowApp() {
   const sqlHighlightLine = (selectedEdge && Number.isInteger(selectedEdge.highlight_line)
     && selectedEdge.highlight_line >= 1) ? selectedEdge.highlight_line : null;
 
+  // R19.4/R19.6a: the Show All edge count reflects the structure toggle —
+  // hidden SCHEMA edges are subtracted so the badge never claims edges
+  // that aren't rendered (counts come from the SAME response graph that
+  // is displayed — filtered vs full — so the arithmetic is exact).
+  const currentL2Graph = l2Filtered ? l2Graph : (l2FullGraph ? l2FullGraph.graph : null);
+  const structureEdgeCount = useMemo(() => countStructureEdges(currentL2Graph), [currentL2Graph]);
+  const visibleEdgeCount = Math.max(0,
+    (l2Result?.total_edges || 0) - (showStructureEdges ? 0 : structureEdgeCount));
+
   // ── Clear edge selection ────────────────────────────────────────────
   // ── Delete view ───────────────────────────────────────────────────
   const handleDeleteView = useCallback(async (viewId) => {
@@ -641,7 +655,7 @@ export default function DataFlowApp() {
             <div className="inline-l2-actions">
               {l2Result && (
                 <button className="btn btn-outline btn-sm" onClick={handleToggleFilter}>
-                  {l2Filtered ? `Show All (${l2Result.total_nodes || 0} nodes, ${l2Result.total_edges || 0} edges)` : 'Show Relevant Only'}
+                  {l2Filtered ? `Show All (${l2Result.total_nodes || 0} nodes, ${visibleEdgeCount} edges)` : 'Show Relevant Only'}
                 </button>
               )}
             </div>
@@ -675,6 +689,8 @@ export default function DataFlowApp() {
               onEdgeClick={handleEdgeClick}
               onCanvasTap={clearEdgeSelection}
               selectedEdgeId={selectedEdge?.id}
+              showStructureEdges={showStructureEdges}
+              onToggleStructureEdges={() => setShowStructureEdges(v => !v)}
             />
           </div>
           {/* Resize handle: L2 graph | SQL panel */}

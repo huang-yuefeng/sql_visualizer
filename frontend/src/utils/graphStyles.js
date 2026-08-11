@@ -691,6 +691,16 @@ export const CATEGORY_EDGE_STYLES = [
       'text-halign': 'center',
     },
   },
+  // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow —
+  // hidden by default via this class (toggled in useCytoscapeGraph; the
+  // edges STAY in the graph model — the payload is untouched, nothing
+  // re-fetches). Must come AFTER the category/type rules so the class
+  // wins the specificity tie (class and attribute selectors tie in
+  // cytoscape; the later rule wins).
+  {
+    selector: 'edge.structure-hidden',
+    style: { 'display': 'none' },
+  },
 ];
 
 // V3.3: Turn Edge Styles (snake wrapping)

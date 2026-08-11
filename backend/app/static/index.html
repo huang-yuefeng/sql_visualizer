@@ -6,12 +6,19 @@
     <title>GPS SQL Data Flow Visualizer</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; }
+      /* J12-14: theme-aware via the CSS tokens (app.css defines
+         :root light + [data-theme="dark"]); fallbacks = light default. */
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg-app, #ffffff); color: var(--ink-900, #0a0a0a); }
       #root { width: 100vw; height: 100vh; }
     </style>
+    <script>
+      // J12-14: set the stored theme (default light) before first paint
+      // so the page never flashes the wrong mode.
+      try { document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light'); } catch (e) {}
+    </script>
     <meta name="version" content="3.3.0">
-    <script type="module" crossorigin src="/assets/index-B47LPy-u.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DzLlKr0J.css">
+    <script type="module" crossorigin src="/assets/index-D9AXnedm.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BTGn0Ao4.css">
   </head>
   <body>
     <div id="root"></div>

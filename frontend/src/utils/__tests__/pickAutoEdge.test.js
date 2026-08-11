@@ -74,4 +74,31 @@ describe('pickAutoEdge — R11-1 auto-selection on L2 load', () => {
     };
     expect(pickAutoEdge(result).id).toBe('e1');
   });
+
+  // R19.4/R19.6a: SCHEMA structure/containment edges are hidden by
+  // default — auto-selection prefers visible (flow) edges so the reason
+  // panel never shows a hidden edge's reason.
+  it('skips SCHEMA structure edges whenever a flow edge exists', () => {
+    const result = {
+      graph: {
+        nodes: [{ data: { id: 't', is_target: true, line_start: 1, line_end: 100 } }],
+        edges: [
+          { data: { id: 's1', edge_type: 'SCHEMA', flow_kind: 'structure', highlight_line: 9 } },
+          { data: { id: 'f1', edge_type: 'TABLE_FLOW', flow_kind: 'chain', highlight_line: 50 } },
+        ],
+      },
+    };
+    // The SCHEMA edge is inside the seed zone too — the visible flow edge wins.
+    expect(pickAutoEdge(result).id).toBe('f1');
+  });
+
+  it('falls back to a SCHEMA edge when the graph has nothing else', () => {
+    const result = {
+      graph: {
+        nodes: [],
+        edges: [{ data: { id: 's1', edge_type: 'SCHEMA', flow_kind: 'structure' } }],
+      },
+    };
+    expect(pickAutoEdge(result).id).toBe('s1');
+  });
 });

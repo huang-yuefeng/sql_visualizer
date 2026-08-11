@@ -4,10 +4,12 @@ The old response-level `highlights` (field-line lists, computed by
 _single_line_ranges/_label_only_ranges over graph nodes) is GONE: every L2
 edge carries its own payload — `highlight_line` (exactly one script line
 >= 1, per the §8.3 anchor rules), `flow_kind` (§8.7 canonical kind set),
-`reason` (`<kind> — <flow string>` with the edge's own segment wrapped in
-‖…‖, §8.8.3) — computed at L2 build time from the edge's carried
-extraction-time info. Nothing is reconstructed at render (never-patch
-rule).
+`reason` (`<kind> (<path role>) — <flow string>` with the edge's own
+segment wrapped in ‖…‖, §8.8.3 + R20 — the flow string is the complete
+source→target path: upstream closure walk from the searched seed's field,
+the own segment, then the downstream continuation to a flow target) —
+computed at L2 build time from the edge's carried extraction-time info.
+Nothing is reconstructed at render (never-patch rule).
 
 The single strategy is `single_line`: one anchor line per edge. The
 registry + get_strategy() keep the strategy contract (unknown names fall
@@ -19,8 +21,11 @@ payload).
 Strategy callable contract: `strategy(edge: dict) -> payload` where
 `edge` is a FINAL L2 edge carrying the builder-attached extraction-time
 fields (`_src_line`/`_tgt_line`/`_src_label`/`_tgt_label`/`_op`/… and
-`_path_hops`, the closure-walk hop list ending with the edge's own
-segment). Returns {"highlight_line": int, "flow_kind": str, "reason": str}.
+`_path_hops`, the FULL source→target hop list — upstream closure walk
+from the searched seed's field, the edge's own segment, then the
+downstream continuation to a flow target — with `_own_seg_idx` marking
+the own segment's first hop; R20). Returns
+{"highlight_line": int, "flow_kind": str, "reason": str}.
 """
 
 # ── Field-like var classes ──────────────────────────────────────────────
@@ -122,29 +127,104 @@ def _anchor_line(e: dict, kind: str) -> int:
     return src_line                # rule 1 — field-flow appearance line
 
 
-def _build_reason(e: dict, kind: str) -> str:
-    """§8.8.3 — `<flow kind> — <flow string>`.
+def _path_role(e: dict) -> str:
+    """R20.2 — the edge's role in the scope of its source→target path.
 
-    The flow string is the closure walk from the searched seed's field to
-    this edge's target, rendered `{label}@L{line}` joined by ` → `, with
-    the edge's own segment (‖…‖-wrapped) as the final pair. The builder
-    pre-computed `_path_hops` (list of (label, line) ending with the edge's
-    own segment); leaf/SCHEMA/SUBSET edges carry just their own segment.
+    Derived from extraction-time info ONLY (the carried fields): the DML
+    attribution (`_dml_origin`/`_value_edge`), the raw operation (`_op`),
+    the raw endpoint variable types (`_src_vt`/`_tgt_vt`/`_src_is_vt`/
+    `_tgt_is_vt`), and the builder-attached final-endpoint flags
+    (`_src_output`/`_tgt_output` — the final endpoint is the synthetic
+    ⟐ output VT; the carried `_tgt_is_vt` reflects the RAW edge, whose
+    target may still be redirected onto the output later). SCHEMA/SUBSET
+    are exempt (R19.4 — structure/bridge keep the containment/own-segment
+    reason), and roles that would merely repeat the §8.7 kind (plain
+    `chain`/`read`) return "" — the reason keeps `<kind> — <flow string>`.
+    """
+    if e.get("_dml_origin"):
+        # The DML rewrite's two halves (§8.5): the value edge carries the
+        # searched field's VALUE column into the output; the dml_out edge
+        # is the write leg output → DML target.
+        return "write value" if e.get("_value_edge") else "write leg"
+    et = e.get("edge_type")
+    op = (e.get("_op") or "").upper()
+    if et == "REF":
+        if op == "READ":
+            # read into the ⟐ output / a subquery VT vs a plain holder
+            # read (whose role is the kind itself — no parenthetical).
+            return ("read into output"
+                    if (e.get("_tgt_is_vt") or e.get("_tgt_output")) else "")
+        return "value copy"
+    if et == "DML":
+        # defensive — the raw DML edge (no ⟐ output to route through)
+        return "write leg"
+    if et == "ALIAS":
+        return "alias hop"
+    if et in ("FILTER", "INDIRECT"):
+        return "filter step"
+    if et == "JOIN":
+        return "join step"
+    if et == "AGGREGATE":
+        return "aggregate step"
+    if et == "WINDOW":
+        return "window step"
+    if et in ("TRANSFORM", "COMPUTED"):
+        return "compute step"
+    if et in ("SET_OP", "SUBQUERY"):
+        return "combine step"
+    if et == "TABLE_FLOW":
+        svt = e.get("_src_vt")
+        tvt = e.get("_tgt_vt")
+        if svt == "cte" or tvt == "cte":
+            return "CTE chain"
+        if (e.get("_tgt_is_vt") or e.get("_tgt_output")) \
+                and not (e.get("_src_is_vt") or e.get("_src_output")):
+            return "read into output"
+        if e.get("_src_is_vt") or e.get("_src_output"):
+            return "VT chain"
+        return ""            # plain chain — the kind already says it
+    return ""
+
+
+def _build_reason(e: dict, kind: str) -> str:
+    """§8.8.3 + R20 — `<kind> (<path role>) — <flow string>`.
+
+    R20.1: the flow string is the COMPLETE source→target path — the
+    upstream closure walk from the searched seed's field, the edge's own
+    segment (‖…‖-wrapped), then the downstream continuation to a flow
+    target (a DML write target in the seed's closure). The builder
+    pre-computed `_path_hops` (list of (label, line)) with `_own_seg_idx`
+    marking the own segment's first hop; without `_own_seg_idx` (leaf /
+    pre-R20 carriers) the own segment is the final pair — the §8.8.3 form.
+
+    R20.2: the path-scope role (write leg / read into output / alias hop /
+    CTE chain …) rides after the kind, derived from the edge's carried
+    extraction-time info; SCHEMA/SUBSET and role-less edges keep the
+    plain `<kind> — <flow string>` form.
     """
     hops = e.get("_path_hops") or []
+    own_idx = e.get("_own_seg_idx")
+    if own_idx is None:
+        own_idx = len(hops) - 2 if len(hops) >= 2 else 0
     if len(hops) < 2:
         hops = [(e.get("_src_label") or "?", _safe_int(e.get("_src_line"))),
                 (e.get("_tgt_label") or "?", _safe_int(e.get("_tgt_line")))]
-    flow = ""
-    for i, (label, line) in enumerate(hops):
-        seg = f"{label}@L{line}"
-        if i == len(hops) - 2:
-            flow += f"‖{seg} → "
-        elif i == len(hops) - 1:
-            flow += f"{seg}‖"
-        else:
-            flow += seg + " → "
-    return f"{kind} — {flow}"
+        own_idx = 0
+    # Defensive clamp: the own segment must span two hops (a malformed
+    # carrier must never crash the payload builder).
+    if own_idx > len(hops) - 2:
+        own_idx = max(0, len(hops) - 2)
+    segs = [f"{label}@L{line}" for label, line in hops]
+    flow = f"‖{segs[own_idx]} → {segs[own_idx + 1]}‖"
+    if own_idx > 0:
+        flow = " → ".join(segs[:own_idx]) + " → " + flow
+    if own_idx + 2 < len(segs):
+        flow = flow + " → " + " → ".join(segs[own_idx + 2:])
+    head = kind
+    role = _path_role(e)
+    if role:
+        head = f"{kind} ({role})"
+    return f"{head} — {flow}"
 
 
 def _single_line_payload(e: dict) -> dict:

@@ -21,7 +21,8 @@ from app.services.graph_service import (
     CATEGORY_MAP,
 )
 from app.extractor.schema_inference import infer_table_schemas
-from app.extractor.lineage import filter_by_field_flow
+from app.extractor.lineage import (filter_by_field_flow, flow_source_id,
+                                   flow_targets, classify_flow_roles)
 from app.services.cache_keys import GRAPH_CACHE_PREFIX
 from app.services.highlight_strategies import get_strategy, FIELD_LIKE_TYPES
 
@@ -1184,26 +1185,20 @@ def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
 
 def _closure_walk(e: dict, entries: list, adjacency: dict,
                   reverse: dict) -> list:
-    """The §8.8.3 flow string's walk: from the closure entry (the searched
-    seed's field) to this edge's target, rendered as {label}@L{line} hops.
+    """R20 — the UPSTREAM half of the §8.8.3 flow string: the closure walk
+    from the searched seed's field (the closure entries) to this edge's
+    SOURCE, rendered as {label}@L{line} hops.
 
-    The walk is a shortest BFS over the FINAL L2 edges (directed first,
-    undirected as a fallback — the closure walk is connectivity-based);
-    the edge's own segment is appended as the final pair. Leaf edges
-    (unreachable from any entry) and SCHEMA/SUBSET edges (rules 6/7 —
-    structure/bridge display their own endpoints only) return just the
-    own segment [(src_label, src_line), (tgt_label, tgt_line)].
+    Shortest BFS over the FINAL L2 edges (directed first, undirected as a
+    fallback — the closure walk is connectivity-based); visited sets keep
+    the walk acyclic (self-loops can never loop it). SCHEMA/SUBSET edges
+    (rules 6/7 — structure/bridge display their own endpoints only) and
+    edges whose source IS a closure entry return [].
 
-    Returns a list of (label, line) hops ending with the edge's own
-    segment (the strategy wraps the final pair in ‖…‖).
+    Returns the upstream hop list; the caller assembles the full path:
+    upstream hops + the edge's own segment + the downstream continuation
+    (_downstream_walk), with `_own_seg_idx` marking the own segment.
     """
-    def _own_segment():
-        return [(e.get("_src_label") or "?", int(e.get("_src_line") or 0)),
-                (e.get("_tgt_label") or "?", int(e.get("_tgt_line") or 0))]
-
-    if e.get("edge_type") in ("SCHEMA", "SUBSET") or not entries:
-        return _own_segment()
-
     def _bfs(start_ids, out_adj):
         """Shortest path (list of edges) from any start_id to target."""
         target = e["source"]
@@ -1230,6 +1225,8 @@ def _closure_walk(e: dict, entries: list, adjacency: dict,
             node = parent
         return list(reversed(path))
 
+    if e.get("edge_type") in ("SCHEMA", "SUBSET") or not entries:
+        return []
     path = _bfs(entries, adjacency)
     if path is None:
         # Undirected fallback: traverse reverse edges as forward ones.
@@ -1238,19 +1235,109 @@ def _closure_walk(e: dict, entries: list, adjacency: dict,
             undirected.setdefault(node, []).extend(oes)
         path = _bfs(entries, undirected)
     if not path:
-        # No path (leaf), or the edge's source IS the closure entry — the
-        # full path from the entry to the edge's target is the edge itself.
-        return _own_segment()
+        # No path (leaf), or the edge's source IS the closure entry — no
+        # upstream hops; the own segment starts the path.
+        return []
 
     hops = []
     for pe in path:
         hops.append((pe.get("_src_label") or "?", int(pe.get("_src_line") or 0)))
     hops.append((path[-1].get("_tgt_label") or "?", int(path[-1].get("_tgt_line") or 0)))
-    # Append the edge's own segment, deduping the shared junction hop.
+    # Dedup the shared junction hop (the walk's final hop is this edge's
+    # source — same node, same carried label).
     if hops and hops[-1] == (e.get("_src_label"), int(e.get("_src_line") or 0)):
         hops = hops[:-1]
-    hops.append((e.get("_src_label") or "?", int(e.get("_src_line") or 0)))
-    hops.append((e.get("_tgt_label") or "?", int(e.get("_tgt_line") or 0)))
+    return hops
+
+
+def _downstream_walk(e: dict, flow_targets: set, adjacency: dict,
+                     tgt_key_to_target: dict | None = None,
+                     write_line_by_target: dict | None = None) -> list:
+    """R20 — the DOWNSTREAM continuation of the §8.8.3 flow string: the
+    FORWARD walk from this edge's final target to a flow target (a DML
+    write target in the seed's closure — the target of a `_dml_origin`
+    write leg), rendered as {label}@L{line} hops.
+
+    Directed-only (the continuation must be genuine forward flow — never
+    the undirected fallback); flow edges only (SCHEMA/SUBSET are exempt
+    from the path property, R19.4 — the passed adjacency is pre-filtered
+    and this walk itself refuses structure/bridge edges); visited sets
+    keep the walk acyclic (hard rule 5). The BFS runs to exhaustion over
+    the reachable component and collects EVERY reachable flow target
+    (self-contained at build time — hard rule 4), then the continuation
+    target is chosen by preference, in order: (1) the edge's own write
+    leg — the flow target whose carried (label, line) matches this
+    edge's carried target (the value edge `data_dt@L213 → rrcdm@L211`
+    continues to rrcdm, never sup); (2) the bracket rule — the flow
+    target with the LARGEST write line <= this edge's carried target
+    line (the write lines are the statements' start lines, so the rule
+    attributes the edge to its own statement's write target: CTE-
+    interior edges of the sup statement continue to sup@160, INSERT
+    edges to rrcdm@211), with the smallest write line as fallback (the
+    first statement's own write is suppressed from the flow targets —
+    its edges continue to the next write downstream). Returns [] when
+    the edge's target IS a flow target (the own segment already ends the
+    path), when no flow target is reachable, or when there are no flow
+    targets — the caller falls back to the pre-R20 reason form (never
+    crash, never empty).
+    """
+    if e.get("edge_type") in ("SCHEMA", "SUBSET") or not flow_targets:
+        return []
+    start = e.get("target")
+    if not start or start in flow_targets:
+        return []
+    # BFS to exhaustion — every reachable flow target + the tree parent
+    # map (the visited set keeps the walk acyclic).
+    reachable = {}
+    prev = {start: None}
+    seen = {start}
+    queue = [start]
+    while queue:
+        node = queue.pop(0)
+        if node in flow_targets:
+            reachable[node] = True
+        for oe in adjacency.get(node, []):
+            nxt = oe.get("target")
+            if nxt not in seen:
+                seen.add(nxt)
+                prev[nxt] = (node, oe)
+                queue.append(nxt)
+    if not reachable:
+        return []
+    chosen = None
+    # (1) the edge's own write leg — carried (target label, line) match.
+    own_key = (e.get("_tgt_label"), int(e.get("_tgt_line") or 0))
+    if tgt_key_to_target and own_key in tgt_key_to_target:
+        candidate = tgt_key_to_target[own_key]
+        if candidate in reachable:
+            chosen = candidate
+    # (2) the bracket rule — the flow target whose write line is the
+    # largest write line <= the carried target line; none (the carried
+    # line precedes every write line — the first statement, whose own
+    # write is suppressed) -> the smallest write line.
+    if chosen is None:
+        wl = write_line_by_target or {}
+        mine = int(e.get("_tgt_line") or 0)
+        candidates = [t for t in reachable if wl.get(t) <= mine]
+        if candidates:
+            chosen = max(candidates, key=lambda t: wl.get(t, 0))
+        else:
+            chosen = min(reachable, key=lambda t: wl.get(t, 0))
+    path = []
+    node = chosen
+    while prev.get(node) is not None:
+        parent, oe = prev[node]
+        path.append(oe)
+        node = parent
+    path.reverse()
+    hops = [(pe.get("_src_label") or "?", int(pe.get("_src_line") or 0))
+            for pe in path]
+    hops.append((path[-1].get("_tgt_label") or "?",
+                 int(path[-1].get("_tgt_line") or 0)))
+    # Dedup the shared junction hop (the walk's first hop is this edge's
+    # target — same node, same carried label).
+    if hops and hops[0] == (e.get("_tgt_label"), int(e.get("_tgt_line") or 0)):
+        hops = hops[1:]
     return hops
 
 
@@ -1438,14 +1525,29 @@ def _build_mechanism(edge: dict, src_node: dict, dst_node: dict,
 def _attach_flow_payload(new_edges: list, field_nodes: list,
                          table_nodes: dict | None = None,
                          node_index: list | None = None) -> None:
-    """W5/R25 — the per-edge payload phase: every final L2 edge carries
-    highlight_line / flow_kind / reason (highlight_strategies.single_line),
-    computed from the edge's carried extraction-time info + the closure
-    walk from the searched seed's field. Never reconstructed at render.
+    """W5/R25 + R20 — the per-edge payload phase: every final L2 edge
+    carries highlight_line / flow_kind / reason (highlight_strategies.
+    single_line), computed from the edge's carried extraction-time info +
+    the FULL source→target path: the upstream closure walk from the
+    searched seed's field (_closure_walk), the edge's own segment, then
+    the downstream continuation to a flow target (_downstream_walk).
+    Never reconstructed at render.
 
-    Mutates new_edges in place (attaches _path_hops, highlight_line,
-    flow_kind, reason and, when the R11-3 evidence exists, mech; the
-    _-prefixed carriers are stripped at assembly).
+    R20 (build-time path, hard rule 4 — self-contained): flow targets are
+    the DML write targets in the seed's closure — the targets of the
+    `_dml_origin` write legs present in the FINAL edge list (the value
+    edges' output-VT targets are not write targets). The downstream walk
+    is a directed BFS over the final FLOW edges (SCHEMA/SUBSET excluded
+    — R19.4 exemption) from the edge's target to the reachable flow
+    targets, chosen by the own-write-leg match or the bracket rule
+    (write lines are the statements' start lines — the edge is
+    attributed to its own statement's write target); edges without a
+    walkable path keep the pre-R20 reason form.
+
+    Mutates new_edges in place (attaches _path_hops/_own_seg_idx/
+    _tgt_output/_src_output, highlight_line, flow_kind, reason and, when
+    the R11-3 evidence exists, mech; the _-prefixed carriers are stripped
+    at assembly).
     """
     if not new_edges:
         return
@@ -1456,8 +1558,44 @@ def _attach_flow_payload(new_edges: list, field_nodes: list,
     for e in new_edges:
         adjacency.setdefault(e["source"], []).append(e)
         reverse.setdefault(e["target"], []).append(e)
+    # R20: flow targets (DML write targets in the seed's closure) + the
+    # synthetic ⟐ output VTs (the write/read legs' junction; the carried
+    # _tgt_is_vt reflects the RAW edge, whose target may still be
+    # redirected onto the output — the final-endpoint flags fix that).
+    flow_targets = {e["target"] for e in new_edges
+                    if e.get("_dml_origin") and not e.get("_value_edge")}
+    flow_adjacency = {}
+    # (carried target label, line) -> flow-target node, from the write
+    # legs — lets an edge continue to ITS OWN write leg (the value edge
+    # data_dt@L213 → rrcdm@L211 matches the rrcdm write leg, never sup).
+    tgt_key_to_target = {}
+    # flow-target node -> its write line (the DML statement's start line)
+    # — the bracket rule in _downstream_walk attributes an edge to its
+    # own statement's write target.
+    write_line_by_target = {}
     for e in new_edges:
-        e["_path_hops"] = _closure_walk(e, entries, adjacency, reverse)
+        if e.get("edge_type") in ("SCHEMA", "SUBSET"):
+            continue
+        flow_adjacency.setdefault(e["source"], []).append(e)
+        if e.get("_dml_origin") and not e.get("_value_edge"):
+            tgt_key_to_target[(e.get("_tgt_label"),
+                               int(e.get("_tgt_line") or 0))] = e["target"]
+            write_line_by_target[e["target"]] = int(e.get("_tgt_line") or 0)
+    output_ids = set()
+    for tn in (table_nodes or {}).values():
+        if (tn.get("table_name") or "").startswith("⟐ output"):
+            output_ids.add(tn.get("id"))
+    for e in new_edges:
+        e["_tgt_output"] = e.get("target") in output_ids
+        e["_src_output"] = e.get("source") in output_ids
+        up = _closure_walk(e, entries, adjacency, reverse)
+        own = [(e.get("_src_label") or "?", int(e.get("_src_line") or 0)),
+               (e.get("_tgt_label") or "?", int(e.get("_tgt_line") or 0))]
+        down = _downstream_walk(e, flow_targets, flow_adjacency,
+                                tgt_key_to_target=tgt_key_to_target,
+                                write_line_by_target=write_line_by_target)
+        e["_path_hops"] = up + own + down
+        e["_own_seg_idx"] = len(up)
         payload = strategy(e)
         e["highlight_line"] = payload["highlight_line"]
         e["flow_kind"] = payload["flow_kind"]
@@ -1496,6 +1634,41 @@ def _attach_flow_payload(new_edges: list, field_nodes: list,
             mech = _build_mechanism(e, src_node, dst_node, node_index)
             if mech:
                 e["mech"] = mech
+
+
+def _attach_flow_roles(new_edges: list, table_nodes: dict, id_map: dict,
+                       full_graph: dict, table: str, field: str,
+                       relevance_filter: bool) -> None:
+    """Phase 10.5 (CW4, Wave 2): R19.1/R19.2/R19.5 flow roles on table
+    nodes — additive node-data fields from extraction-time helpers
+    (never at render). Filtered view: exactly one flow source (the
+    searched seed's table keeper) + every DML write target in the seed's
+    flow closure. Full view (no search): net-flow role per PHYSICAL
+    table compound (CTE/derived/VT compounds stay neutral).
+
+    The table_nodes dict is keyed by RAW node id; the compound keepers'
+    L2 ids (tn["id"], the l2_tbl_* ids the edges and the response use)
+    are the values — look up through them, never the dict keys.
+    """
+    l2_tn = {tn["id"]: tn for tn in table_nodes.values()}
+    if relevance_filter:
+        src_raw = flow_source_id(full_graph, table)
+        src_keeper = id_map.get(src_raw) if src_raw else None
+        if src_keeper in l2_tn:
+            l2_tn[src_keeper]["flow_source"] = True
+        for rid in flow_targets(full_graph, table, field):
+            kid = id_map.get(rid)
+            if kid in l2_tn:
+                l2_tn[kid]["flow_target"] = True
+    else:
+        # R19.5 full-view roles are per PHYSICAL table compound only —
+        # CTE/derived/VT compounds (subq, p1@29, ⟐output …) stay neutral.
+        phys = {tn["id"] for tn in l2_tn.values()
+                if tn.get("variable_type") == "table"}
+        roles = classify_flow_roles(new_edges, phys)
+        for nid, role in roles.items():
+            if nid in l2_tn:
+                l2_tn[nid]["flow_role"] = role
 
 
 def _assemble_output(table_nodes: dict, field_nodes: list, new_edges: list,
@@ -1611,6 +1784,8 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
 
     _sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map, dml_pairs,
                                full_graph, nodes)
+    _attach_flow_roles(new_edges, table_nodes, id_map, full_graph, table,
+                       field, relevance_filter)
     result = _assemble_output(table_nodes, field_nodes, new_edges, nodes, sql_text,
                               script_name, f"{table}.{field}")
     # Issue a: search_matched contract (frontend + BE2). False ONLY when a

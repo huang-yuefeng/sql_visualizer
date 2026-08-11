@@ -8,6 +8,13 @@ import React from 'react';
  * current edge's own ‖…‖-wrapped segment emphasized (bold + edge color)
  * so the user sees exactly where the clicked edge sits in the flow.
  *
+ * R20 (path-scoped reasons): the flow string is the FULL path from the
+ * source to the target — `source@L… → … → ‖own segment‖ → … → target@L…`
+ * — with exactly ONE ‖…‖-wrapped segment (the own segment) somewhere in
+ * the middle. The split-based rendering below handles any position: the
+ * own segment is emphasized, everything else stays plain. Fallback
+ * reasons without a ‖…‖ segment render as one plain string, as before.
+ *
  * The reason string is built at L2 build time from the closure walk and
  * rendered as-is — never reconstructed at render.
  *
@@ -46,6 +53,11 @@ export default function EdgeReasonPanel({ edge, sqlText, onJumpToLine, height })
   const mech = edge.mech;
 
   // Split on ‖…‖-wrapped segments (the clicked edge's own flow segment).
+  // Works for the legacy short flow string AND the R20 path-scoped form
+  // (`source@L… → … → ‖own‖ → … → target@L…`): exactly one ‖…‖ segment
+  // in the middle gets emphasized, the rest renders plain. A fallback
+  // reason without any ‖…‖ (or with an unmatched ‖) stays one plain
+  // string; multiple segments (backend anomaly) each get emphasized.
   const segments = reason.split(/(‖[^‖]*‖)/g).filter(Boolean);
 
   // ── R11-3 code evidence ──
