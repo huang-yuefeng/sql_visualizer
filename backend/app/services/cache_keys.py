@@ -69,5 +69,11 @@ statement n's own ⟐ output). Caches written by earlier batches carry
 pre-merge compound sets and statement-1-trunked edges — they must not
 feed the new assembly path; mass invalidate, rebuild lazily.
 extractor_version is NOT bumped (the extractor is unchanged).
+[2026-08-11 integration] extractor_version IS bumped to
+"2026-08-11.1" for the same release's extractor changes (E5
+statement-anchored fallback for line<1 virtual nodes + LATERAL
+VIEW / VALUES / UNNEST alias registration) — the analysis caches
+written before that code change carry pre-fallback extraction and
+would otherwise pass the load-time version check.
 """
 GRAPH_CACHE_PREFIX = "graph_3_2_23"
