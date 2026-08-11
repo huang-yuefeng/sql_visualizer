@@ -165,7 +165,11 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
     sql = _step3_sql()
     expected = _step3_l2_graph(ws_id)
 
-    full_graph, table_schemas = l2b._load_or_build_graph(ws_id, STEP3, sql)
+    # J12-10 stage 2: phase 1 returns the physical model; the node-construction
+    # phases consume it (keeper selection + sync inputs) — pass it through in
+    # orchestrator order exactly like _build_l2_graph.
+    full_graph, table_schemas, physical_model = l2b._load_or_build_graph(
+        ws_id, STEP3, sql)
     graph_data = l2b._apply_relevance_filter(full_graph, TARGET_TABLE,
                                              TARGET_FIELD, table_schemas,
                                              relevance_filter=True)
@@ -174,7 +178,8 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
     target_node_ids, direct_ids = l2b._compute_target_and_direct_ids(
         nodes, edges, TARGET_TABLE, TARGET_FIELD)
     table_nodes, field_nodes, other_nodes, alias_map = l2b._classify_compound_nodes(
-        nodes, full_graph, STEP3, target_node_ids, direct_ids, TARGET_TABLE)
+        nodes, full_graph, STEP3, target_node_ids, direct_ids, TARGET_TABLE,
+        physical_model)
     # R11-3: the orchestrator carries compound-node lines right after
     # classification (line_start/line_end/defined_in from keeper vars).
     l2b._carry_node_lines(table_nodes, full_graph)
@@ -196,7 +201,7 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
                              node_index=[n.get("data", n)
                                          for n in full_graph.get("nodes", [])])
     l2b._sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map,
-                                   dml_pairs, full_graph, nodes)
+                                   dml_pairs, nodes, physical_model)
     # Wave 2 (R19.1/R19.2): flow-role phase — the orchestrator calls it
     # after the sync phase, before assembly (mirror for identity).
     l2b._attach_flow_roles(new_edges, table_nodes, id_map, full_graph,
@@ -516,7 +521,7 @@ def test_d1_line_map_recomputed_from_stale_cache(loan_info_ws):
     cached["line_map"] = {}  # simulate a pre-D1 stale cache
     graph_cache.write_text(json.dumps(cached))
 
-    full_graph, _ = l2b._load_or_build_graph(loan_info_ws, LOAN_INFO_NAME, sql)
+    full_graph, _, _ = l2b._load_or_build_graph(loan_info_ws, LOAN_INFO_NAME, sql)
     lm = full_graph.get("line_map", {})
     assert lm, "line_map must be recomputed on cache read"
     starts = {v[0] for v in lm.values() if v[0] >= 1}

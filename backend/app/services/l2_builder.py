@@ -21,6 +21,7 @@ from app.services.graph_service import (
     CATEGORY_MAP,
 )
 from app.extractor.schema_inference import infer_table_schemas
+from app.extractor.physical_model import build_physical_model
 from app.extractor.lineage import (filter_by_field_flow, flow_source_id,
                                    flow_targets, classify_flow_roles)
 from app.services.cache_keys import GRAPH_CACHE_PREFIX
@@ -49,8 +50,18 @@ def _recompute_line_map(var_likes: list, sql_text: str) -> dict:
 def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
     """Phase 1 (CW4): read the graph cache, or run full analysis and write caches.
 
-    Returns (full_graph, table_schemas). On a cache hit, table_schemas is
+    Returns (full_graph, table_schemas, physical_model). On a cache hit, table_schemas is
     loaded from the schemas cache (Bug 25); on a build it is inferred.
+
+    J12-10 (stage 2): the physical model (extractor/physical_model.py) is
+    built ONCE per build, at build time, from the extraction data the graph
+    is derived from — never at render (never-patch rule). On the build path
+    the model is built from the analysis result (the alias_of extraction
+    truth); on a graph-cache hit it is rebuilt from the analysis cache when
+    present and current (same extraction truth), else from the cached graph
+    data (the graph cache does not serialize alias_of, so the model falls
+    back to the label-keyed alias rule there — the stage-2 gate pins the
+    decisions byte-identical on both forms).
     """
     from app.services.logger import stage_graph
 
@@ -63,6 +74,7 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
     # middle token is the cache CONTRACT version, bump it only on format change.
     graph_cache_path = cache_dir / f"{GRAPH_CACHE_PREFIX}_{cache_key}.json"
     schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
+    analysis_cache_path = cache_dir / f"analysis_{cache_key}.json"
     full_graph = None
     _table_schemas = None
     if graph_cache_path.exists():
@@ -97,12 +109,29 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
             # Bug 25: load cached table_schemas on cache hit
             if schemas_cache_path.exists():
                 _table_schemas = json.loads(schemas_cache_path.read_text())
+            # J12-10 stage 2: the physical model rides the same build —
+            # prefer the analysis cache (alias_of truth) when present and
+            # current; a bare graph-cache hit (snapshot-harness workspaces
+            # are never indexed) rebuilds it from the cached graph data.
+            physical_model = None
+            if analysis_cache_path.exists():
+                try:
+                    cached_analysis = json.loads(analysis_cache_path.read_text())
+                except (OSError, ValueError):
+                    cached_analysis = None
+                if (cached_analysis is not None
+                        and cached_analysis.get("extractor_version")
+                        == EXTRACTOR_VERSION):
+                    physical_model = build_physical_model(
+                        cached_analysis, script_name=script_name)
+            if physical_model is None:
+                physical_model = build_physical_model(
+                    full_graph, script_name=script_name)
     if full_graph is None:
         # C-2(b): prefer the analysis cache when present — build the graph
         # from the cached analysis dict (same key contract as
         # folder_index_service: md5(script_name + sql_text)[:12]) instead of
         # re-running the full extraction pipeline.
-        analysis_cache_path = cache_dir / f"analysis_{cache_key}.json"
         result = None
         if analysis_cache_path.exists():
             result = json.loads(analysis_cache_path.read_text())
@@ -140,7 +169,10 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
             result.get("variables", []), result.get("dependencies", []))
         # Bug 25: cache table_schemas alongside graph
         schemas_cache_path.write_text(json.dumps(_table_schemas, default=str))
-    return full_graph, _table_schemas
+        # J12-10 stage 2: the model is built once, from the analysis the
+        # graph was built from (the extraction truth — alias_of rides it).
+        physical_model = build_physical_model(result, script_name=script_name)
+    return full_graph, _table_schemas, physical_model
 
 
 def _apply_relevance_filter(full_graph: dict, table: str, field: str,
@@ -229,9 +261,20 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
 
 def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                              target_node_ids: set, direct_ids: set,
-                             search_table: str | None = None) -> tuple:
+                             search_table: str | None = None,
+                             physical_model=None) -> tuple:
     """Phase 3b (CW4): build the compound node structure — table parents and
     field children (plus alias_map read from the graph cache).
+
+    J12-10 (stage 2): the keeper selection for physical tables is the
+    physical model's entity lookup (`entity_of_id`) instead of a raw
+    label-keyed scan — the model's entity key for a non-alias table/view
+    occurrence IS its raw name (kind "physical"), so the first occurrence
+    per entity stays the keeper and later same-entity occurrences merge
+    byte-identically (their nids are recorded for _build_id_map). Alias
+    detection, alias dedup and field parenting keep the display semantics
+    (the model's occurrence sets are entity-wide — alias instances and
+    merge_targets stay separate compounds at stage 2).
 
     B3/P1: `search_table` names the searched base table (None for phase
     calls that don't carry a search context). is_target seed fields that
@@ -244,7 +287,11 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
     # ── Build compound node structure ──
     # Group field-level nodes by their parent table/CTE
     table_nodes = {}       # id -> table compound node
-    table_nodes_by_label = {}  # table label -> keeper compound node (issue a)
+    # J12-10 stage 2: the physical model's occurrence index (var id → entity
+    # key) IS the keeper identity for physical tables — one PhysicalTable
+    # per name by construction, keeper = first occurrence (issue a, R22).
+    entity_by_var_id = physical_model.entity_of_id
+    keeper_by_entity = {}  # model entity key -> keeper compound node
     # C3: (parent_table_id, label, line_start) -> keeper alias compound
     # node — alias identity is (label, line): a different code line = a
     # DIFFERENT alias node; the same (label, line) = the same node.
@@ -321,7 +368,17 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             # every edge to it). Aliases/subqueries/CTEs keep per-context
             # semantics (Bug 28 visible aliases; distinct subquery scopes).
             if vt in ("table", "view") and not is_alias:
-                keeper = table_nodes_by_label.get(label)
+                # J12-10 stage 2: the keeper lookup is the physical model's
+                # entity key — for a non-alias table/view occurrence the
+                # model key IS the raw name (kind "physical"), so this is
+                # the old label-keyed merge by construction (one keeper per
+                # physical table, first occurrence wins; merged-away nids
+                # recorded for _build_id_map). The defensive fallback keeps
+                # the label key if the model ever misses an occurrence.
+                ekey = entity_by_var_id.get(nid)
+                if ekey is None:
+                    ekey = (label, "physical")
+                keeper = keeper_by_entity.get(ekey)
                 if keeper is not None:
                     keeper["merged_original_ids"].append(nid)
                     continue
@@ -395,7 +452,7 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             }
             if vt in ("table", "view") and not is_alias:
                 table_nodes[nid]["merged_original_ids"] = []
-                table_nodes_by_label[label] = table_nodes[nid]
+                keeper_by_entity[ekey] = table_nodes[nid]
             elif is_alias:
                 table_nodes[nid]["merged_original_ids"] = []
                 alias_nodes_by_key[alias_key] = table_nodes[nid]
@@ -1068,12 +1125,18 @@ def _dedup_edges(new_edges: list) -> list:
 
 def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
                                alias_map: dict, dml_pairs: set,
-                               full_graph: dict, nodes: list) -> None:
+                               nodes: list, physical_model=None) -> None:
     """Phase 10 (CW4): Bug 28 alias field sync + DML phantom fields.
 
     Per formal definition: when alias exists, its field set MUST mirror
     the original table. And DML edges show fields flowing into targets.
-    Mutates field_nodes in place.
+    Mutates field_nodes in place. The proxy synthesis stays (stage 3
+    removes it); only its INPUTS are model-sourced at stage 2: the
+    per-instance canonical check below is the model's alias resolution
+    (alias_of extraction truth) instead of a source_tables scan of the
+    full graph (the label-keyed scan collapses per label — the exact
+    approximation the physical model banishes; verified byte-identical
+    on the stage-2 snapshot scripts).
 
     Bug-31 (fixed): the SCHEMA-edge output-table-field pass that used to
     live here is gone. It bulk-copied virtual-table fields from the FULL
@@ -1096,16 +1159,13 @@ def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
     # C7 (v3.3.140): stmt_idx per original node — the sync exists-checks
     # below are (parent, label, stmt_idx) aware so cross-statement
     # same-name fields collapse/expand symmetrically with the field dedup
-    # key (parent, label, stmt_idx) from _classify_compound_nodes.
+    # key (parent, label, stmt_idx) from _classify_compound_nodes. The
+    # stmt_idx per occurrence stays a node scan (the model does not carry
+    # per-occurrence stmt_idx — stage-3 gap, see the migration map §1.3).
     orig_stmt = {}
     for n in nodes:
         nd = n.get("data", n)
         orig_stmt[nd.get("id", "")] = nd.get("stmt_idx")
-    full_orig_src = {}
-    for n in full_graph.get("nodes", []):
-        nd = n.get("data", n)
-        _st = nd.get("source_tables", [])
-        full_orig_src[nd.get("id", "")] = _st[0] if _st else ""
     new_to_orig = {tn["id"]: tid for tid, tn in table_nodes.items()}
     for label, canonical in alias_map.items():
         if label == canonical:
@@ -1130,11 +1190,15 @@ def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
         # aliases bdm_acc_loan_info_sup), and syncing a foreign scope's
         # fields onto the canonical would be wrong. When no instance
         # qualifies, keep the previous behavior (skip).
+        # J12-10 stage 2: the canonical check is the model's per-instance
+        # alias resolution (alias_of truth) — the full-graph source_tables
+        # scan it replaces is per-occurrence data the model owns as
+        # alias views; None (non-alias) never equals the canonical.
         alias_tbl_id = None
         for aid in alias_tbl_ids:
             if aid not in field_by_parent:
                 continue
-            if full_orig_src.get(new_to_orig.get(aid, "")) == canonical:
+            if physical_model.resolve_alias(new_to_orig.get(aid, "")) == canonical:
                 alias_tbl_id = aid
                 break
         if alias_tbl_id is None:
@@ -1741,8 +1805,11 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     The old sql_range/sql_ranges and response-level highlights are gone.
     """
     # CW4: orchestration only — every stage is a named phase function above,
-    # with shared state passed explicitly between phases.
-    full_graph, table_schemas = _load_or_build_graph(ws_id, script_name, sql_text)
+    # with shared state passed explicitly between phases. J12-10 (stage 2):
+    # phase 1 also builds the physical model once per build; the
+    # node-construction phases consume it (keeper selection + sync inputs).
+    full_graph, table_schemas, physical_model = _load_or_build_graph(
+        ws_id, script_name, sql_text)
     graph_data = _apply_relevance_filter(full_graph, table, field, table_schemas,
                                          relevance_filter)
     nodes = graph_data.get("nodes", [])
@@ -1750,7 +1817,8 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
 
     target_node_ids, direct_ids = _compute_target_and_direct_ids(nodes, edges, table, field)
     table_nodes, field_nodes, other_nodes, alias_map = _classify_compound_nodes(
-        nodes, full_graph, script_name, target_node_ids, direct_ids, table)
+        nodes, full_graph, script_name, target_node_ids, direct_ids, table,
+        physical_model)
     # R11-3: compound nodes gain line_start/line_end/defined_in from their
     # keeper vars (def-site anchors; line_end = next stmt anchor − 1).
     _carry_node_lines(table_nodes, full_graph)
@@ -1783,7 +1851,7 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                                      for n in full_graph.get("nodes", [])])
 
     _sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map, dml_pairs,
-                               full_graph, nodes)
+                               nodes, physical_model)
     _attach_flow_roles(new_edges, table_nodes, id_map, full_graph, table,
                        field, relevance_filter)
     result = _assemble_output(table_nodes, field_nodes, new_edges, nodes, sql_text,
