@@ -163,17 +163,34 @@ ALIAS   bdm_acc_loan_info_sup@160 → p2@199               (self-join alias)
 SUBSET  data_dt@160           → bdm_acc_loan_info_sup@160 (partition write)
 ```
 
-MISSING (4, all verified absent by probe — the graph defects):
+MISSING (4, all verified absent by probe — the graph defects). **ALL
+FOUR RESOLVED — items 1/2 by Phase 4d READ (v3.3.14x, rows 13/14 below);
+items 3/4 by Issues 2/3 (landed 2026-08-11 — the §8.5 re-pin round):
+item 3's DML write leg is emitted at extraction (1c-extra2) and the
+served L2 realizes it as TABLE_FLOW stamped flow_kind='write'
+(rule-3 rewrite, id *_dml_out — row 15); item 4's cross-statement
+write→read link is emitted at extraction (1c-cross WRITE_READ,
+sup@160 → sup@223) and the served L2 realizes it as incidence on the
+R22-merged sup node (write leg @160 + statement-2 read edges @223 on
+the same node — asserted by the R19.3 no-bypass checks, row 20 of
+§8.5 removed accordingly):**
 
 ```
 1. p1.data_dt@43  → bdm_acc_loan_info@29   read edge field→its alias table
    (only SCHEMA p1@29→p1.data_dt@43 exists — ownership, wrong direction)
+   ✅ RESOLVED (v3.3.14x, Phase 4d READ — fixture row 13)
 2. p1.data_dt@158 → bdm_acc_loan_info@84   read edge field→its alias table
+   ✅ RESOLVED (v3.3.14x, Phase 4d READ — fixture row 14)
 3. ⟐ output@0(TOP0) → bdm_acc_loan_info_sup@160  table-level DML edge
    (stmt1's output VT is a dead end; DML exists only as 15 field-level edges
    + direct TABLE_FLOW p1@198/p2@199/p3@204 → sup)
+   ✅ RESOLVED (2026-08-11, Issue 2 — 1c-extra2 emits the DML output→sup
+   write leg; served as TABLE_FLOW flow_kind='write' @160, fixture row 15)
 4. bdm_acc_loan_info_sup@160 → bdm_acc_loan_info_sup@223  cross-statement
    write→read link (stmt2 read has ZERO incident edges — stmt2 is an island)
+   ✅ RESOLVED (2026-08-11, Issue 3 — 1c-cross WRITE_READ sup@160→sup@223
+   at raw level; the L2 realizes it as incidence on the R22-merged sup
+   node, R19.3 no-bypass asserted)
 ```
 
 Cross-scope SCHEMA contamination (the I2 finding, visible in the same probe):
@@ -286,15 +303,18 @@ companion at 225, §8.5.
    [18, 43, 158, 160] — current engine output (deterministic, verified twice)
 4. downstream closure: 14 nodes / 10 edges (layer-by-layer walk)
 5. THE GROUND TRUTH: 10 semantic nodes, 2 sinks (bdm_acc_loan_info_sup,
-   rrcdm_job_log_exec_par), 14 edges = 10 present + 4 MISSING (documented in 4.3)
+   rrcdm_job_log_exec_par), 14 edges = 10 present + 4 MISSING (documented in 4.3;
+   ALL FOUR RESOLVED 2026-08-11 — items 1/2 by Phase 4d READ, items 3/4 by
+   Issues 2/3; see §4.3 annotations and the §8.5 re-pin round)
 6. highlights [[18,18],[43,43],[158,158],[160,160]] (byte-exact)
 7. propagated field: sup.data_dt lines [160, 202, 213, 225] (W2: L225 now
    has a var — pair 18, REF/read anchor 223, §8.5)
 ```
 
 Status: analysis only — no source changes. The 4 missing edge types (4.3)
-remain the known defect future work must address; Defect 5 (5.2) is RESOLVED
-(W2, 2026-08-10).
+are ALL RESOLVED (items 1/2 by Phase 4d READ, v3.3.14x; items 3/4 by
+Issues 2/3, landed 2026-08-11 — §4.3 annotations); Defect 5 (5.2) is
+RESOLVED (W2, 2026-08-10).
 
 ---
 
@@ -720,10 +740,16 @@ extras + 6 SCHEMA/residual-bridge entries + 4 chain-completeness entries
 (§8.3) + the 5 probe-verified X extras (Round 12, 2026-08-10), each with
 its exact anchor line and closure seed. **Every edge of each closure is
 listed — the table is the closure bijection (nodes/edges/highlights),
-not a subset** (C1–C4 complete the closures — bdm 24 edges + sup 14
-edges after the 2026-08-10 repair; probe-pinned 2026-08-10).
+not a subset** (C1–C4 complete the closures — bdm 27 edges + sup 14
+edges after the 2026-08-11 re-pin round, probe-verified).
 
-**The complete table — 38 entries, this sample, post-promotion state:**
+**The complete table — 41 entries, this sample, post-promotion state
+(rows 20/21 added 2026-08-11 — the J12-13 requirement rows; the
+2026-08-11 re-pin round — Issues 2/3 landed, probe-verified:
+row 15 back to TABLE_FLOW (flow_kind='write'), row 20 struck — no
+served-L2 projection (R22 merge; the write→read link is asserted by the
+R19.3 incidence checks), row 21 live, rows 22/23 added (bdm mirrors of
+B1/X5), B1 re-pinned SUBSET → TABLE_FLOW, X3 re-instated):**
 
 | # | Pair | Kind | Real type (post-promotion) | Seed | Anchor |
 |---|------|------|---------------------------|------|--------|
@@ -741,11 +767,15 @@ edges after the 2026-08-10 repair; probe-pinned 2026-08-10).
 | 12 | `data_dt@160 → ⟐output@0` (re-pinned 2026-08-10) | field flow | TABLE_FLOW (value-write) | bdm+sup | 160 |
 | 13 | `p1.data_dt@43 → bdm@29` | READ | read (promoted) | bdm | 29 |
 | 14 | `p1.data_dt@158 → bdm@84` | READ | read (promoted) | bdm | 84 |
-| 15 | `⟐output@0 → sup@160` | synthetic | TABLE_FLOW/INSERT | bdm+sup | 160 |
+| 15 | `⟐output@0 → sup@160` — J12-13 requirement row (2026-08-11, §4.3 MISSING item 3) — RE-PINNED 2026-08-11: the engine's rule-3 rewrite emits DML as TABLE_FLOW stamped flow_kind='write' (id *_dml_out) — the row is TABLE_FLOW again; the write-leg semantics are pinned by the R19.3 flow_kind='write' assertion, never the row type | synthetic | TABLE_FLOW (write leg — flow_kind='write', the DML semantics asserted) | bdm+sup | 160 |
 | 16 | `⟐output@0 → rrcdm@211` (re-pinned 2026-08-10) | write | TABLE_FLOW/WRITE_READ (DML-routed) | bdm+sup | 211 |
 | 17 | `data_dt@213 → ⟐output@0` (re-pinned 2026-08-10) | value | TABLE_FLOW (value-write) | sup | 213 |
 | 18 | `data_dt@225 → sup@223` | READ | read (post-fix, promoted) | sup | 223 |
 | 19 | `p2.data_dt@202 → p2@199` | READ | read (REF, promoted) | sup | 199 |
+| 20 | ~~`sup@160 → sup@223`~~ — J12-13 requirement row (2026-08-11, §4.3 MISSING item 4) — REMOVED from B by the 2026-08-11 re-pin: R22's label-keyed node merge unifies sup@160/sup@223 into ONE served node — no served-L2 projection exists. The requirement lives on as the R19.3 no-bypass assertion (write leg @160 + statement-2 read edges @223 incident on the same node), never as a row | chain | DML (cross-statement write→read link — asserted via R19.3 incidence) | bdm+sup | 223 |
+| 21 | `data_dt@225 → sup@223` — J12-13 requirement row — mirrors pair 18 for the bdm seed, derived from §4.3 items 3/4 + LAYER-2 line 134 — LIVE since 2026-08-11 (Issue 3 landed): served as data_dt → sup REF@223 | READ | read (REF, promoted) | bdm | 223 |
+| 22 | `sup@223 → ⟐output@0` — 2026-08-11 re-pin row — the statement-2 read leg into output2, bdm mirror of B1 (probe-verified: served sup → output TABLE_FLOW@223) — the stmt-2 chain the bdm closure was missing (Issue-3 gap) | chain | TABLE_FLOW (the reader's read leg) | bdm | 223 |
+| 23 | `data_dt@225 → sup@225` — 2026-08-11 re-pin row — the statement-2 WHERE read, bdm mirror of X5 (probe-verified: served data_dt → sup FILTER@225) | field flow | FILTER (promoted) | bdm | 225 |
 | E1 | `bdm@29 → p1@29` | ALIAS hop | ALIAS | bdm | 29 |
 | E2 | `bdm@84 → p1@84` | ALIAS hop | ALIAS | bdm | 84 |
 | E3 | `sup@160 → p2@199` | ALIAS hop | ALIAS | sup | 160 |
@@ -755,14 +785,14 @@ edges after the 2026-08-10 repair; probe-pinned 2026-08-10).
 | S3 | `p1@84 → p1.data_dt@43` | structure | SCHEMA/TABLE_COLUMN | bdm | 43 |
 | S4 | `p1@84 → p1.data_dt@43` | structure | SCHEMA/TABLE_COLUMN | bdm | 43 |
 | S5 | `p2@199 → p2.data_dt@202` | structure | SCHEMA/TABLE_COLUMN | sup | 202 |
-| B1 | `sup@223 → ⟐output@0` (re-pinned 2026-08-10) | bridge | SUBSET (residual) | sup | 223 |
+| B1 | `sup@223 → ⟐output@0` (re-pinned 2026-08-10; RE-PINNED AGAIN 2026-08-11 — SUBSET → TABLE_FLOW: Issue 3's bare-FROM read recognition superseded the residual bridge; the served edge is sup → output TABLE_FLOW@223 — the reader's read leg into output2) | chain | TABLE_FLOW | sup | 223 |
 | C1 | `rollover@9 → ⟐output@0` | chain | TABLE_FLOW/REFERENCE | bdm | 9 |
 | C2 | `loan_final@64 → ⟐output@0` | chain | TABLE_FLOW/REFERENCE | bdm | 64 |
 | C3 | `p2@199 → ⟐output@0` | chain | TABLE_FLOW/FROM | sup | 199 |
 | C4 | ~~`p2@199 → sup@160`~~ — merged into C3 (2026-08-10) | chain | TABLE_FLOW/INSERT | sup | 199 |
 | X1 | `data_dt@16 → bdm@16` | field flow | REF (promoted) | bdm | 16 |
 | X2 | `data_dt@160 → ⟐output@160` | field flow | REF (promoted) | bdm+sup | 160 |
-| X3 | ~~`⟐output@213 → data_dt@213`~~ — REMOVED (2026-08-10, Round 12 point 8) | structure | SCHEMA/TABLE_COLUMN | bdm+sup | 213 |
+| X3 | `⟐output@213 → data_dt@213` — RE-INSTATED 2026-08-11 (the 2026-08-10 removal claimed "no post-fix SCHEMA@213 edge" — that fixture finding is WRONG for the current engine: the v3.3.140 P1 MOVE→COPY seed copies on the TOP1 output VT recreate the Phase 4c membership; probe-verified: served output → data_dt SCHEMA@213 in BOTH seeds. Doc repaired with evidence, never the engine) | structure | SCHEMA/TABLE_COLUMN | bdm+sup | 213 |
 | X4 | `data_dt@213 → ⟐output@213` | value | TABLE_FLOW (value-write) | bdm | 213 |
 | X5 | `data_dt@225 → sup@225` | field flow | FILTER (promoted) | sup | 225 |
 
@@ -779,14 +809,17 @@ shared `p1.data_dt` field node (hl=43 in the bdm seed — the 158 instance
 survives only in the sup seed) (Sync 1). C1–C4: the closure's
 remaining chain edges into `⟐output@0` / from p2 (chain kind, rule 5 —
 source def line). Per-seed completeness (probe): bdm = pairs 1–16 +
-E1/E2 + S1/S3 + C1/C2 + X1/X2/X4 = **23 entries / 23 closure edges** after
-the 2026-08-10 repair (pair 10 merged into C2 — its direct pin would
-bypass the output VT; S2/S4 collapse into S1/S3 — one SCHEMA edge per p1
-alias, asserted once; row 11 removed — see Repair; X3 removed — point 8);
+E1/E2 + S1/S3 + C1/C2 + X1/X2/X3/X4 + rows 21/22/23 = **27 entries / 27
+closure edges** after the 2026-08-11 re-pin (pair 10 merged into C2 — its
+direct pin would bypass the output VT; S2/S4 collapse into S1/S3 — one
+SCHEMA edge per p1 alias, asserted once; row 11 removed — see Repair;
+row 20 struck — no served-L2 projection, R22 merge, asserted via the
+R19.3 incidence checks; X3 re-instated — see its row annotation);
 sup = pairs 12, 15,
-16, 17, 18(post-fix), 19 + E3/E4 + S5 + B1 + C3 + X2/X5 = **13
-entries = 13 closure edges** (row 11 removed — see Repair; C4 merged
-into C3, same bypass reason; pair 18 live since W2, 2026-08-10).
+16, 17, 18(post-fix), 19 + E3/E4 + S5 + B1 + C3 + X2/X3/X5 = **14
+entries = 14 closure edges** (row 11 removed — see Repair; C4 merged
+into C3, same bypass reason; pair 18 live since W2, 2026-08-10; B1
+re-pinned SUBSET → TABLE_FLOW and X3 re-instated — 2026-08-11).
 
 **Repair (2026-08-10, DML routing — evidence-backed doc repair, never
 engine work).** The label dump of the post-fix filtered L2 output showed
@@ -832,7 +865,9 @@ unchanged), X4
 sup pair-17 line in the bdm seed), X5 (`data_dt@225 → sup@225` FILTER —
 the FILTER companion to row 18, sup seed). Each X row was matched by the
 live matcher on the current engine before pinning, with no change to any
-existing row's match. The machine B set is 23 bdm + 13 sup = 36 entries.
+existing row's match. The machine B set is 23 bdm + 13 sup = 36 entries
+(the 2026-08-11 re-pin round moved it to **27 bdm + 14 sup = 41
+entries** — see the table annotations).
 
 Probe finding (2026-08-10): in the bdm seed the L43 and L158 `p1.data_dt`
 instances both resolve to the physical `bdm_acc_loan_info` node and merge
@@ -854,15 +889,18 @@ asserted present (W2 landed 2026-08-10): REF/read with the exact anchor
 223 (the FILTER companion at 225 is pinned as an extra); the test's
 PAIR18_KNOWN_GAP constant is flipped and the KNOWN-GAP branch removed.
 
-**Closure seeds (probe-pinned 2026-08-10): no single L2 search seed
-covers all 19 pairs.** The `bdm_acc_loan_info.data_dt` seed yields pairs
-1–16 + E1/E2 + S1/S3 + C1/C2 + X1/X2/X4 (16 nodes / 23 edges); the
+**Closure seeds (probe-pinned 2026-08-10, re-verified 2026-08-11): no
+single L2 search seed covers all 19 pairs.** The
+`bdm_acc_loan_info.data_dt` seed yields pairs
+1–16 + E1/E2 + S1/S3 + C1/C2 + X1/X2/X3/X4 + rows 21/22/23 (18 nodes /
+27 edges — the Issue-3 landing realized the stmt-2 chain in the bdm
+closure); the
 `bdm_acc_loan_info_sup.data_dt` seed yields pairs 12, 15, 16, 17, 19 +
-E3/E4 + S5 + B1 + C3 + X2/X5 (10 nodes / 13 edges; pair 18 live since
+E3/E4 + S5 + B1 + C3 + X2/X3/X5 (9 nodes / 14 edges; pair 18 live since
 W2 — the W2 read-edge expansion and VT creation lines grew the actual
 closures far beyond these canonical counts; the closure-bijection model
 is under review, see the benchmark-model note in the integration
-report). The 36-entry spec is the UNION over the two seeds; the Seed
+report). The 41-entry spec is the UNION over the two seeds; the Seed
 column states where each entry is asserted. The §7.2 closure spec (13
 nodes / 16 edge pairs / 2 sinks) is UNCHANGED — only the highlight layer
 is redefined.

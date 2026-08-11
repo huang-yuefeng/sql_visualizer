@@ -27,21 +27,6 @@ from app.services.highlight_strategies import get_strategy, FIELD_LIKE_TYPES
 
 # ── L2 helper functions ──────────────────────────────────────────────
 
-def _target_field_sc(sc: str, target_field: str) -> bool:
-    """Check if a source_column string matches the target field name.
-
-    Equivalent of the former dataflow_service.target_field_sc (H2): the
-    definition can't be imported from dataflow_service (circular import),
-    so it lives here, next to its only caller.
-
-    B2/CW9: exact field-part semantics — only the part after the last dot
-    counts, so a target field can never match the alias/table part of a
-    qualified column (the old word-boundary regex matched "item" inside
-    "item.i_brand", mis-attributing the table name as the field).
-    """
-    return sc.rsplit(".", 1)[-1] == target_field
-
-
 def _recompute_line_map(var_likes: list, sql_text: str) -> dict:
     """D1: recompute line_map from cached variable/node dicts.
 
@@ -179,37 +164,35 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
 
     Returns (target_node_ids, direct_ids).
     """
-    target_full = f"{table}.{field}"
-
     # Identify target node IDs (for is_target and direct/indirect)
     target_node_ids = set()
     for n in nodes:
         nd = n.get("data", n)
         name = nd.get("label", "")
         vt = nd.get("variable_type", "")
-        if vt in ("column", "cte_column", "expression", "aggregate",
-                   "window", "case", "transform", "literal"):
+        if vt in FIELD_LIKE_TYPES:
+            # J12-9 (2026-08-11 ruling): seed matching is ONE exact
+            # field-part predicate — `value.rsplit(".", 1)[-1] == field` on
+            # the label and on each source_column. "table.field" is itself a
+            # dotted label, so the former exact-full (name == target_full),
+            # exact-field (name == field) and suffix-after-dot label paths
+            # are all one rule; the `target_full in sc` substring path was
+            # dead (source_columns are bare field names — probe 2026-08-11)
+            # and _target_field_sc collapsed into the same suffix rule
+            # (helper retired). No substring matching anywhere (R4: short
+            # names must never match inside longer ones). Field-only AND
+            # alias-qualified labels (e.g. `p1.data_dt`) still match a
+            # search for `bdm_acc_loan_info.data_dt` — the alias-copy seed
+            # depends on it; narrowing to name == target_full would regress
+            # the Jaccard gate.
             # W-iteration (v3.3.147): "literal" included — the searched
             # field's literal VALUE appearance ('$(load_date)' AS
             # data_dt@213 → rrcdm, P17 §8.5) must be a target node so its
             # write-side DML edge survives at field level (value edge).
-            # Match: exact full name, exact field name, or suffix after "."
-            matched = False
-            if name == target_full or name == field:
-                matched = True
-            elif "." in name:
-                suffix = name.rsplit(".", 1)[-1]
-                if suffix == field:
-                    matched = True
-            if matched:
+            if name.rsplit(".", 1)[-1] == field:
                 target_node_ids.add(nd.get("id"))
-            # Also check source_columns (H2: _target_field_sc was previously
-            # undefined — NameError the moment source_columns went live)
-            src_cols = nd.get("source_columns", [])
-            for sc in src_cols:
-                if target_full in sc:
-                    target_node_ids.add(nd.get("id"))
-                elif _target_field_sc(sc, field):
+            for sc in nd.get("source_columns", []):
+                if sc.rsplit(".", 1)[-1] == field:
                     target_node_ids.add(nd.get("id"))
 
     # Compute upstream/downstream sets for direct/indirect classification

@@ -4254,6 +4254,79 @@ assertion per direction; `jaccard_canonical.py` — conventions note
 Test + doc only — zero engine risk; verify same pass/fail today
 (sup precision nodes 0.9 ≥ 0.9 floor) + full suite green.
 
+### J12-13 · Benchmark evaluation defect — the fixture is circular (root cause established 2026-08-11, user investigation)
+
+**Question answered**: "Why is there such a wrong fixture?" — the
+canonical fixture was compiled FROM THE ENGINE, never from the doc's
+requirement sections. Four compounding steps, each innocent alone,
+together circular:
+
+1. **The doc itself is engine-anchored.** Header
+   (tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_SUP.md:4-6): "All facts below
+   were verified by **running the live extraction** (v3.3.145,
+   2026-08-07) and by reading the SQL." The reference records what the
+   engine does; only §4.2 LAYER-2 (line 134: `sup ─► rrcdm (read L223 →
+   INSERT L211)`) and §4.3 MISSING (items 3/4) record the ideal.
+2. **The fixture was compiled from §8.5 — the engine-mirror table —
+   then "self-verified".** Docstring (test_jaccard_benchmark.py:6-9):
+   "compiled from … §8.4/§8.5 and **self-verified against the served
+   output** on 2026-08-10". §8.5 is the only machine-readable table and
+   was "**probe-pinned** 2026-08-10" — pinned BY probing the engine.
+   The requirement sections are prose marked "all verified absent by
+   probe — the graph defects" → rows the engine can't emit read as
+   "defects to fix later", never as expected answers. MISSING items 3/4
+   (output@0→sup DML edge; sup@160→sup@223 write→read link) never
+   became fixture rows.
+3. **Even the present rows encode the engine's shape, not the doc's
+   chain.** Rows 15/16 = the DML-routed form (`⟐output@0 → sup@160`,
+   `⟐output@0 → rrcdm@211`); the LAYER-2 chain `sup ─► rrcdm (read
+   L223)` has NO row; the write→read link has NO row; row 18's read
+   (`data_dt@225 → sup@223`) exists only for the sup seed because only
+   the sup closure contains both endpoints (the bdm closure excludes
+   `sup@223` — Issue-3 gap — mirrored into the fixture).
+4. **Round-12 convergence finished the job.** Every repair ("iterate
+   until matched == all rows", "repair the doc with evidence") resolved
+   each unmatched row toward the engine with engine-probe evidence
+   (rows 10/C4 merged, 12/16/17/B1 re-pinned to DML-routed form, row 11
+   removed, X1-X5 canonized). Convergence was real — against a
+   yardstick already bent to the thing it measures.
+
+**The circularity**: B ← compiled from §8.5 ← probe-pinned against the
+engine ← validates A (the engine). The gate compares the engine with
+itself; the "self-verified against the served output" step is the red
+flag, not the confirmation. The doc internally contradicts itself on
+exactly the middle segment — §4.2/§4.3 (chain exists, items 3/4
+missing) vs §8.5 ("the closure is complete — not a subset") — and the
+fixture compiler followed the doc's structure: requirements demoted to
+"MISSING", engine output promoted to "ground truth table". Green
+pass/fail never pushed anyone to read both sections.
+
+**Repair (already recorded, see J12-13 §4 in wiki/SOLUTION_DESIGN.md)**:
+re-derive the bdm rows from the REQUIREMENT sections — the write→read
+link `sup@160 → sup@223` and the read at L223 become required rows;
+the gate stays RED until Issues 2 and 3 land. That is exactly the
+R19.3 path-level assertions: doc LAYER-2 list as evidence, fixture
+finally measuring what the doc demands instead of what the engine
+emits.
+
+**USER RULING 2026-08-11 — "strictly use the ground truth in the
+benchmark"**: B must be derived from the doc's REQUIREMENT sections
+(§4.2 LAYER-2 chain, §4.3 MISSING list), never from the engine's
+emitted form. Concrete change set (test+doc only, zero engine code):
+(1) row 15 type TABLE_FLOW → DML (MISSING item 3 — the output→sup
+write leg must be DML); (2) NEW row `sup@160 → sup@223` (both seeds,
+anchor 223 — MISSING item 4 write→read link, LAYER-2 line 134);
+(3) NEW row `data_dt@225 → sup@223` REF for the bdm seed (row 18 is
+sup-only today). KEPT as design-correct: DML-routed hops 12/16/17/
+B1/C2/C3 (DML-routing design, R19.6b), row-11 removal (self-read is
+the L199 LEFT JOIN, SQL-verified), X1/X2/X4/X5 + S/B/C/E canonized
+flows. GATE: add the R19.3 path-level assertion — per seed the
+complete source→target chain must route THROUGH the reader instance
+(`… → output1 → sup@160 → sup@223 → output2 → rrcdm@211`); the DML
+WRITE_READ bypass alone fails. CONSEQUENCE (intended): the gate flips
+RED on the bdm edge set until Issues 2/3 land; floors re-derived when
+the fixes land.
+
 ### Issue 1 · L2 edge click → viewport refit (frontend, OPEN — awaiting user's fix pick)
 
 **Symptom** (user report 2026-08-11): clicking an edge in L2 shows the flow

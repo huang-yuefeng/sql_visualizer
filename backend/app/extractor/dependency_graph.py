@@ -171,17 +171,24 @@ def build_dependency_graph(
 
     # 1c-extra2: statement output VT → DML target (the output ⟐ was a
     # dead end — the statement's query output feeds the write).
+    # Issue 2 (Fix A, ruling 2026-08-11): the edge IS by definition the
+    # write leg — emit DML, not TABLE_FLOW, so every DML target gets a
+    # raw DML edge and the L2 rewrite stamps the write kind uniformly
+    # (TOP0 sup used to survive unstamped and render as a chain — the
+    # "3 parallel lines, 1 inverse" defect). The Phase-1c src_vars/
+    # fallback DML edges already cover duplicate pairs and _add_edge
+    # dedup absorbs the overlap; no ordering dependency.
     for tbl_var, op_type in dml_entries:
         ctx = tbl_var.context or "TOP"
         out_vts = [a for a in vt_map.get(ctx, [])
                    if a.variable_type == VariableType.VIRTUAL_TABLE]
         if len(out_vts) == 1:
-            _add_edge(out_vts[0], tbl_var, "TABLE_FLOW", op_type)
+            _add_edge(out_vts[0], tbl_var, "DML", op_type)
 
     # 1c-cross: cross-statement write->read. For each DML target (stmt n),
     # find TABLE/VIEW reads of the same canonical table name in OTHER
-    # statements (context TOP{m}, m != n) and emit target -> (reader
-    # statement's DML target, else the reader) as a write->read edge.
+    # statements (context TOP{m}, m != n) and emit target -> READER
+    # (write->read edge through the reader instance — Issue 3 no-bypass).
     # Must run before Phase 7/8 so the union-find sees the cross-statement
     # connection and the Phase-7 SUBSET bridge is not needed.
     def _stmt_key(v):
@@ -190,21 +197,10 @@ def build_dependency_graph(
             return ctx.split("/", 1)[0]
         return None  # CTE{...} bodies: statement not encoded in context
 
-    def _dml_target_stmt(v):
-        if v.variable_type == VariableType.MERGE_TARGET:
-            return _stmt_key(v)
-        if v.variable_type == VariableType.TABLE:
-            di = (v.defined_in or "").upper()
-            if any(k in di for k in ("INSERT", "UPDATE", "DELETE")):
-                return _stmt_key(v)
-        return None
-
-    dml_by_stmt = defaultdict(list)
-    for v in variables:
-        s = _dml_target_stmt(v)
-        if s is not None:
-            dml_by_stmt[s].append(v)
-
+    # Issue 3: the DML-target-per-statement index was only used to
+    # shortcut the write→read link onto the reader statement's DML target
+    # — that bypass is gone (the link now routes through the reader
+    # instance itself), so the index is gone with it.
     for tbl_var, op_type in dml_entries:
         t_stmt = _stmt_key(tbl_var)
         if t_stmt is None:
@@ -229,11 +225,16 @@ def build_dependency_graph(
             if not (v.name == canon or
                     (v.source_tables and v.source_tables[0] == canon)):
                 continue
-            tgt = next((d for d in dml_by_stmt.get(r_stmt, [])
-                        if d.id != tbl_var.id), None)
-            if tgt is None:
-                tgt = v
-            _add_edge(tbl_var, tgt, "DML", "WRITE_READ")
+            # Issue 3 (R19.3 no-bypass, user ruling 2026-08-11): the
+            # write→read link routes THROUGH the reader instance — emit
+            # the edge to the reader var v itself (sup@160 → sup@223),
+            # never directly to the reader statement's DML target (the
+            # old shortcut sup@160 → rrcdm@211 bypassed the reader and
+            # hid the statement-2 read from the flow walker). The reader
+            # then carries the flow onward through its own Phase-1a
+            # (sup@223 → output2) and 1c-extra (sup@223 → rrcdm) edges;
+            # `tgt` selection is gone — v is always the endpoint.
+            _add_edge(tbl_var, v, "DML", "WRITE_READ")
 
     # 1c-direct: CTE output feeds its readers directly. A reference var
     # (TABLE/VIEW alias with source_tables[0] == CTE name) inside a CTE

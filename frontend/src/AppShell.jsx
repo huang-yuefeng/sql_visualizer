@@ -8,11 +8,11 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: 40, textAlign: 'center', color: '#e0e0e0', background: '#1a1a2e', minHeight: '100vh' }}>
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-900)', background: 'var(--bg-app)', minHeight: '100vh' }}>
           <h2>Something went wrong</h2>
-          <p style={{ color: '#DA4453' }}>{this.state.error?.message || 'Unknown error'}</p>
+          <p style={{ color: 'var(--danger)' }}>{this.state.error?.message || 'Unknown error'}</p>
           <button onClick={() => { this.setState({ hasError: false }); window.location.reload(); }}
-            style={{ padding: '8px 20px', marginTop: 16, cursor: 'pointer', background: '#2ECC71', border: 'none', borderRadius: 4, color: '#000' }}>
+            style={{ padding: '8px 20px', marginTop: 16, cursor: 'pointer', background: 'var(--success)', border: 'none', borderRadius: 4, color: 'var(--on-success)' }}>
             Reload
           </button>
         </div>
@@ -38,8 +38,11 @@ function PersistentPanel({ show, children }) {
 
 export default function AppShell() {
   const [mode, setMode] = useState('dataflow');
-  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
-  
+  // J12-14 (2026-08-11): DEFAULT mode is LIGHT (HSBC official — white
+  // surfaces, near-black text, red accents); dark/black mode stays
+  // available via the toggle. Stored choice wins; first visit = light.
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
+
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);

@@ -1719,9 +1719,23 @@ class _RoleBasedExtractor:
             table_runs = [["delete", "from", name], [name]]
         else:
             table_runs = [[name]]
+        # Issue 3 (read recognition, Fix A — R19.2/R19.5, ruling
+        # 2026-08-11): a BARE FROM/JOIN reference (no alias —
+        # alias_or_name yields the table's own name) is a READ of its own
+        # table — carry source_tables=[name] exactly like the aliased var
+        # below, so Phase 1a/1c-extra see the read instance (statement
+        # 2's `FROM bdm_acc_loan_info_sup` @L223 becomes a real
+        # `sup@223 → output2` TABLE_FLOW instead of an invisible node).
+        # NOT for DML targets (dml= UPDATE/DELETE — the walk's INSERT
+        # path registers targets separately): a target must never emit a
+        # spurious target→output Phase-1a edge. NOT for the base var of
+        # an ALIASED ref either — the alias var already carries the read
+        # (source_tables=[name]); the base var stays invisible so the
+        # read is represented once, not twice.
         table_var = self._add(name, VariableType.TABLE,
                               sql_expr=name, defined_in=defined_in,
                               context=context,
+                              source_tables=[name] if (not dml and alias == name) else None,
                               def_site=(table_runs, node, context))
 
         if alias and alias != name:

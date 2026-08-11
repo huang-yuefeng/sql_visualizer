@@ -19,10 +19,19 @@ import React from 'react';
  * sqlText only supplies the display text (never re-derived). Without
  * `mech` the output is exactly the R25 rendering (backward compatible).
  */
-export default function EdgeReasonPanel({ edge, sqlText, onJumpToLine }) {
+export default function EdgeReasonPanel({ edge, sqlText, onJumpToLine, height }) {
+  // Issue 1 (fix 2026-08-11): the panel has a CONSTANT height in every
+  // state (empty / simple / with-evidence) until the user drags — the
+  // height prop comes from DataFlowApp's reasonPanelHeight state. A
+  // constant height means an edge click never changes the panel's size,
+  // so the graph-canvas ResizeObserver never fires and the L2 viewport
+  // never auto-refits on click. Long evidence scrolls internally
+  // (overflow-y: auto on .edge-reason-panel).
+  const panelStyle = height !== undefined ? { height } : undefined;
+
   if (!edge) {
     return (
-      <div className="edge-reason-panel edge-reason-empty" data-testid="edge-reason-panel"
+      <div className="edge-reason-panel edge-reason-empty" style={panelStyle} data-testid="edge-reason-panel"
         role="status" aria-live="polite">
         <span className="edge-reason-title">Flow Reason</span>
         <span className="edge-reason-hint">Click an edge to see its flow reason</span>
@@ -71,7 +80,7 @@ export default function EdgeReasonPanel({ edge, sqlText, onJumpToLine }) {
     (sqlLines && line >= 1 && line <= sqlLines.length) ? sqlLines[line - 1] : null;
 
   return (
-    <div className={`edge-reason-panel${mech ? ' edge-reason-with-evidence' : ''}`} data-testid="edge-reason-panel"
+    <div className="edge-reason-panel" style={panelStyle} data-testid="edge-reason-panel"
       role="status" aria-live="polite">
       <span className="edge-reason-title">Flow Reason</span>
       {kind && (
