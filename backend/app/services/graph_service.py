@@ -135,12 +135,22 @@ def build_graph_data(analysis: dict) -> dict:
     variables = analysis.get("variables", [])
     dependencies = analysis.get("dependencies", [])
 
-    # P2+P5: Build alias_map from source_tables (alias → canonical)
+    # J12-10 (stage 4): the physical model is the single extraction-time
+    # truth — alias_map / table_fields / parent assignment are projections
+    # of it (one physical entity per table; alias views carry the alias
+    # labels; fields are per-entity occurrence sets). No reconstruction.
+    from app.extractor.physical_model import build_physical_model
+    model = build_physical_model(analysis, script_name=analysis.get("script_name", ""))
+
+    # P2+P5: alias_map from the model's alias views (alias label →
+    # canonical entity name, last-writer-wins per label — insertion order
+    # is the var order). Replaces the source_tables scan.
     alias_map = {}
-    for v in variables:
-        src_tbls = v.get("source_tables", [])
-        if src_tbls and v.get("variable_type") in ("table", "view", "cte"):
-            alias_map[v["name"]] = src_tbls[0]
+    for tbl in model.tables.values():
+        for av in tbl.alias_views:
+            canon = model.tables.get(av["canonical_key"])
+            if canon is not None:
+                alias_map[av["label"]] = canon.name
 
     nodes = []
     for v in variables:
@@ -246,92 +256,42 @@ def build_graph_data(analysis: dict) -> dict:
 
     # Build compound nodes: group columns under their parent table
     # Table nodes become parents, column nodes become children (nested inside)
-    table_ids = {v["id"] for v in variables
-                 if v.get("variable_type") in ("table","view","cte","merge_target",
-                                                "virtual_table","subquery")}
+    # J12-10 (stage 4): the parent assignment is a model lookup — the
+    # first table-like occurrence of the column's owning entity (the
+    # occurrence index carries the owner-name resolution, alias_map[prefix]
+    # or prefix).
+    owner_first_occ = {}
+    for v in variables:
+        vt = v.get("variable_type", "")
+        if vt in ("table", "view", "cte"):
+            owner_first_occ.setdefault(v.get("name", ""), v["id"])
     for v in variables:
         vt = v.get("variable_type", "")
         if vt == "column" and "." in v.get("name", ""):
-            prefix = v["name"].split(".", 1)[0]
-            # Find the table node with this prefix
-            for tv in variables:
-                if tv.get("variable_type") in ("table","view","cte") and tv["name"] == prefix:
-                    v["parent"] = tv["id"]
-                    break
+            occ = model.occurrence(v.get("id", "")) or {}
+            owner = occ.get("table_name") or v["name"].split(".", 1)[0]
+            pid = owner_first_occ.get(owner)
+            if pid is None:
+                pid = owner_first_occ.get(v["name"].split(".", 1)[0])
+            if pid is not None:
+                v["parent"] = pid
 
-    # P4: Build table_fields — per-table set of field names from SCHEMA edges
-    # P5: Extend alias_map to sync alias canonical fields
+    # P4: Build table_fields — per-table set of field names from the
+    # model's entity fields (one physical entity per table; SCHEMA-edge
+    # columns are parented field occurrences, DML INSERT columns carry
+    # source_tables=[target] so they land on model fields — both P4 paths
+    # are covered by construction).
+    # P5: alias-label keys carry the canonical entity's fields.
     table_fields = {}
-    for d in dependencies:
-        rel = d.get("relationship", "")
-        if rel == "SCHEMA":
-            src_id = d["source_id"]
-            tgt_id = d["target_id"]
-            # Find the table node
-            table_node = None
-            col_node = None
-            for nd in nodes:
-                nid = nd["data"]["id"]
-                if nid == src_id:
-                    table_node = nd
-                if nid == tgt_id:
-                    col_node = nd
-            if table_node and col_node:
-                tbl_name = table_node["data"].get("table_name",
-                                                   table_node["data"].get("label", ""))
-                col_fname = col_node["data"].get("field_name",
-                                                  col_node["data"].get("label", "").rsplit(".",1)[-1] if "." in col_node["data"].get("label","") else col_node["data"].get("label",""))
-                if tbl_name and col_fname:
-                    table_fields.setdefault(tbl_name, set()).add(col_fname)
-
-    # P4-ext: Record fields for DML target tables from DML source columns.
-    # E.g., INSERT INTO stg_customers(customer_id) SELECT c.customer_id
-    #   → c.customer_id --DML--> stg_customers.customer_id
-    #   → stg_customers.fields ∋ customer_id
-    node_by_id = {nd["data"]["id"]: nd["data"] for nd in nodes}
-    for d in dependencies:
-        rel = d.get("relationship", "")
-        if rel == "DML":
-            src_id = d["source_id"]
-            tgt_id = d["target_id"]
-            src_node = node_by_id.get(src_id)
-            tgt_node = node_by_id.get(tgt_id)
-            if src_node and tgt_node:
-                src_field = src_node.get("field_name", "")
-                tgt_table = tgt_node.get("table_name", "")
-                if not tgt_table:
-                    # Try from label if table_name not set
-                    tgt_label = tgt_node.get("label", "")
-                    if "." in tgt_label:
-                        tgt_table = tgt_label.split(".", 1)[0]
-                if not src_field and "." in src_node.get("label", ""):
-                    src_field = src_node["label"].rsplit(".", 1)[-1]
-                if tgt_table and src_field:
-                    table_fields.setdefault(tgt_table, set()).add(src_field)
-
-    # P5: Sync alias → canonical fields (both ways via ALIAS edges)
-    for d in dependencies:
-        rel = d.get("relationship", "")
-        if rel == "ALIAS":
-            src_id = d["source_id"]
-            tgt_id = d["target_id"]
-            src_tbl = None
-            tgt_tbl = None
-            for nd in nodes:
-                nid = nd["data"]["id"]
-                if nid == src_id:
-                    src_tbl = nd["data"]
-                if nid == tgt_id:
-                    tgt_tbl = nd["data"]
-            if src_tbl and tgt_tbl:
-                src_name = src_tbl.get("table_name", src_tbl.get("label", ""))
-                tgt_name = tgt_tbl.get("table_name", tgt_tbl.get("label", ""))
-                # Sync fields: canonical → alias
-                if src_name in table_fields:
-                    table_fields.setdefault(tgt_name, set()).update(table_fields[src_name])
-                # Sync fields: alias → canonical
-                if tgt_name in table_fields:
-                    table_fields.setdefault(src_name, set()).update(table_fields[tgt_name])
+    for tbl in model.tables.values():
+        if tbl.fields:
+            table_fields[tbl.name] = set(tbl.fields)
+    for tbl in model.tables.values():
+        for av in tbl.alias_views:
+            canon = model.tables.get(av["canonical_key"])
+            if canon is not None and canon.fields:
+                table_fields.setdefault(av["label"], set()).update(canon.fields)
+    table_fields = {k: sorted(v) for k, v in table_fields.items()}
 
     return {
         "script_id": analysis.get("script_id", ""),
@@ -345,8 +305,8 @@ def build_graph_data(analysis: dict) -> dict:
         "template_replacements": analysis.get("template_replacements", []),
         "nodes": nodes,
         "edges": edges,
-        # P4: Per-table field sets (pre-resolved)
-        "table_fields": {k: sorted(v) for k, v in table_fields.items()},
-        # P5: Alias → canonical name map (pre-built)
+        # P4: Per-table field sets (pre-resolved, model-projected)
+        "table_fields": table_fields,
+        # P5: Alias → canonical name map (pre-built, model-projected)
         "alias_map": alias_map,
     }

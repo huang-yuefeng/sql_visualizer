@@ -1346,3 +1346,63 @@ range-expansion layer (`sql_range_finder`).
       13, 14, 17, 19) — no render-time re-typing
 - [ ] Defect-5 fixed: L225's `data_dt` registers (token-run extended to
       reads); duplicate `data_dt@213` dissolved; pair 18 present
+
+## R26 — Remove code evidence from the Flow Reason panel (requirement change, 2026-08-11)
+
+> **Priority:** P1 | **Date:** 2026-08-11 | **Status:** Implemented (v3.3.150) — supersedes the R11-3 UI.
+
+**Description:** The Flow Reason panel (`frontend/src/components/EdgeReasonPanel.jsx`) currently renders, on top of the R25/§8.8 kind + anchor + reason string, a "Code evidence" block (R11-3): a flow sentence + clickable reference-site/use-line rows (`L{line}: <text>`) that jump the script panel. The script panel (`SqlPanel`) already shows the full SQL with the clicked edge's anchor line highlighted — the code rows duplicate that information with less context. **User ruling (2026-08-11): remove the code evidence from the Flow Reason panel — the script panel already has it.**
+
+### Requirement
+
+1. `EdgeReasonPanel` renders ONLY: edge kind, anchor line, and the R25 reason string (with the ‖…‖-emphasized current-edge segment). No `mech` sentence, no evidence rows, no `onJumpToLine` prop.
+2. Edge click keeps highlighting + scrolling the anchor line in the script panel (existing R25 behavior — unchanged).
+3. Backend `mech` payload emission: retention decision deferred to the integration turn — remove only if no consumer remains (no-dormant-machinery rule); the UI change is the requirement.
+4. Empty state ("Click an edge…") unchanged.
+
+### Acceptance criteria
+
+- [ ] `components/__tests__/EdgeReasonPanel.test.jsx` updated — no mech/evidence rendering; kind+anchor+reason assertions pass
+- [ ] Live check: selecting an edge shows kind + anchor + reason only; script panel still highlights the anchor line
+- [ ] Frontend suite green (115 + new tests)
+
+## R27 — Line numbers after node names in the L2 graph (requirement change, 2026-08-11)
+
+> **Priority:** P1 | **Date:** 2026-08-11 | **Status:** Implemented (v3.3.150)
+
+**Description:** The R20 reason strings already use the `name@L{line}` convention (`‖⟐ output@L211 → rrcdm_job_log_exec_par@L211‖`) and alias display labels already carry it (`p1@29`, v3.3.140) — the user finds it very clear and asks for the same in the L2 graph: line numbers after node names. The payload already carries `line_start` on every L2 node (v3.3.145 single-line `[L,L]`).
+
+### Requirement
+
+1. **Frontend-only label decoration** — append `@L{line_start}` to the *rendered* label of L2 nodes: table compounds, field nodes, and `⟐ output` VTs. The payload label is untouched → gate-neutral (canonical node realization matches payload labels; display = pure projection, J12-10).
+2. **No double-append** — nodes whose backend label already ends with `@\d+` (aliases `p1@29`, `p2@199`, …) keep it as-is.
+3. **Compounds (one node, many occurrences)** — show the node's carried `line_start` (keeper/first occurrence, e.g. `bdm_acc_loan_info_sup@160`); per-occurrence lines remain on the edges (R25). Documented limitation, not a defect.
+4. Output VTs render `output@160` / `output@211` — exactly the reason-string convention.
+5. L1 labels unchanged (L2 only, per the user's ask).
+
+### Acceptance criteria
+
+- [ ] Vitest: decoration helper covers append / no-double-append / keeper-line-for-compounds
+- [ ] Live check: L2 node labels show `@L{line}`; aliases still `p1@29` (no `@29@29`)
+- [ ] Backend suite unaffected (zero payload change); snapshots byte-identical
+
+## R28 — L2 node legend replaces the edge legend (requirement change, 2026-08-11)
+
+> **Priority:** P1 | **Date:** 2026-08-11 | **Status:** Implemented (v3.3.150)
+
+**Description:** The L2 legend (`DataFlowLegend.jsx` → `FlowKindLegend`) lists edge flow-kinds. R25 rule 5 already labels EVERY edge at its midpoint with its flow kind in category color, so the edge legend duplicates what is on the graph. The node roles, by contrast, are only tiny S/T/W badges (`flowRoleBadge`, useCytoscapeGraph.js) — never explained. **User ruling (2026-08-11): remove the L2 edge legend; add an L2 node legend — source node, target node, and so on (source and target the most important).**
+
+### Requirement
+
+1. L2 legend = node roles: **Source node** (the searched table — the flow's start), **Target node** (flow destinations / output tables), **Waypoint** (intermediate tables on the flow path). Source and target are the emphasized entries.
+2. **Distinct visible node styles** for source / target / waypoint in L2 — the S/T/W badges alone are insufficient for a legend to be meaningful. Payload already carries the roles: `flow_role` ("source"|"target"|"waypoint") on table compounds (full view), `flow_source`/`flow_target` booleans (filtered view), `is_target` on seed-copy nodes. Renderer reads the payload, never guesses.
+3. The L2 edge legend is removed. Edge flow-kind midpoint labels (R25 rule 5) and the hover tooltip (edge type, counts — R25 secondary surface) remain.
+4. L1 legend unchanged. The SCHEMA-structure note (hidden-edge count, structure toggle) stays reachable.
+5. Node styling and legend colors use the existing token palette (`config/layout.js` / app.css) — no new color system.
+
+### Acceptance criteria
+
+- [ ] Vitest: node-legend entries render (source/target/waypoint); L2 no longer renders FlowKindLegend; L1 legend unchanged
+- [ ] Live check: source and target nodes are visually distinct in the L2 graph and the legend explains them
+- [ ] Frontend suite green; backend untouched
+

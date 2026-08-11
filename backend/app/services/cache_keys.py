@@ -56,5 +56,18 @@ their edges. The graph JSON shape (full_graph) is unchanged, but caches
 written before this batch must not feed the new assembly path — mass
 invalidate, rebuild lazily. extractor_version is NOT bumped (the
 extractor is unchanged).
+
+J12-10 stage 4 (2026-08-11): bumped to 3_2_23 — INVALIDATION bump. The
+L2 compound assembly now consumes the physical model: keeper merges and
+alias dedup key off the model's alias truth (alias_by_var_id) and
+occurrence index instead of the deleted label-keyed keeper merge and
+merged_original_ids/_build_id_map bookkeeping; node line anchors come
+from the model's occurrences (_carry_node_lines) instead of
+_stmt_anchor_lines_from_nodes reconstruction; the DML trunk is chosen
+per statement (J12-15 — the write leg of statement n hangs off
+statement n's own ⟐ output). Caches written by earlier batches carry
+pre-merge compound sets and statement-1-trunked edges — they must not
+feed the new assembly path; mass invalidate, rebuild lazily.
+extractor_version is NOT bumped (the extractor is unchanged).
 """
-GRAPH_CACHE_PREFIX = "graph_3_2_22"
+GRAPH_CACHE_PREFIX = "graph_3_2_23"

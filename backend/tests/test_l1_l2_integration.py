@@ -179,26 +179,33 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
     target_node_ids, direct_ids = l2b._compute_target_and_direct_ids(
         nodes, edges, TARGET_TABLE, TARGET_FIELD,
         physical_model=physical_model)
-    table_nodes, field_nodes, other_nodes, alias_map = l2b._classify_compound_nodes(
+    # J12-10 stage 4: the classification returns (table_nodes,
+    # field_nodes, alias_map, occ_to_id) — occ_to_id IS the id_map (the
+    # old _build_id_map is gone).
+    table_nodes, field_nodes, alias_map, occ_to_id = l2b._classify_compound_nodes(
         nodes, full_graph, STEP3, target_node_ids, direct_ids, TARGET_TABLE,
         physical_model)
+    id_map = occ_to_id
     # R11-3: the orchestrator carries compound-node lines right after
-    # classification (line_start/line_end/defined_in from keeper vars).
-    l2b._carry_node_lines(table_nodes, full_graph)
-    id_map = l2b._build_id_map(table_nodes, field_nodes, other_nodes)
+    # classification (line_start/line_end/defined_in from the model's
+    # occurrence index).
+    l2b._carry_node_lines(table_nodes, physical_model)
     target_mapped, direct_mapped = l2b._map_search_target_ids(
         field_nodes, table_nodes, target_node_ids, direct_ids, id_map)
     new_edges, node_labels = l2b._build_edge_list(edges, nodes, id_map, sql)
+    # J12-16: the DML simplification runs BEFORE the combine (mirror of
+    # the orchestrator order) — rule 2's retarget must diverge a folded
+    # field compound's per-statement edge instances into distinct targets
+    # before _combine_edges' (source, target, edge_type) key collapses
+    # them into one.
+    new_edges = l2b._simplify_dml_edges(new_edges, full_graph, id_map,
+                                        table_nodes,
+                                        physical_model=physical_model)
     new_edges = l2b._combine_edges(new_edges)
     new_edges = l2b._promote_field_edges(new_edges, field_nodes)
     new_edges = l2b._survive_join_edges(new_edges, full_graph, id_map,
                                         table_nodes, field_nodes,
                                         node_labels, sql)
-    # J12-10 stage 3: _simplify_dml_edges returns only new_edges (the
-    # dml_pairs collection is gone — the sync phase it fed was deleted;
-    # the model entities replace the synthetic proxies).
-    new_edges = l2b._simplify_dml_edges(new_edges, full_graph, id_map,
-                                        table_nodes)
     new_edges = l2b._dedup_edges(new_edges)
     # R11-3: the mech payload rides the W5 phase — pass table_nodes + the
     # PRE-FILTER node index exactly like the orchestrator.

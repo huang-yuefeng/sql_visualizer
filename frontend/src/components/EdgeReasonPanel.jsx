@@ -18,22 +18,20 @@ import React from 'react';
  * The reason string is built at L2 build time from the closure walk and
  * rendered as-is — never reconstructed at render.
  *
- * R11-3 (code evidence): when the edge carries the backend `mech` payload,
- * the panel additionally shows the flow sentence and a clickable
- * "code evidence" block — one row per SQL line (reference site / join-key
- * and value uses / source def), each row jumping the SQL panel to that
- * line via onJumpToLine. Line numbers come from the payload verbatim;
- * sqlText only supplies the display text (never re-derived). Without
- * `mech` the output is exactly the R25 rendering (backward compatible).
+ * R26 (2026-08-11): the R11-3 "Code evidence" block is removed — the
+ * script panel already shows the full SQL with the clicked edge's anchor
+ * line highlighted, so the single-line rows only duplicated that with
+ * less context. The panel renders kind + anchor + reason only; a backend
+ * `mech` payload (if any) is simply ignored.
  */
-export default function EdgeReasonPanel({ edge, sqlText, onJumpToLine, height }) {
+export default function EdgeReasonPanel({ edge, height }) {
   // Issue 1 (fix 2026-08-11): the panel has a CONSTANT height in every
-  // state (empty / simple / with-evidence) until the user drags — the
-  // height prop comes from DataFlowApp's reasonPanelHeight state. A
-  // constant height means an edge click never changes the panel's size,
-  // so the graph-canvas ResizeObserver never fires and the L2 viewport
-  // never auto-refits on click. Long evidence scrolls internally
-  // (overflow-y: auto on .edge-reason-panel).
+  // state (empty / content) until the user drags — the height prop comes
+  // from DataFlowApp's reasonPanelHeight state. A constant height means
+  // an edge click never changes the panel's size, so the graph-canvas
+  // ResizeObserver never fires and the L2 viewport never auto-refits on
+  // click. Long content scrolls internally (overflow-y: auto on
+  // .edge-reason-panel).
   const panelStyle = height !== undefined ? { height } : undefined;
 
   if (!edge) {
@@ -50,7 +48,6 @@ export default function EdgeReasonPanel({ edge, sqlText, onJumpToLine, height })
   const color = edge.color || '#5DADE2';
   const anchor = edge.highlight_line;
   const reason = edge.reason || '';
-  const mech = edge.mech;
 
   // Split on ‖…‖-wrapped segments (the clicked edge's own flow segment).
   // Works for the legacy short flow string AND the R20 path-scoped form
@@ -59,37 +56,6 @@ export default function EdgeReasonPanel({ edge, sqlText, onJumpToLine, height })
   // reason without any ‖…‖ (or with an unmatched ‖) stays one plain
   // string; multiple segments (backend anomaly) each get emphasized.
   const segments = reason.split(/(‖[^‖]*‖)/g).filter(Boolean);
-
-  // ── R11-3 code evidence ──
-  // Rows are built from the payload lines (ref_line / use_lines /
-  // highlight_line); sqlText is the display-only text source.
-  const sqlLines = typeof sqlText === 'string' ? sqlText.split('\n') : null;
-
-  let evidenceRows = [];
-  if (mech) {
-    const rows = [];
-    if (Number.isInteger(mech.ref_line) && mech.ref_line >= 1) {
-      rows.push({ line: mech.ref_line, label: `reference site · ${mech.clause || ''}` });
-    }
-    (Array.isArray(mech.use_lines) ? mech.use_lines : []).forEach(l => {
-      if (Number.isInteger(l) && l >= 1) rows.push({ line: l, label: 'join key / value use' });
-    });
-    if (Number.isInteger(anchor) && anchor >= 1) {
-      rows.push({ line: anchor, label: 'def of source' });
-    }
-    // One row per line — dedupe (a line can serve several roles) + sort.
-    const seen = new Set();
-    const deduped = [];
-    for (const r of rows) {
-      if (seen.has(r.line)) continue;
-      seen.add(r.line);
-      deduped.push(r);
-    }
-    evidenceRows = deduped.sort((a, b) => a.line - b.line);
-  }
-
-  const lineText = (line) =>
-    (sqlLines && line >= 1 && line <= sqlLines.length) ? sqlLines[line - 1] : null;
 
   return (
     <div className="edge-reason-panel" style={panelStyle} data-testid="edge-reason-panel"
@@ -114,31 +80,6 @@ export default function EdgeReasonPanel({ edge, sqlText, onJumpToLine, height })
           )
         ) : (reason || '—')}
       </div>
-      {mech && (
-        <div className="edge-reason-mech">
-          {mech.sentence && (
-            <div className="edge-reason-sentence">{mech.sentence}</div>
-          )}
-          {evidenceRows.length > 0 && (
-            <div className="edge-reason-evidence">
-              <span className="edge-reason-evidence-title">Code evidence</span>
-              {evidenceRows.map(({ line, label }) => {
-                const text = lineText(line);
-                return (
-                  <button key={line} type="button" data-line={line}
-                    className="edge-reason-evidence-row"
-                    onClick={() => onJumpToLine?.(line)}>
-                    <span className="edge-reason-evidence-label">{label}</span>
-                    <span className="edge-reason-evidence-code">
-                      L{line}: {text !== null ? text : '(line not available)'}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

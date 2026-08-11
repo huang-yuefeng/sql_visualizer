@@ -1,4 +1,5 @@
 import React from 'react';
+import { L2_ROLE_COLORS } from '../utils/graphStyles';
 
 const L2_LEGEND = [
   { label: 'Table', color: '#4A90D9', shape: '■' },
@@ -56,87 +57,55 @@ const CATEGORY_LEGEND = [
   { label: 'Structure (SCHEMA)', color: '#95A5A6', shape: '···', desc: 'Ownership/alias/bridge' },
 ];
 
-// R25/§8.7+§8.8: L2 legend regrouped by FLOW KIND — the kind is assigned
-// per edge (real type + endpoint roles), never per type alone, so a type
-// may appear under more than one kind (REF → field flow / read,
-// SUBQUERY → field flow / chain). Every edge highlights (ruled
-// 2026-08-10: no excluded category — SCHEMA = structure, residual
-// SUBSET = bridge), so every kind group carries a ✅ mark and every
-// label renders in the edge's category color. The 16-type taxonomy stays
-// available as the per-kind chips (secondary).
-const FLOW_KIND_GROUPS = [
+// R28 (2026-08-11): the L2 legend is a NODE legend — the edge legend is
+// gone because R25 rule 5 already labels EVERY edge at its midpoint with
+// its flow kind in category color (the old legend only duplicated the
+// graph). The node roles, by contrast, were only tiny S/T/W badges —
+// never explained. Source and target are the emphasized entries; the
+// swatch colors are L2_ROLE_COLORS from graphStyles.js — the SAME
+// palette the L2_NODE_ROLE_STYLES stylesheet uses, so the legend always
+// matches the graph. Edge kinds stay visible on the edges themselves +
+// the hover tooltip (R25 secondary surface).
+const L2_NODE_ROLE_LEGEND = [
   {
-    kind: 'chain',
-    types: [
-      { label: 'TABLE_FLOW', color: '#2ECC71', shape: '══', desc: 'entry/FROM/INSERT hops' },
-      { label: 'ALIAS', color: '#1ABC9C', shape: '- -', desc: 'original → alias' },
-      { label: 'SUBQUERY', color: '#16A085', shape: '···', desc: 'VT chains (rule 5)' },
-    ],
+    role: 'source',
+    label: 'Source node',
+    color: L2_ROLE_COLORS.source.border,
+    fill: L2_ROLE_COLORS.source.fill,
+    strong: true,
+    desc: "the searched table — the flow's start",
   },
   {
-    kind: 'field flow',
-    types: [
-      { label: 'REF', color: '#27AE60', shape: '—', desc: 'field appearance (also read, rule 2)' },
-      { label: 'AGGREGATE', color: '#8E44AD', shape: '══', desc: 'SUM/COUNT/AVG' },
-      { label: 'TRANSFORM', color: '#D35400', shape: '- -', desc: 'COALESCE/CAST' },
-      { label: 'WINDOW', color: '#9B59B6', shape: '- ·', desc: 'ROW_NUMBER/RANK' },
-      { label: 'COMPUTED', color: '#E67E22', shape: '···', desc: 'CASE WHEN' },
-      { label: 'FILTER', color: '#E74C3C', shape: '—', desc: 'WHERE condition' },
-      { label: 'JOIN', color: '#E91E63', shape: '- -', desc: 'JOIN key' },
-      { label: 'SET_OP', color: '#F1C40F', shape: '-- --', desc: 'UNION/INTERSECT' },
-    ],
+    role: 'target',
+    label: 'Target node',
+    color: L2_ROLE_COLORS.target.border,
+    fill: L2_ROLE_COLORS.target.fill,
+    strong: true,
+    desc: 'flow destinations / output tables',
   },
   {
-    kind: 'read',
-    types: [
-      { label: 'REF', color: '#27AE60', shape: '—', desc: 'rule 2 — alias-def read' },
-    ],
-  },
-  {
-    kind: 'write',
-    types: [
-      { label: 'DML', color: '#2980B9', shape: '═╪', desc: 'INSERT/UPDATE/DELETE' },
-    ],
-  },
-  {
-    kind: 'filter',
-    types: [
-      { label: 'INDIRECT', color: '#C0392B', shape: '·-·', desc: 'correlated subquery conditions' },
-      { label: 'CORRELATED', color: '#FF5722', shape: '···', desc: 'config-only — emitted as INDIRECT' },
-    ],
-  },
-  {
-    kind: 'structure',
-    types: [
-      { label: 'SCHEMA', color: '#3498DB', shape: '···', desc: 'rule 6 — table → member' },
-    ],
-  },
-  {
-    kind: 'bridge',
-    types: [
-      { label: 'SUBSET', color: '#7F8C8D', shape: '· ·', desc: 'rule 7 — residual bridge' },
-    ],
+    role: 'waypoint',
+    label: 'Waypoint',
+    color: L2_ROLE_COLORS.waypoint.border,
+    fill: L2_ROLE_COLORS.waypoint.fill,
+    dashed: true,
+    desc: 'intermediate tables on the flow path',
   },
 ];
 
-function FlowKindLegend({ structureEdgesHidden, structureEdgeCount }) {
+function L2NodeRoleLegend({ structureEdgesHidden, structureEdgeCount }) {
   return (
-    <div className="dataflow-legend" data-testid="legend-l2-flow-kinds">
-      <span className="legend-title">L2 Flow Kinds — every edge highlights ✅</span>
-      {FLOW_KIND_GROUPS.map(group => (
-        <span key={group.kind} className="legend-kind-group">
-          <span className="legend-kind-name" title={`${group.kind} — all edges of this kind highlight ✅`}>
-            {group.kind} ✅
-          </span>
-          {group.types.map(type => (
-            <span key={`${group.kind}-${type.label}`} className="legend-item"
-              title={(type.desc || type.label)}>
-              <span style={{ color: type.color, fontWeight: 'bold', fontSize: '0.8em' }}>
-                {type.shape}
-              </span>
-              <span>{type.label}</span>
-            </span>
-          ))}
+    <div className="dataflow-legend" data-testid="legend-l2-node-roles">
+      <span className="legend-title">L2 Node Roles</span>
+      {L2_NODE_ROLE_LEGEND.map(item => (
+        <span key={item.role} className="legend-item" title={item.desc}>
+          <span style={{
+            display: 'inline-block', width: 12, height: 12, borderRadius: 2,
+            flexShrink: 0, verticalAlign: 'middle',
+            background: item.fill,
+            border: `2px ${item.dashed ? 'dashed' : 'solid'} ${item.color}`,
+          }} />
+          <span style={item.strong ? { fontWeight: 700 } : undefined}>{item.label}</span>
         </span>
       ))}
       {/* R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow —
@@ -156,7 +125,7 @@ export default function DataFlowLegend({ level, structureEdgesHidden, structureE
   if (level === 'L1') {
     items = L1_LEGEND;
   } else if (level === 'L2') {
-    return <FlowKindLegend structureEdgesHidden={structureEdgesHidden} structureEdgeCount={structureEdgeCount} />;
+    return <L2NodeRoleLegend structureEdgesHidden={structureEdgesHidden} structureEdgeCount={structureEdgeCount} />;
   } else if (level === 'categories') {
     items = CATEGORY_LEGEND;
     title = '7 Edge Categories';

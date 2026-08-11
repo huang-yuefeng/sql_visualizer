@@ -127,11 +127,12 @@ def test_merged_table_fields_dedup(multi_ctx_ws):
     # active: loan_id/loan_bal) plus the JOIN/subquery aliased reads land
     # under the ONE keeper, each (name, original var) exactly once.
     #
-    # C-9/C7 (v3.3.140): same-named fields from DIFFERENT statements stay
-    # distinct — the sync-canon copy (Sync 1) mirrors the p alias's JOIN
-    # key `loan_id` onto the keeper as its OWN field (distinct original
-    # var), exactly like the cross-statement split in
-    # test_b_series_l2.py::test_c9_per_statement_dedup. One original var
+    # C-9/C7 (v3.3.140, J12-16): the display fold (J12-16) merges
+    # same-named field instances under one keeper field, but a DISTINCT
+    # original var (the p alias's JOIN key `loan_id`, a real separate
+    # entity) still materializes as its own field — per-statement display
+    # fold, per-var entity identity (see
+    # test_b_series_l2.py::test_c9_per_statement_dedup). One original var
     # must never materialize twice under the keeper — that would be a
     # real double-registration.
     assert by_name["loan_id"], fields
@@ -192,18 +193,21 @@ def test_target_highlight_lands_on_keeper(multi_ctx_ws):
 
 
 def test_merged_original_ids_never_leak(multi_ctx_ws):
-    """d: merged_original_ids is builder-internal bookkeeping — the output
-    graph must not carry it on any node."""
+    """d: J12-10 stage 4 — the keeper-merge bookkeeping (merged_original_ids
+    and its occ_to_id replacement) is builder-internal: the output graph
+    must not carry either on any node."""
     graph = _build_l2_graph(multi_ctx_ws, "multi_ctx.sql", MULTI_CTX_SQL,
                             TABLE, "loan_id", relevance_filter=False)
     leaks = [n["data"] for n in graph["nodes"]
-             if "merged_original_ids" in n["data"]]
-    assert not leaks, f"merged_original_ids leaked: {leaks[:3]}"
+             if "merged_original_ids" in n["data"]
+             or "occ_to_id" in n["data"]]
+    assert not leaks, f"merge bookkeeping leaked: {leaks[:3]}"
 
 
-def test_classify_compound_nodes_records_merged_nids(multi_ctx_ws):
-    """Unit-level: the TABLE branch records merged-away context nids on the
-    keeper (merged_original_ids), so _build_id_map can re-point every edge."""
+def test_classify_compound_nodes_records_occ_to_id(multi_ctx_ws):
+    """Unit-level: the TABLE branch records merged-away context nids in the
+    classification's occ_to_id (the _build_id_map replacement), so every
+    edge touching a merged context re-points to the keeper."""
     from app.services import l2_builder as l2b
 
     ws_id = multi_ctx_ws
@@ -215,18 +219,40 @@ def test_classify_compound_nodes_records_merged_nids(multi_ctx_ws):
     edges = graph_data.get("edges", [])
     target_node_ids, direct_ids = l2b._compute_target_and_direct_ids(
         nodes, edges, TABLE, "loan_id", physical_model=physical_model)
-    table_nodes, field_nodes, other_nodes, alias_map = _classify_compound_nodes(
+    table_nodes, field_nodes, alias_map, occ_to_id = _classify_compound_nodes(
         nodes, full_graph, "multi_ctx.sql", target_node_ids, direct_ids,
         None, physical_model)
 
     keepers = [tn for tn in table_nodes.values()
                if tn["table_name"] == TABLE]
     assert len(keepers) == 1, f"expected 1 keeper, got {len(keepers)}"
-    merged = keepers[0].get("merged_original_ids", [])
-    # 4 contexts, 1 keeper → 3 merged-away nids (2 bare-FROM + the aliased
-    # contexts read the same physical table variable per scope)
-    assert merged, "keeper must record merged-away context nids"
-    # Every merged nid must resolve through _build_id_map to the keeper
-    id_map = l2b._build_id_map(table_nodes, field_nodes, other_nodes)
+    keeper = keepers[0]
+    assert "merged_original_ids" not in keeper, \
+        "keeper must not carry merged_original_ids (J12-10 stage 4)"
+    # 4 contexts, 1 keeper: the entity's occurrence set holds the two
+    # bare-FROM nids (which merge into the keeper) plus the two alias
+    # vars (p/s — model aliases, which classify as their OWN alias
+    # compounds, never merged into the keeper). Every non-alias
+    # same-entity nid resolves through occ_to_id to the keeper.
+    merged = [nid for nid in physical_model.tables[
+        physical_model.entity_of_id[keeper["original_id"]]].occurrence_ids
+        if nid != keeper["original_id"]]
+    alias_nids = [nid for nid in merged
+                  if nid in physical_model.alias_by_var_id]
+    assert merged, "keeper entity must have merged-away context nids"
+    assert alias_nids, "the aliased contexts must be model alias vars"
     for mnid in merged:
-        assert id_map[mnid] == keepers[0]["id"], id_map[mnid]
+        if mnid in physical_model.alias_by_var_id:
+            # alias vars map to their own alias compound (a real node id,
+            # not the keeper) — the alias parent resolves via the model
+            assert occ_to_id[mnid] not in (keeper["id"], None), \
+                f"alias nid {mnid} must map to its own alias compound, " \
+                f"got {occ_to_id.get(mnid)}"
+        else:
+            assert occ_to_id[mnid] == keeper["id"], \
+                f"occ_to_id[{mnid}] = {occ_to_id.get(mnid)}, expected keeper"
+    # every classified nid resolves (no ghost id in the id_map consumers)
+    for tn in table_nodes.values():
+        assert occ_to_id[tn["original_id"]] == tn["id"]
+    for fn in field_nodes:
+        assert occ_to_id[fn["original_id"]] == fn["id"]

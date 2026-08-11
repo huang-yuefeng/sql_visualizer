@@ -1373,3 +1373,26 @@ Node shape colors (NODE_STYLES) retuned to harmonize with neutrals.
 - Visual review of L2 graph on the flagship sample in both modes.
 - Full pytest + vitest suites green (frontend CSS changes are
   non-functional; backend palette change is data-only).
+
+## L2 Display Rulings 2026-08-11 (R26–R28) — reason-panel cleanup, line numbers, node legend
+
+User rulings (2026-08-11), requirements R26/R27/R28 in REQUIREMENTS.md. All three are **frontend-only display changes** — zero payload change, gate-neutral, consistent with the J12-10 "display = pure projection" principle.
+
+### R26 — code evidence out of the Flow Reason panel
+
+- `EdgeReasonPanel.jsx` drops the `mech` block (sentence + "Code evidence" rows + `onJumpToLine`); it renders kind + anchor + reason only.
+- The R11-3 UI is superseded: the script panel already shows the SQL with the anchor highlighted on edge click (R25) — the panel's single-line rows duplicated it with less context.
+- `mech` payload retention: decision at integration (remove backend emission only if no consumer remains; tests pinning `mech` in frontend and backend updated accordingly).
+
+### R27 — `@L{line}` on L2 node labels
+
+- Convention source: R20 reason strings (`‖⟐ output@L211 → rrcdm@L211‖`) + alias display labels (`p1@29`, v3.3.140).
+- Mechanism: render-time label decoration in the cytoscape init path (`useCytoscapeGraph.js`), reading the node's carried `line_start` — never the backend label, so the canonical (label+line matched) is unaffected.
+- Rules: append `@L{n}` to table compounds, fields, output VTs; skip if the label already ends `@\d+` (aliases — no `@29@29`); compounds show the keeper's `line_start` (first occurrence; per-occurrence lines stay on edges — documented limitation).
+- Output VTs render `output@160`/`output@211` — identical to the reason-string form; the user's clarity point is exactly this consistency.
+
+### R28 — node legend replaces the L2 edge legend
+
+- Rationale: R25 rule 5 already puts the flow-kind label ON every edge midpoint in category color — the edge legend duplicated the graph; the node roles were only S/T/W badges, never explained.
+- Node styles: distinct visual treatment for source / target / waypoint L2 table compounds, driven by the payload (`flow_role` full view; `flow_source`/`flow_target` filtered view; `is_target` seed copies) — renderer reads the payload, never guesses. Colors from the existing token palette.
+- Legend contents: Source node, Target node, Waypoint (source+target emphasized). Edge kinds stay visible on edges + hover tooltip (R25 secondary surface). L1 legend untouched. SCHEMA structure note stays reachable (toggle badge).

@@ -95,7 +95,21 @@ table — only the target-table column DISPLAY (the dml_ phantom copies)
 must show each column once. (2026-08-11: the J12-13 requirement nodes
 sup@223 / data_dt@225 were added to the bdm closure in point 9 and are
 REALIZED since the point-10 re-pin — Issue 3 landed; the EXPECTED-red
-state is over.)
+state is over.
+
+J12-17 (2026-08-11, gate hardening — the J12-15 endpoint-identity
+blind spot, fix queued): three new invariants. (a) Write-leg endpoint
+identity: every canonical write-leg row (carries "stmt",
+jaccard_canonical point 11) must attach to ITS statement's output VT —
+the matched edge's ⟐output endpoint must BE the statement-N output
+compound (node context TOPn + line_start), never merely carry the label
+"output". (b) The R19.3 chain reachability check is a FLOW-ONLY walk
+(TABLE_FLOW/REF/DML/ALIAS; never SCHEMA/SUBSET/containment, never
+_value-edge detours) terminating at the row's flow target — the R19.3
+path property actually asserted, not any-type connectivity. (c) No
+dead-end flow nodes (≥1 flow in-edge, 0 flow out-edges; DML write
+targets exempt as terminal sinks) — the "no dead-end flow branches"
+half of R19.3 made an explicit enumeration.
 """
 
 import sys
@@ -268,14 +282,32 @@ R19_3_CHAIN = {
 }
 
 
-def _reachable(src, dst, edges):
-    """Directed BFS over response edges (any type): is dst reachable from
-    src? (The sup@223 -> output2 segment of the chain is B1's SUBSET
-    bridge / whatever the engine emits; the requirement is that the
-    reader instance actually CONNECTS forward to rrcdm@211.)"""
+# J12-17 (b) (2026-08-11): the R19.3 path property is FLOW-ONLY
+# reachability, not any-type connectivity. The J12-15 defect passes the
+# old BFS via output@L211 -(SCHEMA)-> data_dt -(value edge)-> output@L160
+# -(write leg)-> rrcdm although NO flow edge leaves output@L211.
+FLOW_EDGE_TYPES = {"TABLE_FLOW", "REF", "DML", "ALIAS"}
+
+
+def _is_flow_edge(e):
+    """R19.3 flow edge: TABLE_FLOW/REF/DML/ALIAS; never a value-edge
+    detour (id suffix "_value" -- P17's value copy is not the trunk
+    flow), never SCHEMA/SUBSET/containment."""
+    if (e.get("id") or "").endswith("_value"):
+        return False
+    return (e.get("edge_type") or "") in FLOW_EDGE_TYPES
+
+
+def _reachable_flow(src, dst, edges):
+    """Directed BFS over FLOW-ONLY edges, terminating at the row's flow
+    target: is dst flow-reachable from src? No SCHEMA/SUBSET hops, no
+    _value detours. (J12-17(b) -- the R19.3 path property actually
+    asserted: the sup@223 -> output2 -> rrcdm chain must be a FLOW path,
+    not a connectivity accident.)"""
     adj = defaultdict(list)
     for e in edges:
-        adj[e["source"]].append(e["target"])
+        if _is_flow_edge(e):
+            adj[e["source"]].append(e["target"])
     seen, stack = {src}, [src]
     while stack:
         cur = stack.pop()
@@ -345,12 +377,119 @@ def r19_3_chain_problems(seed, nodes, edges, inc):
                 f"R19.3 no-bypass: {seed} read-leg src {rl['source']} != "
                 f"write-leg dst {w['target']} -- sup must chain forward "
                 f"THROUGH the reader instance at L223")
-        if not _reachable(rl["target"], w2["source"], edges):
+        if not _reachable_flow(rl["target"], w2["source"], edges):
             problems.append(
                 f"R19.3 no-bypass: {seed} the chain does not continue from "
                 f"the read-leg output VT ({rl['target']}) to the rrcdm "
-                f"write-leg source ({w2['source']}) -- no path from "
-                f"sup@223's output2 to rrcdm@211")
+                f"write-leg source ({w2['source']}) -- NO flow-only path "
+                f"(TABLE_FLOW/REF/DML/ALIAS hops only; SCHEMA/SUBSET/_value "
+                f"detours excluded): the write leg must attach to its own "
+                f"statement's output VT (J12-15 defect class)")
+    return problems
+
+
+# J12-17 (a) (2026-08-11): write-leg endpoint identity. The canonical
+# write-leg rows carry their statement ("stmt": "TOPn" -- additive,
+# jaccard_canonical point 11); the served payload carries context/
+# line_start on node data (output@L211 = TOP1/211 vs output@L160 =
+# TOP0/160). Every write-leg edge must attach to ITS statement's output
+# VT -- the endpoint id must BE the statement-N output compound, not
+# merely carry the label "output" (the J12-15 class: endpoint id wrong
+# while labels/lines stay correct -- invisible to (label, anchor-line)
+# matching).
+def _stmt_of_node(nd):
+    """TOPn statement of a node's extraction context (sub-branches keep
+    the prefix)."""
+    ctx = nd.get("context") or ""
+    if ctx.startswith("TOP"):
+        return ctx.split("/")[0]
+    return None
+
+
+def _output_vts_of_stmt(nodes, stmt):
+    return [n for n in nodes.values()
+            if _norm(n.get("label", "")) == "⟐output"
+            and _stmt_of_node(n) == stmt]
+
+
+def write_leg_endpoint_problems(seed, nodes, edges, inc):
+    """J12-17 (a): every canonical write-leg row (carries "stmt") whose
+    matched edge's ⟐output endpoint must BE the statement's own
+    output VT (context TOPn / its line_start). Returns problem strings;
+    empty = every write leg attaches to its own statement's output."""
+    problems = []
+    for entry in JC.CANONICAL_EDGES:
+        if entry["seed"] != seed or "stmt" not in entry:
+            continue
+        stmt = entry["stmt"]
+        hit = find_entry_edge(entry, nodes, edges, inc, set())
+        if hit is None:
+            continue  # row itself unmatched -- reported by the base machinery
+        ep_id = hit["source"] if "⟐output" in entry["src"] else hit["target"]
+        nd = nodes.get(ep_id, {})
+        vts = _output_vts_of_stmt(nodes, stmt)
+        if not vts:
+            problems.append(
+                f"R19.3 J12-17(a): {seed} row {entry['row']} "
+                f"({entry['src']} -> {entry['dst']}, {entry['type']}@"
+                f"{entry['anchor']}) is statement {stmt}'s write leg but NO "
+                f"output VT of statement {stmt} is in the payload (write "
+                f"leg {hit['id']} endpoint {nd.get('label')}@"
+                f"{nd.get('line_start')}, context {nd.get('context')!r})")
+            continue
+        vt_ids = {v["id"] for v in vts}
+        vt_lines = {v.get("line_start") for v in vts}
+        if ep_id not in vt_ids or (vt_lines and nd.get("line_start") not in vt_lines):
+            side = "source" if ep_id == hit["source"] else "target"
+            problems.append(
+                f"R19.3 J12-17(a): {seed} row {entry['row']} "
+                f"({entry['src']} -> {entry['dst']}, {entry['type']}@"
+                f"{entry['anchor']}) is statement {stmt}'s write leg but its "
+                f"{side} endpoint is output VT {nd.get('label')}@"
+                f"{nd.get('line_start')} (context {nd.get('context')!r}) -- "
+                f"must be the {stmt} output VT "
+                f"({sorted(vt_ids)[0]} @{sorted(vt_lines)[0]}); endpoint id "
+                f"wrong (J12-15 defect class)")
+    return problems
+
+
+# J12-17 (c) (2026-08-11): dead-end flow-node enumeration -- the
+# "no dead-end flow branches" half of R19.3, made an explicit check.
+# A flow node with >=1 flow in-edge and 0 flow out-edges is a dead end
+# (J12-15: output@L211 carries only the SCHEMA membership edge -- its
+# flow stops there while the write leg renders from output@L160). DML
+# write targets (targets of *_dml_out write legs) are legitimate
+# terminal sinks -- the write terminates at the target table by design.
+def dead_end_flow_nodes(nodes, edges):
+    flow_in = defaultdict(int)
+    flow_out = defaultdict(int)
+    for e in edges:
+        if not _is_flow_edge(e):
+            continue
+        flow_in[e["target"]] += 1
+        flow_out[e["source"]] += 1
+    write_targets = {e["target"] for e in edges
+                     if (e.get("id") or "").endswith("_dml_out")}
+    dead = []
+    for nid in sorted(set(flow_in) | set(flow_out)):
+        if nid in write_targets:
+            continue
+        if flow_in.get(nid, 0) >= 1 and flow_out.get(nid, 0) == 0:
+            nd = nodes.get(nid, {})
+            dead.append((nid, nd.get("label"), nd.get("context"),
+                         nd.get("line_start")))
+    return dead
+
+
+def dead_end_flow_problems(seed, nodes, edges):
+    problems = []
+    dead = dead_end_flow_nodes(nodes, edges)
+    if dead:
+        problems.append(
+            f"R19.3 J12-17(c): {seed} dead-end flow nodes (>=1 flow "
+            f"in-edge, 0 flow out-edges, not a DML write target): {dead} "
+            f"-- R19.3 'no dead-end flow branches' violated (J12-15 "
+            f"dead-end shape)")
     return problems
 
 
@@ -458,6 +597,9 @@ def test_jaccard_benchmark(capsys):
                 f"{seed}: {len(bad)} edges with highlight_line < 1 "
                 f"(first: {[(e.get('id'), e.get('highlight_line')) for e in bad[:5]]})")
         seed_problems.extend(r19_3_chain_problems(seed, r["nodes"], r["edges"], inc))
+        seed_problems.extend(
+            write_leg_endpoint_problems(seed, r["nodes"], r["edges"], inc))
+        seed_problems.extend(dead_end_flow_problems(seed, r["nodes"], r["edges"]))
         r["chain_problems"] = [p for p in seed_problems if p.startswith("R19.3")]
         problems.extend(seed_problems)
     with capsys.disabled():

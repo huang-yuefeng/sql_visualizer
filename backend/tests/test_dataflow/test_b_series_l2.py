@@ -8,9 +8,10 @@
     subquery owning its context), falling back to the enclosing scope
     (measured on the sample script: 15 parentless → 0; the loan_final
     CTE output columns parent under the loan_final CTE node).
-  - C-9: per-statement dedup — the L2 field dedup key is
-    (parent, undecorated_label, stmt_idx): same-named fields from
-    DIFFERENT top-level statements stay distinct.
+  - C-9: per-statement fold (J12-16 user ruling, 2026-08-11) — the L2
+    field dedup key is (parent, undecorated_label) WITHOUT stmt_idx:
+    same-named fields from DIFFERENT top-level statements fold into ONE
+    display field per physical table (the keeper = the first occurrence).
   - C-10: the dataflow_service miss path writes the versioned GRAPH cache
     ({GRAPH_CACHE_PREFIX}_{cache_key}.json, format_version 3) — it
     previously only wrote the schemas cache, so every on-demand build
@@ -210,22 +211,27 @@ SELECT loan_id, loan_bal FROM bdm_acc_loan_info WHERE loan_bal > 0;"""
 
 
 def test_c9_per_statement_dedup():
-    """Same-named fields from DIFFERENT top-level statements stay distinct
-    under the same keeper: loan_id appears TWICE (stmt TOP0 + TOP1)."""
+    """J12-16 (user ruling 2026-08-11, binding): the field dedup key
+    drops stmt_idx — same-named fields from DIFFERENT top-level
+    statements FOLD into ONE display field per physical table. loan_id
+    appears ONCE (the keeper = the first occurrence, stmt TOP0); the
+    FIXED payload pins the single folded field and its keeper context.
+    (Pre-ruling the payload was TWO fields, TOP0 + TOP1.)"""
     ws_id = _ws_for(TWO_STMT_SQL, "two_stmt.sql")
     try:
         graph = _build_l2_graph(ws_id, "two_stmt.sql", TWO_STMT_SQL,
                                 TABLE, "loan_id", relevance_filter=False)
         fields = _fields_of_parent(graph, TABLE)
         loan_ids = [f for f in fields if f["label"] == "loan_id"]
-        assert len(loan_ids) == 2, \
-            f"expected 2 per-statement loan_id fields, got {len(loan_ids)}"
+        assert len(loan_ids) == 1, \
+            f"expected 1 folded loan_id field (J12-16), got {len(loan_ids)}"
 
-        # the two fields trace back to the two statements' extraction contexts
+        # the single folded field keeps the FIRST occurrence's identity
+        # (the keeper — the TOP0 statement's extraction context)
         res = extract_variables_from_sql(TWO_STMT_SQL, "two_stmt.sql")
         id_to_ctx = {v.id: v.context for v in res.variables}
-        ctxs = sorted({id_to_ctx[f["original_id"]] for f in loan_ids})
-        assert ctxs == ["TOP0", "TOP1"], ctxs
+        ctx = id_to_ctx.get(loan_ids[0]["original_id"])
+        assert ctx == "TOP0", f"keeper ctx {ctx!r}, expected 'TOP0'"
     finally:
         delete_workspace(ws_id)
 

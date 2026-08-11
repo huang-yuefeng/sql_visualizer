@@ -60,10 +60,13 @@ def display_pipeline(sql_text, script_name):
     nodes, edges = graph["nodes"], graph["edges"]
     target_ids, direct_ids = l2._compute_target_and_direct_ids(
         nodes, edges, "", "", physical_model=model)
-    table_nodes, field_nodes, _others, _alias_map = (
+    # J12-10 stage 4: the classification returns (table_nodes,
+    # field_nodes, alias_map, occ_to_id) — occ_to_id IS the id_map (the
+    # old _build_id_map is gone).
+    table_nodes, field_nodes, _alias_map, occ_to_id = (
         l2._classify_compound_nodes(nodes, graph, script_name,
                                     target_ids, direct_ids, None, model))
-    id_map = l2._build_id_map(table_nodes, field_nodes, _others)
+    id_map = occ_to_id
     new_edges, node_labels = l2._build_edge_list(edges, nodes, id_map,
                                                  sql_text)
     new_edges = l2._combine_edges(new_edges)
@@ -72,9 +75,11 @@ def display_pipeline(sql_text, script_name):
                                        table_nodes, field_nodes,
                                        node_labels, sql_text, strict=False)
     # J12-10 stage 3: _simplify_dml_edges returns only new_edges — the
-    # dml_pairs collection it fed (the sync phase) is gone.
+    # dml_pairs collection it fed (the sync phase) is gone. Stage 4
+    # (J12-15): the per-statement trunk selection consumes the model.
     new_edges = l2._simplify_dml_edges(new_edges, graph, id_map,
-                                       table_nodes, field_nodes)
+                                       table_nodes, field_nodes,
+                                       physical_model=model)
     new_edges = l2._dedup_edges(new_edges)
     l2._attach_flow_payload(
         new_edges, field_nodes, table_nodes=table_nodes,

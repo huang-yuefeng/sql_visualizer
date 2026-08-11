@@ -557,6 +557,277 @@ per-occurrence deps — the model consumes them).
 full suite green; frontend vitest green (L1 ids change — persisted L1
 graphs in views.json are display caches only, see §4.3).
 
+### Stage 4 — EXECUTION (Team S4, 2026-08-11) — documented diff
+
+**Done.** graph_service + l2_builder adopt the physical model for
+table_fields/alias_map/parents and compound classification; the
+keeper-merge/proxy machinery is deleted; J12-15's per-statement DML
+trunk is implemented; `GRAPH_CACHE_PREFIX` bumped to `graph_3_2_23`.
+Working tree vs git HEAD (034eaa2). Snapshot rebaseline
+(L2_SNAPSHOT_UPDATE=1) covers EXACTLY the diffs below — the J12-15
+write-leg fix on the flagship filtered view is the FIX (documented
+here), everything else is the alias-truth diff.
+
+**Call sites (model built at extraction/cache time, passed down):**
+
+| Site | Change |
+|---|---|
+| `graph_service.py` `build_graph_data` | builds `physical_model = build_physical_model(analysis)` once at top; `alias_map` = projection of the model's alias views (label → canonical entity name, last-writer-wins — replaces the table/view/cte source_tables scan at 138-143); `table_fields` = `{entity.name: sorted(entity.fields)}` for entities with fields, PLUS an alias-label key per alias view carrying the canonical fields (replaces P4 SCHEMA scan + P4-ext DML scan + P5 ALIAS sync at 262-334 — all covered: INSERT columns carry source_tables=[target] so they land on model fields; SCHEMA-edge columns are parented field occurrences); parent assignment (252-260) resolved via the model's occurrence index (`_occ_table_name` owner resolution) instead of the literal-prefix first-match |
+| `l2_builder.py` `_classify_compound_nodes` | is_alias = `nid in physical_model.alias_by_var_id` (alias_of truth — the phase-0 alias_map read + node-scan first-writer-wins rebuild are DELETED); alias_parent_id via the model's canonical key → keeper_by_entity (name-scan fallback when the canonical is not yet classified); returns `(table_nodes, field_nodes, alias_map, occ_to_id)` — other_nodes dropped (dead — never populated), occ_to_id replaces `_build_id_map`; every merged-away nid (keeper merge, alias dedup, field dedup) records `occ_to_id[nid] = keeper/field id` instead of `merged_original_ids` |
+| `l2_builder.py` `_carry_node_lines` | reads `physical_model.occurrences` (context/variable_type/line_start/line_end/defined_in for every var — the same universe as the full-graph node index, same order → byte-identical statement anchors and spans); `_stmt_anchor_lines_from_nodes` DELETED |
+| `l2_builder.py` `_build_id_map` | DELETED — the classification returns occ_to_id; the orchestrator and every phase consume it under the same `id_map` name (endpoint re-pointing semantics unchanged) |
+| `l2_builder.py` `_simplify_dml_edges` | gains `physical_model=None`; per-statement trunk selection (J12-15, §1.7) — see below |
+| `l2_builder.py` `_assemble_output` | `_clean` deleted (no `merged_original_ids` key exists anymore) |
+| `l2_builder.py` `_build_l2_graph` | orchestrator passes `physical_model` to `_simplify_dml_edges`; `_carry_node_lines(table_nodes, physical_model)`; `id_map = occ_to_id` |
+
+**Machinery deleted (never-patch rule — no dormant code):**
+
+- `_build_id_map` (l2_builder) — replaced by the classification's
+  occ_to_id (every nid seen during classification maps to its
+  compound/field id; merged-away nids map to their keeper).
+- `merged_original_ids` plumbing (keeper merge / alias dedup / field
+  dedup bookkeeping) — the merge record is now occ_to_id entries.
+- Phase-0 alias_map read + Bug-48 fallback + B3/P1 first-writer-wins
+  rebuild in `_classify_compound_nodes` — alias detection is the
+  model's alias_by_var_id; the parent-resolution fallback map is
+  derived from the model's alias views (label → canonical name).
+- `_stmt_anchor_lines_from_nodes` — statement anchors ride the model's
+  occurrence index (byte-identical anchors, verified by the CW4 mirror
+  byte-identity test).
+- `_assemble_output._clean` — no key to strip.
+
+**Alias rendering diff (model truth, probe-verified):** display alias
+compounds in the flagship FULL view: 16 → 14. `p2@40` (fc375370e2,
+vt=subquery, alias_of=None) and `p2@116` (76385e5f13, vt=subquery,
+alias_of=None) are derived-subquery aliases — the model keeps them as
+their own (name, context) entities (subquery-kind vars are never
+aliases of another table) — the display now renders them as
+intermediate_table `p2` (was alias_table `p2@40` / `p2@116`).
+`p2@199` (JOIN alias of bdm_acc_loan_info_sup, I4 alias_of set) stays
+an alias compound. The two changed nodes appear only in the full view
+(not in the filtered views) and in no Jaccard fixture → gate-safe. L1
+already renders only model alias views as aliases (stage 4a) — L2 now
+matches L1. multi_ctx (`test_l2_table_dedup`): p/s/r/a are all
+table-type label-rule aliases, all in model.alias_by_var_id — full
+parity, no diff.
+
+**J12-15 fix (per-statement DML trunk, §1.7, coordinator-mandated
+stage-4 scope):** `_simplify_dml_edges` selects the trunk PER raw DML
+edge instead of one global first-⟐ output: for every raw DML edge the
+model's `entity_of_id` of the source var is checked — when it is the
+`('⟐ output', TOPn)` entity (output VTs are (name, context)-keyed
+virtual entities, EXACTLY ONE occurrence each — the raw edge's source
+var), the statement's output-VT compound (by original_id) becomes
+`stmt_trunk[TOPn]`. Edges whose statement's output VT is absent from
+the graph keep the global "⟐ output"-preferred fallback (the legacy
+first-intermediate loop). The compound→statement map (`ctx_by_id`:
+table compounds' own carried context; field compounds' keeper
+occurrence context) selects the trunk per edge: rule 3's dml_out
+source, the value edge's target, rule 2's redirect target and pattern
+2's rewrite source all use `_trunk_for(e)`. Rule 1/2/pattern-2 guards
+change from `!= intermediate_id` to `not in output_ids` (the set of
+ALL ⟐ output compound ids) — otherwise the FIXED statement-1 trunk
+would be suppressed by rule 1 or re-routed by pattern 2.
+
+Probe-verified flagship (filtered view, `bdm_acc_loan_info.data_dt`):
+
+| Edge | Before | After |
+|---|---|---|
+| `l2e_73632d4f7c7a_dml_out` (output → rrcdm write leg) | source `l2_tbl_7b217fb63a` (output@L160, TOP0) | source `l2_tbl_236587aa4c` (output@211, TOP1) |
+| `l2e_61a65f76a367_value` (data_dt@213 value edge) | target `l2_tbl_7b217fb63a` | target `l2_tbl_236587aa4c` |
+| output@L160 (`l2_tbl_7b217fb63a`) | carried the rrcdm write leg + value edge (wrong) | clean — statement-0 (sup) edges only |
+| output@211 (`l2_tbl_236587aa4c`) | only read-into-output + SCHEMA (dead-end) | + the rrcdm write leg + value edge |
+
+Edge IDs / highlight_lines / reasons unchanged where endpoints did not
+move (ids are computed pre-rewrite from the mapped endpoints — the
+write leg's id/hl stay `73632d4f7c7a_dml_out`/211, only the source
+changes). R20 reason strings stay truthful (the closure/downstream
+walks operate on the FINAL edges — the rrcdm continuation now starts
+at output@211). The raw WRITE_READ DML edge (sup@L160 → sup@L223)
+maps to a self-loop after keeper mapping and drops in
+`_build_edge_list` — unchanged.
+
+**Verified snapshot diff (2026-08-11, rebaselined):** 00
+BDM_ACC_LOAN_INFO_SUP_M.sql — the full byte-diff of the rebaseline
+(seed `rollover_loan_info.lending_ref`; every other node/edge, all
+node fields except the two below, all edge endpoints/lines, and the
+seed selection are byte-identical):
+- filtered AND full views: `l2e_73632d4f7c7a_dml_out` source
+  `l2_tbl_7b217fb63a` → `l2_tbl_236587aa4c` (the J12-15 per-statement
+  trunk). The value edge `l2e_61a65f76a367` does NOT appear in this
+  snapshot's graphs (absent under this seed in both views) — its
+  target change is pinned by `test_l2_stage4.py` instead.
+- reason strings (truthful continuation): `l2e_73632d4f7c7a_dml_out`
+  now carries `bdm_acc_loan_info_sup@L223` (the raw edge's source
+  var) before the `‖⟐ output@L211 → rrcdm_job_log_exec_par@L211‖`
+  write leg; `l2e_b4fc03d22434` (read into output @211) now continues
+  `→ rrcdm_job_log_exec_par@L211`. Reason text is not stable across
+  the fix — the closure walks run on the FINAL (re-trunked) edges.
+- full view only: `l2_tbl_5036613a8c`/`l2_tbl_c2751fbae5`
+  (p2@40/p2@116) `alias_table` label `p2@40`/`p2@116` →
+  `intermediate_table` label `p2` (compound ids unchanged — they are
+  content-derived from the original var ids).
+
+Other snapshots change only where multi-statement DML or
+derived-subquery aliases exist; single-statement scripts are
+byte-identical (the single statement's trunk IS the global
+intermediate).
+
+**Cache prefix:** `GRAPH_CACHE_PREFIX = "graph_3_2_23"` (was
+3_2_22) — L2 graph JSON shape changed (`merged_original_ids` gone;
+per-statement DML routing is a shape change); extractor_version NOT
+bumped (extraction is unchanged).
+
+**Tests added/updated (model-backed pins):**
+- `test_l1_l2_integration.py` — CW4 mirror updated for the new phase
+  signatures (`_classify_compound_nodes` 4-tuple arity, occ_to_id,
+  `_carry_node_lines(table_nodes, physical_model)`,
+  `_simplify_dml_edges(..., physical_model)`); `test_alias_map_in_graph_cache`
+  + `test_l1_pairs_covered_by_table_fields` keep pinning the graph
+  payload keys (alias_map / table_fields) — model-projected now.
+- `test_dataflow/test_l2_table_dedup.py` —
+  `test_classify_compound_nodes_records_merged_nids` rewritten as
+  `test_classify_compound_nodes_records_occ_to_id` (merged-away nids
+  resolve through the classification's occ_to_id to the keeper);
+  `test_merged_original_ids_never_leak` extended to `occ_to_id` never
+  leaking (it never exists on nodes at all).
+- `test_physical_model_equivalence.py` — `display_pipeline` consumes
+  the classification's occ_to_id and passes the model to
+  `_simplify_dml_edges`.
+- NEW `test_l2_stage4.py` — pins: per-statement trunk (J12-15 —
+  flagship filtered view write-leg source == `l2_tbl_236587aa4c`,
+  output@L160 carries no rrcdm edge), no keeper-merge remnants (no
+  `merged_original_ids` anywhere in classification or output, no
+  `_build_id_map` symbol), model-driven alias rendering (p2@40/p2@116
+  intermediate, p2@199 alias, alias labels `p1@29` stable),
+  graph_service payload keys (alias_map label keys + table_fields
+  alias-label keys).
+
+### J12-16 (2026-08-11, user ruling — binding) — fold same-named field instances into ONE display field
+
+**Ruling:** the C-9 per-statement field dedup key drops `stmt_idx` —
+same-named field instances from DIFFERENT top-level statements fold
+into ONE display field per physical table. Display-only: payload
+labels untouched; the ⟐ output VTs stay un-merged (R19.6b); J12-15
+stays independent; gate neutrality verified by a full benchmark run
+(see below).
+
+**Engine changes (l2_builder.py):**
+
+1. `_classify_compound_nodes` — both dedup sites (column branch ~:536,
+   computed branch ~:588) drop `stmt_idx`: `dedup_key =
+   (parent_table_id, field_node["label"])`. The keeper is the FIRST
+   occurrence; every merged-away nid still resolves through
+   `occ_to_id` to the folded field (per-var entity identity is kept —
+   `occ_to_id` still records each merged nid).
+2. `_carry_edge_info` — the payload carrier gains `_src_ctx` (the raw
+   source var's per-occurrence context). The J12-16 fold collapses
+   per-statement FIELD identities, so per-statement edge semantics
+   must ride the edges themselves.
+3. `_simplify_dml_edges` — rule 2's "bypass" test becomes
+   per-statement: `dml_sources_by_stmt[TOPn]` (raw DML edge sources
+   bucketed by their occurrence context; unresolved contexts land in
+   a `None` bucket consulted from any statement — no model ⇒
+   everything lands there, reproducing the global pre-merge
+   semantics). A folded field that is a DML source in statement A
+   only (the flagship sup data_dt: write column @160 in TOP0, reads
+   @223/225 in TOP1) is NOT a bypass in statement B — pre-merge the
+   per-statement field split provided that granularity; the fold
+   erases it, the per-statement map restores it.
+4. `_build_l2_graph` — orchestrator order change: `_simplify_dml_edges`
+   now runs BEFORE `_combine_edges` (and the promotion). The folded
+   field's per-instance edges (identical mapped endpoints, different
+   occurrences) diverge ONLY through rule 2's retarget: the TOP0
+   instance (data_dt@160→sup@160) redirects to the statement's ⟐
+   output (matches the canonical X2 `data_dt→⟐output REF@160`), the
+   TOP1 instance (data_dt@225→sup@223) stays on the read target
+   (canonical rows 18/21 `data_dt→sup REF@223`). `_combine_edges` is
+   keyed on (source, target, edge_type) — before the retarget the two
+   instances are identical there and collapse (first-wins, dropping
+   the TOP1/223 form). The mirror in
+   `test_l1_l2_integration.py::_display_pipeline` follows the same
+   order.
+5. Rule 2 recomputes the retargeted edge's id from its NEW endpoints
+   (`md5(source+target+edge_type)`, mirroring rule 3's `_dml_out`
+   pattern) — the two surviving instances must carry DISTINCT ids
+   (the benchmark's per-edge `used` id set consumes ids on first
+   match; a shared id would break the second row).
+
+**Side effect of the reorder (full view only, pinned):** the
+DML-simplification retarget now fires BEFORE the field promotion, so
+the sup write statement's column-read bypass REF (L160, a non-target
+field) is redirected through the statement's ⟐ output BEFORE its
+field source promotes to sup — it survives as `sup→output REF@160`
+instead of being dropped as a sup→sup self-loop. Net-flow role of
+bdm_acc_loan_info_sup in the full view: waypoint (3/3) → source
+(4/3); `test_flow_roles.py::test_full_view_roles_evidence` re-pinned
+with the explanation.
+
+**Probe-verified flagship payload (post-fix):**
+
+- Filtered view (`bdm_acc_loan_info.data_dt`): ONE sup data_dt field
+  (`fld_e2b38f37a7`, parent bdm_acc_loan_info_sup) with incidents
+  [160, 223, 225]:
+  - `l2e_674c282afd9f` data_dt→output REF hl=160 kind=read (the TOP0
+    instance retargeted; recomputed id)
+  - `l2e_15293f1e56e7` data_dt→bdm_acc_loan_info_sup REF hl=223
+    kind=read (the TOP1 instance — was dropped by the combine
+    pre-fix)
+  - `l2e_9045ad741fa4_value` data_dt→output TABLE_FLOW hl=160
+    kind=write (value edge)
+  - `l2e_c06ed12e29b5` data_dt→bdm_acc_loan_info_sup FILTER hl=225
+    kind=field flow
+- Full view: the same field carries incidents [160, 199, 202, 223,
+  225] — exactly the ruling's expected set.
+- J12-15 intact: `l2e_73632d4f7c7a_dml_out` (output@211→rrcdm, TOP1)
+  and `l2e_3b8e8e62b668_dml_out` (output@160→sup, TOP0) write legs
+  unchanged; value edge target output@211; no dead-end output VTs.
+
+**Gate neutrality (THE gate, full run):** bdm
+N=1.0000/1.2857 E=1.0000/1.0000 H=1.0000/1.0000; sup
+N=1.0000/1.2857 E=1.0000/1.0000 H=1.0000/1.0000 — floors met
+(bdm 1.0/1.0/1.0, sup 0.9/1.0/1.0) with recall 1.0 on every
+feature. The fixture is NOT rebaselined: the fold is display-only
+(node realization matches by normalized label + incident-line sets;
+the merged field realizes the canonical data_dt@160/225 node with
+incidents 160/223/225). Node precision ratios moved 1.2/1.125 →
+1.2857/1.2857 (one fewer served node per seed — the fold).
+
+**Snapshot rebaseline (documented BEFORE the rebaseline run):
+`L2_SNAPSHOT_UPDATE=1` covers EXACTLY the J12-16 fold:**
+
+- 00 BDM_ACC_LOAN_INFO_SUP_M.sql: filtered byte-identical; full
+  211→204 nodes (7 folded field instances gone — including
+  `fld_faa927ddff`, the stmt-1 sup data_dt; its keeper
+  `fld_e2b38f37a7` survives), 470→471 edges (26 new / 25 gone ids —
+  the retargeted-edge id recompute + fold rewires; e.g.
+  `l2e_674c282afd9f` data_dt→output REF@160 and the surviving
+  `l2e_15293f1e56e7` REF@223 replace the single pre-fix REF form).
+- 01.sql (tpcds): filtered 8→7 (1 folded field gone), full 26→23
+  (3 gone); edge ids churn where the retarget recomputed ids
+  (12→12 / 35→35 counts).
+- 02.sql (tpcds): filtered byte-identical; full 83→75 (8 gone),
+  74→74 edges (3 new / 3 gone ids).
+- 05.sql (tpcds): filtered 15→14 (1 gone), full 154→149 (5 gone),
+  edge counts 26→26 / 237→237 with id churn.
+- All other snapshot scripts byte-identical (no multi-instance
+  same-named fields, no full-view DML-bypass REF in the role
+  balance).
+
+**Tests updated (pins to the FIXED payload, none weakened):**
+- `test_dataflow/test_b_series_l2.py::test_c9_per_statement_dedup` —
+  loan_id appears ONCE under the keeper (was TWICE, TOP0+TOP1); the
+  single folded field keeps the FIRST occurrence's identity (ctx
+  TOP0); C-9 header docstring updated to the (parent, undecorated
+  label) key.
+- `test_dataflow/test_l2_table_dedup.py` — comment updated (display
+  fold vs per-var entity identity; assertion unchanged).
+- `test_flow_roles.py::test_full_view_roles_evidence` —
+  bdm_acc_loan_info_sup waypoint → source (the reorder side effect
+  above), documented in the docstring.
+- `test_l1_l2_integration.py` — CW4 mirror phase order matches the
+  orchestrator (simplify before combine).
+
 ---
 
 ## 4. Risks

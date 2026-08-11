@@ -250,9 +250,19 @@ def test_full_view_roles_evidence(loan_ws):
     bdm_acc_loan_info     → source   (read-only; flow out dominates:
                            out = TABLE_FLOW + COMPUTED + 2 REF + 2 FILTER
                            + 4 JOIN = 10 vs in = 2 REF)
-    bdm_acc_loan_info_sup → waypoint (balanced — both roles:
-                           in = write leg + 2 COMPUTED = 3,
-                           out = TABLE_FLOW read-leg + REF + JOIN = 3)
+    bdm_acc_loan_info_sup → source   (J12-16 FIXED payload: the
+                           DML-simplification retarget now runs BEFORE
+                           the field promotion — the orchestrator order
+                           the per-statement edge instances need to
+                           diverge before the (source, target, edge_type)
+                           combine collapses them — so the sup write
+                           statement's column-read bypass REF (L160) is
+                           redirected through its ⟐ output BEFORE its
+                           field source promotes to sup; it survives as
+                           sup→output REF@160 instead of being dropped as
+                           a sup→sup self-loop. out = TABLE_FLOW read-leg
+                           + REF@160 + REF@199 + JOIN = 4 vs
+                           in = write leg + 2 COMPUTED = 3)
     rrcdm_job_log_exec_par → target  (flow in dominates — the write leg:
                            0 out vs 1 in)
     """
@@ -270,7 +280,7 @@ def test_full_view_roles_evidence(loan_ws):
         by_label.setdefault(lab, []).append(nid)
 
     assert roles[by_label["bdm_acc_loan_info"][0]] == "source"
-    assert roles[by_label["bdm_acc_loan_info_sup"][0]] == "waypoint"
+    assert roles[by_label["bdm_acc_loan_info_sup"][0]] == "source"
     assert roles[by_label["rrcdm_job_log_exec_par"][0]] == "target"
 
     # every compound table node got exactly one role
