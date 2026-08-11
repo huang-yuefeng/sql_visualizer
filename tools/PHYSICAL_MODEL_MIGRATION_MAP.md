@@ -415,6 +415,115 @@ re-anchor"); full suite green; highlights byte-exact
 `[[18,18],[43,43],[158,158],[160,160]]` preserved (v3.3.140 verified
 target). Frontend vitest re-run (session id-based state, §4.3).
 
+### Stage 3 — EXECUTION (Team S3, 2026-08-11) — documented diff
+
+**Done.** Walkers + seed search consume the physical model; the three
+proxy families are deleted; `GRAPH_CACHE_PREFIX` bumped to
+`graph_3_2_22` (cache_keys.py). Working tree vs git HEAD (2963641,
+after Team L1's Stage 4a — no file overlap). Snapshot rebaseline
+(L2_SNAPSHOT_UPDATE=1) covers EXACTLY the diff below — 5 of 13 files
+change, 8 stay byte-identical.
+
+**Call sites (model built at extraction/cache time, passed down):**
+
+| Site | Change |
+|---|---|
+| `dataflow_service.py` `get_level2_graph` | hit path: `build_physical_model(graph_data)` fallback when the analysis-cache model is missing; miss path: build from `result` after `_atomic_write_text`; the relevance-filter call passes `physical_model=` (3 edits) |
+| `lineage.py` `compute_field_flow` | walks `pm.edges` (PhysicalEdge adjacency, occurrence-level source_id/target_id; I5 containment excluded), seeds via `pm.fields[(target_keys, field)].occurrence_ids` ∩ FIELD_LIKE (W1), `pm.occurrence`/`pm.entity_of_id` for owner/identity/chain lookups; `physical_model` REQUIRED (TypeError when None) |
+| `lineage.py` `filter_by_field_flow` | forwards the model to `compute_field_flow` |
+| `lineage.py` `flow_targets` / `flow_source_id` | write-leg walk over `pm.edges` (DML edges, target-endpoint table keys); seed table via `pm.occurrences` occurrence index — no display-node label scanning |
+| `l2_builder.py` `_compute_target_and_direct_ids` | model-union seed: `{occ for (tkey,fname),fld in pm.fields if fname==field} ∩ FIELD_LIKE_TYPES` PLUS the J12-9 label predicate (`label.rsplit(".",1)[-1] == field`) PLUS the `source_columns` rsplit predicate — union purely ADDITIVE (J12-9 kept semantics; model=None falls back to the two predicates only) |
+| `l2_builder.py` `_classify_compound_nodes` / `_build_id_map` / `_attach_flow_payload` | consume `physical_model` for entity/occurrence lookups (stage-2 signature, unchanged) |
+| `l2_builder.py` `_simplify_dml_edges` | returns only `new_edges` (the dml_pairs collection it fed to the deleted sync phase is gone) |
+
+**Machinery deleted (never-patch rule — no dormant code):**
+
+- `_sync_alias_and_dml_fields` (l2_builder) — the sync_/dml_ proxy
+  synthesis: `sync_{vid}_{keeper[:8]}` copies and `dml_{fn[id]}_{tgt_tid[:8]}`
+  phantom fields, and the `dml_pairs` collection in `_simplify_dml_edges`
+  that fed them.
+- P1 seed copies `seed_{id}_{keeper[:8]}` (l2_builder) — the seed field
+  instance is now the model entity; it renders on the searched table's
+  compound and on the alias/CTE/target compounds that carry the same
+  PhysicalField occurrences.
+- `lineage.py` owner resolution heuristics (`_owner_of` →
+  `_resolve_owner_holder`, `_find_labeled`) — same-context-or-ancestor
+  holder-VAR label scans replaced by model entity attribution.
+
+**Walker seed-semantics change (the ONE root cause of every snapshot
+diff):** the old walker resolved a seed candidate's owner by scanning
+for a same-context holder VAR labeled `source_tables[0]`; that fails for
+cross-context references (alias reads), CTE-self references,
+CTE-output containers, and unqualified aggregates with empty
+source_tables — old seeds were EMPTY there → search_matched False. The
+model-backed W1 seeds from extraction-time entity attribution
+(`pm.fields[(target_keys, field)].occurrence_ids`), so those searches
+now match (display/search consistency — the field IS shown under the
+searched table). This is the intended model-truth diff.
+
+**Documented snapshot diff (probe-verified, old-pipeline replay at
+git HEAD; fixture seeds in parentheses):**
+
+| Snapshot | Diff |
+|---|---|
+| 00 BDM_ACC_LOAN_INFO_SUP_M.sql | FULL VIEW 228→211 nodes (−17 proxies: 13 `dml_fld_*_l2_tbl_6` + 4 `sync_fld_*_canon`); seed ('bdm_acc_loan_info','lending_ref') → ('rollover_loan_info','lending_ref') — old seed EMPTY (owner=None), new 9-node/14-edge closure; fixture-seed filtered view byte-identical under PYTHONHASHSEED=0 |
+| 01 01.sql | seed unchanged ('customer_total_return','ctr_customer_sk'); fixture-seed filtered view +2 nodes/+3 edges — new W1 seeds BOTH occurrences (WHERE ref + CTE-output def) → closure gains the CTE body production sr_customer_sk → ctr_customer_sk |
+| 02 02.sql | seed ('web_sales','sold_date_sk') → ('wscs','sales_price') — old seed EMPTY, new 21-node/34-edge closure (fixture seed = first candidate whose filtered build matches) |
+| 05 05.sql | seed ('⟐ union0','return_amt') → ('ssr','sales') — old seed EMPTY, new 21-node/28-edge closure |
+| 08 08.sql | seed ('⟐ V1/subq/A2/union0','ca_zip') → ('⟐ output','SUMss_net_profit') — old seed EMPTY, new 4-node/4-edge closure (unqualified aggregate now entity-attributed) |
+| 03/04/06/07/09/10/11 | byte-identical (no change) |
+
+**J12-15 preserved (coordinator directive):** `_simplify_dml_edges`
+still picks ONE global trunk — the first "⟐ output" intermediate in
+table_nodes order — and rewrites every raw DML edge's source to it, so
+statement 2's write leg `output → rrcdm@211` still hangs off
+output@L160 and output@L211 dead-ends in multi-DML scripts (12/334
+samples; BUG_ANALYSIS J12-15). The rebaseline below does NOT change
+this — the 00 full-view diff is only the 17 proxy nodes; the dead-end
+edges stay. Fix = per-statement trunk selection, stage-4 scope
+(§1.7). If the walker/closure changes had incidentally fixed it, that
+would be reported as an intentional fix — it did not.
+
+**Edge-order note (not a regression):** the 00 filtered view's raw-edge
+order rotates with PYTHONHASHSEED (extractor iterates a raw-edge set);
+the OLD pipeline rotates identically — verified by replaying old
+lineage.py + l2_builder.py under both seeds. The harness runs
+PYTHONHASHSEED=0 where new == old order byte-identically.
+
+**Cache prefix:** `GRAPH_CACHE_PREFIX = "graph_3_2_22"` (was
+3_2_21) — L2 payload shape changed (proxy ids gone from served
+output); extractor_version NOT bumped (extraction is unchanged).
+
+**Tests added/updated (model-backed pins):**
+- `test_physical_model_equivalence.py` — `display_pipeline` passes the
+  model to matcher/walker; `_simplify_dml_edges` single-return; sync
+  helper DELETED; `test_keeper_field_labels_in_model_universe` +
+  `test_no_proxy_nodes_in_display_output` (no seed_/sync_/dml_ ids in
+  table/field/edge ids).
+- `test_walker_gaps_e3.py` — the 2 synthetic PARTITION-scoping tests
+  build the model from graph-data form and pass it to
+  `compute_field_flow` (graph-data form builds edges via the
+  source/target → source_id/target_id normalization).
+- `test_flow_roles.py` — `_raw_graph` returns `(graph, model)`;
+  `flow_targets`/`flow_source_id` call sites pass `physical_model=`.
+- `test_dataflow/test_l2_table_dedup.py` — matcher call passes the
+  fixture's `physical_model`.
+- `test_l1_l2_integration.py` — CW4 phase-split mirror kept: the
+  relevance-filter/matcher/simplify/flow-role phases take the model
+  (same phases, same order — byte-identical graph).
+- `test_jaccard_benchmark.py` — the `dml_`-prefix phantom-dup guard
+  extended to the stronger stage-3 invariant: ANY seed_/sync_/dml_
+  proxy field id in the served output is a violation (R11-2 shape
+  kept for dml_ dups). Gate GREEN with UNCHANGED floors (bdm
+  N=1.0/1.2 E=1.0/1.0 H=1.0/1.0; sup N=1.0/1.125 E=1.0/1.0
+  H=1.0/1.0) — the Jaccard fixture is NOT rebaselined.
+
+**Contract note (from Team L1's Stage 4a commit message):**
+`build_physical_model`'s graph-data {'nodes','edges'} form — the
+source/target → source_id/target_id normalization makes Pass 3 build
+edges from graph-form edges too (verified: REF p1→e1 builds a model
+edge; L1 no longer uses that form).
+
 ### Stage 4 — l1_builder + graph_service adopt; delete keeper-merge/proxy machinery; alias views
 
 **Files touched:**

@@ -177,56 +177,87 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
 
 def _apply_relevance_filter(full_graph: dict, table: str, field: str,
                             table_schemas: dict | None,
-                            relevance_filter: bool = True) -> dict:
+                            relevance_filter: bool = True,
+                            physical_model=None) -> dict:
     """Phase 2 (CW4): apply the strict table.field flow filter, or return the full graph.
 
     v3.3.140: filter_by_field_flow() (the strict per-instance table.field
     walker in lineage.py) replaces filter_relevant() — the requirement
     changed from table-level flow to exact flow of table.field. Flag
     semantics unchanged: only applied when filtering is requested.
+
+    J12-10 stage 3: the walker consumes the physical model — it is passed
+    through to filter_by_field_flow (required when filtering).
     """
     if relevance_filter:
-        return filter_by_field_flow(full_graph, table, field, table_schemas=table_schemas)
+        return filter_by_field_flow(full_graph, table, field,
+                                    table_schemas=table_schemas,
+                                    physical_model=physical_model)
     return full_graph
 
 
 def _compute_target_and_direct_ids(nodes: list, edges: list,
-                                   table: str, field: str) -> tuple:
+                                   table: str, field: str,
+                                   physical_model=None) -> tuple:
     """Phase 3a (CW4): identify target node ids and compute the upstream/
     downstream BFS sets used for direct/indirect field classification.
+
+    J12-10 stage 3: the seed search resolves against the physical model —
+    PhysicalField entities (field lookup) instead of scanning display
+    nodes. The target set is the model-union of occurrence ids over the
+    fields named `field` (owner-agnostic — the J12-9 one-predicate
+    semantics; probe-verified byte-identical to the label predicate on
+    the gate sample set, 2026-08-11), intersected with the FIELD_LIKE
+    nodes present. The J12-9 source_columns predicate is kept via the
+    model's occurrence index (same exact suffix rule, no substring —
+    R4), so a var whose label differs but whose source column carries
+    the searched field part still matches (alias-copy seed semantics).
 
     Returns (target_node_ids, direct_ids).
     """
     # Identify target node IDs (for is_target and direct/indirect)
     target_node_ids = set()
+    # Model-union: every occurrence whose PhysicalField name is `field`
+    # (one exact field-part rule — "table.field" labels are dotted
+    # labels, field-only AND alias-qualified labels like `p1.data_dt`
+    # still match a search for `bdm_acc_loan_info.data_dt` — the
+    # alias-copy seed depends on it; narrowing to name == target_full
+    # would regress the Jaccard gate).
+    union = set()
+    if physical_model is not None:
+        for (tkey, fname), fld in physical_model.fields.items():
+            if fname == field:
+                union.update(fld.occurrence_ids)
     for n in nodes:
         nd = n.get("data", n)
-        name = nd.get("label", "")
         vt = nd.get("variable_type", "")
-        if vt in FIELD_LIKE_TYPES:
-            # J12-9 (2026-08-11 ruling): seed matching is ONE exact
-            # field-part predicate — `value.rsplit(".", 1)[-1] == field` on
-            # the label and on each source_column. "table.field" is itself a
-            # dotted label, so the former exact-full (name == target_full),
-            # exact-field (name == field) and suffix-after-dot label paths
-            # are all one rule; the `target_full in sc` substring path was
-            # dead (source_columns are bare field names — probe 2026-08-11)
-            # and _target_field_sc collapsed into the same suffix rule
-            # (helper retired). No substring matching anywhere (R4: short
-            # names must never match inside longer ones). Field-only AND
-            # alias-qualified labels (e.g. `p1.data_dt`) still match a
-            # search for `bdm_acc_loan_info.data_dt` — the alias-copy seed
-            # depends on it; narrowing to name == target_full would regress
-            # the Jaccard gate.
-            # W-iteration (v3.3.147): "literal" included — the searched
-            # field's literal VALUE appearance ('$(load_date)' AS
-            # data_dt@213 → rrcdm, P17 §8.5) must be a target node so its
-            # write-side DML edge survives at field level (value edge).
-            if name.rsplit(".", 1)[-1] == field:
-                target_node_ids.add(nd.get("id"))
-            for sc in nd.get("source_columns", []):
-                if sc.rsplit(".", 1)[-1] == field:
-                    target_node_ids.add(nd.get("id"))
+        if vt not in FIELD_LIKE_TYPES:
+            continue
+        nid = nd.get("id")
+        # J12-9 label predicate kept ALONGSIDE the model union (the union
+        # only adds occurrences whose model field name is `field` — for
+        # column-family vars that IS the label field part, so the union is
+        # purely additive: display-truncated computed labels (label[:36])
+        # whose truncated name is the searched field). Removing the label
+        # predicate would regress dotted-suffix searches ("b.ihgmab)" as a
+        # suffix of a dotted computed label) and the model=None fallback.
+        label = nd.get("label", "")
+        if nid in union or label.rsplit(".", 1)[-1] == field:
+            target_node_ids.add(nid)
+            continue
+        # J12-9 source_columns path (kept — a var whose label differs but
+        # whose source column carries the searched field part still
+        # matches). Read from the occurrence index (the model houses the
+        # per-var data; node-carried source_columns as fallback).
+        if physical_model is not None:
+            o = physical_model.occurrence(nid)
+            sc = (o or {}).get("source_columns") or []
+        else:
+            sc = nd.get("source_columns", [])
+        for sc_name in sc:
+            if sc_name.rsplit(".", 1)[-1] == field:
+                target_node_ids.add(nid)
+                break
 
     # Compute upstream/downstream sets for direct/indirect classification
     fwd_adj = {}
@@ -591,45 +622,11 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 "parent": parent_table_id,
             })
 
-    # B3/P1: seed copy — an is_target seed field that landed on an ALIAS of
-    # the searched table is COPIED onto the searched table's own compound
-    # node when that node carries no same-named field yet (copying to the
-    # searched table — the field stays on its original alias parent, e.g.
-    # p1@29, AND appears on the searched table). Without this the seed
-    # shows only on the first same-name alias instance while the base
-    # table node stays field-less. When the keeper already owns the label
-    # (e.g. the alias field duplicates a bare-FROM read), the copy is
-    # skipped to avoid duplication.
-    if search_table:
-        keeper_tbl_id = None
-        for tn in table_nodes.values():
-            if tn.get("table_name") == search_table and tn.get("type") in (
-                    "source_table", "intermediate_table", "output_table"):
-                keeper_tbl_id = tn["id"]
-                break
-        if keeper_tbl_id:
-            table_by_new_id = {tn["id"]: tn for tn in table_nodes.values()}
-            keeper_labels = {f.get("label") for f in field_nodes
-                             if f.get("parent") == keeper_tbl_id}
-            for fn in field_nodes:
-                if not fn.get("is_target"):
-                    continue
-                parent_tn = table_by_new_id.get(fn.get("parent"))
-                if not parent_tn or parent_tn.get("type") != "alias_table":
-                    continue
-                if alias_map.get(parent_tn.get("table_name", "")) != search_table:
-                    continue
-                if fn.get("label") in keeper_labels:
-                    continue
-                # C4 (v3.3.140): COPY — the original fn stays on its alias
-                # parent; a proxy with the same label is added under the
-                # searched table's compound node.
-                proxy = dict(fn)
-                proxy["id"] = f"seed_{fn['id']}_{keeper_tbl_id[:8]}"
-                proxy["parent"] = keeper_tbl_id
-                proxy["field_group"] = "direct"
-                field_nodes.append(proxy)
-                keeper_labels.add(fn.get("label"))
+    # J12-10 stage 3: the B3/P1 seed-copy proxy (seed_{id}_{keeper[:8]})
+    # is GONE — the seed field now lands on the searched table's own
+    # compound node directly: the physical model attributes every
+    # occurrence to its entity, so the searched table's compound carries
+    # the real field instance (nothing to synthesize).
 
     return table_nodes, field_nodes, other_nodes, alias_map
 
@@ -971,10 +968,12 @@ def _survive_join_edges(new_edges: list, full_graph: dict, id_map: dict,
 
 
 def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
-                        table_nodes: dict, field_nodes: list = None) -> tuple:
+                        table_nodes: dict, field_nodes: list = None) -> list:
     """Phase 8 (CW4): DML edges route through the ⟐ output (intermediate_table).
 
-    Returns (new_edges, dml_pairs).
+    J12-10 stage 3: returns just new_edges — the dml_pairs output fed the
+    retired DML-phantom sync (_sync_alias_and_dml_fields, deleted); the
+    write targets now resolve through the physical model's roles.
     """
     # P17 (§8.5): search-target seed fields keep field-level edges — the
     # value-edge retention below only fires for them.
@@ -1014,7 +1013,6 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
     # ~635 needs dml_targets to route TABLE_FLOW through intermediate_id.
     dml_targets = set()
     dml_sources = set()
-    dml_pairs = set()  # (source, target) pairs from DML edges
     for fe in full_graph.get("edges", []):
         fed = fe.get("data", fe)
         rel = fed.get("edge_type", "") or fed.get("relationship", "")
@@ -1025,8 +1023,6 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
                 dml_targets.add(tgt_new)
             if src_new:
                 dml_sources.add(src_new)
-            if src_new and tgt_new:
-                dml_pairs.add((src_new, tgt_new))
 
     new_dml_edges = []
     for e in new_edges:
@@ -1107,7 +1103,7 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
             kept.append(e)
         new_edges = kept
 
-    return new_edges, dml_pairs
+    return new_edges
 
 
 def _dedup_edges(new_edges: list) -> list:
@@ -1121,130 +1117,6 @@ def _dedup_edges(new_edges: list) -> list:
         if key not in deduped:
             deduped[key] = e
     return list(deduped.values())
-
-
-def _sync_alias_and_dml_fields(field_nodes: list, table_nodes: dict,
-                               alias_map: dict, dml_pairs: set,
-                               nodes: list, physical_model=None) -> None:
-    """Phase 10 (CW4): Bug 28 alias field sync + DML phantom fields.
-
-    Per formal definition: when alias exists, its field set MUST mirror
-    the original table. And DML edges show fields flowing into targets.
-    Mutates field_nodes in place. The proxy synthesis stays (stage 3
-    removes it); only its INPUTS are model-sourced at stage 2: the
-    per-instance canonical check below is the model's alias resolution
-    (alias_of extraction truth) instead of a source_tables scan of the
-    full graph (the label-keyed scan collapses per label — the exact
-    approximation the physical model banishes; verified byte-identical
-    on the stage-2 snapshot scripts).
-
-    Bug-31 (fixed): the SCHEMA-edge output-table-field pass that used to
-    live here is gone. It bulk-copied virtual-table fields from the FULL
-    unfiltered graph into the filtered graph with no closure check — every
-    field it materialized was a disconnected duplicate: the column's own
-    field node already exists in the filtered graph (classification parents
-    it by its source_tables), and surviving SCHEMA edges are re-pointed by
-    id_map to that node, never to the copy (which therefore had zero
-    incident edges). The syncs below only mirror fields already present in
-    the filtered graph (survivors) or copies of survivors.
-    """
-    # Build field index: parent_table_id -> list of field dicts
-    field_by_parent = {}
-    for fn in field_nodes:
-        pid = fn.get("parent", "")
-        if pid:
-            field_by_parent.setdefault(pid, []).append(fn)
-
-    # ── Sync 1: alias -> canonical (alias invariant) ──
-    # C7 (v3.3.140): stmt_idx per original node — the sync exists-checks
-    # below are (parent, label, stmt_idx) aware so cross-statement
-    # same-name fields collapse/expand symmetrically with the field dedup
-    # key (parent, label, stmt_idx) from _classify_compound_nodes. The
-    # stmt_idx per occurrence stays a node scan (the model does not carry
-    # per-occurrence stmt_idx — stage-3 gap, see the migration map §1.3).
-    orig_stmt = {}
-    for n in nodes:
-        nd = n.get("data", n)
-        orig_stmt[nd.get("id", "")] = nd.get("stmt_idx")
-    new_to_orig = {tn["id"]: tid for tid, tn in table_nodes.items()}
-    for label, canonical in alias_map.items():
-        if label == canonical:
-            continue
-        # Find alias table node(s) and the canonical node
-        alias_tbl_ids = []
-        canon_tbl_id = None
-        for tid, tn in table_nodes.items():
-            if tn["table_name"] == label:
-                alias_tbl_ids.append(tn["id"])
-            if tn["table_name"] == canonical:
-                canon_tbl_id = tn["id"]
-        if not alias_tbl_ids or not canon_tbl_id:
-            continue
-        # B3/P1: the same alias label has one compound node per scope — the
-        # old loop kept only the LAST instance (usually a field-less one) and
-        # the sync silently died. Pick the first instance that actually
-        # holds fields AND whose own source table is the canonical — the
-        # label can name different physical tables per scope (p1 aliases
-        # bdm_acc_loan_info in the CTE scopes but loan_final at TOP0; the
-        # derived-table p2 reads ods_hub_lsacmsp columns while p2@TOP0
-        # aliases bdm_acc_loan_info_sup), and syncing a foreign scope's
-        # fields onto the canonical would be wrong. When no instance
-        # qualifies, keep the previous behavior (skip).
-        # J12-10 stage 2: the canonical check is the model's per-instance
-        # alias resolution (alias_of truth) — the full-graph source_tables
-        # scan it replaces is per-occurrence data the model owns as
-        # alias views; None (non-alias) never equals the canonical.
-        alias_tbl_id = None
-        for aid in alias_tbl_ids:
-            if aid not in field_by_parent:
-                continue
-            if physical_model.resolve_alias(new_to_orig.get(aid, "")) == canonical:
-                alias_tbl_id = aid
-                break
-        if alias_tbl_id is None:
-            continue
-        if alias_tbl_id in field_by_parent:
-            # Copy alias fields to canonical table
-            for af in field_by_parent[alias_tbl_id]:
-                af_stmt = orig_stmt.get(af.get("original_id", ""))
-                exists = any(
-                    f.get("parent") == canon_tbl_id and f.get("label") == af.get("label")
-                    and orig_stmt.get(f.get("original_id", "")) == af_stmt
-                    for f in field_nodes
-                )
-                if not exists:
-                    proxy = dict(af)
-                    proxy["id"] = f"sync_{af['id']}_canon"
-                    proxy["parent"] = canon_tbl_id
-                    proxy["field_group"] = "direct"
-                    field_nodes.append(proxy)
-
-    # Sync 2: DML phantom fields (field -> DML target table)
-    # Bug 29: After field promotion, dml_pairs may contain table IDs (not field IDs).
-    # Handle both: table ID → sync all fields under that table; field ID → direct match.
-    for (src_fid, tgt_tid) in dml_pairs:
-        # Find all field nodes whose parent is src_fid (table-level DML after promotion)
-        src_fields = [fn for fn in field_nodes if fn.get("parent") == src_fid]
-        if not src_fields:
-            # src_fid might be a field ID (pre-promotion path) — try direct match
-            src_fields = [fn for fn in field_nodes if fn["id"] == src_fid]
-        for fn in src_fields:
-            # R11-2: the exists-check dedups by (target, label) ONLY — the
-            # old orig_stmt term let the same (parent, label) pair exist
-            # twice when the source field instances came from different
-            # statements (e.g. the rrcdm_job_log_exec_par data_dt phantoms
-            # from the '$(load_date)' AS data_dt value at L213 in both the
-            # bdm and sup seeds). One DML target gets ONE field per label.
-            exists = any(
-                f.get("parent") == tgt_tid and f.get("label") == fn.get("label")
-                for f in field_nodes
-            )
-            if not exists:
-                proxy = dict(fn)
-                proxy["id"] = f"dml_{fn['id']}_{tgt_tid[:8]}"
-                proxy["parent"] = tgt_tid
-                proxy["field_group"] = "direct"
-                field_nodes.append(proxy)
 
 
 def _closure_walk(e: dict, entries: list, adjacency: dict,
@@ -1702,7 +1574,8 @@ def _attach_flow_payload(new_edges: list, field_nodes: list,
 
 def _attach_flow_roles(new_edges: list, table_nodes: dict, id_map: dict,
                        full_graph: dict, table: str, field: str,
-                       relevance_filter: bool) -> None:
+                       relevance_filter: bool,
+                       physical_model=None) -> None:
     """Phase 10.5 (CW4, Wave 2): R19.1/R19.2/R19.5 flow roles on table
     nodes — additive node-data fields from extraction-time helpers
     (never at render). Filtered view: exactly one flow source (the
@@ -1710,17 +1583,21 @@ def _attach_flow_roles(new_edges: list, table_nodes: dict, id_map: dict,
     flow closure. Full view (no search): net-flow role per PHYSICAL
     table compound (CTE/derived/VT compounds stay neutral).
 
+    J12-10 stage 3: flow_source_id/flow_targets resolve through the
+    physical model (required).
+
     The table_nodes dict is keyed by RAW node id; the compound keepers'
     L2 ids (tn["id"], the l2_tbl_* ids the edges and the response use)
     are the values — look up through them, never the dict keys.
     """
     l2_tn = {tn["id"]: tn for tn in table_nodes.values()}
     if relevance_filter:
-        src_raw = flow_source_id(full_graph, table)
+        src_raw = flow_source_id(full_graph, table, physical_model=physical_model)
         src_keeper = id_map.get(src_raw) if src_raw else None
         if src_keeper in l2_tn:
             l2_tn[src_keeper]["flow_source"] = True
-        for rid in flow_targets(full_graph, table, field):
+        for rid in flow_targets(full_graph, table, field,
+                                physical_model=physical_model):
             kid = id_map.get(rid)
             if kid in l2_tn:
                 l2_tn[kid]["flow_target"] = True
@@ -1811,12 +1688,13 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     full_graph, table_schemas, physical_model = _load_or_build_graph(
         ws_id, script_name, sql_text)
     graph_data = _apply_relevance_filter(full_graph, table, field, table_schemas,
-                                         relevance_filter)
+                                         relevance_filter, physical_model)
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
 
-    target_node_ids, direct_ids = _compute_target_and_direct_ids(nodes, edges, table, field)
-    table_nodes, field_nodes, other_nodes, alias_map = _classify_compound_nodes(
+    target_node_ids, direct_ids = _compute_target_and_direct_ids(
+        nodes, edges, table, field, physical_model)
+    table_nodes, field_nodes, other_nodes, _alias_map = _classify_compound_nodes(
         nodes, full_graph, script_name, target_node_ids, direct_ids, table,
         physical_model)
     # R11-3: compound nodes gain line_start/line_end/defined_in from their
@@ -1838,8 +1716,8 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     new_edges = _survive_join_edges(new_edges, full_graph, id_map, table_nodes,
                                     field_nodes, node_labels, sql_text,
                                     strict=relevance_filter)
-    new_edges, dml_pairs = _simplify_dml_edges(new_edges, full_graph, id_map,
-                                               table_nodes, field_nodes)
+    new_edges = _simplify_dml_edges(new_edges, full_graph, id_map,
+                                    table_nodes, field_nodes)
     new_edges = _dedup_edges(new_edges)
     # W5/R25: per-edge payload — highlight_line/flow_kind/reason from the
     # carried extraction-time info + the closure walk (never at render).
@@ -1850,10 +1728,11 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                          node_index=[n.get("data", n)
                                      for n in full_graph.get("nodes", [])])
 
-    _sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map, dml_pairs,
-                               nodes, physical_model)
+    # J12-10 stage 3: the Sync 1/2 proxy phase (_sync_alias_and_dml_fields)
+    # is DELETED — alias mirrors and DML phantoms are real model entities
+    # now (nothing to synthesize).
     _attach_flow_roles(new_edges, table_nodes, id_map, full_graph, table,
-                       field, relevance_filter)
+                       field, relevance_filter, physical_model)
     result = _assemble_output(table_nodes, field_nodes, new_edges, nodes, sql_text,
                               script_name, f"{table}.{field}")
     # Issue a: search_matched contract (frontend + BE2). False ONLY when a

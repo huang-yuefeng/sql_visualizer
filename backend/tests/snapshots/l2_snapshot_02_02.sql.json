@@ -30,23 +30,110 @@
           "desc": "Table feeds output",
           "edge_type": "TABLE_FLOW",
           "flow_kind": "chain",
-          "highlight_line": 7,
-          "id": "l2e_c88dea80ce06",
+          "highlight_line": 11,
+          "id": "l2e_6ce91e74be8b",
           "label": "TABLE_FLOW",
           "line_style": "solid",
           "mech": {
-            "alias": "web_sales",
-            "clause": "FROM",
-            "ref_line": 7,
-            "sentence": "\u27d0 union0 (L5) reads web_sales (L7) in its FROM clause at L7",
+            "clause": "TOP0",
+            "ref_line": 45,
+            "sentence": "structural: \u27d0 output (45) references wswscs (11) \u2014 see \u27d0 output's definition",
             "use_lines": [
-              5,
-              6
+              54,
+              55,
+              56,
+              57,
+              58,
+              59,
+              60,
+              61
             ]
           },
-          "reason": "chain (read into output) \u2014 sold_date_sk@L5 \u2192 \u2016web_sales@L7 \u2192 \u27d0 union0@L5\u2016",
-          "source": "l2_tbl_524c18932a",
-          "target": "l2_tbl_94ae67c146",
+          "reason": "chain (CTE chain) \u2014 \u2016wswscs@L11 \u2192 \u27d0 output@L45\u2016",
+          "source": "l2_tbl_f2b42dcb33",
+          "target": "l2_tbl_6834f799e2",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 42,
+          "id": "l2e_739b84f029b3",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "date_dim",
+            "clause": "JOIN",
+            "ref_line": 42,
+            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
+            "use_lines": [
+              12,
+              14,
+              43
+            ]
+          },
+          "reason": "chain (CTE chain) \u2014 \u2016date_dim@L42 \u2192 wswscs@L11\u2016",
+          "source": "l2_tbl_63ccc55e0c",
+          "target": "l2_tbl_f2b42dcb33",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 63,
+          "id": "l2e_32fe0c56b0a2",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "date_dim",
+            "clause": "JOIN",
+            "ref_line": 63,
+            "sentence": "\u27d0 y (L54) reads date_dim (L42) via LEFT JOIN at L63 (alias date_dim)",
+            "use_lines": [
+              64,
+              65
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016date_dim@L63 \u2192 \u27d0 y@L54\u2016",
+          "source": "l2_tbl_63ccc55e0c",
+          "target": "l2_tbl_44eea57c4d",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 75,
+          "id": "l2e_08e7ab99e09e",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "alias": "date_dim",
+            "clause": "JOIN",
+            "ref_line": 75,
+            "sentence": "\u27d0 z (L66) reads date_dim (L42) via LEFT JOIN at L75 (alias date_dim)",
+            "use_lines": [
+              76,
+              77
+            ]
+          },
+          "reason": "chain (read into output) \u2014 \u2016date_dim@L75 \u2192 \u27d0 z@L66\u2016",
+          "source": "l2_tbl_63ccc55e0c",
+          "target": "l2_tbl_61c02cb9ab",
           "width": 3
         }
       },
@@ -56,67 +143,14 @@
           "color": "#27AE60",
           "desc": "Column reference",
           "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 5,
-          "id": "l2e_a14773814c56",
+          "flow_kind": "field flow",
+          "highlight_line": 43,
+          "id": "l2e_5630cc8fe6b1",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "web_sales",
-            "clause": "FROM",
-            "ref_line": 7,
-            "sentence": "web_sales (L7) reads web_sales (L7) in its FROM clause at L7"
-          },
-          "reason": "read (value copy) \u2014 sold_date_sk@L5 \u2192 web_sales@L7 \u2192 \u2016ws_sold_date_sk@L5 \u2192 sold_date_sk@L5\u2016",
-          "source": "l2_tbl_524c18932a",
-          "target": "fld_91acace104",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 5,
-          "id": "l2e_38e939b5a1d4",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 14,
-            "sentence": "structural: web_sales (7) references wscs (1) \u2014 see web_sales's definition",
-            "use_lines": [
-              43
-            ]
-          },
-          "reason": "structure \u2014 \u2016wscs@L1 \u2192 sold_date_sk@L5\u2016",
+          "reason": "field flow (value copy) \u2014 \u2016sold_date_sk@L43 \u2192 sold_date_sk@L2\u2016",
           "source": "l2_tbl_112241c5cd",
-          "target": "fld_91acace104",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 5,
-          "id": "l2e_24800c214113",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 5,
-            "sentence": "structural: web_sales (7) references \u27d0 union0 (5) \u2014 see web_sales's definition"
-          },
-          "reason": "structure \u2014 \u2016\u27d0 union0@L5 \u2192 sold_date_sk@L5\u2016",
-          "source": "l2_tbl_94ae67c146",
-          "target": "fld_91acace104",
+          "target": "fld_7d0fdb92a3",
           "width": 1
         }
       },
@@ -126,25 +160,656 @@
           "color": "#27AE60",
           "desc": "Column reference",
           "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 7,
-          "id": "l2e_017d37d44a9d",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_c6b9f7b58e8b",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "web_sales",
-            "clause": "FROM",
-            "ref_line": 7,
-            "sentence": "web_sales (L7) reads web_sales (L7) in its FROM clause at L7"
-          },
-          "reason": "read \u2014 \u2016sold_date_sk@L5 \u2192 web_sales@L7\u2016",
-          "source": "fld_91acace104",
-          "target": "l2_tbl_524c18932a",
+          "reason": "field flow (value copy) \u2014 \u2016sales_price@L14 \u2192 sales_price@L3\u2016",
+          "source": "fld_e9a7531b27",
+          "target": "fld_4696a8cea7",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_d1474ab3d1c3",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "date_dim",
+            "clause": "JOIN",
+            "ref_line": 42,
+            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
+            "use_lines": [
+              12,
+              14,
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 sun_sales@L16\u2016",
+          "source": "l2_tbl_63ccc55e0c",
+          "target": "fld_f8f65c4dba",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_3212486b9399",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "clause": "SELECT EXPR",
+            "ref_line": 14,
+            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
+            "use_lines": [
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 sun_sales@L16\u2016",
+          "source": "fld_e9a7531b27",
+          "target": "fld_f8f65c4dba",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_368741af3df2",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "date_dim",
+            "clause": "JOIN",
+            "ref_line": 42,
+            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
+            "use_lines": [
+              12,
+              14,
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 mon_sales@L20\u2016",
+          "source": "l2_tbl_63ccc55e0c",
+          "target": "fld_742c352486",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_8287e8e9f6c8",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "clause": "SELECT EXPR",
+            "ref_line": 14,
+            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
+            "use_lines": [
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 mon_sales@L20\u2016",
+          "source": "fld_e9a7531b27",
+          "target": "fld_742c352486",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_95ab43fb3398",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "date_dim",
+            "clause": "JOIN",
+            "ref_line": 42,
+            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
+            "use_lines": [
+              12,
+              14,
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 tue_sales@L24\u2016",
+          "source": "l2_tbl_63ccc55e0c",
+          "target": "fld_2e8b20d22e",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_316d58798e52",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "clause": "SELECT EXPR",
+            "ref_line": 14,
+            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
+            "use_lines": [
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 tue_sales@L24\u2016",
+          "source": "fld_e9a7531b27",
+          "target": "fld_2e8b20d22e",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_8a0ab93bd6c9",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "date_dim",
+            "clause": "JOIN",
+            "ref_line": 42,
+            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
+            "use_lines": [
+              12,
+              14,
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 wed_sales@L28\u2016",
+          "source": "l2_tbl_63ccc55e0c",
+          "target": "fld_5b77ae8e07",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_462343fd372d",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "clause": "SELECT EXPR",
+            "ref_line": 14,
+            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
+            "use_lines": [
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 wed_sales@L28\u2016",
+          "source": "fld_e9a7531b27",
+          "target": "fld_5b77ae8e07",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_8cf66bcad1b1",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "date_dim",
+            "clause": "JOIN",
+            "ref_line": 42,
+            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
+            "use_lines": [
+              12,
+              14,
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 thu_sales@L32\u2016",
+          "source": "l2_tbl_63ccc55e0c",
+          "target": "fld_77a4a3e96f",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_96cca0e804ac",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "clause": "SELECT EXPR",
+            "ref_line": 14,
+            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
+            "use_lines": [
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 thu_sales@L32\u2016",
+          "source": "fld_e9a7531b27",
+          "target": "fld_77a4a3e96f",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_4068a7464f33",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "date_dim",
+            "clause": "JOIN",
+            "ref_line": 42,
+            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
+            "use_lines": [
+              12,
+              14,
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 fri_sales@L36\u2016",
+          "source": "l2_tbl_63ccc55e0c",
+          "target": "fld_f8c861d0df",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_3ea4d91ed3cb",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "clause": "SELECT EXPR",
+            "ref_line": 14,
+            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
+            "use_lines": [
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 fri_sales@L36\u2016",
+          "source": "fld_e9a7531b27",
+          "target": "fld_f8c861d0df",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_89d0f97aa14d",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "alias": "date_dim",
+            "clause": "JOIN",
+            "ref_line": 42,
+            "sentence": "wswscs (L11) reads date_dim (L42) via LEFT JOIN at L42 (alias date_dim)",
+            "use_lines": [
+              12,
+              14,
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016d_day_name@L14 \u2192 sat_sales@L40\u2016",
+          "source": "l2_tbl_63ccc55e0c",
+          "target": "fld_d01b0d3913",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_a02ef370730b",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "mech": {
+            "clause": "SELECT EXPR",
+            "ref_line": 14,
+            "sentence": "structural: wswscs (11) references wscs (1) \u2014 see wswscs's definition",
+            "use_lines": [
+              43
+            ]
+          },
+          "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L14 \u2192 sat_sales@L40\u2016",
+          "source": "fld_e9a7531b27",
+          "target": "fld_d01b0d3913",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 2,
+          "id": "l2e_25715421ae56",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016wscs@L1 \u2192 sold_date_sk@L2\u2016",
+          "source": "l2_tbl_112241c5cd",
+          "target": "fld_7d0fdb92a3",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 3,
+          "id": "l2e_ff0c41b1424b",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016wscs@L1 \u2192 sales_price@L3\u2016",
+          "source": "l2_tbl_112241c5cd",
+          "target": "fld_4696a8cea7",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 16,
+          "id": "l2e_b9b1777a0e5f",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "CTE{WSWSCS}",
+            "ref_line": 16,
+            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
+            "use_lines": [
+              20,
+              24,
+              28,
+              32,
+              36,
+              40
+            ]
+          },
+          "reason": "structure \u2014 \u2016wswscs@L11 \u2192 sun_sales@L16\u2016",
+          "source": "l2_tbl_f2b42dcb33",
+          "target": "fld_f8f65c4dba",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 20,
+          "id": "l2e_7095317e3939",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "CTE{WSWSCS}",
+            "ref_line": 16,
+            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
+            "use_lines": [
+              20,
+              24,
+              28,
+              32,
+              36,
+              40
+            ]
+          },
+          "reason": "structure \u2014 \u2016wswscs@L11 \u2192 mon_sales@L20\u2016",
+          "source": "l2_tbl_f2b42dcb33",
+          "target": "fld_742c352486",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 24,
+          "id": "l2e_294012a13176",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "CTE{WSWSCS}",
+            "ref_line": 16,
+            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
+            "use_lines": [
+              20,
+              24,
+              28,
+              32,
+              36,
+              40
+            ]
+          },
+          "reason": "structure \u2014 \u2016wswscs@L11 \u2192 tue_sales@L24\u2016",
+          "source": "l2_tbl_f2b42dcb33",
+          "target": "fld_2e8b20d22e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 28,
+          "id": "l2e_308889b59cee",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "CTE{WSWSCS}",
+            "ref_line": 16,
+            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
+            "use_lines": [
+              20,
+              24,
+              28,
+              32,
+              36,
+              40
+            ]
+          },
+          "reason": "structure \u2014 \u2016wswscs@L11 \u2192 wed_sales@L28\u2016",
+          "source": "l2_tbl_f2b42dcb33",
+          "target": "fld_5b77ae8e07",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 32,
+          "id": "l2e_af3aff54c930",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "CTE{WSWSCS}",
+            "ref_line": 16,
+            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
+            "use_lines": [
+              20,
+              24,
+              28,
+              32,
+              36,
+              40
+            ]
+          },
+          "reason": "structure \u2014 \u2016wswscs@L11 \u2192 thu_sales@L32\u2016",
+          "source": "l2_tbl_f2b42dcb33",
+          "target": "fld_77a4a3e96f",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 36,
+          "id": "l2e_bc9a238c64c0",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "CTE{WSWSCS}",
+            "ref_line": 16,
+            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
+            "use_lines": [
+              20,
+              24,
+              28,
+              32,
+              36,
+              40
+            ]
+          },
+          "reason": "structure \u2014 \u2016wswscs@L11 \u2192 fri_sales@L36\u2016",
+          "source": "l2_tbl_f2b42dcb33",
+          "target": "fld_f8c861d0df",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 40,
+          "id": "l2e_506ca687d2b2",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "CTE{WSWSCS}",
+            "ref_line": 16,
+            "sentence": "structural: wswscs (11) references wswscs (11) \u2014 see wswscs's definition",
+            "use_lines": [
+              20,
+              24,
+              28,
+              32,
+              36,
+              40
+            ]
+          },
+          "reason": "structure \u2014 \u2016wswscs@L11 \u2192 sat_sales@L40\u2016",
+          "source": "l2_tbl_f2b42dcb33",
+          "target": "fld_d01b0d3913",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 43,
+          "id": "l2e_e70d9146a32a",
+          "label": "FILTER",
+          "line_style": "solid",
+          "mech": {
+            "clause": "WHERE",
+            "ref_line": 43,
+            "sentence": "wscs.sold_date_sk is filtered at L43 inside date_dim"
+          },
+          "reason": "field flow (filter step) \u2014 \u2016sold_date_sk@L43 \u2192 date_dim@L42\u2016",
+          "source": "l2_tbl_112241c5cd",
+          "target": "l2_tbl_63ccc55e0c",
+          "width": 2
         }
       }
     ],
-    "filtered_nodes": 6,
+    "filtered_nodes": 19,
     "nodes": [
       {
         "data": {
@@ -162,29 +827,28 @@
       },
       {
         "data": {
-          "context": "CTE{wscs}/subq/sq1/union0",
-          "defined_in": "CTE{wscs}/subq/sq1/union0",
-          "id": "l2_tbl_94ae67c146",
-          "label": "union0",
+          "context": "TOP0",
+          "defined_in": "CTE{wswscs}",
+          "id": "l2_tbl_f2b42dcb33",
+          "label": "wswscs",
           "line_end": 44,
-          "line_start": 5,
-          "original_id": "58e1fb9335deb8d9",
-          "table_name": "\u27d0 union0",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
+          "line_start": 11,
+          "original_id": "dd3e01fe3b2de78d",
+          "table_name": "wswscs",
+          "type": "cte_table",
+          "variable_type": "cte"
         }
       },
       {
         "data": {
-          "context": "CTE{wscs}/subq/sq1/union0",
-          "defined_in": "FROM",
-          "flow_source": true,
-          "id": "l2_tbl_524c18932a",
-          "label": "web_sales",
+          "context": "CTE{wswscs}",
+          "defined_in": "JOIN",
+          "id": "l2_tbl_63ccc55e0c",
+          "label": "date_dim",
           "line_end": 44,
-          "line_start": 7,
-          "original_id": "5efb1c66465471c8",
-          "table_name": "web_sales",
+          "line_start": 42,
+          "original_id": "d7e7bc545fb63ec8",
+          "table_name": "date_dim",
           "type": "source_table",
           "variable_type": "table"
         }
@@ -205,13 +869,40 @@
       },
       {
         "data": {
-          "field_group": "direct",
-          "id": "fld_91acace104",
-          "is_target": true,
+          "context": "TOP0/subq/y",
+          "defined_in": "TOP0/subq/y",
+          "id": "l2_tbl_44eea57c4d",
+          "label": "y",
+          "line_end": 65,
+          "line_start": 54,
+          "original_id": "9bfbce1badc8e236",
+          "table_name": "\u27d0 y",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0:join:z",
+          "defined_in": "TOP0:join:z",
+          "id": "l2_tbl_61c02cb9ab",
+          "label": "z",
+          "line_end": 77,
+          "line_start": 66,
+          "original_id": "4e0fc1a65a77a0f8",
+          "table_name": "\u27d0 z",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_7d0fdb92a3",
+          "is_target": false,
           "label": "sold_date_sk",
           "orig_type": "column",
-          "original_id": "8fa104f3149eaa52",
-          "parent": "l2_tbl_524c18932a",
+          "original_id": "7f21949400635515",
           "type": "field",
           "variable_type": "field"
         }
@@ -219,12 +910,154 @@
       {
         "data": {
           "field_group": "direct",
-          "id": "fld_b816aec3a9",
-          "is_target": false,
-          "label": "ws_sold_date_sk",
+          "id": "fld_4696a8cea7",
+          "is_target": true,
+          "label": "sales_price",
           "orig_type": "column",
-          "original_id": "13b03c58fb576f1e",
-          "parent": "l2_tbl_524c18932a",
+          "original_id": "c68dcf915a18648e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_f8f65c4dba",
+          "is_target": true,
+          "label": "sun_sales",
+          "orig_type": "aggregate",
+          "original_id": "6b2c4afe14cef46c",
+          "parent": "l2_tbl_f2b42dcb33",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_e9a7531b27",
+          "is_target": true,
+          "label": "sales_price",
+          "orig_type": "column",
+          "original_id": "4005592a26013fdf",
+          "parent": "l2_tbl_112241c5cd",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_681d7bc1d9",
+          "is_target": false,
+          "label": "d_day_name",
+          "orig_type": "column",
+          "original_id": "f92c8d3d8341be9f",
+          "parent": "l2_tbl_63ccc55e0c",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_742c352486",
+          "is_target": true,
+          "label": "mon_sales",
+          "orig_type": "aggregate",
+          "original_id": "cbd7aa754a720152",
+          "parent": "l2_tbl_f2b42dcb33",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_2e8b20d22e",
+          "is_target": true,
+          "label": "tue_sales",
+          "orig_type": "aggregate",
+          "original_id": "b9ea550d1e5be653",
+          "parent": "l2_tbl_f2b42dcb33",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_5b77ae8e07",
+          "is_target": true,
+          "label": "wed_sales",
+          "orig_type": "aggregate",
+          "original_id": "be48ef718a0140ef",
+          "parent": "l2_tbl_f2b42dcb33",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_77a4a3e96f",
+          "is_target": true,
+          "label": "thu_sales",
+          "orig_type": "aggregate",
+          "original_id": "3556b5a605a03368",
+          "parent": "l2_tbl_f2b42dcb33",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_f8c861d0df",
+          "is_target": true,
+          "label": "fri_sales",
+          "orig_type": "aggregate",
+          "original_id": "3ead4d0660bfefac",
+          "parent": "l2_tbl_f2b42dcb33",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_d01b0d3913",
+          "is_target": true,
+          "label": "sat_sales",
+          "orig_type": "aggregate",
+          "original_id": "be20f8f9816716c5",
+          "parent": "l2_tbl_f2b42dcb33",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_8532bc74b9",
+          "is_target": false,
+          "label": "d_date_sk",
+          "orig_type": "column",
+          "original_id": "0fe55c7e261ee829",
+          "parent": "l2_tbl_63ccc55e0c",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_05eb697917",
+          "is_target": false,
+          "label": "sold_date_sk",
+          "orig_type": "column",
+          "original_id": "8bbd3b230ab36b50",
+          "parent": "l2_tbl_112241c5cd",
           "type": "field",
           "variable_type": "field"
         }
@@ -232,9 +1065,9 @@
     ],
     "script_name": "02.sql",
     "search_matched": true,
-    "target": "web_sales.sold_date_sk",
-    "total_edges": 6,
-    "total_nodes": 6
+    "target": "wscs.sales_price",
+    "total_edges": 31,
+    "total_nodes": 21
   },
   "full": {
     "edges": [
@@ -3137,7 +3970,7 @@
   },
   "script_name": "02.sql",
   "seed": {
-    "field": "sold_date_sk",
-    "table": "web_sales"
+    "field": "sales_price",
+    "table": "wscs"
   }
 }

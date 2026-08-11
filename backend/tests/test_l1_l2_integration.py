@@ -165,18 +165,20 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
     sql = _step3_sql()
     expected = _step3_l2_graph(ws_id)
 
-    # J12-10 stage 2: phase 1 returns the physical model; the node-construction
-    # phases consume it (keeper selection + sync inputs) — pass it through in
-    # orchestrator order exactly like _build_l2_graph.
+    # J12-10 stage 2/3: phase 1 returns the physical model; the node-construction
+    # phases consume it (keeper selection + filter/matcher inputs) — pass it
+    # through in orchestrator order exactly like _build_l2_graph.
     full_graph, table_schemas, physical_model = l2b._load_or_build_graph(
         ws_id, STEP3, sql)
     graph_data = l2b._apply_relevance_filter(full_graph, TARGET_TABLE,
                                              TARGET_FIELD, table_schemas,
-                                             relevance_filter=True)
+                                             relevance_filter=True,
+                                             physical_model=physical_model)
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
     target_node_ids, direct_ids = l2b._compute_target_and_direct_ids(
-        nodes, edges, TARGET_TABLE, TARGET_FIELD)
+        nodes, edges, TARGET_TABLE, TARGET_FIELD,
+        physical_model=physical_model)
     table_nodes, field_nodes, other_nodes, alias_map = l2b._classify_compound_nodes(
         nodes, full_graph, STEP3, target_node_ids, direct_ids, TARGET_TABLE,
         physical_model)
@@ -192,20 +194,22 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
     new_edges = l2b._survive_join_edges(new_edges, full_graph, id_map,
                                         table_nodes, field_nodes,
                                         node_labels, sql)
-    new_edges, dml_pairs = l2b._simplify_dml_edges(new_edges, full_graph,
-                                                   id_map, table_nodes)
+    # J12-10 stage 3: _simplify_dml_edges returns only new_edges (the
+    # dml_pairs collection is gone — the sync phase it fed was deleted;
+    # the model entities replace the synthetic proxies).
+    new_edges = l2b._simplify_dml_edges(new_edges, full_graph, id_map,
+                                        table_nodes)
     new_edges = l2b._dedup_edges(new_edges)
     # R11-3: the mech payload rides the W5 phase — pass table_nodes + the
     # PRE-FILTER node index exactly like the orchestrator.
     l2b._attach_flow_payload(new_edges, field_nodes, table_nodes=table_nodes,
                              node_index=[n.get("data", n)
                                          for n in full_graph.get("nodes", [])])
-    l2b._sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map,
-                                   dml_pairs, nodes, physical_model)
     # Wave 2 (R19.1/R19.2): flow-role phase — the orchestrator calls it
-    # after the sync phase, before assembly (mirror for identity).
+    # before assembly (mirror for identity).
     l2b._attach_flow_roles(new_edges, table_nodes, id_map, full_graph,
-                           TARGET_TABLE, TARGET_FIELD, True)
+                           TARGET_TABLE, TARGET_FIELD, True,
+                           physical_model=physical_model)
     phased = l2b._assemble_output(table_nodes, field_nodes, new_edges, nodes,
                                   sql, STEP3, f"{TARGET_TABLE}.{TARGET_FIELD}")
     # Issue a: the orchestrator stamps search_matched on the result dict

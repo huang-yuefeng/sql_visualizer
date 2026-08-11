@@ -21,6 +21,7 @@ from app.extractor.lineage import (
     filter_relevant,
 )
 from app.extractor.variable_extractor_v2 import EXTRACTOR_VERSION
+from app.extractor.physical_model import build_physical_model
 
 
 from app.services.l1_builder import _build_l1_graph
@@ -353,6 +354,10 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
 
     # Bug 25: Initialize table_schemas before cache check
     table_schemas = None
+    # J12-10 stage 3: the physical model the strict walker consumes —
+    # built on every path below (hit: analysis cache preferred, else the
+    # cached graph; miss: the same analysis the graph was built from).
+    physical_model = None
     schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
 
     # Try pre-computed graph cache (C3: shared GRAPH_CACHE_PREFIX — writers
@@ -384,6 +389,28 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
                     table_schemas = None
             if table_schemas is None:
                 graph_data = None
+            else:
+                # J12-10 stage 3: prefer the analysis cache (the alias_of
+                # extraction truth) for the physical model — mirror of
+                # l2_builder._load_or_build_graph; a bare graph-cache hit
+                # falls back to the cached graph data below.
+                analysis_cache_path = cache_dir / f"analysis_{cache_key}.json"
+                if analysis_cache_path.exists():
+                    try:
+                        cached_analysis = json.loads(analysis_cache_path.read_text())
+                    except Exception:
+                        cached_analysis = None
+                    if (cached_analysis is not None
+                            and cached_analysis.get("extractor_version")
+                            == EXTRACTOR_VERSION):
+                        physical_model = build_physical_model(
+                            cached_analysis, script_name=script_name)
+                # Bare graph-cache hit (never indexed / analysis cache
+                # absent or stale): rebuild the model from the cached
+                # graph data — mirror of l2_builder._load_or_build_graph.
+                if physical_model is None:
+                    physical_model = build_physical_model(
+                        graph_data, script_name=script_name)
     if graph_data is None:
         # Build on-demand
         from app.extractor.adapter import run_full_analysis
@@ -434,6 +461,10 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         # E4) reads it unversioned.
         graph_data["extractor_version"] = EXTRACTOR_VERSION
         _atomic_write_text(graph_cache_path, json.dumps(graph_data, default=str))
+        # J12-10 stage 3: the model is built once, from the analysis the
+        # graph was built from (the extraction truth — alias_of rides it).
+        physical_model = build_physical_model(
+            result, script_name=script_name)
 
     # v3.3.145 (case-3): parse_errors ride the graph cache (stamped at
     # write time); stale caches predating this default to [] — no
@@ -445,7 +476,9 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     # replaces filter_relevant — the requirement changed from table-level
     # flow to exact flow of table.field. Flag semantics unchanged.
     if filter_relevant_nodes:
-        filtered = filter_by_field_flow(graph_data, table, field, table_schemas=table_schemas)
+        filtered = filter_by_field_flow(graph_data, table, field,
+                                        table_schemas=table_schemas,
+                                        physical_model=physical_model)
     else:
         filtered = graph_data
 

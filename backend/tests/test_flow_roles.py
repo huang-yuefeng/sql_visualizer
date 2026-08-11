@@ -47,6 +47,7 @@ from app.extractor.lineage import (
     flow_targets,
 )
 from app.extractor.adapter import run_full_analysis
+from app.extractor.physical_model import build_physical_model
 from app.services.graph_service import build_graph_data
 from app.services.l2_builder import _build_l2_graph
 from app.services.workspace_service import create_workspace, delete_workspace
@@ -73,10 +74,14 @@ def loan_ws():
     delete_workspace(ws_id)
 
 
-def _raw_graph(sql: str, name: str) -> dict:
-    """Run the extraction pipeline and return the raw full graph."""
+def _raw_graph(sql: str, name: str) -> tuple:
+    """Run the extraction pipeline and return (raw full graph, physical
+    model) — the flow helpers consume the model (J12-10 stage 3: model
+    entities replace the label-scanned reconstruction)."""
     result = run_full_analysis(sql, name)
-    return build_graph_data(result)
+    graph = build_graph_data(result)
+    model = build_physical_model(result, script_name=name)
+    return graph, model
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -173,9 +178,9 @@ def test_flow_targets_minimal_dml_pipeline():
         "INSERT OVERWRITE TABLE stg_a PARTITION(data_dt='$(load_date)')\n"
         "SELECT c1 FROM bdm_a WHERE data_dt = '$(load_date)';\n"
     )
-    g = _raw_graph(sql, "min_dml.sql")
+    g, pm = _raw_graph(sql, "min_dml.sql")
     node_by_id = {n["data"]["id"]: n["data"] for n in g["nodes"]}
-    targets = flow_targets(g, "bdm_a", "data_dt")
+    targets = flow_targets(g, "bdm_a", "data_dt", physical_model=pm)
     assert targets, "the seed must reach at least one DML target"
     assert {node_by_id[i]["label"] for i in targets} == {"stg_a"}
 
@@ -183,21 +188,21 @@ def test_flow_targets_minimal_dml_pipeline():
 def test_flow_targets_pure_select_no_dml_target():
     """Pure SELECT: no DML write targets → the flow target set is empty."""
     sql = "SELECT c1 FROM bdm_a WHERE data_dt = '$(load_date)';\n"
-    g = _raw_graph(sql, "pure_select.sql")
-    assert flow_targets(g, "bdm_a", "data_dt") == set()
+    g, pm = _raw_graph(sql, "pure_select.sql")
+    assert flow_targets(g, "bdm_a", "data_dt", physical_model=pm) == set()
 
 
 def test_flow_source_id_unit():
     """R19.1: the seed's physical table node is exposed by label."""
     sql = "SELECT c1 FROM bdm_a WHERE data_dt = '$(load_date)';\n"
-    g = _raw_graph(sql, "source_id.sql")
-    nid = flow_source_id(g, "bdm_a")
+    g, pm = _raw_graph(sql, "source_id.sql")
+    nid = flow_source_id(g, "bdm_a", physical_model=pm)
     assert nid is not None
     nd = next(n["data"] for n in g["nodes"] if n["data"]["id"] == nid)
     assert nd["label"] == "bdm_a"
     assert nd["variable_type"] == "table"
-    assert flow_source_id(g, "no_such_table") is None
-    assert flow_source_id(g, "") is None
+    assert flow_source_id(g, "no_such_table", physical_model=pm) is None
+    assert flow_source_id(g, "", physical_model=pm) is None
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -213,9 +218,9 @@ def test_flow_targets_bdm_seed_evidence(loan_ws):
       ⟐ output@211[TOP1] --DML/INSERT--> rrcdm_job_log_exec_par@211[TOP1]
     both with both endpoints in the bdm.data_dt flow closure.
     """
-    g = _raw_graph(LOAN_INFO.read_text(), LOAN_INFO_NAME)
+    g, pm = _raw_graph(LOAN_INFO.read_text(), LOAN_INFO_NAME)
     node_by_id = {n["data"]["id"]: n["data"] for n in g["nodes"]}
-    targets = flow_targets(g, "bdm_acc_loan_info", "data_dt")
+    targets = flow_targets(g, "bdm_acc_loan_info", "data_dt", physical_model=pm)
     labels = sorted({node_by_id[i]["label"] for i in targets})
     assert labels == ["bdm_acc_loan_info_sup", "rrcdm_job_log_exec_par"], \
         f"bdm seed flow targets = {labels}"
@@ -231,9 +236,9 @@ def test_flow_targets_sup_seed_evidence(loan_ws):
     """R19.2 evidence (sup seed): the sup data_dt seed reaches rrcdm — and
     sup itself is a DML write target whose write leg is also in the sup
     closure (roles are per-edge/path; sup is BOTH target and waypoint)."""
-    g = _raw_graph(LOAN_INFO.read_text(), LOAN_INFO_NAME)
+    g, pm = _raw_graph(LOAN_INFO.read_text(), LOAN_INFO_NAME)
     node_by_id = {n["data"]["id"]: n["data"] for n in g["nodes"]}
-    targets = flow_targets(g, "bdm_acc_loan_info_sup", "data_dt")
+    targets = flow_targets(g, "bdm_acc_loan_info_sup", "data_dt", physical_model=pm)
     labels = sorted({node_by_id[i]["label"] for i in targets})
     assert labels == ["bdm_acc_loan_info_sup", "rrcdm_job_log_exec_par"], \
         f"sup seed flow targets = {labels}"
@@ -277,8 +282,8 @@ def test_flow_source_id_evidence(loan_ws):
     """R19.1 evidence: the searched seed's table node is exposed; the
     filtered view's flow source is the seed (single, user-defined)."""
     sql = LOAN_INFO.read_text()
-    g = _raw_graph(sql, LOAN_INFO_NAME)
-    nid = flow_source_id(g, "bdm_acc_loan_info")
+    g, pm = _raw_graph(sql, LOAN_INFO_NAME)
+    nid = flow_source_id(g, "bdm_acc_loan_info", physical_model=pm)
     assert nid is not None
     nd = next(n["data"] for n in g["nodes"] if n["data"]["id"] == nid)
     assert nd["label"] == "bdm_acc_loan_info"

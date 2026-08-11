@@ -156,6 +156,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 2,
+          "id": "l2e_5db307734344",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016sr_customer_sk@L2 \u2192 ctr_customer_sk@L2\u2016",
+          "source": "fld_1c7045bed6",
+          "target": "fld_afc1b4e36b",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -173,6 +190,32 @@
           "reason": "structure \u2014 \u2016ctr1@L12 \u2192 ctr1.ctr_customer_sk@L21\u2016",
           "source": "l2_tbl_dd97ee4179",
           "target": "fld_b10718e405",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 2,
+          "id": "l2e_ab8f721b6ab9",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "CTE{CUSTOMER_TOTAL_RETURN}",
+            "ref_line": 2,
+            "sentence": "structural: customer_total_return (1) references customer_total_return (1) \u2014 see customer_total_return's definition",
+            "use_lines": [
+              3,
+              4
+            ]
+          },
+          "reason": "structure \u2014 \u2016customer_total_return@L1 \u2192 ctr_customer_sk@L2\u2016",
+          "source": "l2_tbl_b6e656aeb2",
+          "target": "fld_afc1b4e36b",
           "width": 1
         }
       },
@@ -235,9 +278,26 @@
           "target": "l2_tbl_422a284cb5",
           "width": 2
         }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 1,
+          "id": "l2e_e90b758f34ee",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016sr_customer_sk@L2 \u2192 customer_total_return@L1\u2016",
+          "source": "fld_1c7045bed6",
+          "target": "l2_tbl_b6e656aeb2",
+          "width": 1
+        }
       }
     ],
-    "filtered_nodes": 6,
+    "filtered_nodes": 8,
     "nodes": [
       {
         "data": {
@@ -312,6 +372,31 @@
       {
         "data": {
           "field_group": "direct",
+          "id": "fld_afc1b4e36b",
+          "is_target": true,
+          "label": "ctr_customer_sk",
+          "orig_type": "column",
+          "original_id": "d73bde697c46dc04",
+          "parent": "l2_tbl_b6e656aeb2",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_1c7045bed6",
+          "is_target": false,
+          "label": "sr_customer_sk",
+          "orig_type": "column",
+          "original_id": "a3bd3faca4e2597c",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
           "id": "fld_b10718e405",
           "is_target": true,
           "label": "ctr_customer_sk",
@@ -326,8 +411,8 @@
     "script_name": "01.sql",
     "search_matched": true,
     "target": "customer_total_return.ctr_customer_sk",
-    "total_edges": 9,
-    "total_nodes": 6
+    "total_edges": 12,
+    "total_nodes": 8
   },
   "full": {
     "edges": [

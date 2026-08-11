@@ -17,7 +17,7 @@
             "ref_line": 1,
             "sentence": "\u27d0 output (L111) reads ssr (L1) in its FROM clause at L1"
           },
-          "reason": "chain (CTE chain) \u2014 return_amt@L5 \u2192 \u2016ssr@L1 \u2192 \u27d0 output@L111\u2016",
+          "reason": "chain (CTE chain) \u2014 \u2016ssr@L1 \u2192 \u27d0 output@L111\u2016",
           "source": "l2_tbl_7ff2417036",
           "target": "l2_tbl_11194c0158",
           "width": 3
@@ -39,7 +39,7 @@
             "ref_line": 28,
             "sentence": "\u27d0 output (L111) reads csr (L28) in its FROM clause at L28"
           },
-          "reason": "chain (CTE chain) \u2014 return_amt@L32 \u2192 \u2016csr@L28 \u2192 \u27d0 output@L111\u2016",
+          "reason": "chain (CTE chain) \u2014 \u2016csr@L28 \u2192 \u27d0 output@L111\u2016",
           "source": "l2_tbl_ecdbb99e9b",
           "target": "l2_tbl_11194c0158",
           "width": 3
@@ -70,27 +70,219 @@
       {
         "data": {
           "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 84,
+          "id": "l2e_a2e2f4de8fbb",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "mech": {
+            "clause": "TOP0/SUBQ/FOO/UNION0/UNION0",
+            "ref_line": 111,
+            "sentence": "structural: \u27d0 output (111) references results (84) \u2014 see \u27d0 output's definition",
+            "use_lines": [
+              112,
+              113,
+              114,
+              115,
+              123,
+              125,
+              126,
+              127,
+              132,
+              133,
+              134
+            ]
+          },
+          "reason": "chain (CTE chain) \u2014 \u2016results@L84 \u2192 \u27d0 output@L111\u2016",
+          "source": "l2_tbl_4d8f9492ff",
+          "target": "l2_tbl_11194c0158",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 57,
+          "id": "l2e_242d10c30d56",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L57 \u2192 sales@L3\u2016",
+          "source": "fld_c59d99b8b7",
+          "target": "fld_68bfa566ce",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 57,
+          "id": "l2e_9c3d3bf572d8",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L57 \u2192 sales@L30\u2016",
+          "source": "fld_c59d99b8b7",
+          "target": "fld_612bcd421c",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 57,
+          "id": "l2e_f2e7d4792404",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016sales_price@L57 \u2192 sales@L57\u2016",
+          "source": "fld_c59d99b8b7",
+          "target": "fld_f2ec82e4bd",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 113,
+          "id": "l2e_a57c3bb0be47",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016sales@L113 \u2192 sales@L93\u2016",
+          "source": "fld_45d7cbe21d",
+          "target": "fld_68bfa566ce",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 113,
+          "id": "l2e_5e9f1a956c46",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016sales@L113 \u2192 sales@L99\u2016",
+          "source": "fld_45d7cbe21d",
+          "target": "fld_612bcd421c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 113,
+          "id": "l2e_afc6a91daf1d",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016sales@L113 \u2192 sales@L105\u2016",
+          "source": "fld_45d7cbe21d",
+          "target": "fld_f2ec82e4bd",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 113,
+          "id": "l2e_1dadf6968cbf",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016sales@L113 \u2192 sales@L87\u2016",
+          "source": "fld_45d7cbe21d",
+          "target": "fld_b25a651640",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 113,
+          "id": "l2e_a81c06a96601",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016sales@L113 \u2192 sales@L113\u2016",
+          "source": "fld_45d7cbe21d",
+          "target": "fld_3312abd6aa",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 113,
+          "id": "l2e_0556c7f2fea8",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016sales@L113 \u2192 SUMsales@L125\u2016",
+          "source": "fld_45d7cbe21d",
+          "target": "fld_a7c495e9d3",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 12,
-          "id": "l2e_69a0e536651f",
+          "highlight_line": 3,
+          "id": "l2e_d3f222314c01",
           "label": "SCHEMA",
           "line_style": "dotted",
           "mech": {
-            "clause": "SELECT EXPR",
-            "ref_line": 92,
-            "sentence": "structural: \u27d0 union0 (8) references ssr (1) \u2014 see \u27d0 union0's definition",
+            "clause": "CTE{SSR}",
+            "ref_line": 3,
+            "sentence": "structural: ssr (1) references ssr (1) \u2014 see ssr's definition",
             "use_lines": [
+              4,
+              5,
+              6,
+              92,
               93,
               94,
               95
             ]
           },
-          "reason": "structure \u2014 \u2016ssr@L1 \u2192 return_amt@L12\u2016",
+          "reason": "structure \u2014 \u2016ssr@L1 \u2192 sales@L3\u2016",
           "source": "l2_tbl_7ff2417036",
-          "target": "fld_5455baede4",
+          "target": "fld_68bfa566ce",
           "width": 1
         }
       },
@@ -101,14 +293,14 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 39,
-          "id": "l2e_efd5486c3b03",
+          "highlight_line": 30,
+          "id": "l2e_ff7c342e6655",
           "label": "SCHEMA",
           "line_style": "dotted",
           "mech": {
             "clause": "CTE{CSR}",
             "ref_line": 30,
-            "sentence": "structural: \u27d0 union0 (8) references csr (28) \u2014 see \u27d0 union0's definition",
+            "sentence": "structural: csr (28) references csr (28) \u2014 see csr's definition",
             "use_lines": [
               31,
               32,
@@ -119,9 +311,9 @@
               101
             ]
           },
-          "reason": "structure \u2014 \u2016csr@L28 \u2192 return_amt@L39\u2016",
+          "reason": "structure \u2014 \u2016csr@L28 \u2192 sales@L30\u2016",
           "source": "l2_tbl_ecdbb99e9b",
-          "target": "fld_5455baede4",
+          "target": "fld_612bcd421c",
           "width": 1
         }
       },
@@ -132,14 +324,14 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 66,
-          "id": "l2e_a5b8635d2058",
+          "highlight_line": 57,
+          "id": "l2e_cf9b0de12f3c",
           "label": "SCHEMA",
           "line_style": "dotted",
           "mech": {
             "clause": "CTE{WSR}",
             "ref_line": 57,
-            "sentence": "structural: \u27d0 union0 (8) references wsr (55) \u2014 see \u27d0 union0's definition",
+            "sentence": "structural: wsr (55) references wsr (55) \u2014 see wsr's definition",
             "use_lines": [
               58,
               59,
@@ -150,9 +342,9 @@
               107
             ]
           },
-          "reason": "structure \u2014 \u2016wsr@L55 \u2192 return_amt@L66\u2016",
+          "reason": "structure \u2014 \u2016wsr@L55 \u2192 sales@L57\u2016",
           "source": "l2_tbl_66414b16bd",
-          "target": "fld_5455baede4",
+          "target": "fld_f2ec82e4bd",
           "width": 1
         }
       },
@@ -163,28 +355,22 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 12,
-          "id": "l2e_5da655e11909",
+          "highlight_line": 93,
+          "id": "l2e_549f3b8dcb46",
           "label": "SCHEMA",
           "line_style": "dotted",
           "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: \u27d0 union0 (8) references \u27d0 union0 (8) \u2014 see \u27d0 union0's definition",
+            "clause": "CTE{RESULTS}",
+            "ref_line": 87,
+            "sentence": "structural: ssr (1) references results (84) \u2014 see ssr's definition",
             "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
+              88,
+              89
             ]
           },
-          "reason": "structure \u2014 \u2016\u27d0 union0@L8 \u2192 return_amt@L12\u2016",
-          "source": "l2_tbl_dbfefb796a",
-          "target": "fld_5455baede4",
+          "reason": "structure \u2014 \u2016results@L84 \u2192 sales@L93\u2016",
+          "source": "l2_tbl_4d8f9492ff",
+          "target": "fld_68bfa566ce",
           "width": 1
         }
       },
@@ -195,28 +381,22 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 39,
-          "id": "l2e_a2b27405b9bf",
+          "highlight_line": 99,
+          "id": "l2e_d98b879a788a",
           "label": "SCHEMA",
           "line_style": "dotted",
           "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: \u27d0 union0 (8) references \u27d0 union0 (35) \u2014 see \u27d0 union0's definition",
+            "clause": "CTE{RESULTS}",
+            "ref_line": 87,
+            "sentence": "structural: csr (28) references results (84) \u2014 see csr's definition",
             "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
+              88,
+              89
             ]
           },
-          "reason": "structure \u2014 \u2016\u27d0 union0@L35 \u2192 return_amt@L39\u2016",
-          "source": "l2_tbl_3ac3d440cd",
-          "target": "fld_5455baede4",
+          "reason": "structure \u2014 \u2016results@L84 \u2192 sales@L99\u2016",
+          "source": "l2_tbl_4d8f9492ff",
+          "target": "fld_612bcd421c",
           "width": 1
         }
       },
@@ -227,28 +407,129 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 66,
-          "id": "l2e_fb9705a663d2",
+          "highlight_line": 105,
+          "id": "l2e_c700471b2633",
           "label": "SCHEMA",
           "line_style": "dotted",
           "mech": {
-            "clause": "CTE{SSR}/SUBQ/SALESRETURNS/UNION0",
-            "ref_line": 12,
-            "sentence": "structural: \u27d0 union0 (8) references \u27d0 union0 (62) \u2014 see \u27d0 union0's definition",
+            "clause": "CTE{RESULTS}",
+            "ref_line": 87,
+            "sentence": "structural: wsr (55) references results (84) \u2014 see wsr's definition",
             "use_lines": [
-              13,
-              39,
-              40,
-              66,
-              67,
-              91,
-              92,
-              95
+              88,
+              89
             ]
           },
-          "reason": "structure \u2014 \u2016\u27d0 union0@L62 \u2192 return_amt@L66\u2016",
-          "source": "l2_tbl_0e48f31898",
-          "target": "fld_5455baede4",
+          "reason": "structure \u2014 \u2016results@L84 \u2192 sales@L105\u2016",
+          "source": "l2_tbl_4d8f9492ff",
+          "target": "fld_f2ec82e4bd",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 87,
+          "id": "l2e_84183c39458f",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "CTE{RESULTS}",
+            "ref_line": 87,
+            "sentence": "structural: results (84) references results (84) \u2014 see results's definition",
+            "use_lines": [
+              88,
+              89
+            ]
+          },
+          "reason": "structure \u2014 \u2016results@L84 \u2192 sales@L87\u2016",
+          "source": "l2_tbl_4d8f9492ff",
+          "target": "fld_b25a651640",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 113,
+          "id": "l2e_1977f3f45656",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L111 \u2192 sales@L113\u2016",
+          "source": "l2_tbl_11194c0158",
+          "target": "fld_45d7cbe21d",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 125,
+          "id": "l2e_c03019bdde2b",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ/FOO/UNION0/UNION1",
+            "ref_line": 124,
+            "sentence": "structural: \u27d0 union1 (123) references \u27d0 union1 (123) \u2014 see \u27d0 union1's definition",
+            "use_lines": [
+              125,
+              126,
+              127,
+              130,
+              131,
+              132,
+              133,
+              134
+            ]
+          },
+          "reason": "structure \u2014 \u2016\u27d0 union1@L123 \u2192 SUMsales@L125\u2016",
+          "source": "l2_tbl_6631eeae28",
+          "target": "fld_a7c495e9d3",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 132,
+          "id": "l2e_709a3e37f149",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "mech": {
+            "clause": "TOP0/SUBQ/FOO/UNION0/UNION1",
+            "ref_line": 124,
+            "sentence": "structural: \u27d0 union1 (123) references \u27d0 union1 (130) \u2014 see \u27d0 union1's definition",
+            "use_lines": [
+              125,
+              126,
+              127,
+              130,
+              131,
+              132,
+              133,
+              134
+            ]
+          },
+          "reason": "structure \u2014 \u2016\u27d0 union1@L130 \u2192 SUMsales@L132\u2016",
+          "source": "l2_tbl_061561b0b4",
+          "target": "fld_a7c495e9d3",
           "width": 1
         }
       },
@@ -259,30 +540,23 @@
           "desc": "HAVING\u2192SELECT match",
           "edge_type": "INDIRECT",
           "flow_kind": "filter",
-          "highlight_line": 12,
-          "id": "l2e_ea3cf6bc849c",
+          "highlight_line": 3,
+          "id": "l2e_0a1e5dc47670",
           "label": "INDIRECT",
           "line_style": "dot-dash",
-          "reason": "filter (filter step) \u2014 \u2016return_amt@L12 \u2192 return_amt@L5\u2016",
-          "source": "fld_5455baede4",
-          "target": "fld_a4c6b7d53c",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#C0392B",
-          "desc": "HAVING\u2192SELECT match",
-          "edge_type": "INDIRECT",
-          "flow_kind": "filter",
-          "highlight_line": 12,
-          "id": "l2e_ef2b11435150",
-          "label": "INDIRECT",
-          "line_style": "dot-dash",
-          "reason": "filter (filter step) \u2014 \u2016return_amt@L12 \u2192 return_amt@L32\u2016",
-          "source": "fld_5455baede4",
-          "target": "fld_7ad4d0f60c",
+          "mech": {
+            "clause": "SELECT EXPR",
+            "ref_line": 92,
+            "sentence": "structural: results (84) references ssr (1) \u2014 see results's definition",
+            "use_lines": [
+              93,
+              94,
+              95
+            ]
+          },
+          "reason": "filter (filter step) \u2014 \u2016sales@L3 \u2192 sales@L125\u2016",
+          "source": "fld_68bfa566ce",
+          "target": "fld_3312abd6aa",
           "width": 1
         }
       },
@@ -293,13 +567,26 @@
           "desc": "Column reference",
           "edge_type": "REF",
           "flow_kind": "read",
-          "highlight_line": 1,
-          "id": "l2e_f7a3bcb46ac7",
+          "highlight_line": 123,
+          "id": "l2e_ac08c839791b",
           "label": "REF",
           "line_style": "solid",
-          "reason": "read \u2014 \u2016return_amt@L5 \u2192 ssr@L1\u2016",
-          "source": "fld_a4c6b7d53c",
-          "target": "l2_tbl_7ff2417036",
+          "mech": {
+            "clause": "TOP0/SUBQ/FOO/UNION0/UNION1",
+            "ref_line": 123,
+            "sentence": "structural: \u27d0 union1 (123) references results (84) \u2014 see \u27d0 union1's definition",
+            "use_lines": [
+              125,
+              126,
+              127,
+              132,
+              133,
+              134
+            ]
+          },
+          "reason": "read (read into output) \u2014 \u2016sales@L125 \u2192 \u27d0 union1@L123\u2016",
+          "source": "fld_3312abd6aa",
+          "target": "l2_tbl_6631eeae28",
           "width": 1
         }
       },
@@ -310,18 +597,27 @@
           "desc": "Column reference",
           "edge_type": "REF",
           "flow_kind": "read",
-          "highlight_line": 28,
-          "id": "l2e_cc664b299839",
+          "highlight_line": 130,
+          "id": "l2e_3608340383d6",
           "label": "REF",
           "line_style": "solid",
-          "reason": "read \u2014 \u2016return_amt@L32 \u2192 csr@L28\u2016",
-          "source": "fld_7ad4d0f60c",
-          "target": "l2_tbl_ecdbb99e9b",
+          "mech": {
+            "clause": "SELECT EXPR",
+            "ref_line": 132,
+            "sentence": "structural: \u27d0 union1 (130) references results (84) \u2014 see \u27d0 union1's definition",
+            "use_lines": [
+              133,
+              134
+            ]
+          },
+          "reason": "read (read into output) \u2014 \u2016sales@L132 \u2192 \u27d0 union1@L130\u2016",
+          "source": "fld_3312abd6aa",
+          "target": "l2_tbl_061561b0b4",
           "width": 1
         }
       }
     ],
-    "filtered_nodes": 10,
+    "filtered_nodes": 15,
     "nodes": [
       {
         "data": {
@@ -335,20 +631,6 @@
           "table_name": "ssr",
           "type": "cte_table",
           "variable_type": "cte"
-        }
-      },
-      {
-        "data": {
-          "context": "CTE{ssr}/subq/salesreturns/union0",
-          "defined_in": "CTE{ssr}/subq/salesreturns/union0",
-          "id": "l2_tbl_dbfefb796a",
-          "label": "union0",
-          "line_end": 110,
-          "line_start": 8,
-          "original_id": "b2af89ad75a5f7a8",
-          "table_name": "\u27d0 union0",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
         }
       },
       {
@@ -367,20 +649,6 @@
       },
       {
         "data": {
-          "context": "CTE{csr}/subq/salesreturns/union0",
-          "defined_in": "CTE{csr}/subq/salesreturns/union0",
-          "id": "l2_tbl_3ac3d440cd",
-          "label": "union0",
-          "line_end": 110,
-          "line_start": 35,
-          "original_id": "5f6fe4f3c4824818",
-          "table_name": "\u27d0 union0",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
-        }
-      },
-      {
-        "data": {
           "context": "TOP0",
           "defined_in": "CTE{wsr}",
           "id": "l2_tbl_66414b16bd",
@@ -395,16 +663,16 @@
       },
       {
         "data": {
-          "context": "CTE{wsr}/subq/salesreturns/union0",
-          "defined_in": "CTE{wsr}/subq/salesreturns/union0",
-          "id": "l2_tbl_0e48f31898",
-          "label": "union0",
+          "context": "TOP0",
+          "defined_in": "CTE{results}",
+          "id": "l2_tbl_4d8f9492ff",
+          "label": "results",
           "line_end": 110,
-          "line_start": 62,
-          "original_id": "383c595ca09e5d5d",
-          "table_name": "\u27d0 union0",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
+          "line_start": 84,
+          "original_id": "e6084c07f6912944",
+          "table_name": "results",
+          "type": "cte_table",
+          "variable_type": "cte"
         }
       },
       {
@@ -423,13 +691,41 @@
       },
       {
         "data": {
+          "context": "TOP0/subq/foo/union0/union1",
+          "defined_in": "TOP0/subq/foo/union0/union1",
+          "id": "l2_tbl_6631eeae28",
+          "label": "union1",
+          "line_end": 135,
+          "line_start": 123,
+          "original_id": "85bb6e831999200b",
+          "table_name": "\u27d0 union1",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq/foo/union1",
+          "defined_in": "TOP0/subq/foo/union1",
+          "id": "l2_tbl_061561b0b4",
+          "label": "union1",
+          "line_end": 135,
+          "line_start": 130,
+          "original_id": "3297ef280af2626b",
+          "table_name": "\u27d0 union1",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
           "field_group": "direct",
-          "id": "fld_5455baede4",
+          "id": "fld_68bfa566ce",
           "is_target": true,
-          "label": "return_amt",
-          "orig_type": "transform",
-          "original_id": "97fa30a621b23b72",
-          "parent": "l2_tbl_dbfefb796a",
+          "label": "sales",
+          "orig_type": "aggregate",
+          "original_id": "be8d0dd456e04070",
+          "parent": "l2_tbl_7ff2417036",
           "type": "field",
           "variable_type": "field"
         }
@@ -437,11 +733,12 @@
       {
         "data": {
           "field_group": "direct",
-          "id": "fld_a4c6b7d53c",
+          "id": "fld_612bcd421c",
           "is_target": true,
-          "label": "return_amt",
-          "orig_type": "column",
-          "original_id": "9f8ddc4a2ad8bb8e",
+          "label": "sales",
+          "orig_type": "aggregate",
+          "original_id": "7cf3c27c3073d75e",
+          "parent": "l2_tbl_ecdbb99e9b",
           "type": "field",
           "variable_type": "field"
         }
@@ -449,11 +746,75 @@
       {
         "data": {
           "field_group": "direct",
-          "id": "fld_7ad4d0f60c",
+          "id": "fld_f2ec82e4bd",
           "is_target": true,
-          "label": "return_amt",
+          "label": "sales",
+          "orig_type": "aggregate",
+          "original_id": "ad417fa7442539e0",
+          "parent": "l2_tbl_66414b16bd",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_c59d99b8b7",
+          "is_target": false,
+          "label": "sales_price",
           "orig_type": "column",
-          "original_id": "25b144756e096c65",
+          "original_id": "bc6337b5154f975a",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_b25a651640",
+          "is_target": true,
+          "label": "sales",
+          "orig_type": "aggregate",
+          "original_id": "564f44d93bc3b50b",
+          "parent": "l2_tbl_4d8f9492ff",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_3312abd6aa",
+          "is_target": true,
+          "label": "sales",
+          "orig_type": "column",
+          "original_id": "997edcc9d3da257c",
+          "parent": "l2_tbl_4d8f9492ff",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_a7c495e9d3",
+          "is_target": true,
+          "label": "SUMsales",
+          "orig_type": "aggregate",
+          "original_id": "7add9649d521f0e3",
+          "parent": "l2_tbl_6631eeae28",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_45d7cbe21d",
+          "is_target": true,
+          "label": "sales",
+          "orig_type": "column",
+          "original_id": "a19c17fed54e4c20",
           "type": "field",
           "variable_type": "field"
         }
@@ -461,9 +822,9 @@
     ],
     "script_name": "05.sql",
     "search_matched": true,
-    "target": "\u27d0 union0.return_amt",
-    "total_edges": 13,
-    "total_nodes": 12
+    "target": "ssr.sales",
+    "total_edges": 26,
+    "total_nodes": 21
   },
   "full": {
     "edges": [
@@ -9114,7 +9475,7 @@
   },
   "script_name": "05.sql",
   "seed": {
-    "field": "return_amt",
-    "table": "\u27d0 union0"
+    "field": "sales",
+    "table": "ssr"
   }
 }
