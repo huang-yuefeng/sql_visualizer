@@ -12,19 +12,6 @@
           "id": "l2e_ccb1bed9b839",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "ctr1",
-            "clause": "FROM",
-            "ref_line": 12,
-            "sentence": "\u27d0 output (L11) reads customer_total_return (L1) in its FROM clause at L12",
-            "use_lines": [
-              15,
-              16,
-              17,
-              18,
-              21
-            ]
-          },
           "reason": "chain (CTE chain) \u2014 \u2016customer_total_return@L1 \u2192 \u27d0 output@L11\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "l2_tbl_422a284cb5",
@@ -42,11 +29,6 @@
           "id": "l2e_2bba480d00e5",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 12,
-            "sentence": "\u27d0 output (L11) reads ctr1 (L12) in its FROM clause at L12"
-          },
           "reason": "chain (read into output) \u2014 ctr1.ctr_customer_sk@L21 \u2192 \u2016ctr1@L12 \u2192 \u27d0 output@L11\u2016",
           "source": "l2_tbl_dd97ee4179",
           "target": "l2_tbl_422a284cb5",
@@ -64,11 +46,6 @@
           "id": "l2e_31c6982a9f05",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 17,
-            "sentence": "\u27d0 subq1 (L16) reads ctr2 (L17) in its FROM clause at L17"
-          },
           "reason": "chain (read into output) \u2014 \u2016ctr2@L17 \u2192 \u27d0 subq1@L16\u2016",
           "source": "l2_tbl_ef7a8b79e8",
           "target": "l2_tbl_bdf4413cd9",
@@ -86,11 +63,6 @@
           "id": "l2e_53159758f2d9",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 16,
-            "sentence": "\u27d0 output (L11) reads \u27d0 subq1 (L16) in its FROM clause at L16"
-          },
           "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq1@L16 \u2192 \u27d0 output@L11\u2016",
           "source": "l2_tbl_bdf4413cd9",
           "target": "l2_tbl_422a284cb5",
@@ -108,19 +80,6 @@
           "id": "l2e_3754d886bbb7",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "ctr1",
-            "clause": "FROM",
-            "ref_line": 12,
-            "sentence": "ctr1 (L12) reads customer_total_return (L1) in its FROM clause at L12",
-            "use_lines": [
-              15,
-              16,
-              17,
-              18,
-              21
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016customer_total_return@L1 \u2192 ctr1@L12\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "l2_tbl_dd97ee4179",
@@ -138,16 +97,6 @@
           "id": "l2e_cb9185b804ee",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "ctr2",
-            "clause": "FROM",
-            "ref_line": 17,
-            "sentence": "ctr2 (L17) reads customer_total_return (L1) in its FROM clause at L17",
-            "use_lines": [
-              18,
-              21
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016customer_total_return@L1 \u2192 ctr2@L17\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "l2_tbl_ef7a8b79e8",
@@ -182,11 +131,6 @@
           "id": "l2e_0cf2c702036b",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 21,
-            "sentence": "structural: customer_total_return (1) references ctr1 (12) \u2014 see customer_total_return's definition"
-          },
           "reason": "structure \u2014 \u2016ctr1@L12 \u2192 ctr1.ctr_customer_sk@L21\u2016",
           "source": "l2_tbl_dd97ee4179",
           "target": "fld_afc1b4e36b",
@@ -204,15 +148,6 @@
           "id": "l2e_ab8f721b6ab9",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CUSTOMER_TOTAL_RETURN}",
-            "ref_line": 2,
-            "sentence": "structural: customer_total_return (1) references customer_total_return (1) \u2014 see customer_total_return's definition",
-            "use_lines": [
-              3,
-              4
-            ]
-          },
           "reason": "structure \u2014 \u2016customer_total_return@L1 \u2192 ctr_customer_sk@L2\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "fld_afc1b4e36b",
@@ -230,19 +165,6 @@
           "id": "l2e_38cbb679609f",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "ctr1",
-            "clause": "FROM",
-            "ref_line": 12,
-            "sentence": "ctr1 (L12) reads customer_total_return (L1) in its FROM clause at L12",
-            "use_lines": [
-              15,
-              16,
-              17,
-              18,
-              21
-            ]
-          },
           "reason": "read \u2014 \u2016ctr1.ctr_customer_sk@L21 \u2192 ctr1@L12\u2016",
           "source": "fld_afc1b4e36b",
           "target": "l2_tbl_dd97ee4179",
@@ -260,19 +182,6 @@
           "id": "l2e_16c40c66fef7",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "ctr1",
-            "clause": "FROM",
-            "ref_line": 12,
-            "sentence": "\u27d0 output (L11) reads customer_total_return (L1) in its FROM clause at L12",
-            "use_lines": [
-              15,
-              16,
-              17,
-              18,
-              21
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016ctr1.ctr_customer_sk@L21 \u2192 \u27d0 output@L11\u2016",
           "source": "fld_afc1b4e36b",
           "target": "l2_tbl_422a284cb5",
@@ -414,19 +323,6 @@
           "id": "l2e_ccb1bed9b839",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "ctr1",
-            "clause": "FROM",
-            "ref_line": 12,
-            "sentence": "\u27d0 output (L11) reads customer_total_return (L1) in its FROM clause at L12",
-            "use_lines": [
-              15,
-              16,
-              17,
-              18,
-              21
-            ]
-          },
           "reason": "chain (CTE chain) \u2014 \u2016customer_total_return@L1 \u2192 \u27d0 output@L11\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "l2_tbl_422a284cb5",
@@ -444,12 +340,6 @@
           "id": "l2e_4e97d66cbe57",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "store_returns",
-            "clause": "FROM",
-            "ref_line": 5,
-            "sentence": "customer_total_return (L1) reads store_returns (L5) in its FROM clause at L5"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016store_returns@L5 \u2192 customer_total_return@L1\u2016",
           "source": "l2_tbl_80632110b3",
           "target": "l2_tbl_b6e656aeb2",
@@ -467,12 +357,6 @@
           "id": "l2e_6a3b4f091c9b",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 6,
-            "sentence": "customer_total_return (L1) reads date_dim (L6) via LEFT JOIN at L6 (alias date_dim)"
-          },
           "reason": "chain (CTE chain) \u2014 \u2016date_dim@L6 \u2192 customer_total_return@L1\u2016",
           "source": "l2_tbl_a9f5ab6e6f",
           "target": "l2_tbl_b6e656aeb2",
@@ -490,11 +374,6 @@
           "id": "l2e_2bba480d00e5",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 12,
-            "sentence": "\u27d0 output (L11) reads ctr1 (L12) in its FROM clause at L12"
-          },
           "reason": "chain (read into output) \u2014 \u2016ctr1@L12 \u2192 \u27d0 output@L11\u2016",
           "source": "l2_tbl_dd97ee4179",
           "target": "l2_tbl_422a284cb5",
@@ -512,12 +391,6 @@
           "id": "l2e_e4a0403cade6",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "store",
-            "clause": "JOIN",
-            "ref_line": 13,
-            "sentence": "\u27d0 output (L11) reads store (L13) via LEFT JOIN at L13 (alias store)"
-          },
           "reason": "chain (read into output) \u2014 \u2016store@L13 \u2192 \u27d0 output@L11\u2016",
           "source": "l2_tbl_6461c6b6fd",
           "target": "l2_tbl_422a284cb5",
@@ -535,12 +408,6 @@
           "id": "l2e_e62ce1c11c6f",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "customer",
-            "clause": "JOIN",
-            "ref_line": 14,
-            "sentence": "\u27d0 output (L11) reads customer (L14) via LEFT JOIN at L14 (alias customer)"
-          },
           "reason": "chain (read into output) \u2014 \u2016customer@L14 \u2192 \u27d0 output@L11\u2016",
           "source": "l2_tbl_82a1328b8e",
           "target": "l2_tbl_422a284cb5",
@@ -558,11 +425,6 @@
           "id": "l2e_31c6982a9f05",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 17,
-            "sentence": "\u27d0 subq1 (L16) reads ctr2 (L17) in its FROM clause at L17"
-          },
           "reason": "chain (read into output) \u2014 \u2016ctr2@L17 \u2192 \u27d0 subq1@L16\u2016",
           "source": "l2_tbl_ef7a8b79e8",
           "target": "l2_tbl_bdf4413cd9",
@@ -580,11 +442,6 @@
           "id": "l2e_53159758f2d9",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 16,
-            "sentence": "\u27d0 output (L11) reads \u27d0 subq1 (L16) in its FROM clause at L16"
-          },
           "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq1@L16 \u2192 \u27d0 output@L11\u2016",
           "source": "l2_tbl_bdf4413cd9",
           "target": "l2_tbl_422a284cb5",
@@ -602,19 +459,6 @@
           "id": "l2e_3754d886bbb7",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "ctr1",
-            "clause": "FROM",
-            "ref_line": 12,
-            "sentence": "ctr1 (L12) reads customer_total_return (L1) in its FROM clause at L12",
-            "use_lines": [
-              15,
-              16,
-              17,
-              18,
-              21
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016customer_total_return@L1 \u2192 ctr1@L12\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "l2_tbl_dd97ee4179",
@@ -632,16 +476,6 @@
           "id": "l2e_cb9185b804ee",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "ctr2",
-            "clause": "FROM",
-            "ref_line": 17,
-            "sentence": "ctr2 (L17) reads customer_total_return (L1) in its FROM clause at L17",
-            "use_lines": [
-              18,
-              21
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016customer_total_return@L1 \u2192 ctr2@L17\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "l2_tbl_ef7a8b79e8",
@@ -710,17 +544,6 @@
           "id": "l2e_30cd1ed536ca",
           "label": "TRANSFORM",
           "line_style": "dashed",
-          "mech": {
-            "alias": "ctr2",
-            "clause": "FROM",
-            "ref_line": 17,
-            "sentence": "\u27d0 subq1 (L16) reads customer_total_return (L1) in its FROM clause at L17",
-            "use_lines": [
-              16,
-              18,
-              21
-            ]
-          },
           "reason": "field flow (compute step) \u2014 \u2016ctr_total_return@L16 \u2192 AVGctr_total_return_*_1.2@L0\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "l2_tbl_bdf4413cd9",
@@ -738,11 +561,6 @@
           "id": "l2e_0cf2c702036b",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 21,
-            "sentence": "structural: customer_total_return (1) references ctr1 (12) \u2014 see customer_total_return's definition"
-          },
           "reason": "structure \u2014 \u2016ctr1@L12 \u2192 ctr1.ctr_customer_sk@L21\u2016",
           "source": "l2_tbl_dd97ee4179",
           "target": "fld_afc1b4e36b",
@@ -760,11 +578,6 @@
           "id": "l2e_8d5b149238c7",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 15,
-            "sentence": "structural: customer_total_return (1) references ctr1 (12) \u2014 see customer_total_return's definition"
-          },
           "reason": "structure \u2014 \u2016ctr1@L12 \u2192 ctr1.ctr_total_return@L15\u2016",
           "source": "l2_tbl_dd97ee4179",
           "target": "fld_2db0b595dd",
@@ -782,11 +595,6 @@
           "id": "l2e_2aa053563f22",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 18,
-            "sentence": "structural: customer_total_return (1) references ctr1 (12) \u2014 see customer_total_return's definition"
-          },
           "reason": "structure \u2014 \u2016ctr1@L12 \u2192 ctr1.ctr_store_sk@L18\u2016",
           "source": "l2_tbl_dd97ee4179",
           "target": "fld_04871fd581",
@@ -804,11 +612,6 @@
           "id": "l2e_a86045bf3d50",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 18,
-            "sentence": "structural: customer_total_return (1) references ctr2 (17) \u2014 see customer_total_return's definition"
-          },
           "reason": "structure \u2014 \u2016ctr2@L17 \u2192 ctr2.ctr_store_sk@L18\u2016",
           "source": "l2_tbl_ef7a8b79e8",
           "target": "fld_04871fd581",
@@ -826,15 +629,6 @@
           "id": "l2e_ab8f721b6ab9",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CUSTOMER_TOTAL_RETURN}",
-            "ref_line": 2,
-            "sentence": "structural: customer_total_return (1) references customer_total_return (1) \u2014 see customer_total_return's definition",
-            "use_lines": [
-              3,
-              4
-            ]
-          },
           "reason": "structure \u2014 \u2016customer_total_return@L1 \u2192 ctr_customer_sk@L2\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "fld_afc1b4e36b",
@@ -852,15 +646,6 @@
           "id": "l2e_79720b4ae181",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CUSTOMER_TOTAL_RETURN}",
-            "ref_line": 2,
-            "sentence": "structural: customer_total_return (1) references customer_total_return (1) \u2014 see customer_total_return's definition",
-            "use_lines": [
-              3,
-              4
-            ]
-          },
           "reason": "structure \u2014 \u2016customer_total_return@L1 \u2192 ctr_store_sk@L3\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "fld_04871fd581",
@@ -878,15 +663,6 @@
           "id": "l2e_752f0afbb2e0",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "CTE{CUSTOMER_TOTAL_RETURN}",
-            "ref_line": 2,
-            "sentence": "structural: customer_total_return (1) references customer_total_return (1) \u2014 see customer_total_return's definition",
-            "use_lines": [
-              3,
-              4
-            ]
-          },
           "reason": "structure \u2014 \u2016customer_total_return@L1 \u2192 ctr_total_return@L4\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "fld_2db0b595dd",
@@ -938,19 +714,6 @@
           "id": "l2e_38cbb679609f",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "ctr1",
-            "clause": "FROM",
-            "ref_line": 12,
-            "sentence": "ctr1 (L12) reads customer_total_return (L1) in its FROM clause at L12",
-            "use_lines": [
-              15,
-              16,
-              17,
-              18,
-              21
-            ]
-          },
           "reason": "read \u2014 \u2016ctr1.ctr_customer_sk@L21 \u2192 ctr1@L12\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "l2_tbl_dd97ee4179",
@@ -968,16 +731,6 @@
           "id": "l2e_b76ea294a8bf",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "ctr2",
-            "clause": "FROM",
-            "ref_line": 17,
-            "sentence": "ctr2 (L17) reads customer_total_return (L1) in its FROM clause at L17",
-            "use_lines": [
-              18,
-              21
-            ]
-          },
           "reason": "read \u2014 \u2016ctr2.ctr_store_sk@L18 \u2192 ctr2@L17\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "l2_tbl_ef7a8b79e8",
@@ -1012,19 +765,6 @@
           "id": "l2e_16c40c66fef7",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "ctr1",
-            "clause": "FROM",
-            "ref_line": 12,
-            "sentence": "\u27d0 output (L11) reads customer_total_return (L1) in its FROM clause at L12",
-            "use_lines": [
-              15,
-              16,
-              17,
-              18,
-              21
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016ctr1.ctr_customer_sk@L21 \u2192 \u27d0 output@L11\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "l2_tbl_422a284cb5",
@@ -1042,17 +782,6 @@
           "id": "l2e_88d8d6ef3c3d",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "ctr2",
-            "clause": "FROM",
-            "ref_line": 17,
-            "sentence": "\u27d0 subq1 (L16) reads customer_total_return (L1) in its FROM clause at L17",
-            "use_lines": [
-              16,
-              18,
-              21
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016ctr1.ctr_store_sk@L18 \u2192 \u27d0 subq1@L16\u2016",
           "source": "l2_tbl_b6e656aeb2",
           "target": "l2_tbl_bdf4413cd9",

@@ -239,7 +239,7 @@ string-prefix `"⟐ output"` sentinel matching dies (also used at
 l2_builder.py:346 B5 label sanitation, 949, 1586). `_dml_out`/`_value`
 edge-id suffixes survive only if edge ids keep their raw derivation.
 
-### 1.8 Payload machinery (carried info, closure/downstream walks, mech) — consumers of the model's output, not reconstructions
+### 1.8 Payload machinery (carried info, closure/downstream walks) — consumers of the model's output, not reconstructions
 
 These are NOT reconstruction (they consume extraction-time facts
 attached at build time), but they pin the edge/display contract stages
@@ -253,6 +253,24 @@ attached at build time), but they pin the edge/display contract stages
 | `_attach_flow_payload` (orchestrates walks + strategy) | 1525-1636 | carried info → highlight_line/flow_kind/reason |
 | `_carry_node_lines` (compound line_start/line_end from keeper var; `_stmt_anchor_lines_from_nodes` RE-derives statement anchors 1357-1376) | 1387-1412 | pre-filter node index — **a derivation the physical model should own** (statement anchors are extraction facts) |
 | R11-3 mech: `_ref_site_vars` scan + `_build_mechanism` | 1415-1427, 1477-1522 | pre-filter var index + compound def-ranges |
+
+**R26.3 (2026-08-11) — the per-edge `mech` payload is REMOVED.** R26
+deleted the frontend renderer (EdgeReasonPanel renders kind + anchor +
+reason only) and this integration turn retires the dormant backend
+emitter under the no-dormant-machinery rule: `_build_mechanism`,
+`_mech_sentence`, `_mech_fallback_clause`, `_ref_site_vars`,
+`_field_part`, `_REF_SITE_TABLE_TYPES` and the mech block inside
+`_attach_flow_payload` (incl. the `_resolve_compound` closure and the
+`node_index` parameter) are deleted; the level2 response and the graph
+cache no longer carry the per-edge `mech` key. `_carry_node_lines`
+(compound line_start/line_end/defined_in) and the R25 payload
+(highlight_line/flow_kind/reason) are UNCHANGED. Graph-cache prefix
+bumped 3_2_23 → 3_2_24 (cache_keys.py, dated entry). **Snapshot
+rebaseline (2026-08-11, L2_SNAPSHOT_UPDATE=1):** all 12
+`backend/tests/snapshots/l2_snapshot_*.sql.json` files — the ONLY diff
+is 1295 `"mech"` occurrences removed from edge objects; no node/edge
+construction, ordering or seed selection changed (verified by
+`git diff` against the pre-rebaseline snapshots).
 
 **Under the model:** walks read `PhysicalEdge`s (source→target paths
 are model-level; no occurrence-level fixpoint needed — see §2 note on
@@ -882,12 +900,12 @@ incidents 160/223/225). Node precision ratios moved 1.2/1.125 →
     highlight lines, not ids.
 - `tests/test_mech_payload.py` — `TestR11_2DmlPhantomDedup` (58-77)
   pins the dml_ phantom DISPLAY (one data_dt child under rrcdm;
-  no (parent,label) dup among `dml_` ids); `TestR11_3MechPayload`
-  (91-130) pins compound `line_start/line_end/defined_in` (64..159,
-  160..210) and the mech sentence (clause JOIN, ref_line 155, alias p6)
-  — these pin the payload contract, which stages 2/3 must preserve
-  verbatim (payload is derived from carried extraction info; lines come
-  from PhysicalField).
+  no (parent,label) dup among `dml_` ids); `TestR11_3RemainingPayload`
+  (R26.3 rewrite of the old R11-3 class) pins compound
+  `line_start/line_end/defined_in` (64..159, 160..210) + the R25
+  per-edge payload AND guards `"mech" not in d` — the R26.3 removal is
+  itself pinned. The old mech-sentence pins (clause JOIN, ref_line 155,
+  alias p6) are deleted with the payload.
 - `tests/jaccard_canonical.py` — canonical rows use `label@line`
   endpoints (e.g. `l2_tbl_9c126725f4` appears only as a comment, 81) —
   label-keyed, resilient.
@@ -934,7 +952,7 @@ incidents 160/223/225). Node precision ratios moved 1.2/1.125 →
    model's alias-view mapping fixes this by construction; the stage-3
    diff must be documented (canonical rows with p1 endpoints).
 3. **The benchmark is label-based** — the design's "ids may change"
-   risk is smaller than feared for the gate itself, but the dml_/mech
+   risk is smaller than feared for the gate itself, but the dml_
    pins (4.2) and payload byte-equality (highlights
    `[[18,18],[43,43],[158,158],[160,160]]`) are the real gate.
 4. **`_stmt_anchor_lines_from_nodes` (1357-1376) re-derives statement
@@ -978,8 +996,58 @@ incidents 160/223/225). Node precision ratios moved 1.2/1.125 →
 | 1.5 floating-field rescue | 4 parenting paths (+1 L1) | l2_builder.py 480-484, 519-535, 864-883, 1123-1141; l1_builder.py 710-789 |
 | 1.6 alias compounds | 7 sites | l2_builder.py 310-312, 330-331, 348-401, 379-382, 260-272, 274-291, 1110 |
 | 1.7 DML routing | 6 mechanisms | l2_builder.py 943-951, 958-972, 980-983, 985-992, 994-1004, 1005-1020, 1025-1051 |
-| 1.8 payload machinery | 8 (contract, not reconstruction) | l2_builder.py 627-666, 1186-1250, 1253-1341, 1525-1636, 1387-1412, 1357-1376, 1415-1427, 1477-1522 |
+| 1.8 payload machinery | 6 (contract, not reconstruction; R26.3 removed the 2 mech rows) | l2_builder.py 627-666, 1186-1250, 1253-1341, 1525-1636, 1387-1412, 1357-1376 |
 | 1.9 dml_dml_ chaining | 0 (historical — grep-verified) | docs only |
 | 2 walker contract | 14 rules (W1-W14) | lineage.py 556-848 + helpers |
-| 4.2 test pins | 5 files | test_jaccard_benchmark.py 368-388/425/446, test_mech_payload.py 58-77/91-130, jaccard_canonical.py, test_l1_l2_integration.py, test_walker_gaps_e3.py |
+| 4.2 test pins | 5 files | test_jaccard_benchmark.py 368-388/425/446, test_mech_payload.py 58-77/91-130 (91-130 = R26.3-rewritten class), jaccard_canonical.py, test_l1_l2_integration.py, test_walker_gaps_e3.py |
 | 4.3 frontend ids | 3 sites | DataFlowGraph.jsx 114-117, pickAutoEdge.js 27/39-44, dataflow_service.py 542-554 |
+
+---
+
+## Appendix B — L2 snapshot rebaseline log
+
+> Dated entries: every L2_SNAPSHOT_UPDATE=1 rebaseline, with the
+> engine-side cause and the exact inventory. Required BEFORE rebaseline
+> (binding rule) so snapshot diffs are never silently swallowed.
+
+### 2026-08-11 — S3 occurrence-aware anchors (extractor, v3.3.152)
+
+**Engine cause:** `variable_extractor_v2._statement_anchor` first-matched
+the head-token subsequence, so the k-th walk of a textually identical
+statement/CTE/subquery body anchored at the FIRST occurrence. The scoped
+def-site lookup then collapsed onto the first occurrence's lines ("first
+name occurrence beats definition" — the S3 bug family; residual in
+tpcds q14/q39 join aliases and, corpus-wide, every repeated
+statement/subquery body). Fix: `_anchor_head_last` — the k-th anchor
+call for a head searches STRICTLY AFTER the last line already matched
+for that head (walks are in stream order per head).
+
+**Verification before rebaseline:** every shifted var line was checked
+against the script text — the new line is the var's own occurrence
+(definition/subquery body line); the old line was the first occurrence.
+Flagship + corpus alias probes: 324 files, 962 alias vars, 0 BAD.
+
+**Inventory (test_l2_snapshot, 6 of 12 files; L2_SNAPSHOT_UPDATE=1):**
+
+| File | Node changes | Edge changes |
+|---|---|---|
+| 00_BDM_ACC_LOAN_INFO_SUP_M.sql | 1 line_start: ⟐ p2 31→107 (second `LEFT JOIN (SELECT podcg…FROM ods_hub_lsacmsp…)` block, L108-116) | 27 highlight_line/reason: 31/33/35 → 107/109/111 (p2 join block, p_dt) |
+| 04_04.sql | 2 line_start: union1 arms 2→25, 2→48; 2 flow_role target→source (catalog_sales@36, web_sales@59) | 65 highlight_line/reason (union arm reads + value copies; aggregate steps year_total@10→@33/@56) |
+| 05_05.sql | 1 line_start: 111→117 | 5 highlight_line/reason; filtered view: 1 reason `sales@L113 → sales@L119` (seed closure) |
+| 08_08.sql | 2 line_start: 6→410, 8→412 (count(*) subquery block L410-419) | 38→37 edges: REF `cnt@L413 → customer_address@L9` removed (was first-occurrence collapse); replaced by SCHEMA `⟐ …A1@L412 → cnt@L413` + TABLE_FLOW `customer_address@L414 → ⟐ …A1@L412` |
+| 09_09.sql | 12 line_start: the 5 repeated `(SELECT count(*)/avg(…)…)` case subqueries — nodes 4/7/11 → 17/30/43/56, 20/33/46/59, 24/37/50/63 | 53 highlight_line/reason |
+| 11_11.sql | 1 line_start: union arm 2→25; 1 flow_role target→source | 42 highlight_line/reason |
+
+Node/edge **id sets unchanged** in all 6 files (ids are content-hash
+based on structure, not lines) — only line-bearing attributes moved:
+`line_start`, `highlight_line`, `reason` (embedded ‖x@L..‖), and the
+`flow_role` consequence of the seed-field instance's corrected line.
+Filtered (seed) views: only 05's single `reason` string.
+
+**Pin updates:** `test_verification_samples.py` WINDOW-3
+(86.sql `results_rollup@14 → rank_within_parent@25`, anchor 15 → 21):
+the old pin anchored the rank() inputs' FIRST file appearance
+(results_rollup union arm, L15); post-fix they resolve to their own
+window occurrences (L21-24, `partition by lochierarchy` at L21) — rule-1
+"source field's appearance" now yields 21. Fixture repaired with the
+extractor evidence (ground-truth-may-be-wrong rule), not the engine.

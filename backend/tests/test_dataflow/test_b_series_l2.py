@@ -40,7 +40,9 @@ from app.services.workspace_service import (
 from app.services.l2_builder import _build_l2_graph
 from app.services.dataflow_service import get_level2_graph
 from app.services.cache_keys import GRAPH_CACHE_PREFIX
-from app.extractor.variable_extractor_v2 import extract_variables_from_sql
+from app.extractor.variable_extractor_v2 import (
+    extract_variables_from_sql, EXTRACTOR_VERSION,
+)
 
 SAMPLE_PATH = (BACKEND_DIR.parent / "samples" / "sql_sample_v1"
                / "BDM_ACC_LOAN_INFO_SUP_M.sql")
@@ -269,8 +271,12 @@ def test_c10_miss_path_writes_graph_cache():
                 f.unlink()
         cache_dir.mkdir(parents=True, exist_ok=True)
 
+        # #197: versioned analysis-key contract — md5 over
+        # (EXTRACTOR_VERSION, script_name, sql_text), identical to
+        # folder_index_service's write side and the L2 read sides.
         cache_key = hashlib.md5(
-            ("two_stmt.sql" + TWO_STMT_SQL).encode()).hexdigest()[:12]
+            (EXTRACTOR_VERSION + "|" + "two_stmt.sql" + TWO_STMT_SQL)
+            .encode()).hexdigest()[:12]
         out = get_level2_graph(ws_id, ws_id, "two_stmt.sql",
                                TABLE, "loan_id")
         assert "error" not in out, out
@@ -300,8 +306,12 @@ def test_c2b_analysis_cache_preferred(monkeypatch):
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Fabricate an analysis cache carrying a marker var
+        # #197: versioned analysis-key contract — md5 over
+        # (EXTRACTOR_VERSION, script_name, sql_text), identical to
+        # folder_index_service's write side and the L2 read sides.
         cache_key = hashlib.md5(
-            ("two_stmt.sql" + TWO_STMT_SQL).encode()).hexdigest()[:12]
+            (EXTRACTOR_VERSION + "|" + "two_stmt.sql" + TWO_STMT_SQL)
+            .encode()).hexdigest()[:12]
         from app.extractor.adapter import run_full_analysis
         analysis = run_full_analysis(TWO_STMT_SQL, "two_stmt.sql")
         analysis["variables"].append({
@@ -349,8 +359,12 @@ def test_c2b_l2_builder_analysis_cache_preferred(monkeypatch):
                 f.unlink()
         cache_dir.mkdir(parents=True, exist_ok=True)
 
+        # #197: versioned analysis-key contract — md5 over
+        # (EXTRACTOR_VERSION, script_name, sql_text), identical to
+        # folder_index_service's write side and the L2 read sides.
         cache_key = hashlib.md5(
-            ("two_stmt.sql" + TWO_STMT_SQL).encode()).hexdigest()[:12]
+            (EXTRACTOR_VERSION + "|" + "two_stmt.sql" + TWO_STMT_SQL)
+            .encode()).hexdigest()[:12]
         from app.extractor.adapter import run_full_analysis
         analysis = run_full_analysis(TWO_STMT_SQL, "two_stmt.sql")
         analysis["variables"].append({

@@ -118,17 +118,24 @@ PINNED_ROWS = [
     dict(sample="tpcds_qualified/86.sql", eid="SET_OP-1",
          src=("union_result", 0), tgt=("results_rollup", 14), rel="SET_OP",
          anchor=15, mode="full_graph", known_gap=True),
-    # ── WINDOW — 86.sql (rule 1: appearance at line 15) ────────────────────
+    # ── WINDOW — 86.sql (rule 1: appearance at line 21) ────────────────────
     # The 4 rank() inputs (total_sum / g_class / i_category / lochierarchy,
-    # all L15, all owned by results_rollup) MERGE in the served L2 into ONE
+    # all owned by results_rollup) MERGE in the served L2 into ONE
     # WINDOW edge: owner results_rollup → the rank_within_parent target
-    # field, anchor 15 (appearance line of every input). The merged edge
+    # field. anchor 21 = the inputs' OWN window appearance
+    # (partition by lochierarchy at L21; total_sum in the window's
+    # order-by at L23) — the rank() over block spans L22-25, the AS alias
+    # `rank_within_parent` at L25. Rebased 2026-08-11 from 15 (S3
+    # occurrence-aware anchors, v3.3.152): pre-fix the inputs resolved to
+    # L15 — their FIRST file appearance inside the results_rollup CTE
+    # union arm (first-occurrence-beats-definition collapse); post-fix
+    # each resolves to its own window occurrence. The merged edge
     # lives in the (⟐ output, rank_within_parent) seed closure (the target
     # seed field keeps field level — P2). Rows WINDOW-4..6 of the original
     # probe collapsed into this single pin (pre-existing promotion design).
     dict(sample="tpcds_qualified/86.sql", eid="WINDOW-3",
          src=("results_rollup", 14), tgt=("rank_within_parent", 25),
-         rel="WINDOW", anchor=15, mode="closure"),
+         rel="WINDOW", anchor=21, mode="closure"),
     # ── INDIRECT — 046_pets_1_s6.sql (endpoint-decided: token at both
     #    endpoints → anchor 3). mode="dep": the correlated self-loops exist
     #    at the dependency level (op CORRELATED); the served L2 promotes
@@ -178,7 +185,8 @@ def samples():
         }
         graph = build_graph_data(analysis)
         # R25/W5 (v3.3.149): the per-edge payload (highlight_line/flow_kind/
-        # reason + mech) lands ONLY on the L2 builder path (_build_l2_graph)
+        # reason; R26.3 dropped the former mech key) lands ONLY on the L2
+        # builder path (_build_l2_graph)
         # — the raw build_graph_data output carries no payload. The anchor
         # assertions therefore route through _build_l2_graph (the served
         # /views/{id}/level2 path; bench ws like the Jaccard harness), one

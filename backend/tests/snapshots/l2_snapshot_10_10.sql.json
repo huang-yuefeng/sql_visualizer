@@ -12,18 +12,6 @@
           "id": "l2e_00340a4cfc76",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 4,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              6,
-              8,
-              10,
-              12,
-              14
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 cnt1@L4\u2016",
           "source": "l2_tbl_bddeb902ce",
           "target": "fld_2ed3bdd7fd",
@@ -80,11 +68,6 @@
           "id": "l2e_cc9b5a8f3759",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 15,
-            "sentence": "\u27d0 output (L1) reads c (L15) in its FROM clause at L15"
-          },
           "reason": "chain (read into output) \u2014 \u2016c@L15 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_930b1d90b7",
           "target": "l2_tbl_bddeb902ce",
@@ -102,11 +85,6 @@
           "id": "l2e_37c6167ca384",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "FROM",
-            "ref_line": 16,
-            "sentence": "\u27d0 output (L1) reads ca (L16) in its FROM clause at L16"
-          },
           "reason": "chain (read into output) \u2014 \u2016ca@L16 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_353d8415dd",
           "target": "l2_tbl_bddeb902ce",
@@ -124,12 +102,6 @@
           "id": "l2e_0c39f6d1dc5f",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "customer_demographics",
-            "clause": "JOIN",
-            "ref_line": 17,
-            "sentence": "\u27d0 output (L1) reads customer_demographics (L17) via LEFT JOIN at L17 (alias customer_demographics)"
-          },
           "reason": "chain (read into output) \u2014 \u2016customer_demographics@L17 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_cd5ba378a6",
           "target": "l2_tbl_bddeb902ce",
@@ -147,12 +119,6 @@
           "id": "l2e_137e31aaa2ba",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "store_sales",
-            "clause": "FROM",
-            "ref_line": 27,
-            "sentence": "\u27d0 exists1 (L26) reads store_sales (L27) in its FROM clause at L27"
-          },
           "reason": "chain (read into output) \u2014 \u2016store_sales@L27 \u2192 \u27d0 exists1@L26\u2016",
           "source": "l2_tbl_ad480382c6",
           "target": "l2_tbl_75682733fc",
@@ -170,16 +136,6 @@
           "id": "l2e_479c29fdd6de",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 28,
-            "sentence": "\u27d0 exists1 (L26) reads date_dim (L28) via LEFT JOIN at L28 (alias date_dim)",
-            "use_lines": [
-              36,
-              44
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016date_dim@L28 \u2192 \u27d0 exists1@L26\u2016",
           "source": "l2_tbl_0348adb62e",
           "target": "l2_tbl_75682733fc",
@@ -197,12 +153,6 @@
           "id": "l2e_89d04b97a7f1",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "web_sales",
-            "clause": "FROM",
-            "ref_line": 35,
-            "sentence": "\u27d0 exists2 (L34) reads web_sales (L35) in its FROM clause at L35"
-          },
           "reason": "chain (read into output) \u2014 \u2016web_sales@L35 \u2192 \u27d0 exists2@L34\u2016",
           "source": "l2_tbl_46286a6110",
           "target": "l2_tbl_f6f71915e7",
@@ -220,15 +170,6 @@
           "id": "l2e_9397154e8721",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 36,
-            "sentence": "\u27d0 exists2 (L34) reads date_dim (L28) via LEFT JOIN at L36 (alias date_dim)",
-            "use_lines": [
-              44
-            ]
-          },
           "reason": "chain (read into output) \u2014 \u2016date_dim@L36 \u2192 \u27d0 exists2@L34\u2016",
           "source": "l2_tbl_0348adb62e",
           "target": "l2_tbl_f6f71915e7",
@@ -246,12 +187,6 @@
           "id": "l2e_7008d6c0a8a8",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "catalog_sales",
-            "clause": "FROM",
-            "ref_line": 43,
-            "sentence": "\u27d0 exists3 (L42) reads catalog_sales (L43) in its FROM clause at L43"
-          },
           "reason": "chain (read into output) \u2014 \u2016catalog_sales@L43 \u2192 \u27d0 exists3@L42\u2016",
           "source": "l2_tbl_cf4cc2d7ed",
           "target": "l2_tbl_0feb14f496",
@@ -269,12 +204,6 @@
           "id": "l2e_4401dd4bde0e",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "alias": "date_dim",
-            "clause": "JOIN",
-            "ref_line": 44,
-            "sentence": "\u27d0 exists3 (L42) reads date_dim (L28) via LEFT JOIN at L44 (alias date_dim)"
-          },
           "reason": "chain (read into output) \u2014 \u2016date_dim@L44 \u2192 \u27d0 exists3@L42\u2016",
           "source": "l2_tbl_0348adb62e",
           "target": "l2_tbl_0feb14f496",
@@ -292,11 +221,6 @@
           "id": "l2e_6e4e4d2027f9",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0/EXISTS1",
-            "ref_line": 26,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 exists1 (26) \u2014 see \u27d0 output's definition"
-          },
           "reason": "chain (VT chain) \u2014 \u2016\u27d0 exists1@L26 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_75682733fc",
           "target": "l2_tbl_bddeb902ce",
@@ -314,11 +238,6 @@
           "id": "l2e_f9374c4ba8ce",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0/EXISTS2",
-            "ref_line": 34,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 exists2 (34) \u2014 see \u27d0 output's definition"
-          },
           "reason": "chain (VT chain) \u2014 \u2016\u27d0 exists2@L34 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_f6f71915e7",
           "target": "l2_tbl_bddeb902ce",
@@ -336,11 +255,6 @@
           "id": "l2e_980c9fb658cb",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "mech": {
-            "clause": "TOP0/EXISTS3",
-            "ref_line": 42,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 exists3 (42) \u2014 see \u27d0 output's definition"
-          },
           "reason": "chain (VT chain) \u2014 \u2016\u27d0 exists3@L42 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_0feb14f496",
           "target": "l2_tbl_bddeb902ce",
@@ -358,19 +272,6 @@
           "id": "l2e_d865bc37f119",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "c",
-            "clause": "FROM",
-            "ref_line": 15,
-            "sentence": "c (L15) reads customer (L15) in its FROM clause at L15",
-            "use_lines": [
-              18,
-              24,
-              29,
-              37,
-              45
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016customer@L15 \u2192 c@L15\u2016",
           "source": "l2_tbl_dab014fd6f",
           "target": "l2_tbl_930b1d90b7",
@@ -388,15 +289,6 @@
           "id": "l2e_6c33867267a4",
           "label": "ALIAS",
           "line_style": "dashed",
-          "mech": {
-            "alias": "ca",
-            "clause": "JOIN",
-            "ref_line": 16,
-            "sentence": "ca (L16) reads customer_address (L16) via LEFT JOIN at L16 (alias ca)",
-            "use_lines": [
-              18
-            ]
-          },
           "reason": "chain (alias hop) \u2014 \u2016customer_address@L16 \u2192 ca@L16\u2016",
           "source": "l2_tbl_5678b67164",
           "target": "l2_tbl_353d8415dd",
@@ -414,11 +306,6 @@
           "id": "l2e_6dcfbbe8c4ff",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 29,
-            "sentence": "structural: customer (15) references c (15) \u2014 see customer's definition"
-          },
           "reason": "structure \u2014 \u2016c@L15 \u2192 c.c_customer_sk@L29\u2016",
           "source": "l2_tbl_930b1d90b7",
           "target": "fld_9402ae30f1",
@@ -436,11 +323,6 @@
           "id": "l2e_31691ed075b6",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 24,
-            "sentence": "structural: customer (15) references c (15) \u2014 see customer's definition"
-          },
           "reason": "structure \u2014 \u2016c@L15 \u2192 c.c_current_cdemo_sk@L24\u2016",
           "source": "l2_tbl_930b1d90b7",
           "target": "fld_05ef90ec0f",
@@ -458,11 +340,6 @@
           "id": "l2e_52b132bf0e12",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 18,
-            "sentence": "structural: customer (15) references c (15) \u2014 see customer's definition"
-          },
           "reason": "structure \u2014 \u2016c@L15 \u2192 c.c_current_addr_sk@L18\u2016",
           "source": "l2_tbl_930b1d90b7",
           "target": "fld_c281ae80a3",
@@ -480,11 +357,6 @@
           "id": "l2e_e1e53c485de6",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "SCHEMA",
-            "ref_line": 18,
-            "sentence": "structural: customer_address (16) references ca (16) \u2014 see customer_address's definition"
-          },
           "reason": "structure \u2014 \u2016ca@L16 \u2192 ca.ca_address_sk@L18\u2016",
           "source": "l2_tbl_353d8415dd",
           "target": "fld_12ac847806",
@@ -553,18 +425,6 @@
           "id": "l2e_00340a4cfc76",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 4,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              6,
-              8,
-              10,
-              12,
-              14
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 cnt1@L4\u2016",
           "source": "l2_tbl_bddeb902ce",
           "target": "fld_2ed3bdd7fd",
@@ -599,18 +459,6 @@
           "id": "l2e_bc78ac2aa6c9",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 4,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              6,
-              8,
-              10,
-              12,
-              14
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 cnt2@L6\u2016",
           "source": "l2_tbl_bddeb902ce",
           "target": "fld_335899615b",
@@ -645,18 +493,6 @@
           "id": "l2e_2e61492a2960",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 4,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              6,
-              8,
-              10,
-              12,
-              14
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 cnt3@L8\u2016",
           "source": "l2_tbl_bddeb902ce",
           "target": "fld_0920e0a064",
@@ -691,18 +527,6 @@
           "id": "l2e_66a7ffcc4036",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 4,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              6,
-              8,
-              10,
-              12,
-              14
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 cnt4@L10\u2016",
           "source": "l2_tbl_bddeb902ce",
           "target": "fld_ad83970609",
@@ -737,18 +561,6 @@
           "id": "l2e_3a1ca0dc6c30",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 4,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              6,
-              8,
-              10,
-              12,
-              14
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 cnt5@L12\u2016",
           "source": "l2_tbl_bddeb902ce",
           "target": "fld_434147b1de",
@@ -783,18 +595,6 @@
           "id": "l2e_08baa3ba1ee2",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0",
-            "ref_line": 4,
-            "sentence": "structural: \u27d0 output (1) references \u27d0 output (1) \u2014 see \u27d0 output's definition",
-            "use_lines": [
-              6,
-              8,
-              10,
-              12,
-              14
-            ]
-          },
           "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 cnt6@L14\u2016",
           "source": "l2_tbl_bddeb902ce",
           "target": "fld_efdd240186",
@@ -812,11 +612,6 @@
           "id": "l2e_97553c8b5bf2",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0/EXISTS1",
-            "ref_line": 26,
-            "sentence": "structural: \u27d0 exists1 (26) references \u27d0 exists1 (26) \u2014 see \u27d0 exists1's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 exists1@L26 \u2192 *@L26\u2016",
           "source": "l2_tbl_75682733fc",
           "target": "fld_b79b2c7c27",
@@ -834,11 +629,6 @@
           "id": "l2e_c144aac30cc0",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0/EXISTS2",
-            "ref_line": 34,
-            "sentence": "structural: \u27d0 exists2 (34) references \u27d0 exists2 (34) \u2014 see \u27d0 exists2's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 exists2@L34 \u2192 *@L34\u2016",
           "source": "l2_tbl_f6f71915e7",
           "target": "fld_c65296ed16",
@@ -856,11 +646,6 @@
           "id": "l2e_9aef2c919b43",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "mech": {
-            "clause": "TOP0/EXISTS3",
-            "ref_line": 42,
-            "sentence": "structural: \u27d0 exists3 (42) references \u27d0 exists3 (42) \u2014 see \u27d0 exists3's definition"
-          },
           "reason": "structure \u2014 \u2016\u27d0 exists3@L42 \u2192 *@L42\u2016",
           "source": "l2_tbl_0feb14f496",
           "target": "fld_45eeb1a2d2",
@@ -878,19 +663,6 @@
           "id": "l2e_69b81b5a60da",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "c",
-            "clause": "FROM",
-            "ref_line": 15,
-            "sentence": "c (L15) reads customer (L15) in its FROM clause at L15",
-            "use_lines": [
-              18,
-              24,
-              29,
-              37,
-              45
-            ]
-          },
           "reason": "read \u2014 \u2016c.c_current_cdemo_sk@L24 \u2192 c@L15\u2016",
           "source": "l2_tbl_dab014fd6f",
           "target": "l2_tbl_930b1d90b7",
@@ -908,15 +680,6 @@
           "id": "l2e_f353d9a485fe",
           "label": "REF",
           "line_style": "solid",
-          "mech": {
-            "alias": "ca",
-            "clause": "JOIN",
-            "ref_line": 16,
-            "sentence": "ca (L16) reads customer_address (L16) via LEFT JOIN at L16 (alias ca)",
-            "use_lines": [
-              18
-            ]
-          },
           "reason": "read \u2014 \u2016ca.ca_address_sk@L18 \u2192 ca@L16\u2016",
           "source": "l2_tbl_5678b67164",
           "target": "l2_tbl_353d8415dd",
@@ -985,19 +748,6 @@
           "id": "l2e_c0662c664d2b",
           "label": "INDIRECT",
           "line_style": "dot-dash",
-          "mech": {
-            "alias": "c",
-            "clause": "FROM",
-            "ref_line": 15,
-            "sentence": "\u27d0 output (L1) reads customer (L15) in its FROM clause at L15",
-            "use_lines": [
-              18,
-              24,
-              29,
-              37,
-              45
-            ]
-          },
           "reason": "filter (filter step) \u2014 \u2016c.c_customer_sk@L29 \u2192 cnt1@L4\u2016",
           "source": "l2_tbl_dab014fd6f",
           "target": "l2_tbl_bddeb902ce",
@@ -1100,15 +850,6 @@
           "id": "l2e_73a02ebbf91c",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "clause": "WHERE",
-            "ref_line": 29,
-            "sentence": "customer.c_customer_sk is filtered at L29 inside \u27d0 exists1",
-            "use_lines": [
-              37,
-              45
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016c.c_customer_sk@L29 \u2192 \u27d0 exists1@L26\u2016",
           "source": "l2_tbl_dab014fd6f",
           "target": "l2_tbl_75682733fc",
@@ -1126,14 +867,6 @@
           "id": "l2e_83b18194b9d5",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "clause": "WHERE",
-            "ref_line": 37,
-            "sentence": "customer.c_customer_sk is filtered at L37 inside \u27d0 exists2",
-            "use_lines": [
-              45
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016c.c_customer_sk@L37 \u2192 \u27d0 exists2@L34\u2016",
           "source": "l2_tbl_dab014fd6f",
           "target": "l2_tbl_f6f71915e7",
@@ -1151,11 +884,6 @@
           "id": "l2e_5d6ffe66e965",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "clause": "WHERE",
-            "ref_line": 45,
-            "sentence": "customer.c_customer_sk is filtered at L45 inside \u27d0 exists3"
-          },
           "reason": "field flow (filter step) \u2014 \u2016c.c_customer_sk@L45 \u2192 \u27d0 exists3@L42\u2016",
           "source": "l2_tbl_dab014fd6f",
           "target": "l2_tbl_0feb14f496",
@@ -1173,19 +901,6 @@
           "id": "l2e_53b269c78b77",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "c",
-            "clause": "FROM",
-            "ref_line": 15,
-            "sentence": "\u27d0 output (L1) reads customer (L15) in its FROM clause at L15",
-            "use_lines": [
-              18,
-              24,
-              29,
-              37,
-              45
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016c.c_current_cdemo_sk@L24 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_dab014fd6f",
           "target": "l2_tbl_bddeb902ce",
@@ -1203,15 +918,6 @@
           "id": "l2e_fb960219e792",
           "label": "FILTER",
           "line_style": "solid",
-          "mech": {
-            "alias": "ca",
-            "clause": "JOIN",
-            "ref_line": 16,
-            "sentence": "\u27d0 output (L1) reads customer_address (L16) via LEFT JOIN at L16 (alias ca)",
-            "use_lines": [
-              18
-            ]
-          },
           "reason": "field flow (filter step) \u2014 \u2016ca.ca_address_sk@L18 \u2192 \u27d0 output@L1\u2016",
           "source": "l2_tbl_5678b67164",
           "target": "l2_tbl_bddeb902ce",

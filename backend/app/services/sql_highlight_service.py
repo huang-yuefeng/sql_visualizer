@@ -1,5 +1,6 @@
 """SQL highlight service — line mapping and highlight range computation."""
 import hashlib
+from app.extractor.variable_extractor_v2 import EXTRACTOR_VERSION
 from app.services.workspace_service import get_workspace_dir
 
 
@@ -23,7 +24,15 @@ def get_highlight_ranges(ws_id: str, script_name: str,
 
     sql_text = sp.read_text(encoding="utf-8", errors="replace")
     total_lines = sql_text.count('\n') + 1
-    cache_key = hashlib.md5((script_name + sql_text).encode()).hexdigest()[:12]
+    # C-3 (review): the analysis cache key discriminates the extractor
+    # engine — this must match folder_index_service's write-side key
+    # exactly (md5 over (EXTRACTOR_VERSION, script_name, sql_text)), or a
+    # freshly indexed workspace is never found here (this service errors
+    # on a miss — it cannot rebuild). Old versionless caches never match;
+    # the next index writes the versioned file.
+    cache_key = hashlib.md5(
+        (EXTRACTOR_VERSION + "|" + script_name + sql_text)
+        .encode()).hexdigest()[:12]
 
     # Load analysis to get line_map
     analysis_path = cache_dir / f"analysis_{cache_key}.json"

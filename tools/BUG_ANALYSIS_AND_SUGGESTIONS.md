@@ -3077,7 +3077,7 @@ Both answered with probe evidence — see below for the two **suggestions** rais
 |---|---|---|
 | **S1 — L2 field-attribution gap for qualified columns** | `_register_column` (:1379) registers qualified columns (`p1.data_dt`) with EMPTY `source_tables` (R20 `if table:` branch returns early; S2/S3 is unqualified-only by design). L2 `_classify_compound_nodes` then falls back to the label-prefix `p1` → FIRST matching p1 compound (p1@29, registration order) → the 43 AND 158 reads both attach to p1@29; the `(parent, label, stmt_idx=None)` dedup collapses 158 into 43's field node (`merged_original_ids`). Net: p1@67 renders with ZERO field children; only 3 of the 4 data_dt fields materialize in L2; the 158 occurrence survives only as highlight `[158,158]` + a merged id. C5's scope-picking (`_pick_scope_candidate`) is NOT applied to the prefix branch (only to the src_tables branch) | Extend C5 scope-picking to the label-prefix branch (`label.split(".")[0]` → `_pick_scope_candidate(field_ctx, prefix-candidates)`), or attribute qualified columns in R20 (owner = qualifier label → alias_map). Verify against the pinned lending_ref 12-field count — scope-splitting same-named fields across alias instances is exactly what C5's docstring warns about, so test counts may shift |
 | **S2 — SUBSET BRIDGE artifacts target the first CTE** | Phase 8 of dependency_graph (:458-473, "ensure ≥2 edges for non-table nodes") glues under-connected reads to the first TABLE-type anchor of the main component — `data_dt` vars at L93 (accu subq, loan_final ctx), L160 (PARTITION), L213 (main SELECT output) all got `data_dt→rollover_loan_info` SUBSET edges although none of those reads is inside rollover. Display noise in the L2 view (edges pointing at an unrelated CTE) | Consider scope-aware anchor selection for Phase 8 (prefer same-context / enclosing-context TABLE anchors before the global first-match), or drop BRIDGE edges when the read already has ≥2 real edges |
-| **S3 — p1@67 node label was the alias-line bug (v3.3.140)** | the loan_final p1 alias (def L84) resolved to L67 (first name occurrence — AS-composition bug); L2 alias label `p1@67` and the ALIAS edge range [67,14,67,30] displayed the wrong line | Fix designed (definition-line refactor: keyword-anchored token scan FROM + name [AS] alias → L84; census of all 23 `_add` sites: 20 definition-anchored / 3 occurrence-anchored) — **implementation deferred, waiting for user order** |
+| **S3 — p1@67 node label was the alias-line bug (v3.3.140)** | the loan_final p1 alias (def L84) resolved to L67 (first name occurrence — AS-composition bug); L2 alias label `p1@67` and the ALIAS edge range [67,14,67,30] displayed the wrong line | ✅ **FIXED (v3.3.145 + v3.3.152, verified 2026-08-11)**. I1 (v3.3.145) definition-line refactor fixed the flagship symptom: every alias node label + every ALIAS edge range now matches the SQL definition (flagship probe: 0 issues — p1@84, no p1@67 anywhere; 14 table aliases + 5 derived aliases + 2 CTEs all on def lines). Corpus-wide alias probe: 324 files, 962 alias vars, 0 mis-resolved. Residual S3-family (first-occurrence-beats-definition) found corpus-wide in repeated statement/subquery bodies (tpcds q14 join:x@61→@136, q9's 5 identical count(\*) subqueries, the flagship's two identical `LEFT JOIN (SELECT podcg…ods_hub_lsacmsp)` blocks @L32/@L108, q66/q4/08/11 union arms) — fixed by occurrence-aware statement anchors (`_anchor_head_last`, v3.3.152): the k-th anchor call for an identical head searches strictly after the last matched occurrence, so each body lands on its own lines. Full-var corpus diff (15214 vars): only line corrections, all verified against script text; 6 L2 snapshots rebaselined (documented in PHYSICAL_MODEL_MIGRATION_MAP.md Appendix B) + WINDOW-3 pin 15→21 (fixture repair with extractor evidence). Jaccard gate 1 passed; full suite 796 passed / 5 skipped. Known residual (separate family, context-dedup): q14/q39 second statement's CTE vars still collapse (WARNs, tracked elsewhere) |
 
 ---
 
@@ -3092,7 +3092,7 @@ findings from the full-flow listing round. Analysis only — no source changes.
 |---|---|
 | Symptom | L2 alias node label `p1@67`; ALIAS edge range starts L67. Definition is L84 |
 | SQL reason | `FROM bdm_acc_loan_info p1` (L84) has an IMPLICIT alias (no `AS`). `_register_table` (:1055-1058) composes `"bdm_acc_loan_info AS p1"` — never matches → falls back to FIRST occurrence of the table name → `,p1.lending_ref` (L67). Same family: derived-table aliases `accu@75` (def ~L94 `) accu ON …`), `branch@72` (def ~L104), `p2@40` (def ~L119), `p4@74` (def ~L150) — registered with the whole SELECT as sql_expr → text search impossible → first occurrence |
-| Solution | Definition-line refactor (designed, census of all 23 `_add` sites: 20 definition-anchored / 3 occurrence-anchored): keyword-anchored token scan (FROM/JOIN/CTE/INSERT/UPDATE/MERGE + name [AS] alias) resolved in the extraction walk, `_find_position_scoped` demoted to fallback. **Deferred — awaiting user order** |
+| Solution | Definition-line refactor (designed, census of all 23 `_add` sites: 20 definition-anchored / 3 occurrence-anchored): keyword-anchored token scan (FROM/JOIN/CTE/INSERT/UPDATE/MERGE + name [AS] alias) resolved in the extraction walk, `_find_position_scoped` demoted to fallback. ✅ **DONE — v3.3.145 (I1, definition-site lines from the pre-tokenized stream + statement anchors) landed 2026-08-08; verified 2026-08-11 (see S3 row — FIXED)** |
 | Expectation | Labels/edges/highlights on the DEFINITION line: `p1@84`, `accu@94`, `branch@104`, `p2@…`, `p4@…`; the alias line contains both table name and alias name |
 
 ### I2 — L2 field-attribution gap: p1@67 renders with ZERO field children (family: S1)
@@ -4114,6 +4114,21 @@ solution.
   the purge on a reload-detection env flag if it becomes annoying.
   Production (`release.sh` image) has no reload, so it purges exactly
   on restarts/deploys as intended.
+- Executed 2026-08-11 (v3.3.151): the reload question resolved WITH a
+  gate — the dev container runs `--reload` (verified: Cmd has
+  `--reload`), and every code save wipes caches under the naive hook,
+  so the purge is gated by a marker file in the workspace volume
+  (`/tmp/workspaces/.cache_purge_marker`, survives container
+  recreation; never swept — cleanup/purge only descend into dirs).
+  Marker content = `hostname|pid-of-process-1|pid-1 starttime` (field
+  22 of /proc/1/stat; the pid NUMBER is always 1 in a container, the
+  starttime carries the instance identity). The purge runs only when
+  the marker differs from the current identity, then rewrites it.
+  Verified live (uvicorn 0.51 --reload): a real StatReload worker
+  restart keeps pid-1 starttime and does NOT purge (dummy cache files
+  survived); docker restart spawns a new pid-1 → purge → marker
+  rewritten. Side benefit: in-process TestClient lifespans (test
+  suite) no longer wipe live caches either.
 
 ### J12-9 · Seed matcher simplification — exact match confirmed, 5 paths → 1 predicate (user ruling 2026-08-11)
 
@@ -4153,6 +4168,23 @@ alias copy, seeds 3→2, and **regress the Jaccard gate**.
 **Batch**: implement together with J12-8; verify behavior-identical —
 run `test_jaccard_benchmark.py` before/after; bdm/sup node Jaccard
 must be unchanged.
+
+**Executed 2026-08-11 (v3.3.151)**: verified already landed — the
+collapse shipped in 307cd01 and was carried through the J12-10
+stage-3 refactor (034eaa2, physical-model seed search) with identical
+semantics: the matcher is ONE exact field-part predicate
+(`value.rsplit(".", 1)[-1] == field`) applied to the node label and to
+each `source_columns` entry (node-carried fallback when the model is
+absent), gated on `FIELD_LIKE_TYPES`; the old paths (`name ==
+target_full`, `name == field`, `target_full in sc`, `_target_field_sc`)
+are gone and no substring matching exists anywhere. Both MUST-KEEP
+semantics hold: field-only labels (`data_dt`) and alias-qualified
+labels (`p1.data_dt`) match a `table.field` search via the suffix
+rule. Behavior-identical verification: Jaccard gate before/after
+identical (1 passed, floors bdm 1.0/1.0/1.0, sup 1.0/1.0/1.0); full
+suite before/after identical in pass/fail (the 797→796 collected-case
+delta in the after-run is the concurrent R26.3 mech-payload test
+removal, unrelated to the matcher).
 
 ### J12-10 · Physical Model Layer — design proposal, further work (user ruling 2026-08-11)
 

@@ -1,4 +1,4 @@
-"""R11-2 / R11-3 / N8 — code-evidence mech payload + DML phantom dedup.
+"""R11-2 / N8 — DML phantom dedup + statement-level parse diagnostics.
 
 R11-2 (2026-08-10): the Sync-2 DML phantom exists-check dedups by
 (target, label) only — the old orig_stmt term let the same (parent,
@@ -6,15 +6,16 @@ label) pair exist twice on a DML target (rrcdm_job_log_exec_par's
 duplicate data_dt from the '$(load_date)' AS data_dt value line in both
 the bdm and sup seeds).
 
-R11-3 (2026-08-10, formal spec): per-edge `mech` payload — the reference
-site where the source is consumed inside the dst compound's def range
-(clause/ref_line/alias/use_lines/sentence), all extraction-time facts
-(I1 def lines, I2 source_tables, defined_in). The invariant test pins
-the flagship rollover_loan_info → loan_final chain edge: ref_line==155
-(L155 LEFT JOIN), clause=="JOIN", alias=="p6".
-
 N8 (2026-08-10): statement-level parse diagnostics ride run_full_analysis
 as `parse_errors` (list of dicts; empty when the script parsed cleanly).
+
+R26.3 (2026-08-11): the per-edge `mech` payload (R11-3, ref_line/clause/
+alias/use_lines/sentence) is REMOVED from the L2 response — R26 deleted
+the frontend renderer (EdgeReasonPanel renders kind + anchor + reason
+only) and this integration turn retires the backend emitter under the
+no-dormant-machinery rule. The R11-3 compound-node lines
+(line_start/line_end/defined_in) and the R25 per-edge payload
+(highlight_line/flow_kind/reason) are unchanged and still pinned here.
 """
 
 import sys
@@ -85,32 +86,10 @@ class TestR11_2DmlPhantomDedup:
                 seen.add(key)
 
 
-class TestR11_3MechPayload:
-    """The code-evidence mech payload rides the per-edge R25 payload."""
-
-    def test_chain_edge_mech_invariant(self):
-        """bdm rollover_loan_info → loan_final chain edge carries
-        mech {clause: 'JOIN', ref_line: 155, alias: 'p6'} — the formal
-        spec's ground-truth invariant (L155 LEFT JOIN rollover_loan_info
-        p6 inside loan_final's def range L64..159)."""
-        graph = _l2("bdm")
-        chain = [e["data"] for e in graph["edges"]
-                 if e["data"].get("edge_type") == "TABLE_FLOW"]
-        nodes = {n["data"]["id"]: n["data"] for n in graph["nodes"]}
-        rolls = [e for e in chain
-                 if nodes.get(e.get("source"), {}).get("table_name")
-                 == "rollover_loan_info"
-                 and nodes.get(e.get("target"), {}).get("table_name")
-                 == "loan_final"]
-        assert rolls, "the rollover_loan_info → loan_final chain edge must exist"
-        e = rolls[0]
-        mech = e.get("mech")
-        assert mech is not None, f"chain edge must carry mech, got {e}"
-        assert mech["clause"] == "JOIN", mech
-        assert mech["ref_line"] == 155, mech
-        assert mech["alias"] == "p6", mech
-        assert 82 in mech.get("use_lines", []), mech
-        assert "LEFT JOIN at L155" in mech["sentence"], mech
+class TestR11_3RemainingPayload:
+    """What survives the R26.3 mech removal: compound-node def-ranges
+    (still emitted by _carry_node_lines) + the R25 per-edge payload
+    (highlight_line/flow_kind/reason, unchanged)."""
 
     def test_compound_nodes_carry_lines(self):
         """R11-3 NEW DATA (1): compound nodes carry line_start/line_end/
@@ -127,19 +106,18 @@ class TestR11_3MechPayload:
         assert sup.get("line_end") == 210, sup
         assert sup.get("defined_in") == "INSERT", sup
 
-    def test_mech_absent_edges_still_carry_r25_payload(self):
-        """Every edge keeps the R25 payload (highlight_line/flow_kind/
-        reason) whether or not a mech resolves; mech presence is additive."""
-        graph = _l2("bdm")
-        for e in graph["edges"]:
-            d = e["data"]
-            assert d.get("highlight_line", 0) >= 1, d
-            assert d.get("flow_kind"), d
-            assert d.get("reason"), d
-            mech = d.get("mech")
-            if mech is not None:
-                assert mech.get("ref_line", 0) >= 1, mech
-                assert mech.get("sentence"), mech
+    def test_edges_carry_r25_payload_no_mech(self):
+        """Every edge carries the R25 payload (highlight_line/flow_kind/
+        reason) and NO `mech` key — R26.3 removed the per-edge mech
+        payload from the served L2 shape."""
+        for seed in SEED_TABLE:
+            graph = _l2(seed)
+            for e in graph["edges"]:
+                d = e["data"]
+                assert d.get("highlight_line", 0) >= 1, d
+                assert d.get("flow_kind"), d
+                assert d.get("reason"), d
+                assert "mech" not in d, d
 
 
 class TestN8ParseErrors:

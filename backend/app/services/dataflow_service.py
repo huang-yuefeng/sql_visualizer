@@ -350,7 +350,15 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         return {"error": f"Script '{script_name}' not found"}
 
     sql_text = sp.read_text(encoding="utf-8", errors="replace")
-    cache_key = hashlib.md5((script_name + sql_text).encode()).hexdigest()[:12]
+    # C-3 (review): analysis cache key discriminates the extractor engine —
+    # identical to folder_index_service's write-side key (md5 over
+    # (EXTRACTOR_VERSION, script_name, sql_text)) or freshly indexed
+    # workspaces are never found here. A stale cache written by an older
+    # engine can never match this key — exact-key consumers miss and
+    # rebuild lazily.
+    cache_key = hashlib.md5(
+        (EXTRACTOR_VERSION + "|" + script_name + sql_text)
+        .encode()).hexdigest()[:12]
 
     # Bug 25: Initialize table_schemas before cache check
     table_schemas = None
@@ -417,8 +425,9 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         from app.services.graph_service import build_graph_data
         # C-2(b): prefer the analysis cache when present — build the graph
         # from the cached analysis dict (same key contract as
-        # folder_index_service: md5(script_name + sql_text)[:12]) instead of
-        # re-running the full extraction pipeline.
+        # folder_index_service: md5(EXTRACTOR_VERSION + "|" + script_name
+        # + sql_text)[:12]) instead of re-running the full extraction
+        # pipeline.
         analysis_cache_path = cache_dir / f"analysis_{cache_key}.json"
         result = None
         if analysis_cache_path.exists():

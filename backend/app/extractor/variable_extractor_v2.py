@@ -31,7 +31,7 @@ from app.models.variable import VariableDefinition, VariableType
 
 
 # Bump to invalidate analysis caches when extraction semantics change.
-EXTRACTOR_VERSION = "2026-08-11.1"
+EXTRACTOR_VERSION = "2026-08-11.2"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
@@ -677,6 +677,19 @@ class _RoleBasedExtractor:
         # string-literal caveat — a STRING token equal to a run token on an
         # earlier line would beat the real name token).
         self._anchor_cache: dict[int, int] = {}
+        # S3 (v3.3.152): occurrence-aware anchors — head-token tuple → the
+        # last line already matched for that head. `_statement_anchor`
+        # searches STRICTLY AFTER it, so the k-th walk of a textually
+        # identical statement/CTE body (tpcds q14/q39: the same
+        # `with cross_items … ) x` appears in BOTH top-level statements)
+        # anchors on its OWN occurrence instead of always first-matching
+        # the earlier statement's body — the old first-match left the
+        # second statement's def-site lookups scoped to the first
+        # statement's range, and their whole-stream fallback then picked
+        # the FIRST `) alias` in the file (S3 bug family: occurrence
+        # beats definition). Walks happen in stream order per head, so
+        # the k-th call with a given head is the k-th occurrence.
+        self._anchor_head_last: dict[tuple, int] = {}
         # Context-prefix → statement first-token line: recorded at each
         # statement-walk entry so `_find_def_position` can scope line
         # lookups to the variable's own statement (D-series).
@@ -714,6 +727,12 @@ class _RoleBasedExtractor:
         A leading WITH clause renders as a prefix and is stripped before
         matching — the anchor is the statement's OWN first token (the
         INSERT/SELECT keyword line), never the WITH line.
+
+        When the same head tokens occur more than once (identical
+        statements/CTE bodies, e.g. tpcds q14/q39), the k-th anchor call
+        for that head returns the k-th occurrence — the walks run in
+        stream order per head, so each node lands on its own text
+        (`_anchor_head_last`).
         """
         key = id(expr)
         cached = self._anchor_cache.get(key)
@@ -761,6 +780,12 @@ class _RoleBasedExtractor:
                 # later one's head (L16).
                 head = [t.text.lower() for t in rendered
                         if not _is_as_keyword(t)][:6]
+                # S3: an identical earlier statement's body already claimed
+                # this head — search strictly after its matched line so THIS
+                # node lands on its own occurrence (walks are in stream
+                # order per head).
+                head_key = tuple(head)
+                last_line = self._anchor_head_last.get(head_key, 0)
                 # C-13(b): candidate scan via the first-token position index
                 # (built once in __init__). Identical matching semantics to
                 # the linear scan below — the index only skips tokens that
@@ -771,6 +796,8 @@ class _RoleBasedExtractor:
                 for i in candidates:
                     if i >= limit:
                         break
+                    if tokens[i].line <= last_line:
+                        continue
                     match = True
                     for j in range(1, len(head)):
                         if tokens[i + j].text.lower() != head[j]:
@@ -788,6 +815,8 @@ class _RoleBasedExtractor:
                             break
                         if tok.text.lower() != head[0]:
                             continue
+                        if tok.line <= last_line:
+                            continue
                         match = True
                         for j in range(1, len(head)):
                             if tokens[i + j].text.lower() != head[j]:
@@ -796,6 +825,8 @@ class _RoleBasedExtractor:
                         if match:
                             line = tok.line
                             break
+        if line and head_key:
+            self._anchor_head_last[head_key] = line
         self._anchor_cache[key] = line
         return line
 

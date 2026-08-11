@@ -131,7 +131,10 @@ def get_script_path(ws_id: str, relative_path: str) -> Path | None:
     ws_dir = WORKSPACE_ROOT / ws_id
     scripts_dir = ws_dir / "scripts"
     target = (scripts_dir / relative_path).resolve()
-    if not str(target).startswith(str(scripts_dir.resolve())):
+    # H1: path-containment check — the old string-prefix test let a
+    # same-workspace sibling dir named `scripts_backup` pass; compare
+    # paths like resolve_script's is_relative_to.
+    if not target.is_relative_to(scripts_dir.resolve()):
         return None
     if not target.exists():
         return None
