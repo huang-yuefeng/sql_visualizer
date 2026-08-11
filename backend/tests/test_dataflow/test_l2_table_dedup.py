@@ -207,7 +207,7 @@ def test_classify_compound_nodes_records_merged_nids(multi_ctx_ws):
     from app.services import l2_builder as l2b
 
     ws_id = multi_ctx_ws
-    full_graph, table_schemas = l2b._load_or_build_graph(
+    full_graph, table_schemas, physical_model = l2b._load_or_build_graph(
         ws_id, "multi_ctx.sql", MULTI_CTX_SQL)
     graph_data = l2b._apply_relevance_filter(
         full_graph, TABLE, "loan_id", table_schemas, relevance_filter=False)
@@ -216,7 +216,8 @@ def test_classify_compound_nodes_records_merged_nids(multi_ctx_ws):
     target_node_ids, direct_ids = l2b._compute_target_and_direct_ids(
         nodes, edges, TABLE, "loan_id")
     table_nodes, field_nodes, other_nodes, alias_map = _classify_compound_nodes(
-        nodes, full_graph, "multi_ctx.sql", target_node_ids, direct_ids)
+        nodes, full_graph, "multi_ctx.sql", target_node_ids, direct_ids,
+        None, physical_model)
 
     keepers = [tn for tn in table_nodes.values()
                if tn["table_name"] == TABLE]

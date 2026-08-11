@@ -54,12 +54,15 @@ def display_pipeline(sql_text, script_name):
     right after _attach_flow_payload (pre-sync field sets)."""
     analysis = run_full_analysis(sql_text, script_name)
     graph = build_graph_data(analysis)
+    # J12-10 stage 2: the served phases consume the physical model — build
+    # it from the same analysis (like _load_or_build_graph's build path).
+    model = build_physical_model(analysis, script_name)
     nodes, edges = graph["nodes"], graph["edges"]
     target_ids, direct_ids = l2._compute_target_and_direct_ids(
         nodes, edges, "", "")
     table_nodes, field_nodes, _others, alias_map = (
         l2._classify_compound_nodes(nodes, graph, script_name,
-                                    target_ids, direct_ids, None))
+                                    target_ids, direct_ids, None, model))
     id_map = l2._build_id_map(table_nodes, field_nodes, _others)
     new_edges, node_labels = l2._build_edge_list(edges, nodes, id_map,
                                                  sql_text)
@@ -79,11 +82,11 @@ def display_pipeline(sql_text, script_name):
             alias_map, dml_pairs)
 
 
-def run_sync(table_nodes, field_nodes, alias_map, dml_pairs, graph, nodes):
+def run_sync(table_nodes, field_nodes, alias_map, dml_pairs, nodes, model):
     """Phase 10 — Sync 1 (alias→canonical mirrors) + Sync 2 (DML
     phantoms); mutates field_nodes like the served pipeline."""
     l2._sync_alias_and_dml_fields(field_nodes, table_nodes, alias_map,
-                                  dml_pairs, graph, nodes)
+                                  dml_pairs, nodes, model)
 
 
 # ── Display→model endpoint mapping ──────────────────────────────────────
@@ -271,7 +274,7 @@ def test_post_sync_keeper_field_labels_in_model_universe():
     somewhere in the model — the sync copies real model fields."""
     model, (table_nodes, field_nodes, new_edges, graph, nodes,
             alias_map, dml_pairs) = flagship()
-    run_sync(table_nodes, field_nodes, alias_map, dml_pairs, graph, nodes)
+    run_sync(table_nodes, field_nodes, alias_map, dml_pairs, nodes, model)
 
     universe = {fld.name for fld in model.fields.values()}
     by_tname = {tn["table_name"]: tn for tn in table_nodes.values()}
@@ -295,7 +298,7 @@ def test_post_sync_keeper_field_sets_cover_pre_sync():
                               if f.get("parent") == tn["id"]}
            for tn in table_nodes.values()
            if tn.get("type") == "source_table"}
-    run_sync(table_nodes, field_nodes, alias_map, dml_pairs, graph, nodes)
+    run_sync(table_nodes, field_nodes, alias_map, dml_pairs, nodes, model)
     for name, labels in pre.items():
         tn = table_nodes[next(i for i, t in table_nodes.items()
                               if t["table_name"] == name)]
