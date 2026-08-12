@@ -23,7 +23,8 @@ from app.services.graph_service import (
 from app.extractor.schema_inference import infer_table_schemas
 from app.extractor.physical_model import build_physical_model
 from app.extractor.lineage import (filter_by_field_flow, flow_source_id,
-                                   flow_targets, classify_flow_roles)
+                                   flow_targets, classify_flow_roles,
+                                   compute_field_flow)
 from app.services.cache_keys import GRAPH_CACHE_PREFIX
 from app.services.highlight_strategies import get_strategy, FIELD_LIKE_TYPES, _safe_int
 
@@ -187,7 +188,8 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
 def _apply_relevance_filter(full_graph: dict, table: str, field: str,
                             table_schemas: dict | None,
                             relevance_filter: bool = True,
-                            physical_model=None) -> dict:
+                            physical_model=None,
+                            direction="downstream") -> dict:
     """Phase 2 (CW4): apply the strict table.field flow filter, or return the full graph.
 
     v3.3.140: filter_by_field_flow() (the strict per-instance table.field
@@ -197,11 +199,16 @@ def _apply_relevance_filter(full_graph: dict, table: str, field: str,
 
     J12-10 stage 3: the walker consumes the physical model — it is passed
     through to filter_by_field_flow (required when filtering).
+
+    R29 (2026-08-12): direction passes through to filter_by_field_flow —
+    "downstream" (default) is byte-identical legacy behavior; "upstream"
+    filters to the field's WRITING flow (backward production walk).
     """
     if relevance_filter:
         return filter_by_field_flow(full_graph, table, field,
                                     table_schemas=table_schemas,
-                                    physical_model=physical_model)
+                                    physical_model=physical_model,
+                                    direction=direction)
     return full_graph
 
 
@@ -1518,7 +1525,8 @@ def _attach_flow_payload(new_edges: list, field_nodes: list,
 def _attach_flow_roles(new_edges: list, table_nodes: dict, id_map: dict,
                        full_graph: dict, table: str, field: str,
                        relevance_filter: bool,
-                       physical_model=None) -> None:
+                       physical_model=None,
+                       direction="downstream") -> None:
     """Phase 10.5 (CW4, Wave 2): R19.1/R19.2/R19.5 flow roles on table
     nodes — additive node-data fields from extraction-time helpers
     (never at render). Filtered view: exactly one flow source (the
@@ -1529,21 +1537,70 @@ def _attach_flow_roles(new_edges: list, table_nodes: dict, id_map: dict,
     J12-10 stage 3: flow_source_id/flow_targets resolve through the
     physical model (required).
 
+    R29 (2026-08-12): upstream flips the roles — the searched table's
+    WRITE instances (its DML write targets in the upstream closure) are
+    the flow TARGETS (the writing flow ends at the write); the producing
+    tables (the closure's table-like vars that are not the searched
+    table's own instances — the identity-gated leg sources and their
+    holders) are the flow SOURCES.
+
     The table_nodes dict is keyed by RAW node id; the compound keepers'
     L2 ids (tn["id"], the l2_tbl_* ids the edges and the response use)
     are the values — look up through them, never the dict keys.
     """
     l2_tn = {tn["id"]: tn for tn in table_nodes.values()}
     if relevance_filter:
-        src_raw = flow_source_id(full_graph, table, physical_model=physical_model)
-        src_keeper = id_map.get(src_raw) if src_raw else None
-        if src_keeper in l2_tn:
-            l2_tn[src_keeper]["flow_source"] = True
-        for rid in flow_targets(full_graph, table, field,
-                                physical_model=physical_model):
-            kid = id_map.get(rid)
-            if kid in l2_tn:
-                l2_tn[kid]["flow_target"] = True
+        if direction == "upstream":
+            closure = compute_field_flow(full_graph, table, field,
+                                         physical_model=physical_model,
+                                         direction="upstream")
+            if closure:
+                # Flow targets: the searched table's DML write targets in
+                # the upstream closure — mirror of the seed selection
+                # (non-WRITE_READ DML edges whose target entity is the
+                # searched table).
+                up_tgt = set()
+                for M in physical_model.edges:
+                    if M.edge_type != "DML":
+                        continue
+                    if (M.operation or "").upper() == "WRITE_READ":
+                        continue
+                    if M.target_id not in closure:
+                        continue
+                    tgt_tbl = (physical_model.tables.get(M.target[0])
+                               if M.target[0] else None)
+                    if tgt_tbl is not None and tgt_tbl.name == table:
+                        up_tgt.add(M.target_id)
+                for rid in up_tgt:
+                    kid = id_map.get(rid)
+                    if kid in l2_tn:
+                        l2_tn[kid]["flow_target"] = True
+                # Flow sources: the producing tables — closure table/view
+                # vars that are not the searched table's own instances
+                # (write targets are already targets; stray same-table
+                # vars are excluded by source_tables[0]/name identity).
+                for vid, o in physical_model.occurrences.items():
+                    if vid not in closure:
+                        continue
+                    if o.get("variable_type") not in ("table", "view"):
+                        continue
+                    st = o.get("source_tables") or []
+                    if (st and st[0] == table) or o.get("name") == table:
+                        continue
+                    kid = id_map.get(vid)
+                    if kid in l2_tn:
+                        l2_tn[kid]["flow_source"] = True
+        else:
+            src_raw = flow_source_id(full_graph, table,
+                                     physical_model=physical_model)
+            src_keeper = id_map.get(src_raw) if src_raw else None
+            if src_keeper in l2_tn:
+                l2_tn[src_keeper]["flow_source"] = True
+            for rid in flow_targets(full_graph, table, field,
+                                    physical_model=physical_model):
+                kid = id_map.get(rid)
+                if kid in l2_tn:
+                    l2_tn[kid]["flow_target"] = True
     else:
         # R19.5 full-view roles are per PHYSICAL table compound only —
         # CTE/derived/VT compounds (subq, p1@29, ⟐output …) stay neutral.
@@ -1590,7 +1647,8 @@ def _assemble_output(table_nodes: dict, field_nodes: list, new_edges: list,
 
 def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                     table: str, field: str,
-                    relevance_filter: bool = True) -> dict:
+                    relevance_filter: bool = True,
+                    direction="downstream") -> dict:
     """Build Level 2 per-script graph with compound nodes and edge metadata.
 
     Returns:
@@ -1632,7 +1690,8 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     full_graph, table_schemas, physical_model = _load_or_build_graph(
         ws_id, script_name, sql_text)
     graph_data = _apply_relevance_filter(full_graph, table, field, table_schemas,
-                                         relevance_filter, physical_model)
+                                         relevance_filter, physical_model,
+                                         direction)
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
 
@@ -1688,12 +1747,20 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     # is DELETED — alias mirrors and DML phantoms are real model entities
     # now (nothing to synthesize).
     _attach_flow_roles(new_edges, table_nodes, id_map, full_graph, table,
-                       field, relevance_filter, physical_model)
+                       field, relevance_filter, physical_model, direction)
     result = _assemble_output(table_nodes, field_nodes, new_edges, nodes, sql_text,
                               script_name, f"{table}.{field}")
     # Issue a: search_matched contract (frontend + BE2). False ONLY when a
     # relevance filter was requested and no target/direct seed matched —
     # the exact "the searched field is not in this script" signal. True
     # when the field matched, or when no filter was requested.
-    result["search_matched"] = (not relevance_filter) or bool(target_mapped or direct_mapped)
+    # R29 (2026-08-12): upstream — matched iff the directional closure is
+    # non-empty (when filtering, graph_data's nodes ARE the closure; the
+    # downstream target/direct mapping is the READ-side seed match, which
+    # has no meaning for a writing-only walk).
+    if direction == "upstream":
+        result["search_matched"] = (not relevance_filter) or bool(
+            graph_data.get("nodes"))
+    else:
+        result["search_matched"] = (not relevance_filter) or bool(target_mapped or direct_mapped)
     return result
