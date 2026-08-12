@@ -395,6 +395,10 @@ Fields reading `bdm_acc_loan_info.data_dt` (verified by grep 2026-08-12):
 
 Seed `ODS_CUPD_CLD_ACCTMASTER_NEW.BNQXYE` (BDM_ACC_LOAN_INFO_Digitallending.sql): `BDM_ACC_LOAN_INFO_SUP_M.sql` contains **0** occurrences of BNQXYE, **0** of ODS_CUPD_CLD_ACCTMASTER_NEW, **0** of INT_OD_AMT (the BNQXYE-derived column) — it only reads `bdm_acc_loan_info` (the searched field's output TABLE). Under R29, SUP_M is excluded from L1 in BOTH directions. The old table-level L1 (production BFS + multi-hop expansion over the queried table's neighborhood) showed it — that behavior is superseded.
 
+### 6a.4 Upstream L2 — the writing flow inside the script (data_dt seed)
+
+The upstream scope is the **transitive writing chain** (user ruling 2026-08-12): writers of writers, back to the start. Inside BDM_ACC_LOAN_INFO_SUP_M: **EMPTY** — the script writes no `data_dt` into `bdm_acc_loan_info` (its writes are `bdm_acc_loan_info_sup`@160 and `rrcdm_job_log_exec_par`@211). Consistent with the script's absence from the upstream L1 projection (6a.1). (The script's READS of the seed @18/@43/@84/@158 are the DOWNSTREAM flow — not rendered in upstream mode.)
+
 # PART II — CANONICAL GROUND TRUTH v2 (benchmark spec, consolidated 2026-08-07)
 
 This part is the machine-comparable target. The benchmark
