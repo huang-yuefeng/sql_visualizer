@@ -93,16 +93,17 @@ shaped leading artifacts in the bulk OCR draft). Re-verified 2026-08-12:
 file still 562 lines, all anchor lines unchanged, sqlglot mysql parses
 (3 statements).
 
-> **WAIT-CONDITION NOTE (2026-08-12, updated):** the file-exists AND
-> parses condition is now SATISFIED — `samples/sql_sample_v1/
+> **WAIT-CONDITION NOTE (2026-08-12, COMPLETE):** the file-exists AND
+> parses condition is SATISFIED — `samples/sql_sample_v1/
 > BDM_ACC_LOAN_INFO_Digitallending.sql` landed (562 lines) and parses
-> with sqlglot mysql (verified: SET + 2 DML statements). The remaining
-> gate before the Digitallending seed can be measured: the fixture owner
-> must add the "dl" seed block — with the REQUIREMENT rows P15/P16/P18/P22
-> of §8.5 — to `backend/tests/jaccard_canonical.py`; the block does not
-> exist yet. This doc's line numbers/structure are reconciled against the
-> final file; the served-form pins (§8.5) come from the probe against the
-> final engine.
+> with sqlglot mysql (verified: SET + 2 DML statements). The "dl" seed
+> block — REQUIREMENT rows P15/P16/P18/P22 + the probe-pinned extras
+> R1/V1/V2/M1/F1 — landed in `backend/tests/jaccard_canonical.py` and
+> `backend/tests/test_jaccard_benchmark.py` (2026-08-12, Team DL);
+> the benchmark gate is GREEN at dl floors 1.0000/1.0000/1.0000
+> (§7.4). This doc's line numbers/structure are reconciled against the
+> final file; the served-form pins (§8.5) are probe-pinned against the
+> final engine (D3, EXTRACTOR_VERSION 2026-08-11.3).
 
 ---
 
@@ -143,8 +144,10 @@ L549-562 stmt2:  INSERT INTO TABLE rrcdm_job_log_exec_par(9 cols)  (L549)
                  ;                                                 (L562)
 ```
 
-Global extraction facts: [PROBE: vars / deps / ALIAS edges — recorded from
-the probe run; the script parses as 2 statements after the SET strip].
+Global extraction facts (probe-pinned 2026-08-12, D3 engine): 498 raw
+vars / 2066 raw deps (raw full_graph 448 nodes / 672 edges after L2
+merge); the script parses as 2 statements after the SET strip (TOP0 =
+INSERT@99 + SELECT@100-548, TOP1 = job-log INSERT@549-562).
 
 ---
 
@@ -368,8 +371,12 @@ never a description of the current engine output. The benchmark pins them
 (jaccard_canonical.py Digitallending block, rows P15/P18/P22/P16 — §8.5)
 and the R19.3 chain checks assert the no-bypass property.
 
-[PROBE: the served L2's realization of each requirement row — edge ids,
-types, hl lines, flow_kind — recorded in §8.5.]
+Served realization (probe-pinned 2026-08-12, D3 engine — §8.5):
+P15 `l2e_0ffec8d7046b_dml_out` TABLE_FLOW@99 flow_kind='write',
+P18 `l2e_5b616242759d` REF@559, P22 `l2e_234db2321477` TABLE_FLOW@559,
+P16 `l2e_e410fc825eeb_dml_out` TABLE_FLOW@549 flow_kind='write' — the
+R19.3 no-bypass chain routes THROUGH the R22-merged reader instance at
+L559 (bdm@99 ≡ bdm@559, one served node).
 
 ---
 
@@ -415,7 +422,8 @@ L373    '$(load_date)' AS dis_data_date → literal output column (other field)
 1. parse_errors == [] ; the script parses with sqlglot mysql
 2. alias def lines: the §3 map (verified lines — reconciled with the
    landed file 2026-08-12, §RECONCILIATION)
-3. bdm_acc_loan_info.data_dt closure (L2): [PROBE] nodes / [PROBE] edges
+3. bdm_acc_loan_info.data_dt closure (L2): 7 nodes / 9 edges (served,
+   probe-pinned 2026-08-12, §8.5)
 4. THE GROUND TRUTH: the requirement closure — the two sinks
    (bdm_acc_loan_info, rrcdm_job_log_exec_par), the stmt1 write leg
    (output1 → bdm@99) and the cross-statement write→read chain
@@ -441,8 +449,15 @@ were written).
 
 ## 7.1 The trials (mirror of the SUP doc — what each calculation proved)
 
-[PROBE: the same three-trial structure — filtered-L2 closure, downstream
-BFS, source_tables-driven closure — with this script's numbers.]
+The same three-trial structure as the SUP doc, measured 2026-08-12 on
+the D3 engine: (1) filtered-L2 closure for the
+`bdm_acc_loan_info.data_dt` seed = 7 nodes / 9 edges / 5 distinct
+highlight lines [99, 549, 550, 559, 560] (§8.5); (2) downstream BFS over
+the closure: the R19.3 chain output1 → bdm → [stmt2 read] → output2 →
+rrcdm is FLOW-only reachable through the reader instance at L559; (3)
+source_tables-driven closure: the stmt1 sources feed the SELECT columns,
+never data_dt — the partition is literal-driven, so no source/join
+table enters the data_dt closure (same shape as the pl seed).
 
 ## 7.2 THE canonical spec (the benchmark target)
 
@@ -468,7 +483,8 @@ write leg (⟐output1 → bdm@99), the stmt2 read (data_dt@560 → bdm@559), the
 reader's read leg (bdm@559 → ⟐output2), the stmt2 write leg (⟐output2 →
 rrcdm@549), plus the value writes (data_dt@99 → ⟐output1, data_dt@550 →
 ⟐output2) and the SCHEMA / FILTER-companion rows pinned in §8.5.
-[PROBE: full list.]
+Full list: the 9 §8.5 rows — P15/P16/P18/P22 (REQUIREMENT) +
+R1/V1/V2/M1/F1 (probe-pinned extras).
 
 **Highlights:** per §8 — every closure edge anchors at exactly one line.
 
@@ -491,8 +507,16 @@ rrcdm@549), plus the value writes (data_dt@99 → ⟐output1, data_dt@550 →
 
 ## 7.4 Loop round 1 outcome
 
-[PROBE: this script's convergence record — filled during the iteration
-round.]
+**CONVERGED 2026-08-12 (dl seed, D3 engine):** every requirement row
+(P15/P18/P22/P16) and probe-pinned extra (R1/V1/V2/M1/F1) matched, every
+canonical node realized. Measured (benchmark gate,
+`tests/test_jaccard_benchmark.py`): nodes 8/7 (= 1.1429 — the 7 served
+nodes realize all 8 canonical entries; the edgeless charge_department
+field on bdm is the documented extra), edges 9/9, highlights 5/5 —
+recall/precision all 1.0000/1.0000; FLOORS ratcheted to the full
+1.0000/1.0000. bdm/sup/pl floors unchanged. Engine work this round:
+D3 Phase-3 evidence-scored source resolution (§8.6) + EXTRACTOR_VERSION
+2026-08-11.2 → 2026-08-11.3.
 
 ---
 
@@ -525,33 +549,62 @@ so the payload count is deterministic.
 
 ### 8.5 Highlight ground truth for testing (CANONICAL_EDGE_LINES — complete)
 
-**The complete table — [PROBE: N] entries, this sample, post-promotion
-state (the Digitallending block of jaccard_canonical.py; REQUIREMENT rows
+**The complete table — 9 entries, this sample, post-promotion state (the
+Digitallending block of jaccard_canonical.py; REQUIREMENT rows
 P15/P16/P18/P22 marked; each row's Real type = the served realization,
-probe-pinned — the PENDING-PROBE placeholder convention of the pl doc):
-**
+probe-pinned 2026-08-12 against the served filtered L2 for the
+`bdm_acc_loan_info.data_dt` seed on the D3 engine — the served edge ids
+are content-derived hashes (stable per script+engine); highlights =
+[99, 549, 550, 559, 560], 5 distinct lines):
 
 | # | Pair | Kind | Real type (post-promotion) | Seed | Anchor |
 |---|------|------|---------------------------|------|--------|
-| P15 | `⟐output@0 → bdm@99` — REQUIREMENT row (§4.3 item 3 — the stmt1 write leg) | write | TABLE_FLOW (flow_kind='write', *_dml_out) | dl | 99 |
-| P16 | `⟐output@0 → rrcdm@549` — REQUIREMENT row (§4.2 LAYER-2 — the stmt2 write leg) | write | TABLE_FLOW (flow_kind='write', *_dml_out) | dl | 549 |
-| P18 | `data_dt@560 → bdm@559` — REQUIREMENT row (§4.2 — the stmt2 read) | READ | REF (promoted) | dl | 559 |
-| P22 | `bdm@559 → ⟐output@0` — REQUIREMENT row (§4.2 — the reader's read leg) | chain | TABLE_FLOW | dl | 559 |
-| [PROBE] | `data_dt@99 → ⟐output@0` — the stmt1 value write (mirror of SUP row 12/X2) | value | TABLE_FLOW (value-write) | dl | 99 |
-| [PROBE] | `data_dt@550 → ⟐output@0` — the stmt2 value write (mirror of SUP row 17/X4) | value | TABLE_FLOW (value-write) | dl | 550 |
-| [PROBE] | `data_dt@560 → bdm@560` — the stmt2 WHERE FILTER companion (mirror of SUP X5/row 23) | field flow | FILTER (promoted) | dl | 560 |
-| [PROBE] | SCHEMA rows — ⟐output1 → data_dt@99, ⟐output2 → data_dt@550 (structure, rule 6) | structure | SCHEMA/TABLE_COLUMN | dl | 99/550 |
-| [PROBE] | remaining rows — any served-form rows the probe finds beyond the pinned set (per the SUP convention: chain-completeness C-rows, extras) | | | dl | |
+| P15 | `⟐output@0 → bdm@99` — REQUIREMENT row (§4.3 item 3 — the stmt1 write leg) | write | TABLE_FLOW (flow_kind='write', id `l2e_0ffec8d7046b_dml_out`) | dl | 99 |
+| P16 | `⟐output@0 → rrcdm@549` — REQUIREMENT row (§4.2 LAYER-2 — the stmt2 write leg) | write | TABLE_FLOW (flow_kind='write', id `l2e_e410fc825eeb_dml_out`) | dl | 549 |
+| P18 | `data_dt@560 → bdm@559` — REQUIREMENT row (§4.2 — the stmt2 read) | READ | REF (id `l2e_5b616242759d`) | dl | 559 |
+| P22 | `bdm@559 → ⟐output@0` — REQUIREMENT row (§4.2 — the reader's read leg) | chain | TABLE_FLOW (id `l2e_234db2321477`) | dl | 559 |
+| R1 | `data_dt@99 → ⟐output@0` — the stmt1 partition REF (mirror of SUP X2) | read | REF (id `l2e_1c7573887fb3`) | dl | 99 |
+| V1 | `data_dt@99 → ⟐output@0` — the stmt1 value write (mirror of SUP rows 12/X4) | value | TABLE_FLOW (value-write, id `l2e_b9337a6391b1_value`) | dl | 99 |
+| V2 | `data_dt@550 → ⟐output@0` — the stmt2 value write (mirror of SUP rows 17/X4) | value | TABLE_FLOW (value-write, id `l2e_6831e833784f_value`) | dl | 550 |
+| M1 | `⟐output@0 → data_dt@550` — the stmt2 output VT membership (mirror of SUP X3) | structure | SCHEMA (id `l2e_58c1f6a3b1db`) | dl | 550 |
+| F1 | `data_dt@560 → bdm@560` — the stmt2 WHERE FILTER companion (mirror of SUP X5/row 23; RESTORED by the D3 fix — pre-fix the wrong COMPUTED edge inflated data_dt@560's Phase-8 ec to 2 and suppressed it) | field flow | FILTER (id `l2e_5753062ab381`) | dl | 560 |
 
-Closure seeds: **"dl = [PROBE] nodes / [PROBE] edges"** (probe-pinned —
+NO stmt1-side SCHEMA row exists in the served closure (the placeholder
+predicted `⟐output1 → data_dt@99`): the @99 structure slot is realized
+by the R1 partition REF instead (SUP X2 mirror) — the pin records the
+served form.
+
+Closure seeds: **"dl = 7 nodes / 9 edges"** (probe-pinned 2026-08-12 —
 the served L2 closure for the `bdm_acc_loan_info.data_dt` seed on this
-script). [PROBE: the seed/block name the fixture uses — the doc assumes
-"dl" (Digitallending) per the jaccard_canonical.py naming; the fixture
-block does not exist yet.]
+script; the 7 served nodes: `bdm_acc_loan_info` (table, TOP0, L99),
+`output` (vt, TOP0, L99), `output` (vt, TOP1, L549),
+`rrcdm_job_log_exec_par` (table, TOP1, L549) + fields `charge_department`
+(on bdm, edgeless — the documented extra; the benchmark's 8 canonical
+entries realize onto the 7 served nodes, precision 8/7) and `data_dt`
+(on bdm / on rrcdm)). The fixture block name is "dl" — jaccard_canonical.py.
 
 ### 8.6 Current-system gaps this definition exposes
 
-[PROBE: any served-form gaps found during the iteration round.]
+**D3 gap (closed 2026-08-12, dependency_graph.py Phase 3):** the
+Phase-3 bare-name source index is last-writer-wins over all column-ish
+vars; DM_FLAG2's CASE source column `data_dt` resolved to TOP1's
+`data_dt@560` (the last writer) instead of the exists3 subquery's
+`data_dt@407` (whose attributed table BDM_ACC_INTERNAL_COUNTERPARTY is
+in the CASE's own expression tables). Consequences, all verified
+pre-fix: the wrong COMPUTED edge `data_dt@560 → DM_FLAG2` walked as
+FIELD_LAND and dragged the exists3 chain into the `bdm_acc_loan_info.
+data_dt` closure junk; and data_dt@560's Phase-8 ec sat at 2, so the F1
+FILTER companion never fired (the SUP X5 mirror was missing). Fixed with
+extraction-time info only: for expression-building targets
+(CASE/EXPRESSION/AGGREGATE/WINDOW/TRANSFORM), a same-root candidate
+whose source_tables[0] is in the target's expression tables wins over
+the cross-statement last writer; plain COLUMN/CTE_COLUMN targets keep
+the legacy pick (the bdm/sup/pl L2 shape stays pinned — the SUP flagship
+display is byte-identical). POST-FIX: COMPUTED `data_dt@407 → DM_FLAG2`
+(correct), F1 restored. Residual consequence (documented, by design):
+`data_dt@407`'s Phase-8 ec rose 1 → 2, so its own exists3 FILTER bridge
+(`data_dt@407 → ⟐ exists3`) no longer fires — the subquery's predicate
+edge is subsumed by the corrected COMPUTED edge.
 
 ### 8.7 Real edge types → flow kind → highlight contract (16-row mapping, 2026-08-10)
 
