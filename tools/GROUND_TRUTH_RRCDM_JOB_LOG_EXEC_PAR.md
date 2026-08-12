@@ -1,8 +1,8 @@
 # Ground Truth — Seed `rrcdm_job_log_exec_par.data_dt` (upstream-only shape, R29)
 
-> **Seed:** `rrcdm_job_log_exec_par.data_dt` | **Workspace:** `samples/sql_sample_v1/` (3 scripts) | **Date:** 2026-08-12 | **Status:** DEFINED (R29) — ground truth built before coding; implementation pending
+> **Seed:** `rrcdm_job_log_exec_par.data_dt` | **Workspace:** `samples/sql_sample_v1/` (3 scripts) | **Date:** 2026-08-12 | **Status:** DEFINED (R29) — §2.2/§3.2 REPAIRED 2026-08-12 with probe evidence (repin round: the downstream projection is the writer's own leg, NOT empty — see §3.2)
 >
-> **Shape purpose:** the queried field has WRITERS but NO READERS in the workspace — exercises the **upstream-only** case and the **EMPTY downstream projection**.
+> **Shape purpose:** the queried field has WRITERS but NO READERS in the workspace — exercises the **upstream-only** writing chain and the **writer's-own-leg downstream** projection.
 
 ## 1. Workspace facts (verified 2026-08-12)
 
@@ -28,7 +28,7 @@ The fields writing `data_dt` are all literals → the writing flow **terminates 
 
 ### 2.2 Downstream L1 (reading)
 
-**EMPTY projection.** No script reads `rrcdm_job_log_exec_par.data_dt` (or the table at all). L1 must render an empty directional flow as a clear "no reading flow" state (message, not an error) — the L2 not-in-flow response (R22.3) is the precedent.
+**Writer's own leg (REPAIRED 2026-08-12).** No script READS `rrcdm_job_log_exec_par.data_dt` — but downstream = ALL FIELD_LIKE occurrences of the field, incl. the write-leg partition var (legacy W1 semantics, unchanged; the backend team's 2026-08-12 byte-identity probe, /tmp/diag_byteidentity.py, shows the served downstream closures identical to HEAD, so the original EMPTY pin was wrong — repaired with evidence, never the code). The downstream projection is the writing statement's own 3-node chain (the write column + the statement output + the DML target). The writing statement's FROM reads (`bdm_acc_loan_info`) stay out — different field instance.
 
 ## 3. L2 ground truth (per script)
 
@@ -36,11 +36,19 @@ The fields writing `data_dt` are all literals → the writing flow **terminates 
 
 The upstream flow = the log statement's `data_dt` write chain only: the literal → `rrcdm_job_log_exec_par.data_dt` (via the statement output / DML routing). NO producing fields (literal-terminated). The statement's other selected columns (object_domain, table_name, total_rows, …) are different fields — not part of this flow. The statement's FROM sources (`bdm_acc_loan_info`) are inputs — excluded.
 
-### 3.2 Downstream L2
+### 3.2 Downstream L2 (REPAIRED 2026-08-12 — probe-pinned served closures)
 
-Empty for all scripts (no readers anywhere).
+The writer's own leg, per script (3 nodes / 3 edges each — the downstream mirror of the §3.1 write chain; the served anchors are the write sites):
+
+| Script | Closure |
+|--------|---------|
+| BDM_ACC_LOAN_INFO_PL.sql | `data_dt`@254 → output (TABLE_FLOW@254) → `data_dt`@254 (SCHEMA@254) → `rrcdm_job_log_exec_par`@253 (TABLE_FLOW@253 — the write leg) |
+| BDM_ACC_LOAN_INFO_SUP_M.sql | `data_dt`@213 → output (TABLE_FLOW@213) → `data_dt`@213 (SCHEMA@213) → `rrcdm_job_log_exec_par`@211 (TABLE_FLOW@211 — the write leg) |
+| BDM_ACC_LOAN_INFO_Digitallending.sql | `data_dt`@550 → output (TABLE_FLOW@550) → `data_dt`@550 (SCHEMA@550) → `rrcdm_job_log_exec_par`@549 (TABLE_FLOW@549 — the write leg) |
+
+Evidence: harness probe /tmp/diag_harness_closures.py (served L2 builds, 2026-08-12) + the backend team's byte-identity probe (closures identical to HEAD). The Jaccard harness pins these as rows RDP1-3 / RDS1-3 / RDD1-3 (jaccard_canonical.py point 15).
 
 ## 4. Edge cases pinned
 
-- Literal-written field with no readers → **empty downstream projection** (the first such case in the suite).
+- Literal-written field with no readers → the downstream projection is the **writer's own leg** (write column → output → DML target), NOT empty (REPAIRED 2026-08-12 — downstream = all FIELD_LIKE occurrences incl. the write-leg partition var).
 - A statement's input tables never carry the seed's flow, even when the statement WRITES the seed field (the log statement reads bdm while writing the log's `data_dt`).
