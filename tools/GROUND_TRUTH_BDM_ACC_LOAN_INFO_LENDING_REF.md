@@ -27,9 +27,11 @@ The upstream flow is the **transitive writing chain** (user ruling 2026-08-12): 
 
 ### 2.2 Downstream L1 (reading)
 
+The downstream flow is the **transitive effect scope** (user ruling 2026-08-12) — the chain runs down to the END. Chain: the seed's read instances (`p1.lending_ref`) → the sup-write statement (uses `lending_ref`) → the sup write @160 (ALL its write targets — the effect lands on what the statement writes, incl. the literal `data_dt` partition) → the sup `data_dt` read @223 (the rrcdm statement's filter) → the rrcdm write @211. Ends at rrcdm — nothing reads it. Same continuation mechanism as the data_dt seed's probe-pinned chain (R19.2).
+
 - **Scripts:** `BDM_ACC_LOAN_INFO_SUP_M`
-- **Tables:** `bdm_acc_loan_info_sup` (the effect-scope write target @160)
-- **Excluded:** `rrcdm_job_log_exec_par` (its statement doesn't use `lending_ref`); the sup-write statement's input tables (ODS sources, p2/p3 joins) — inputs, excluded.
+- **Tables:** `bdm_acc_loan_info` (the read instances — the queried table), `bdm_acc_loan_info_sup` (the effect-scope write target @160), `rrcdm_job_log_exec_par` (the chain end @211, via the sup `data_dt` read leg @223)
+- **Excluded:** the sup-write statement's input tables (ODS sources, p2/p3 joins) — inputs, excluded (field-level, not statement-level).
 
 ## 3. L2 ground truth (per script)
 
@@ -39,11 +41,12 @@ The writing flow of the seed inside DL: `ODS_CUPD_CLD_ACCTMASTER_NEW.acnw` (p1.a
 
 ### 3.2 Downstream L2 (SUP_M)
 
-The seed's usages are join keys and SELECT outputs inside the sup-write statement → the flow: `p1.lending_ref` instances → the statement's output rows → the sup write target fields @160. The rrcdm statement: no `lending_ref` → its write stays out of the closure.
+The seed's usages are join keys and SELECT outputs inside the sup-write statement → the flow: `p1.lending_ref` instances → the statement's output rows → the sup write target fields @160 (all of them — the effect lands on what the statement writes, incl. the literal `data_dt` partition). The chain continues (transitive effect scope): sup.data_dt@160 → (identity) → the sup `data_dt` read @223 in the rrcdm statement (its WHERE filter) → the rrcdm write targets @211 (DML forward). Ends at rrcdm — nothing reads it.
 
 ## 4. Edge cases pinned
 
 - Field-vs-table exclusion on the **writing side** (PL writes the table, not the field → excluded) — the mirror image of the SUP_M/BNQXYE reading-side case.
 - The upstream scope is the **transitive writing chain** (writers of writers, back to the start): the chain start `ODS_CUPD_CLD_ACCTMASTER_NEW` (carrying `acnw`) is IN the projection even though no script writes it — the chain terminates there (user ruling 2026-08-12). A write statement's unrelated input tables are NOT in the chain and stay out.
 - A real producer chain (acnw → lending_ref) must be followed by the upstream walker (ALIAS/TRANSFORM + DML forward).
+- The downstream chain is **transitive to the END**: the sup write's literal `data_dt` target (admitted with all write targets of the using statement) continues the chain through the rrcdm statement's sup `data_dt` read @223 into the rrcdm write @211 — the same mechanism as the probe-pinned data_dt chain (R19.2).
 - CTE/temp columns derived from OTHER tables with the same column name (`temp_kmbh_gl.lending_ref`) are NOT the seed — instance identity matters.

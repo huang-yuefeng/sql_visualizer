@@ -232,7 +232,7 @@
 | ID | Requirement | Status | Notes |
 |----|------------|--------|-------|
 | R29.1 | L1 shows the queried field's data flow — same field-level semantic as L2 — at cross-script scale: scripts + tables between scripts, no fields | 📝 | R29 (2026-08-12) — defined; no source change |
-| R29.2 | Data flow = fields writing the queried field (upstream) + fields reading it (downstream) | 📝 | R29 (2026-08-12) |
+| R29.2 | Data flow = fields writing the queried field (upstream) + fields reading it (downstream) — BOTH directions are transitive chains (user ruling 2026-08-12): upstream back to the start, downstream down to the end | 📝 | R29 (2026-08-12) |
 | R29.3 | No table-level inclusion: scripts/tables that only read or write the queried TABLE are excluded | 📝 | R29 (2026-08-12) — e.g. SUP_M for a BNQXYE search |
 | R29.4 | Direction is a QUERY PANEL setting — upstream (writing, default) / downstream (reading); no L1 panel control | 📝 | R29 (2026-08-12) |
 | R29.5 | L2 follows the query direction automatically (zoom-in of L1) | 📝 | R29 (2026-08-12) |

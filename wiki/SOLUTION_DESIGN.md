@@ -1414,15 +1414,19 @@ User rulings (2026-08-11), requirements R26/R27/R28 in REQUIREMENTS.md. All thre
   differs: L1 = scripts + the tables between scripts (no fields); L2 = tables + fields
   inside the script (L2 is the zoom-in of L1).
 - Data flow = the fields **writing** the queried field (upstream) and the fields
-  **using** it (downstream) — the downstream flow is the **effect scope** of the
-  queried field (user ruling 2026-08-12): reads, WHERE clauses, any usage; a
-  statement that uses the queried field carries the flow into everything it writes,
-  even when the written column value is a literal (the usage selects the rows).
-- The upstream flow is the **transitive writing chain** (user ruling 2026-08-12):
-  the writing fields of *writing fields*, back-traced along the flow to the start —
-  not just the direct writer. The chain terminates at source tables not written in
-  the workspace, or at literals. Input tables of a writing statement that are not on
-  the chain stay out (field-level, not statement-level).
+  **using** it (downstream) — **both directions are transitive chains** (user ruling
+  2026-08-12): upstream back to the start, downstream down to the end.
+- The upstream flow is the **transitive writing chain**: the writing fields of
+  *writing fields*, back-traced along the flow to the start — not just the direct
+  writer. The chain terminates at source tables not written in the workspace, or at
+  literals. Input tables of a writing statement that are not on the chain stay out
+  (field-level, not statement-level).
+- The downstream flow is the **transitive effect scope** of the queried field:
+  reads, WHERE clauses, any usage; a statement that uses the queried field carries
+  the flow into everything it writes, even when the written column value is a
+  literal (the usage selects the rows); the chain continues while a later statement
+  uses a field written in the effect, and terminates at write targets nothing
+  further uses — down to the END.
 - Tables reading/writing the **queried table** — without the queried field's flow —
   are **no longer included**.
 - The direction switch is a **query setting in the query panel** (upstream = writing

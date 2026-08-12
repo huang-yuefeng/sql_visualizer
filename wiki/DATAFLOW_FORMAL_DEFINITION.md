@@ -277,10 +277,10 @@ When a user queries a specific field (`table=T, field=Y`), the L1 and L2 graphs 
 - **L1** — cross-script projection: scripts + the tables between them that carry the flow. No fields, no intra-script structure.
 - **L2** — per-script zoom-in: tables + fields + edges inside the clicked script.
 
-**Flow direction (requirement change 2026-08-12, R29):** the direction is a **query setting in the query panel**, not an L1 panel control:
+**Flow direction (requirement change 2026-08-12, R29):** the direction is a **query setting in the query panel**, not an L1 panel control. **Both directions are transitive chains (user ruling 2026-08-12):** upstream back to the START, downstream down to the END:
 
-- **Upstream (writing data flow, default)** — the fields that WRITE the queried field Y: the transitive production chain feeding Y ("where does Y come from"). Walked backward from Y.
-- **Downstream (reading data flow)** — the fields that USE Y (user ruling 2026-08-12: the downstream flow is the **effect scope** of Y): reads, WHERE clauses, filters, any usage — "where does Y's usage reach". A statement that uses Y carries the flow into everything it writes, even when the written column value is a literal (the usage selects the rows). Walked forward from Y.
+- **Upstream (writing data flow, default)** — the fields that WRITE the queried field Y: the **transitive writing chain** (user ruling 2026-08-12) — the fields writing Y, the fields writing *those fields*, back to the START ("where does Y come from"). The chain terminates at source tables not written in the workspace, or at literals. Walked backward from Y.
+- **Downstream (reading data flow)** — the fields that USE Y (user ruling 2026-08-12: the downstream flow is the **transitive effect scope** of Y): reads, WHERE clauses, filters, any usage — "where does Y's usage reach". A statement that uses Y carries the flow into everything it writes, even when the written column value is a literal (the usage selects the rows); the chain continues while a later statement uses a field written in the effect, and terminates at write targets nothing further uses — down to the END. Walked forward from Y.
 
 L1 renders the flow in the query direction; L2 follows automatically (zoom-in). Tables that only read or write the queried TABLE — without carrying any field of Y's directional flow — are excluded from L1 (no table-level inclusion).
 
@@ -650,7 +650,7 @@ This supersedes the earlier constrained-union formulation and the table-level pr
 
 ### Termination (L1, requirement change 2026-08-12, R29)
 
-The directional flow terminates at the **last table that carries a flow field**. Tables beyond that point — including tables that only read or write the queried TABLE — are **not** included: no table-level inclusion, no terminal-marker table. This supersedes the earlier terminal-marker rules (R18.1) for L1:
+The directional flow terminates at the **last table that carries a flow field** — the END of the transitive chain (user ruling 2026-08-12): the chain continues while a later statement uses a field written in the effect, and stops at write targets nothing further uses. Tables beyond that point — including tables that only read or write the queried TABLE — are **not** included: no table-level inclusion, no terminal-marker table. This supersedes the earlier terminal-marker rules (R18.1) for L1:
 
 - Tables with ≥1 flow field → **kept**
 - Tables with 0 flow fields → **removed** (no exception — the old "first downstream table that lacks the field" marker is exactly a table outside the queried field's flow)

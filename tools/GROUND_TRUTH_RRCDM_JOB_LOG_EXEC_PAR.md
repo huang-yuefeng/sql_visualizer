@@ -20,7 +20,7 @@ The log statements read `bdm_acc_loan_info` in their FROM (PL@262, DL@558, SUP_M
 
 ### 2.1 Upstream L1 (writing — DEFAULT direction)
 
-The fields writing `data_dt` are all literals → the writing flow **terminates at the three writes** (no producing fields, no further tables).
+The fields writing `data_dt` are all literals → the writing flow **terminates at the three writes** (no producing fields, no further tables). The transitive chain rule (user ruling 2026-08-12 — writers of writers, back to the start) applies and terminates immediately: the writers are literals, so there is no second hop.
 
 - **Scripts:** `BDM_ACC_LOAN_INFO_PL`, `BDM_ACC_LOAN_INFO_Digitallending`, `BDM_ACC_LOAN_INFO_SUP_M`
 - **Tables:** `rrcdm_job_log_exec_par` (the DML target carrying the write field)
