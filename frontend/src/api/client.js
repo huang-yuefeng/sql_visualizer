@@ -85,11 +85,13 @@ export async function uploadFilterConfig(wsId, scriptTableFile, tableColFile) {
   return res.json();
 }
 
-export async function searchDataFlow(wsId, table, field) {
+// R29: direction — 'upstream' (writing flow) or 'downstream' (reading flow).
+// The frontend ALWAYS sends it explicitly; the API default is downstream.
+export async function searchDataFlow(wsId, table, field, direction = 'downstream') {
   const res = await fetch(`/api/workspace/${wsId}/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ table, field }),
+    body: JSON.stringify({ table, field, direction }),
   });
   if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
@@ -105,8 +107,8 @@ export async function deleteView(wsId, viewId) {
   return res.json();
 }
 
-export async function getLevel2Graph(wsId, viewId, script, filter = true) {
-  const params = new URLSearchParams({ script, filter: String(filter) });
+export async function getLevel2Graph(wsId, viewId, script, filter = true, direction = 'downstream') {
+  const params = new URLSearchParams({ script, filter: String(filter), direction });
   const res = await fetch(bust(`/api/workspace/${wsId}/views/${viewId}/level2?${params}`));
   if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();

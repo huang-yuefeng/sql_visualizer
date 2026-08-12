@@ -34,6 +34,8 @@ export default function DataFlowApp() {
   // display preference only: the payload is untouched, nothing re-fetches.
   const [showStructureEdges, setShowStructureEdges] = useState(false);
   const [layoutMode, setLayoutMode] = useState('snake'); // 'snake' or 'pipeline'
+  // R29: query direction — 'upstream' (writing flow, default) or 'downstream' (reading flow)
+  const [direction, setDirection] = useState('upstream');
   const [l1Graph, setL1Graph] = useState(null);
   const [l2Graph, setL2Graph] = useState(null);
   const [sqlText, setSqlText] = useState('');
@@ -197,14 +199,14 @@ export default function DataFlowApp() {
   }, []);
 
   // ── Search ────────────────────────────────────────────────────────
-  const handleSearch = useCallback(async (table, field) => {
+  const handleSearch = useCallback(async (table, field, direction) => {
     if (!wsId) return;
     setL1Graph(null); setL2Graph(null); setL2Result(null);
     setL2NotInFlow(false); setL2NotInFlowMessage(null);
     setL2ParseErrors([]);
     setLoading(true); setError(null);
     try {
-      const result = await api.searchDataFlow(wsId, table, field);
+      const result = await api.searchDataFlow(wsId, table, field, direction);
       const newView = {
         view_id: result.view_id,
         type: 'search',
@@ -215,11 +217,14 @@ export default function DataFlowApp() {
         created_at: new Date().toISOString(),
         match_mode: result.match_mode,
         message: result.message,
+        // R29: the view tree keeps its direction so L2 follows it automatically
+        direction,
       };
       setViews(prev => [...prev, newView]);
       setActiveViewId(result.view_id);
       parentViewIdRef.current = result.view_id;
       setL1Graph(result.l1_graph);
+      setDirection(direction);
       setGraphLevel('L1');
       setL2Graph(null);
       setSqlText('');
@@ -239,7 +244,9 @@ export default function DataFlowApp() {
     setLoading(true);
     try {
       const viewIdForApi = parentViewIdRef.current || activeViewId;
-      const result = await api.getLevel2Graph(wsId, viewIdForApi, scriptName);
+      // R29: L2 is the zoom-in of L1 — fetch in the parent view's direction
+      const searchView = views.find(v => v.view_id === viewIdForApi);
+      const result = await api.getLevel2Graph(wsId, viewIdForApi, scriptName, true, searchView?.direction || direction);
       applyL2Result(result);
       setSqlText(result.sql_text || '');
       setCurrentScriptName(scriptName);
@@ -277,7 +284,7 @@ export default function DataFlowApp() {
     } finally {
       setLoading(false);
     }
-  }, [wsId, activeViewId]);
+  }, [wsId, activeViewId, views, direction]);
 
   // ── View Tree navigation ──────────────────────────────────────────
   const handleViewTreeClick = useCallback(async (viewId) => {
@@ -300,7 +307,7 @@ export default function DataFlowApp() {
       // Navigate to L2
       try {
         const parentView = views.find(v => v.view_id === entry.parent_view_id);
-        const result = await api.getLevel2Graph(wsId, entry.parent_view_id, entry.script_name);
+        const result = await api.getLevel2Graph(wsId, entry.parent_view_id, entry.script_name, true, parentView?.direction || direction);
         applyL2Result(result);
         setSqlText(result.sql_text || '');
         setCurrentScriptName(entry.script_name);
@@ -323,7 +330,7 @@ export default function DataFlowApp() {
       setActiveL1Table(null);
       setSelectedEdge(null);
     }
-  }, [views, wsId]);
+  }, [views, wsId, direction]);
 
   // ── Delete workspace ──────────────────────────────────────────────
   const handleDeleteWorkspace = useCallback(async () => {
@@ -363,6 +370,8 @@ export default function DataFlowApp() {
         if (child) { parentId = child.parent_view_id || v.view_id; break; }
       }
     }
+    // R29: L2 requests carry the parent search view's direction
+    const searchView = views.find(v => v.view_id === parentId);
     if (l2Filtered) {
       // Switching to "Show All": fetch unfiltered graph
       if (l2FullGraph) {
@@ -374,7 +383,8 @@ export default function DataFlowApp() {
         setL2Filtered(false);
       } else {
         try {
-          const result = await api.getLevel2Graph(wsId, parentId, currentScriptName, false);
+          // R29: L2 requests carry the parent search view's direction
+          const result = await api.getLevel2Graph(wsId, parentId, currentScriptName, false, searchView?.direction || direction);
           setL2FullGraph(result);
           applyL2Result(result);
           setL2Filtered(false);
@@ -383,12 +393,12 @@ export default function DataFlowApp() {
     } else {
       // Switching back to filtered
       try {
-        const result = await api.getLevel2Graph(wsId, parentId, currentScriptName, true);
+        const result = await api.getLevel2Graph(wsId, parentId, currentScriptName, true, searchView?.direction || direction);
         applyL2Result(result);
         setL2Filtered(true);
       } catch (e) { setError(e.message); }
     }
-  }, [wsId, activeViewId, currentScriptName, l2Filtered, l2FullGraph, views]);
+  }, [wsId, activeViewId, currentScriptName, l2Filtered, l2FullGraph, views, direction]);
 
 
   // ── Edge click → SQL highlight + reason panel (R25/§8.8) ───────────
@@ -588,10 +598,15 @@ export default function DataFlowApp() {
       <div className="panel-center">
         {/* R3: visible notice for empty no-match search results (F1).
             Renders whenever the active view is a no_matches search — the
-            backend message is shown verbatim. */}
-        {activeView?.match_mode === 'no_matches' && (
+            backend message is shown verbatim. R29: no_flow (empty
+            directional flow) renders the same way — the backend message
+            ("No writing flow for T.F" / "No reading flow for T.F") is
+            shown verbatim, never as an error. */}
+        {activeView && (activeView.match_mode === 'no_matches' || activeView.match_mode === 'no_flow') && (
           <div className="no-match-banner">
-            ⚠️ No matches: {activeView.message || 'no tables in scope'} — empty result view
+            ⚠️ {activeView.match_mode === 'no_flow'
+              ? `${activeView.message || 'no flow in this direction'} — empty result view`
+              : `No matches: ${activeView.message || 'no tables in scope'} — empty result view`}
           </div>
         )}
         {graphData && (

@@ -39,6 +39,8 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
   const [searchHistory, setSearchHistory] = useState(loadHistory);
   const [pinnedSearches, setPinnedSearches] = useState(loadPins);
   const [showHistory, setShowHistory] = useState(false);
+  // R29: query direction — upstream (writing flow, DEFAULT) / downstream (reading flow)
+  const [direction, setDirection] = useState('upstream');
 
   const stRef = useRef(null);
   const tcRef = useRef(null);
@@ -102,7 +104,7 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
     const newHistory = [entry, ...searchHistory.filter(h => !(h.table === t && h.field === f))];
     setSearchHistory(newHistory);
     saveHistory(newHistory);
-    onSearch(t, f);
+    onSearch(t, f, direction);
   };
 
   // Enter key in field input triggers search
@@ -287,6 +289,17 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
             {isPinned(table, field) ? '★' : '☆'}
           </button>
         )}
+        {/* R29: query direction — upstream (writing flow, default) / downstream (reading flow) */}
+        <button className={`btn btn-sm ${direction === 'upstream' ? 'btn-active' : 'btn-outline'}`}
+          onClick={() => setDirection('upstream')}
+          title="Upstream — show what writes this table.field (writing flow)">
+          ↑ Upstream
+        </button>
+        <button className={`btn btn-sm ${direction === 'downstream' ? 'btn-active' : 'btn-outline'}`}
+          onClick={() => setDirection('downstream')}
+          title="Downstream — show what reads this table.field (reading flow)">
+          ↓ Downstream
+        </button>
       </div>
 
       {/* Pinned searches quick access */}
