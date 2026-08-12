@@ -310,6 +310,40 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
    CANONICAL_EDGES 59 entries (27 bdm + 14 sup + 9 pl + 9 dl),
    CANONICAL_ROWS 55 tuples. The gate is GREEN -- dl FLOORS all
    1.0000/1.0000 (measured: nodes 8/7, edges 9/9, highlights 5/5).
+
+14. R29 DIRECTIONAL GROUND TRUTHS (2026-08-12, harness -- R29, the
+   directional field flow). The gate is parametrized over cases
+   (seed, script, direction). The EXISTING entries above stay
+   direction-less (= "downstream", the current behavior -- the
+   drift-free rule: none of them is modified; the consumer test's
+   filter defaults direction to "downstream" and script to the case's
+   script, so the existing rows match exactly the existing cases).
+   NEW entries carry "direction" ("upstream" = writing flow,
+   "downstream" = reading flow) and "script" (the case's script file --
+   needed because a seed now spans several scripts: bdm/data_dt
+   upstream lives in PL and in DL, bdm/lending_ref upstream in DL and
+   downstream in SUP_M). B is compiled from the R29 L2 sections of the
+   ground truth docs -- tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO.md §6a.4
+   (bdm↑PL / bdm↑DL / bdm↑SUP_M), GROUND_TRUTH_RRCDM_JOB_LOG_EXEC_PAR.md
+   §3.1-3.2 (rrcdm↑PL / rrcdm↑SUP_M / rrcdm↓PL),
+   GROUND_TRUTH_ODS_HIE_IPACMSP.md §3.1-3.2 (iiapty↓SUP_M / iiapty↑SUP_M)
+   and GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §3.1-3.2
+   (lending_ref↑DL / lending_ref↓SUP_M) -- never from the engine's
+   emitted form (J12-13 rule). Where the prose is under-specified
+   (exact closure node list / the served edge forms of the
+   effect-chain instances), the reading that matches the prose is
+   pinned with an inline comment; the benchmark loop resolves
+   mismatches against the docs (the docs are the authority) when the
+   backend direction support lands. The EMPTY-direction cases (bdm
+   data_dt upstream in SUP_M -- read instances never enter the
+   upstream closure; rrcdm data_dt downstream in PL -- no readers
+   anywhere; iiapty upstream -- no writers anywhere) are pinned EMPTY
+   (B = ∅): the consumer asserts the filtered response closure is
+   empty too (0 flow nodes -- filter_by_field_flow returns a 0-node
+   graph for an empty closure) with an explicit 0/0 guard, never a
+   NaN Jaccard. These cases pytest.skip until the backend
+   _build_l2_graph gains the `direction=` keyword (default
+   "downstream" = current behavior).
 """
 
 CANONICAL_ROWS = [
@@ -582,6 +616,169 @@ CANONICAL_EDGES = [
     {"row": "P18", "seed": "dl", "src": "data_dt@560", "dst": "bdm@559", "type": "REF", "anchor": 559, "spec": "anchor_rel_ep"},
     {"row": "P22", "seed": "dl", "src": "bdm@559", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 559, "spec": "anchor_rel_ep"},
     {"row": "F1", "seed": "dl", "src": "data_dt@560", "dst": "bdm@560", "type": "FILTER", "anchor": 560, "spec": "anchor_rel_ep"},
+    # ── R29 direction rows (2026-08-12, harness -- point 14). Every row
+    #    carries "direction" and "script" (the consumer filters by
+    #    (seed, script, direction)); row ids UBP/UBD/URP/URS/IIP/LFD/LFS
+    #    are globally unique. The existing rows above are untouched.
+    #    bdm↑PL / bdm↑DL -- bdm_acc_loan_info.data_dt UPSTREAM, the
+    #    literal-terminated write chain (GROUND_TRUTH_BDM_ACC_LOAN_INFO.md
+    #    §6a.4: "the bdm_acc_loan_info node + the data_dt write field @19
+    #    + the write statement's DML chain (literal → statement output →
+    #    write)"). The three rows mirror the downstream pl/dl R1/V1/P15
+    #    (the write-column read into the output VT, the value split of
+    #    the write, the write leg) -- the served realization of the
+    #    prose chain. The READ of the seed (pl @264 / dl @560) is the
+    #    DOWNSTREAM flow, explicitly excluded by §6a.4. ──
+    {"row": "UBP1", "seed": "bdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "upstream",
+     "src": "data_dt@19", "dst": "⟐output@0", "type": "REF", "anchor": 19, "spec": "anchor_rel_ep"},
+    {"row": "UBP2", "seed": "bdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "upstream",
+     "src": "data_dt@19", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 19, "spec": "anchor_rel_ep"},
+    {"row": "UBP3", "seed": "bdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "upstream",
+     "src": "⟐output@0", "dst": "bdm@19", "type": "TABLE_FLOW", "anchor": 19, "spec": "anchor_rel_ep"},
+    {"row": "UBD1", "seed": "bdm", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
+     "src": "data_dt@99", "dst": "⟐output@0", "type": "REF", "anchor": 99, "spec": "anchor_rel_ep"},
+    {"row": "UBD2", "seed": "bdm", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
+     "src": "data_dt@99", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 99, "spec": "anchor_rel_ep"},
+    {"row": "UBD3", "seed": "bdm", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
+     "src": "⟐output@0", "dst": "bdm@99", "type": "TABLE_FLOW", "anchor": 99, "spec": "anchor_rel_ep"},
+    #    bdm↑SUP_M (bdm data_dt upstream in SUP_M) is EMPTY -- no row,
+    #    no node (pins that the read instances never enter the upstream
+    #    closure; doc §6a.1: SUP_M "REA DS bdm_acc_loan_info but writes
+    #    no data_dt into it").
+    #    rrcdm↑PL / rrcdm↑SUP_M -- rrcdm_job_log_exec_par.data_dt
+    #    UPSTREAM, the literal-terminated write chain of the job-log
+    #    statement (GROUND_TRUTH_RRCDM_JOB_LOG_EXEC_PAR.md §3.1: "the
+    #    literal → rrcdm_job_log_exec_par.data_dt (via the statement
+    #    output / DML routing). NO producing fields (literal-terminated)").
+    #    Rows mirror the downstream V2/P16 (value write of the output
+    #    column, write leg); the SCHEMA row mirrors the downstream M1/X3
+    #    output-VT membership edge -- the prose pins "literal → statement
+    #    output → write" (V2+P16), the membership mirror is included on
+    #    the downstream-consistency reading (X3/M1 are in every
+    #    downstream closure); the loop resolves which survives. The
+    #    statement's FROM sources (bdm_acc_loan_info @263/@559/@223) are
+    #    INPUT tables of the writing statement -- excluded (doc §1). ──
+    {"row": "URP1", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "upstream",
+     "src": "data_dt@254", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 254, "spec": "anchor_rel_ep"},
+    {"row": "URP2", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "upstream",
+     "src": "⟐output@0", "dst": "data_dt@254", "type": "SCHEMA", "anchor": 254, "spec": "anchor_rel_ep"},
+    {"row": "URP3", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "upstream",
+     "src": "⟐output@0", "dst": "rrcdm@253", "type": "TABLE_FLOW", "anchor": 253, "spec": "anchor_rel_ep"},
+    {"row": "URS1", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "upstream",
+     "src": "data_dt@213", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep"},
+    {"row": "URS2", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "upstream",
+     "src": "⟐output@0", "dst": "data_dt@213", "type": "SCHEMA", "anchor": 213, "spec": "anchor_rel_ep"},
+    {"row": "URS3", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "upstream",
+     "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
+    #    rrcdm↓PL (rrcdm data_dt downstream in PL) is EMPTY -- no row,
+    #    no node (doc §2.2/§3.2: no script reads rrcdm_job_log_exec_par).
+    #    iiapty↓SUP_M -- ods_hie_ipacmsp.iiapty DOWNSTREAM, the
+    #    join-key effect chain (GROUND_TRUTH_ODS_HIE_IPACMSP.md §3.1:
+    #    "p5.iiapty (join key) → the statement's output rows → the sup
+    #    write target fields @160 (DML forward -- all of them; the
+    #    effect lands on what the statement writes, incl. the literal
+    #    data_dt partition) ... the sup data_dt read @223 ... → the
+    #    rrcdm write targets @211"). IIP1 is the seed-zone JOIN
+    #    admission ("the walker's seed-zone JOIN rule admits the flow
+    #    into the statement output"); the doc pins the join site
+    #    "151–152" (the file's p5.iiapty token is @153 -- the loop
+    #    resolves the served anchor); IIP2-IIP9 mirror the sup data_dt
+    #    closure's write/read legs (rows 12/15/18/22/16/17, X3, X5).
+    #    The doc's "ALL its write targets" reading: the closure names
+    #    the sup write targets the doc names (the data_dt partition --
+    #    the effect's continuing carrier); the full write-target list
+    #    is loop-resolved. The other join keys (p4.iiapty, p5.p_dt,
+    #    p4.p_dt) are different field instances -- excluded (doc §3.1). ──
+    {"row": "IIP1", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "iiapty@151", "dst": "⟐output@0", "type": "JOIN", "anchor": 151, "spec": "anchor_rel_ep"},
+    {"row": "IIP2", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "data_dt@160", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
+    {"row": "IIP3", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
+    {"row": "IIP4", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "data_dt@225", "dst": "sup@223", "type": "REF", "anchor": 223, "spec": "anchor_rel_ep"},
+    {"row": "IIP5", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "sup@223", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 223, "spec": "anchor_rel_ep"},
+    {"row": "IIP6", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
+    {"row": "IIP7", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "data_dt@213", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep"},
+    {"row": "IIP8", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "⟐output@0", "dst": "data_dt@213", "type": "SCHEMA", "anchor": 213, "spec": "anchor_rel_ep"},
+    {"row": "IIP9", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "data_dt@225", "dst": "sup@225", "type": "FILTER", "anchor": 225, "spec": "anchor_rel_ep"},
+    #    iiapty↑SUP_M (iiapty upstream) is EMPTY -- no row, no node
+    #    (doc §3.2: no script writes ods_hie_ipacmsp at all).
+    #    lending_ref↑DL -- bdm_acc_loan_info.lending_ref UPSTREAM, the
+    #    suite's first REAL (non-literal) producing chain
+    #    (GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §3.1:
+    #    "ODS_CUPD_CLD_ACCTMASTER_NEW.acnw (p1.acnw) → (alias/transform
+    #    AS lending_ref, CTE outputs) → the write target
+    #    bdm_acc_loan_info.lending_ref @99 (DML forward)"). LFD1 is the
+    #    producer alias/transform ("the upstream walker (ALIAS/TRANSFORM
+    #    + DML forward)", doc §4); the CTE hops between the chain start
+    #    and the statement output are prose-compressed ("CTE outputs") --
+    #    the loop resolves the served intermediate form. LFD2 anchors
+    #    the output column's own line (A.acctnbr AS LENDING_REF @101,
+    #    evidence-verified) -- the doc pins the write TARGET @99 (the
+    #    INSERT); LFD3 is the write leg (the P15 mirror). The statement's
+    #    other ODS inputs and output columns are different fields --
+    #    excluded (doc §3.1). ──
+    {"row": "LFD1", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
+     "src": "acnw@62", "dst": "lending_ref@62", "type": "ALIAS", "anchor": 62, "spec": "anchor_rel_ep"},
+    {"row": "LFD2", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
+     "src": "lending_ref@101", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 101, "spec": "anchor_rel_ep"},
+    {"row": "LFD3", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
+     "src": "⟐output@0", "dst": "bdm@99", "type": "TABLE_FLOW", "anchor": 99, "spec": "anchor_rel_ep"},
+    #    lending_ref↓SUP_M -- bdm_acc_loan_info.lending_ref DOWNSTREAM,
+    #    the effect chain (GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md
+    #    §3.2: "p1.lending_ref instances → the statement's output rows →
+    #    the sup write target fields @160 (all of them ...) → sup.data_dt
+    #    read @223 → the rrcdm write targets @211"). LFS1-LFS9 pin the
+    #    doc's named usage lines (§1: SELECT outputs @67/@163, join keys
+    #    @41/@117/@150/@156/@201/@206, NOT IN @48) as instance edges into
+    #    the statement output -- the served per-instance edge forms
+    #    (JOIN vs REF vs FILTER, CTE-VT intermediate hops for the
+    #    rollover/loan_final CTE instances) are reading-choices per the
+    #    effect-scope prose ("the effect scope includes WHERE, joins, and
+    #    any usage", doc §4) and are loop-resolved. LFS10-LFS17 mirror
+    #    the sup data_dt closure's write/read legs (rows 12/15/18/22/16/
+    #    17, X3, X5) -- same as IIP2-IIP9. The p2/p3 join-key lines
+    #    (@201/@206) carry the seed's instance on the p1 side. ──
+    {"row": "LFS1", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@41", "dst": "⟐output@0", "type": "JOIN", "anchor": 41, "spec": "anchor_rel_ep"},
+    {"row": "LFS2", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@48", "dst": "⟐output@0", "type": "FILTER", "anchor": 48, "spec": "anchor_rel_ep"},
+    {"row": "LFS3", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@67", "dst": "⟐output@0", "type": "REF", "anchor": 67, "spec": "anchor_rel_ep"},
+    {"row": "LFS4", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@117", "dst": "⟐output@0", "type": "JOIN", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS5", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@150", "dst": "⟐output@0", "type": "JOIN", "anchor": 150, "spec": "anchor_rel_ep"},
+    {"row": "LFS6", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@156", "dst": "⟐output@0", "type": "JOIN", "anchor": 156, "spec": "anchor_rel_ep"},
+    {"row": "LFS7", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@163", "dst": "⟐output@0", "type": "REF", "anchor": 163, "spec": "anchor_rel_ep"},
+    {"row": "LFS8", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@201", "dst": "⟐output@0", "type": "JOIN", "anchor": 201, "spec": "anchor_rel_ep"},
+    {"row": "LFS9", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@206", "dst": "⟐output@0", "type": "JOIN", "anchor": 206, "spec": "anchor_rel_ep"},
+    {"row": "LFS10", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "data_dt@160", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
+    {"row": "LFS11", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep"},
+    {"row": "LFS12", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "data_dt@225", "dst": "sup@223", "type": "REF", "anchor": 223, "spec": "anchor_rel_ep"},
+    {"row": "LFS13", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "sup@223", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 223, "spec": "anchor_rel_ep"},
+    {"row": "LFS14", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "data_dt@225", "dst": "sup@225", "type": "FILTER", "anchor": 225, "spec": "anchor_rel_ep"},
+    {"row": "LFS15", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
+    {"row": "LFS16", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "data_dt@213", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep"},
+    {"row": "LFS17", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "⟐output@0", "dst": "data_dt@213", "type": "SCHEMA", "anchor": 213, "spec": "anchor_rel_ep"},
 ]
 
 # Response-node-LABEL -> canonical-label alignment (served node ids are
@@ -729,6 +926,169 @@ CANONICAL_NODES = {
          "note": "stmt1 output VT -- TOP0 (INSERT@99)"},
         {"label": "⟐output", "line": None, "kind": "vt",
          "note": "stmt2 output VT -- TOP1 (job-log INSERT@549)"},
+    ],
+}
+
+# R29 direction cases (2026-08-12, harness -- docstring point 14): the
+# direction-keyed canonical closure nodes, keyed by (seed, script,
+# direction). The consumer test resolves
+# CANONICAL_NODES_DIR.get((seed, script, direction)) first and falls
+# back to the legacy per-seed CANONICAL_NODES for the existing
+# (downstream, seed-script-pinned) cases -- none of CANONICAL_NODES is
+# modified (drift-free rule). The EMPTY-direction cases carry explicit
+# empty lists (B = ∅: the filtered response closure must be empty too).
+# Node sources: tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO.md §6a.4,
+# GROUND_TRUTH_RRCDM_JOB_LOG_EXEC_PAR.md §3.1-3.2,
+# GROUND_TRUTH_ODS_HIE_IPACMSP.md §3.1-3.2,
+# GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §3.1-3.2.
+CANONICAL_NODES_DIR = {
+    # bdm↑PL -- data_dt upstream in BDM_ACC_LOAN_INFO_PL.sql (doc §6a.4:
+    # "the bdm_acc_loan_info node + the data_dt write field @19 + the
+    # write statement's DML chain"; the @264 READ is the downstream
+    # flow -- not rendered upstream).
+    ("bdm", "BDM_ACC_LOAN_INFO_PL.sql", "upstream"): [
+        {"label": "data_dt", "line": 19, "kind": "field",
+         "note": "stmt1 partition write PARTITION(data_dt='${load_date}')@19 (literal-terminated)"},
+        {"label": "bdm", "line": 19, "kind": "table",
+         "note": "stmt1 INSERT target (bare INSERT@19)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "stmt1 output VT (TOP0, served label 'insert')"},
+    ],
+    # bdm↑DL -- data_dt upstream in BDM_ACC_LOAN_INFO_Digitallending.sql
+    # (doc §6a.1/§6a.4: the partition write @99, literal-terminated).
+    ("bdm", "BDM_ACC_LOAN_INFO_Digitallending.sql", "upstream"): [
+        {"label": "data_dt", "line": 99, "kind": "field",
+         "note": "stmt1 partition write PARTITION(data_dt='$(load_date)')@99 (literal-terminated)"},
+        {"label": "bdm", "line": 99, "kind": "table",
+         "note": "stmt1 INSERT target (INSERT@99)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "stmt1 output VT (TOP0)"},
+    ],
+    # bdm↑SUP_M -- EMPTY (doc §6a.1: SUP_M reads bdm_acc_loan_info but
+    # writes no data_dt into it -- read instances never enter the
+    # upstream closure).
+    ("bdm", "BDM_ACC_LOAN_INFO_SUP_M.sql", "upstream"): [],
+    # rrcdm↑PL -- the log statement's write chain (doc §3.1: "the
+    # literal → rrcdm_job_log_exec_par.data_dt (via the statement
+    # output / DML routing)"; PL writes @253/254; the FROM read
+    # bdm_acc_loan_info@263 is an INPUT of the writing statement --
+    # excluded, doc §1).
+    ("rrcdm", "BDM_ACC_LOAN_INFO_PL.sql", "upstream"): [
+        {"label": "data_dt", "line": 254, "kind": "field",
+         "note": "stmt3 output column '${load_date}' AS data_dt@254 (literal-terminated)"},
+        {"label": "rrcdm", "line": 253, "kind": "table",
+         "note": "job-log INSERT target (INSERT@253)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "stmt3 output VT (TOP2)"},
+    ],
+    # rrcdm↑SUP_M -- the log statement's write chain (doc §1/§3.1:
+    # SUP_M writes @211/213, literal; the FROM read
+    # bdm_acc_loan_info_sup@223 is an input -- excluded).
+    ("rrcdm", "BDM_ACC_LOAN_INFO_SUP_M.sql", "upstream"): [
+        {"label": "data_dt", "line": 213, "kind": "field",
+         "note": "log statement output column '$(load_date)' AS data_dt@213 (literal-terminated)"},
+        {"label": "rrcdm", "line": 211, "kind": "table",
+         "note": "job-log INSERT target (INSERT@211)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "log statement output VT (TOP1)"},
+    ],
+    # rrcdm↓PL -- EMPTY (doc §2.2/§3.2: no script reads
+    # rrcdm_job_log_exec_par -- downstream projects empty).
+    ("rrcdm", "BDM_ACC_LOAN_INFO_PL.sql", "downstream"): [],
+    # iiapty↓SUP_M -- the join-key effect chain (doc §3.1: "the
+    # join-key instance, the statement output, the sup write targets,
+    # the rrcdm write targets"). The doc pins the join site "151–152";
+    # the file's p5.iiapty token is @153 (loop-resolve). The doc's
+    # "ALL its write targets" reading: the write targets the doc names
+    # (the data_dt partition -- the effect's continuing carrier) are
+    # pinned; the full list is loop-resolved.
+    ("iiapty", "BDM_ACC_LOAN_INFO_SUP_M.sql", "downstream"): [
+        {"label": "iiapty", "line": 151, "kind": "field",
+         "note": "the p5.iiapty join-key instance (doc pins the join site 151-152; the file's token is @153 -- loop-resolve)"},
+        {"label": "ods_hie_ipacmsp", "line": 151, "kind": "table",
+         "note": "the queried ODS source table (the p5 read instance)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "sup-write statement output VT (TOP0)"},
+        {"label": "sup", "line": 160, "kind": "table",
+         "note": "the sup write target (effect scope)"},
+        {"label": "data_dt", "line": 160, "kind": "field",
+         "note": "the sup partition write target -- the effect's continuing carrier (doc §3.1: 'all its write targets, incl. the literal data_dt partition')"},
+        {"label": "sup", "line": 223, "kind": "table",
+         "note": "the rrcdm statement's FROM-read instance (R22-merged)"},
+        {"label": "data_dt", "line": 225, "kind": "field",
+         "note": "the stmt-2 WHERE read of sup.data_dt"},
+        {"label": "rrcdm", "line": 211, "kind": "table",
+         "note": "the chain end -- the rrcdm write target"},
+        {"label": "data_dt", "line": 213, "kind": "field",
+         "note": "the rrcdm write column (literal)"},
+    ],
+    # iiapty↑SUP_M -- EMPTY (doc §2.1/§3.2: no script writes
+    # ods_hie_ipacmsp at all).
+    ("iiapty", "BDM_ACC_LOAN_INFO_SUP_M.sql", "upstream"): [],
+    # lending_ref↑DL -- the REAL (non-literal) producing chain (doc
+    # §3.1: "ODS_CUPD_CLD_ACCTMASTER_NEW.acnw (p1.acnw) →
+    # (alias/transform AS lending_ref, CTE outputs) → the write target
+    # bdm_acc_loan_info.lending_ref @99 (DML forward)"). The chain
+    # start is IN the projection even though nothing writes it (doc §4
+    # user ruling -- the chain terminates there). The CTE intermediate
+    # hops (temp_kmbh_gl/ie @59/@79, join keys @484/@486) are
+    # prose-compressed -- loop-resolved.
+    ("lending_ref", "BDM_ACC_LOAN_INFO_Digitallending.sql", "upstream"): [
+        {"label": "ods_cupd_cld_acctmaster_new", "line": 62, "kind": "table",
+         "note": "the chain start (carrying acnw) -- in the projection even though no script writes it (the chain terminates there)"},
+        {"label": "acnw", "line": 62, "kind": "field",
+         "note": "the producing field (p1.acnw AS lending_ref@62; second instance @82)"},
+        {"label": "lending_ref", "line": 62, "kind": "field",
+         "note": "the CTE-body alias column (temp_kmbh_gl body @62)"},
+        {"label": "lending_ref", "line": 101, "kind": "field",
+         "note": "the statement output column (A.acctnbr AS LENDING_REF@101) writing bdm.lending_ref"},
+        {"label": "bdm", "line": 99, "kind": "table",
+         "note": "the write target (INSERT@99)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "stmt1 output VT (TOP0)"},
+    ],
+    # lending_ref↓SUP_M -- the effect chain (doc §3.2: "p1.lending_ref
+    # instances → the statement's output rows → the sup write target
+    # fields @160 (all of them -- incl. the literal data_dt partition)
+    # → sup.data_dt@160 → (identity) → the sup data_dt read @223 →
+    # the rrcdm write targets @211"). The instance lines are the doc's
+    # §1 usage lines; the bdm table instance line is not doc-pinned
+    # (84 = the loan_final FROM -- loop-resolve).
+    ("lending_ref", "BDM_ACC_LOAN_INFO_SUP_M.sql", "downstream"): [
+        {"label": "lending_ref", "line": 41, "kind": "field",
+         "note": "rollover CTE join key (p1 side)"},
+        {"label": "lending_ref", "line": 48, "kind": "field",
+         "note": "rollover CTE NOT IN usage"},
+        {"label": "lending_ref", "line": 67, "kind": "field",
+         "note": "loan_final SELECT output"},
+        {"label": "lending_ref", "line": 117, "kind": "field",
+         "note": "loan_final join key (p1 side)"},
+        {"label": "lending_ref", "line": 150, "kind": "field",
+         "note": "loan_final join key (p4-side pair, p1 side)"},
+        {"label": "lending_ref", "line": 156, "kind": "field",
+         "note": "loan_final join key (p6-side pair, p1 side)"},
+        {"label": "lending_ref", "line": 163, "kind": "field",
+         "note": "INSERT SELECT output"},
+        {"label": "lending_ref", "line": 201, "kind": "field",
+         "note": "p2 join key (p1 side)"},
+        {"label": "lending_ref", "line": 206, "kind": "field",
+         "note": "p3 join key (p1 side)"},
+        {"label": "bdm", "line": 84, "kind": "table",
+         "note": "the read table (doc doesn't pin the bdm instance lines; 84 = the loan_final FROM -- loop-resolve)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "sup-write statement output VT (TOP0)"},
+        {"label": "sup", "line": 160, "kind": "table",
+         "note": "the sup write target (effect scope)"},
+        {"label": "data_dt", "line": 160, "kind": "field",
+         "note": "the sup partition write target (effect scope)"},
+        {"label": "sup", "line": 223, "kind": "table",
+         "note": "the rrcdm statement's FROM-read instance (R22-merged)"},
+        {"label": "data_dt", "line": 225, "kind": "field",
+         "note": "the stmt-2 WHERE read of sup.data_dt"},
+        {"label": "rrcdm", "line": 211, "kind": "table",
+         "note": "the chain end -- the rrcdm write target"},
+        {"label": "data_dt", "line": 213, "kind": "field",
+         "note": "the rrcdm write column (literal)"},
     ],
 }
 
