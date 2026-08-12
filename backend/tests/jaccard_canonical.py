@@ -276,6 +276,40 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
    CANONICAL_EDGES 50 entries (27 bdm + 14 sup + 9 pl), CANONICAL_ROWS
    46 tuples. The gate is GREEN -- pl FLOORS all 1.0000/1.0000
    (measured: nodes 8/7, edges 9/9, highlights 5/5).
+
+13. DL-SEED ROUND (2026-08-12, BDM_ACC_LOAN_INFO_Digitallending.sql --
+   Team DL, third seed). B is compiled from
+   tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_Digitallending.md §8.5
+   (REQUIREMENT rows P15/P16/P18/P22 first, never the engine's emitted
+   form) and the served forms are probe-pinned in §8.5 AFTER the
+   requirements were written (the pin records realization, never
+   redefinition). The dl closure (9 edges) mirrors the pl/sup chain on
+   bdm_acc_loan_info: P15 stmt-1 write leg output1->bdm@99 (TABLE_FLOW,
+   flow_kind='write'), P18 stmt-2 read data_dt@560->bdm@559 (REF), P22
+   the reader's read leg bdm@559->output2 (TABLE_FLOW), P16 stmt-2
+   write leg output2->rrcdm@549 (TABLE_FLOW, flow_kind='write') plus
+   the probe-pinned extras R1 (partition REF@99 into the output VT --
+   the SUP X2 mirror), V1/V2 (value writes @99/@550 -- SUP rows
+   12/17/X4 mirrors), M1 (the stmt2 output VT's membership SCHEMA@550
+   -- the SUP X3 mirror) and F1 (the stmt2 WHERE FILTER@560 -- the SUP
+   X5 mirror; restored by the D3 fix). The engine gap this round
+   exposed and closed (D3, dependency_graph.py Phase 3): DM_FLAG2's
+   CASE source column 'data_dt' resolved to TOP1's data_dt@560 (the
+   bare-name index is last-writer-wins) instead of the exists3
+   subquery's data_dt@407 -- the wrong COMPUTED edge walked as
+   FIELD_LAND into the bdm_acc_loan_info.data_dt closure junk and
+   inflated data_dt@560's Phase-8 ec to 2, suppressing the F1 FILTER
+   companion. Fixed with extraction-time info only (the evidence scan:
+   for expression-building targets only, a same-root candidate whose
+   source_tables[0] is in the target's expression tables wins over the
+   cross-statement last writer; plain COLUMN/CTE_COLUMN targets keep
+   the legacy pick -- the bdm/sup/pl L2 shape stays pinned; the
+   SUP flagship CONCAT@L41 join-key operands re-source same-context,
+   display-neutral). EXTRACTOR_VERSION 2026-08-11.2 -> 2026-08-11.3
+   (analysis caches store the dependency list). Final counts:
+   CANONICAL_EDGES 59 entries (27 bdm + 14 sup + 9 pl + 9 dl),
+   CANONICAL_ROWS 55 tuples. The gate is GREEN -- dl FLOORS all
+   1.0000/1.0000 (measured: nodes 8/7, edges 9/9, highlights 5/5).
 """
 
 CANONICAL_ROWS = [
@@ -386,6 +420,22 @@ CANONICAL_ROWS = [
     ("R1", "pl", "data_dt", 19, "⟐output", 0, "REF", 19),
     ("M1", "pl", "⟐output", 0, "data_dt", 254, "SCHEMA", 254),
     ("F1", "pl", "data_dt", 264, "bdm", 264, "FILTER", 264),
+    # ── dl rows (2026-08-12 dl-seed round,
+    #    BDM_ACC_LOAN_INFO_Digitallending.sql -- REQUIREMENT rows
+    #    P15/P16/P18/P22 from doc §8.5 (the R19.3 no-bypass chain; the
+    #    dl script's stmt1 is the INSERT@99 wrapping the SELECT@100-548
+    #    [TOP0], stmt2 is the job-log INSERT@549-562 [TOP1]) + the
+    #    probe-pinned extras R1/V1/V2/M1/F1 (the SUP X-series mirrors,
+    #    same as the pl seed). ──
+    ("P15", "dl", "⟐output", 0, "bdm", 99, "TABLE_FLOW", 99),
+    ("P16", "dl", "⟐output", 0, "rrcdm", 549, "TABLE_FLOW", 549),
+    ("P18", "dl", "data_dt", 560, "bdm", 559, "REF", 559),
+    ("P22", "dl", "bdm", 559, "⟐output", 0, "TABLE_FLOW", 559),
+    ("V1", "dl", "data_dt", 99, "⟐output", 0, "TABLE_FLOW", 99),
+    ("V2", "dl", "data_dt", 550, "⟐output", 0, "TABLE_FLOW", 550),
+    ("R1", "dl", "data_dt", 99, "⟐output", 0, "REF", 99),
+    ("M1", "dl", "⟐output", 0, "data_dt", 550, "SCHEMA", 550),
+    ("F1", "dl", "data_dt", 560, "bdm", 560, "FILTER", 560),
 ]
 
 # FLAT per-seed closure edge lists (B sets): 27 bdm + 14 sup = 41 entries
@@ -513,6 +563,25 @@ CANONICAL_EDGES = [
     {"row": "P18", "seed": "pl", "src": "data_dt@264", "dst": "bdm@263", "type": "REF", "anchor": 263, "spec": "anchor_rel_ep"},
     {"row": "P22", "seed": "pl", "src": "bdm@263", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 263, "spec": "anchor_rel_ep"},
     {"row": "F1", "seed": "pl", "src": "data_dt@264", "dst": "bdm@264", "type": "FILTER", "anchor": 264, "spec": "anchor_rel_ep"},
+    # ── dl closure (9): P15/P18/P22/P16 -- REQUIREMENT rows (doc §8.5,
+    #    the R19.3 no-bypass chain; P15/P16/V1/V2 carry "stmt": the
+    #    write legs must attach to their OWN statement's output VT --
+    #    P15/V1 are TOP0's (INSERT@99), P16/V2 are TOP1's (job-log
+    #    INSERT@549)) + the probe-pinned extras R1/V1/V2/M1/F1 (the SUP
+    #    X-row mirrors, same as the pl seed): R1 the partition REF@99
+    #    into the output VT (X2 mirror), V1/V2 the value writes @99/@550
+    #    (rows 12/17/X4 mirrors), M1 the stmt2 output VT's membership
+    #    SCHEMA@550 (X3 mirror), F1 the stmt2 WHERE FILTER@560 (X5
+    #    mirror -- restored by the D3 fix).
+    {"row": "P15", "seed": "dl", "src": "⟐output@0", "dst": "bdm@99", "type": "TABLE_FLOW", "anchor": 99, "spec": "anchor_rel_ep", "stmt": "TOP0"},
+    {"row": "V1", "seed": "dl", "src": "data_dt@99", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 99, "spec": "anchor_rel_ep", "stmt": "TOP0"},
+    {"row": "R1", "seed": "dl", "src": "data_dt@99", "dst": "⟐output@0", "type": "REF", "anchor": 99, "spec": "anchor_rel_ep"},
+    {"row": "P16", "seed": "dl", "src": "⟐output@0", "dst": "rrcdm@549", "type": "TABLE_FLOW", "anchor": 549, "spec": "anchor_rel_ep", "stmt": "TOP1"},
+    {"row": "V2", "seed": "dl", "src": "data_dt@550", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 550, "spec": "anchor_rel_ep", "stmt": "TOP1"},
+    {"row": "M1", "seed": "dl", "src": "⟐output@0", "dst": "data_dt@550", "type": "SCHEMA", "anchor": 550, "spec": "anchor_rel_ep"},
+    {"row": "P18", "seed": "dl", "src": "data_dt@560", "dst": "bdm@559", "type": "REF", "anchor": 559, "spec": "anchor_rel_ep"},
+    {"row": "P22", "seed": "dl", "src": "bdm@559", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 559, "spec": "anchor_rel_ep"},
+    {"row": "F1", "seed": "dl", "src": "data_dt@560", "dst": "bdm@560", "type": "FILTER", "anchor": 560, "spec": "anchor_rel_ep"},
 ]
 
 # Response-node-LABEL -> canonical-label alignment (served node ids are
@@ -551,6 +620,11 @@ NORMALIZE_MAP = {
     "bdm_fin_lrr_key_base_info": "lrr",
     "bdm_pub_hsbc_acct_branch": "hsbc_branch",
     "ods_cdp_gdc_table_coa_list": "coa",
+    # ── "dl" seed (2026-08-12 dl-seed round,
+    #    BDM_ACC_LOAN_INFO_Digitallending.sql): NO new folds needed --
+    #    the dl closure's served labels (bdm_acc_loan_info, output ×2,
+    #    rrcdm_job_log_exec_par, data_dt) are all covered by the folds
+    #    above. Inert for the bdm/sup/pl seeds.
 }
 
 # Per-seed canonical closure nodes: {"label", "line", "kind"}.
@@ -625,6 +699,36 @@ CANONICAL_NODES = {
          "note": "stmt1 output VT -- served label 'insert' (bare-INSERT output)"},
         {"label": "⟐output", "line": None, "kind": "vt",
          "note": "stmt2 output VT -- served label 'output'"},
+    ],
+    # "dl" seed (2026-08-12 dl-seed round,
+    # BDM_ACC_LOAN_INFO_Digitallending.sql -- the data_dt closure per
+    # doc §8.5, probe-pinned in the same section). Same shape as the pl
+    # closure (the two seeds' job-log write legs mirror): stmt1 =
+    # INSERT@99 wrapping SELECT@100-548 [TOP0], stmt2 = job-log
+    # INSERT@549-562 [TOP1]. NO source/join tables: the partition is
+    # literal-driven (probe evidence -- the sources feed the SELECT
+    # columns, never data_dt). The two bdm entries mirror the pl
+    # bdm@19/bdm@263 pair: R22's label-keyed merge unifies the stmt1
+    # INSERT target instance (L99) and the stmt2 FROM-read instance
+    # (L559) into ONE served node. The two ⟐output entries are the two
+    # statements' output VTs (both served with label "output"; line
+    # evidence + statement context separate them).
+    "dl": [
+        {"label": "data_dt", "line": 99, "kind": "field",
+         "note": "stmt1 partition write PARTITION(data_dt=...)@99"},
+        {"label": "data_dt", "line": 550, "kind": "field",
+         "note": "stmt2 output column '${load_date}' AS data_dt@550"},
+        {"label": "data_dt", "line": 560, "kind": "field",
+         "note": "stmt2 WHERE read data_dt='${load_date}'@560"},
+        {"label": "bdm", "line": 99, "kind": "table",
+         "note": "stmt1 INSERT target instance (R22-merged with bdm@559)"},
+        {"label": "bdm", "line": 559, "kind": "table",
+         "note": "stmt2 FROM-read instance (R22-merged with bdm@99)"},
+        {"label": "rrcdm", "line": 549, "kind": "table"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "stmt1 output VT -- TOP0 (INSERT@99)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "stmt2 output VT -- TOP1 (job-log INSERT@549)"},
     ],
 }
 

@@ -134,14 +134,17 @@ SQL_FILES = {
     "bdm": "BDM_ACC_LOAN_INFO_SUP_M.sql",
     "sup": "BDM_ACC_LOAN_INFO_SUP_M.sql",
     "pl": "BDM_ACC_LOAN_INFO_PL.sql",
+    "dl": "BDM_ACC_LOAN_INFO_Digitallending.sql",
 }
 TARGET_FIELD = "data_dt"
 SEED_TABLE = {"bdm": "bdm_acc_loan_info", "sup": "bdm_acc_loan_info_sup",
-              "pl": "bdm_acc_loan_info"}
+              "pl": "bdm_acc_loan_info", "dl": "bdm_acc_loan_info"}
 # SEEDS: "pl" joined 2026-08-12 once BDM_ACC_LOAN_INFO_PL.sql existed and
 # parsed (wait condition met — see tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO.md
-# §8.5 for the probe-pinned served forms).
-SEEDS = ("bdm", "sup", "pl")
+# §8.5 for the probe-pinned served forms); "dl" joined 2026-08-12 once
+# BDM_ACC_LOAN_INFO_Digitallending.sql existed and parsed (see
+# tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_Digitallending.md §8.5).
+SEEDS = ("bdm", "sup", "pl", "dl")
 FEATURES = ("nodes", "edges", "highlights")
 
 # ── Floors (recall/precision pairs, J12-12 2026-08-11): no direction may
@@ -191,6 +194,22 @@ FLOORS = {
     # is the R11-2-style documented extra, doc §8.5), edges 9/9,
     # highlights 5/5. FLOORS ratchet to the full 1.0000/1.0000.
     "pl": {
+        "nodes": {"recall": 1.0000, "precision": 1.0000},
+        "edges": {"recall": 1.0000, "precision": 1.0000},
+        "highlights": {"recall": 1.0000, "precision": 1.0000},
+    },
+    # "dl" seed (BDM_ACC_LOAN_INFO_Digitallending.sql, dl-seed round
+    # 2026-08-12): measured 2026-08-12 after the D3 source-resolution
+    # fix (Phase-3 evidence scan for expression-building targets --
+    # DM_FLAG2's CASE data_dt resolves to the exists3 instance, the
+    # FILTER@560 companion restored) — every requirement row
+    # (P15/P18/P22/P16) and probe-pinned extra (R1/V1/V2/M1/F1)
+    # matched, every canonical node realized: nodes 8/7 (= 1.1429 —
+    # the 7 served nodes realize all 8 canonical entries; the
+    # edgeless charge_department field on bdm is the documented extra,
+    # doc §8.5), edges 9/9, highlights 5/5. FLOORS ratchet to the full
+    # 1.0000/1.0000.
+    "dl": {
         "nodes": {"recall": 1.0000, "precision": 1.0000},
         "edges": {"recall": 1.0000, "precision": 1.0000},
         "highlights": {"recall": 1.0000, "precision": 1.0000},
@@ -315,6 +334,15 @@ R19_3_CHAIN = {
     # numbers (<L1t>/<L2f>/<L2t>) are pinned by the pl probe (ground
     # truth doc §4.2/§8.5).
     "pl": ["P15", "P18", "P22", "P16"],
+    # "dl" seed (2026-08-12 dl-seed round,
+    # BDM_ACC_LOAN_INFO_Digitallending.sql) — the pl-chain mirror on
+    # bdm_acc_loan_info: P15 stmt-1 write leg output1 -> bdm@99
+    # (TABLE_FLOW, flow_kind='write'), P18 stmt-2 read
+    # data_dt@560 -> bdm@559 (REF), P22 the reader's read leg
+    # bdm@559 -> output2 (TABLE_FLOW), P16 stmt-2 write leg
+    # output2 -> rrcdm@549 (TABLE_FLOW, flow_kind='write'). Line
+    # numbers pinned by the dl probe (ground truth doc §8.5).
+    "dl": ["P15", "P18", "P22", "P16"],
 }
 
 

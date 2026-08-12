@@ -1139,3 +1139,69 @@ scripts — served payload shape unchanged).
   PL script present the workspace is no longer single-script
   (`match_mode='expanded'`, 2 script_ids). Fixture now zips exactly
   `SCRIPT_NAME` — the test's single-script intent is restored.
+
+---
+
+## DL seed round — snapshot rebaseline (2026-08-12, Team DL)
+
+> Documented BEFORE the rebaseline run (standing rule). Probe-verified:
+> every content change below was produced by a read-only probe — fresh
+> `_run_build` serializations under PYTHONHASHSEED=0 for the committed
+> engine vs the R3 engine (old `dependency_graph` loaded side-by-side via
+> importlib and swapped into `app.extractor.adapter`) — before
+> `L2_SNAPSHOT_UPDATE=1` was executed.
+
+**Engine causes (two, this round):**
+
+1. **Script addition (phase-1 deliverable):** the dl seed script
+   `samples/sql_sample_v1/BDM_ACC_LOAN_INFO_Digitallending.sql` joined
+   `sql_sample_v1` (562 lines: `SET`@55, `WITH`@57, `INSERT`@99,
+   `SELECT`@100-548 [TOP0], `INSERT INTO rrcdm_job_log_exec_par`@549-562
+   [TOP1]). The harness globs `sql_sample_v1/*.sql` then
+   `tpcds_qualified/*.sql`, sorted, capped at `MAX_SCRIPTS=12` — the
+   addition shifts every index and pushes `10.sql` off the cap.
+2. **D3 evidence-scored source resolution (engine, `dependency_graph.py`
+   Phase 3):** the Phase-3 bare-name index is last-writer-wins over all
+   column-ish vars; a target whose source column collides across
+   statements resolved to the LAST writer even when the correct instance
+   lives in the target's own statement. The dl defect: `DM_FLAG2`'s CASE
+   source column `data_dt` resolved to TOP1's `data_dt@560` (WHERE, last
+   writer) instead of the exists3 subquery's `data_dt@407` (whose
+   attributed table `BDM_ACC_INTERNAL_COUNTERPARTY` is in the CASE's own
+   expression tables). The wrong COMPUTED edge walked as FIELD_LAND →
+   dragged the exists3 chain into the `bdm_acc_loan_info.data_dt`
+   closure junk, and inflated `data_dt@560`'s Phase-8 ec to 2 →
+   suppressed the FILTER `data_dt@560 → bdm@559` companion (SUP X5
+   mirror). Fix: for **expression-building targets** only
+   (`CASE`/`EXPRESSION`/`AGGREGATE`/`WINDOW`/`TRANSFORM` — plain
+   `COLUMN`/`CTE_COLUMN` reads keep the legacy pick, bdm/sup/pl L2 shape
+   pinned), when the last-writer pick's statement root differs from the
+   target's (`_stmt_root`), a same-root candidate whose
+   `source_tables[0]` is in the target's source tables wins; no evidence
+   match keeps the legacy pick. Same-root picks are never overridden.
+   `EXTRACTOR_VERSION` 2026-08-11.2 → 2026-08-11.3 (analysis caches
+   store the dependency list; engine-level semantics ride the version
+   gate — graph caches carry the same stamp, so both tiers invalidate on
+   read). `GRAPH_CACHE_PREFIX` NOT bumped (stays `graph_3_2_24`).
+
+**Verified snapshot inventory (rebaselined 2026-08-12):**
+
+| File | Diff |
+|---|---|
+| 00_BDM_ACC_LOAN_INFO_Digitallending.sql | **NEW** (no prior file). Seed `('temp_kmbh_gl','lending_ref')`; filtered view 6 nodes / 8 edges; full view 448 nodes / 672 edges. Raw deps 2066 = 2066: −COMPUTED `data_dt@560→DM_FLAG2@424` (cross-statement, wrong), −FILTER `data_dt@407→⟐exists3` (Phase-8 ec consequence — `data_dt@407` now carries the corrected COMPUTED edge, ec 1→2), +COMPUTED `data_dt@407→DM_FLAG2@424` (table-evidenced exists3 instance — the fix), +FILTER `data_dt@560→bdm_acc_loan_info@559` (companion restored, ec 2→1). §8.5 rows P15/P16/P18/P22 + the partition REF/value writes/SCHEMA extras all realized in the served filtered view (probe-pinned). |
+| 01_BDM_ACC_LOAN_INFO_PL.sql | Renumbered from 00; **content byte-identical** (probe: fresh serialization == committed file). |
+| 02_BDM_ACC_LOAN_INFO_SUP_M.sql | Renumbered from 01; **content byte-identical at display level** (full 204 nodes / 471 edges, all ids/lines/reasons/seed). Raw deps 781 = 781: the 6 join-key `CONCAT@L41` operand edges (`p2.poacb/pogmab/podtao/poctcd/poacs/poacx`) re-source from the cross-CTE `loan_final@L117` instances to the same-context `rollover_loan_info/subq1/subq@L41` instances — display-neutral (operands dedup onto the same L2 nodes). |
+| 03_01.sql … 11_09.sql | Renumbered from 02_01…11_10; **content byte-identical** (probe: 9/10) EXCEPT 07_05.sql: full view 149/237 → 149/231 (6 display edges lost); raw 349 → 347 (net −2: 9 removed / 7 added — CTE-internal aggregate/expression `profit`/`returns_` reads that were mis-resolved to the TOP0 read now source same-context: union-internal expressions + REFs to the CTE output vars `ssr`/`csr`/`wsr`/`results`). Filtered view 14/26 unchanged. |
+| (old) 00_BDM_ACC_LOAN_INFO_PL.sql, 01_BDM_ACC_LOAN_INFO_SUP_M.sql, 02_01.sql … 11_10.sql | Leave the harness (index shift + 12-script cap); stale old-index files deleted. |
+
+**Pin updates in the same round:**
+- `test_l2_snapshot.py` — unchanged; only the snapshot files renumber.
+- `test_physical_model_equivalence.py::test_every_display_edge_has_model_witness`
+  — unchanged (470-edge flagship pin still passes: the R3 rule fires only
+  on expression-building targets; SUP's display is byte-identical).
+- `test_c_index_pipeline.py` — unchanged (`GRAPH_CACHE_PREFIX` not
+  bumped; `EXTRACTOR_VERSION` is not value-pinned).
+- `test_jaccard_benchmark.py` / `jaccard_canonical.py` — dl seed block
+  added (SQL_FILES/SEED_TABLE/FLOORS/R19_3_CHAIN, canonical rows
+  P15/P16/P18/P22 + probe-pinned extras) — benchmark floors
+  bdm/sup/pl 1.0/1.0/1.0 unchanged, dl 1.0/1.0/1.0.
