@@ -691,13 +691,13 @@ def dead_end_flow_nodes(nodes, edges):
         flow_out[e["source"]] += 1
     write_targets = {e["target"] for e in edges
                      if (e.get("id") or "").endswith("_dml_out")}
-    # 2026-08-12 (repin round, point 15): D2 field-aware field closures
-    # (iiapty / lending_ref in SUP_M) have NO write leg -- the seed never
-    # reaches the write's columns, so the chain legitimately terminates at
-    # its consumption sites (the statement output VT, the NOT-IN read
-    # target bdm_evt_loan_trans@52). For those closures the dead-end check
-    # is vacuous; the legacy closures (bdm/sup/pl/dl, all with *_dml_out
-    # write legs) keep the check byte-identical.
+    # 2026-08-12 (repin round, point 15): the dead-end invariant is
+    # scoped at the caller to the R19.3 no-bypass chain seeds (bdm/sup/
+    # pl/dl); the R29 effect-scope closures have ruling-defined
+    # consumption terminators (the NOT-IN read target
+    # bdm_evt_loan_trans@52, the literal output VTs) that are not
+    # dead-end defects. The write-target vacuity stays as belt-and-
+    # braces for the chain seeds.
     if not write_targets:
         return []
     dead = []
@@ -712,6 +712,15 @@ def dead_end_flow_nodes(nodes, edges):
 
 
 def dead_end_flow_problems(seed, direction, nodes, edges):
+    # R29 (2026-08-12): the dead-end invariant pins the R19.3 no-bypass
+    # write-chain shape (the data_dt seeds with a pinned chain in
+    # R19_3_CHAIN). The R29 effect-scope closures (rrcdm/iiapty/
+    # lending_ref) terminate at their ruling-defined consumption sites
+    # too -- the NOT-IN read target bdm_evt_loan_trans@52, the literal
+    # output VTs -- legitimate terminators, so the guard is scoped to
+    # the chain seeds exactly like r19_3_chain_problems.
+    if seed not in R19_3_CHAIN:
+        return []
     problems = []
     dead = dead_end_flow_nodes(nodes, edges)
     if dead:

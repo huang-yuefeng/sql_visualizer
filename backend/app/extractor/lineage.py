@@ -637,6 +637,52 @@ def compute_field_flow(graph_data, target_table, target_field,
         if _part:
             _stmt_field_parts.setdefault(_stmt, set()).add(_part)
 
+    # ── R29 row-level continuation pre-scan (2026-08-12, user ruling):
+    # a statement that USES the searched field (its row-selection —
+    # WHERE/JOIN) carries the effect into EVERYTHING it writes (even
+    # literal columns — the usage selects the rows the statement
+    # emits); the chain continues while a later statement's row-
+    # selection uses a column written in the effect, and terminates at
+    # write targets nothing further uses.
+    #   _cont_cols[table] — the columns any statement's FILTER/JOIN
+    #     row-selects on that table (the effect's continuation
+    #     carriers: the sup data_dt filter @223 continues the
+    #     iiapty/lending_ref chains into the rrcdm write @211).
+    #   _cte_top[cte_var] — the owning TOP statement of each CTE
+    #     container (CTE-interior usages belong to the statement that
+    #     defines the CTE — the join keys at CTE{loan_final} select the
+    #     sup write's rows).
+    _cont_cols = {}
+    for _E in pm.edges:
+        if _E.edge_type not in ("FILTER", "JOIN"):
+            continue
+        for _ep in (_E.source_id, _E.target_id):
+            _eo = occ(_ep)
+            if _eo is None or _eo.get("variable_type") not in FIELD_LIKE:
+                continue
+            _part = _occ_field_part(_eo).lower()
+            if _part:
+                _cont_cols.setdefault(_occ_identity(_eo).lower(),
+                                      set()).add(_part)
+    _cte_top = {}
+    for _vid, _o in pm.occurrences.items():
+        if _o.get("variable_type") == "cte":
+            _ctx = (_o.get("context") or "").split("/", 1)[0]
+            if _ctx.startswith("TOP"):
+                _cte_top[_vid] = _ctx
+
+    def _stmt_of(_o):
+        """The owning TOP{stmt} of an occurrence — CTE-interior usages
+        belong to the statement that defines the CTE."""
+        _top = ((_o or {}).get("context") or "").split("/", 1)[0]
+        if _top.startswith("TOP"):
+            return _top
+        if _top.startswith("CTE{"):
+            _cvid = _cte_occurrence(pm, _top[4:_top.index("}")], occ)
+            if _cvid is not None:
+                return _cte_top.get(_cvid)
+        return None
+
     # ── W1: seeds — occurrences of the PhysicalFields named target_field
     # on the searched name's entities. target_keys = every entity named
     # target_table (physical tables key by name; per-scope containers by
@@ -742,6 +788,13 @@ def compute_field_flow(graph_data, target_table, target_field,
     # ── Joint fixpoint: expansion rounds and identity-admission rounds
     # alternate until neither grows (monotone — terminates; capped). ──
     visited = set(seeds)
+    # R29 continuation state: _effect_cols[table] = the write-leg
+    # columns of DML admits into the table (the row-level carriers a
+    # later row-selection reads through); _sel_stmts = statements owning
+    # an admitted row-selection of the searched field or an effect
+    # column — their write targets carry the effect (the carry rule).
+    _effect_cols = {}
+    _sel_stmts = set()
     changed = True
     rounds = 0
     while changed and rounds < 100:
@@ -835,6 +888,22 @@ def compute_field_flow(graph_data, target_table, target_field,
                     admit = bool(nb_st) and nb_st[0] == target_table
                 elif et in ("FILTER", "JOIN"):
                     admit = _seed_zone(nid) or _seed_zone(nb)
+                    if not admit:
+                        # R29 continuation: a row-selection whose
+                        # endpoint column was WRITTEN in the effect
+                        # admits (the usage selects the rows the
+                        # statement emits — the sup data_dt filter @223
+                        # continues the iiapty/lending_ref chains into
+                        # the rrcdm write @211).
+                        for _ep in (nid, nb):
+                            _eo = occ(_ep)
+                            if _eo is None:
+                                continue
+                            if (_occ_field_part(_eo).lower()
+                                    in _effect_cols.get(
+                                        _occ_identity(_eo).lower(), ())):
+                                admit = True
+                                break
                 elif et == "DML":
                     # Forward only (source -> target) — plus the searched
                     # field's VALUE columns: a DML edge INTO an admitted
@@ -886,6 +955,47 @@ def compute_field_flow(graph_data, target_table, target_field,
                         else:
                             admit = target_field.lower() in _dml_write_leg.get(
                                 nb, ())
+                            if not admit:
+                                # R29 carry rule: the target's own
+                                # statement admitted a row-selection of
+                                # the searched field or an effect column
+                                # (the sup write admits — the join keys
+                                # at CTE{loan_final} select its rows).
+                                admit = (_stmt_of(nb_o) in _sel_stmts)
+                    if admit and (op or "").upper() != "WRITE_READ":
+                        # R29: record the target's write leg (the
+                        # row-level carriers a later row-selection reads
+                        # through), and — on the forward admit — bring
+                        # in the target's continuation columns (fields
+                        # any statement row-selects on the table, via
+                        # _cont_cols). Their instances enter directly;
+                        # their incident edges (the @223 read's FILTER)
+                        # admit on the effect_cols rule. Columns nobody
+                        # row-selects (sup p_dt) stay out — the pinned
+                        # data_dt closures are unchanged.
+                        _tgt = nb if fwd else nid
+                        _tgt_leg = _dml_write_leg.get(_tgt, ())
+                        if _tgt_leg:
+                            _tgt_ident = _occ_identity(occ(_tgt)).lower()
+                            _effect_cols.setdefault(
+                                _tgt_ident, set()).update(_tgt_leg)
+                        if fwd:
+                            _tgt_ident2 = (_occ_identity(nb_o).lower()
+                                           if nb_o is not None else "")
+                            _cc = _cont_cols.get(_tgt_ident2, ())
+                            if _cc:
+                                for (_tk, _fname), _fld in pm.fields.items():
+                                    if _fname.lower() not in _cc:
+                                        continue
+                                    _tbl = pm.tables.get(_tk)
+                                    if (_tbl is None
+                                            or _tbl.name.lower() != _tgt_ident2):
+                                        continue
+                                    for _vid in _fld.occurrence_ids:
+                                        if _vid not in visited:
+                                            visited.add(_vid)
+                                            changed = True
+                                            _register(_vid)
                 elif et == "TABLE_FLOW":
                     # Q1, forward-only: (a) table-like source whose
                     # physical identity is in the chain; (b) VT whose
@@ -927,6 +1037,40 @@ def compute_field_flow(graph_data, target_table, target_field,
                     visited.add(nb)
                     changed = True
                     _register(nb)
+
+        # ── selection round (R29 continuation): the carrying statements.
+        # A row-selection (FILTER/JOIN) with an endpoint in the closure
+        # admits under the expansion's own rules (seed zone, or an
+        # endpoint column written in the effect), and the endpoints'
+        # owning statements are recorded — their write targets carry the
+        # effect. This is a closure-invariant scan, NOT an edge admit:
+        # the expansion's `nb in visited` guard skips edges whose other
+        # end is already in the closure (the targeted admission below
+        # pre-adds the continuation columns' instances), and the
+        # selection must still be recorded.
+        for _E in pm.edges:
+            if _E.edge_type not in ("FILTER", "JOIN"):
+                continue
+            if (_E.source_id not in visited
+                    and _E.target_id not in visited):
+                continue
+            _adm = (_seed_zone(_E.source_id) or _seed_zone(_E.target_id))
+            if not _adm:
+                for _ep in (_E.source_id, _E.target_id):
+                    _eo = occ(_ep)
+                    if _eo is None:
+                        continue
+                    if (_occ_field_part(_eo).lower()
+                            in _effect_cols.get(
+                                _occ_identity(_eo).lower(), ())):
+                        _adm = True
+                        break
+            if _adm:
+                for _ep in (_E.source_id, _E.target_id):
+                    _eo = occ(_ep)
+                    _st = _stmt_of(_eo)
+                    if _st:
+                        _sel_stmts.add(_st)
 
         # ── identity-admission round (owner-holders, physical tables,
         # CTE containers — existing rules, model-sourced) ──

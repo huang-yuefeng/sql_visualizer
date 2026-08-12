@@ -12,7 +12,7 @@
           "id": "l2e_9d4d96e7bc77",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 p6.lending_ref@L82 \u2192 \u2016loan_final@L64 \u2192 \u27d0 output@L160\u2016",
+          "reason": "chain (CTE chain) \u2014 p6.lending_ref@L82 \u2192 \u2016loan_final@L64 \u2192 \u27d0 output@L160\u2016 \u2192 bdm_acc_loan_info_sup@L160",
           "source": "l2_tbl_5f136cce0e",
           "target": "l2_tbl_7b217fb63a",
           "width": 3
@@ -29,10 +29,95 @@
           "id": "l2e_1baf84d82c1a",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 p6.lending_ref@L82 \u2192 \u2016p6@L155 \u2192 loan_final@L64\u2016",
+          "reason": "chain (CTE chain) \u2014 p6.lending_ref@L82 \u2192 \u2016p6@L155 \u2192 loan_final@L64\u2016 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160",
           "source": "l2_tbl_53c3cce867",
           "target": "l2_tbl_5f136cce0e",
           "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 199,
+          "id": "l2e_7ed3b136fbb0",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 p2.lending_ref@L201 \u2192 \u2016p2@L199 \u2192 \u27d0 output@L160\u2016 \u2192 bdm_acc_loan_info_sup@L160",
+          "source": "l2_tbl_acc506d6bd",
+          "target": "l2_tbl_7b217fb63a",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 223,
+          "id": "l2e_b4fc03d22434",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 p2.lending_ref@L201 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160 \u2192 \u2016bdm_acc_loan_info_sup@L223 \u2192 \u27d0 output@L211\u2016 \u2192 rrcdm_job_log_exec_par@L211",
+          "source": "l2_tbl_6a8344ffbc",
+          "target": "l2_tbl_236587aa4c",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "write",
+          "color": "#2980B9",
+          "desc": "INSERT/UPDATE/DELETE/MERGE",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "write",
+          "highlight_line": 211,
+          "id": "l2e_73632d4f7c7a_dml_out",
+          "label": "TABLE_FLOW",
+          "line_style": "double",
+          "reason": "write (write leg) \u2014 p2.lending_ref@L201 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L223 \u2192 \u2016\u27d0 output@L211 \u2192 rrcdm_job_log_exec_par@L211\u2016",
+          "source": "l2_tbl_236587aa4c",
+          "target": "l2_tbl_c21b060796",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "write",
+          "color": "#2980B9",
+          "desc": "INSERT/UPDATE/DELETE/MERGE",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "write",
+          "highlight_line": 160,
+          "id": "l2e_3b8e8e62b668_dml_out",
+          "label": "TABLE_FLOW",
+          "line_style": "double",
+          "reason": "write (write leg) \u2014 p2.lending_ref@L201 \u2192 \u2016\u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160\u2016",
+          "source": "l2_tbl_7b217fb63a",
+          "target": "l2_tbl_6a8344ffbc",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#1ABC9C",
+          "desc": "Original \u2192 alias",
+          "edge_type": "ALIAS",
+          "flow_kind": "chain",
+          "highlight_line": 160,
+          "id": "l2e_74105c572af2",
+          "label": "ALIAS",
+          "line_style": "dashed",
+          "reason": "chain (alias hop) \u2014 p2.lending_ref@L201 \u2192 \u27d0 output@L160 \u2192 \u2016bdm_acc_loan_info_sup@L160 \u2192 p2@L199\u2016 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160",
+          "source": "l2_tbl_6a8344ffbc",
+          "target": "l2_tbl_acc506d6bd",
+          "width": 1
         }
       },
       {
@@ -76,6 +161,57 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
+          "highlight_line": 203,
+          "id": "l2e_d018b44c416c",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016p2@L199 \u2192 p2.charge_department@L203\u2016",
+          "source": "l2_tbl_acc506d6bd",
+          "target": "fld_415b59d394",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 201,
+          "id": "l2e_fe74418a5d43",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016p2@L199 \u2192 p2.lending_ref@L201\u2016",
+          "source": "l2_tbl_acc506d6bd",
+          "target": "fld_a73e04721c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 202,
+          "id": "l2e_045564acbb4a",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016p2@L199 \u2192 p2.data_dt@L202\u2016",
+          "source": "l2_tbl_acc506d6bd",
+          "target": "fld_e2b38f37a7",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
           "highlight_line": 82,
           "id": "l2e_498d5bc23711",
           "label": "SCHEMA",
@@ -97,9 +233,60 @@
           "id": "l2e_2e0391b6c43e",
           "label": "REF",
           "line_style": "solid",
-          "reason": "read \u2014 \u2016p6.lending_ref@L82 \u2192 p6@L155\u2016",
+          "reason": "read \u2014 \u2016p6.lending_ref@L82 \u2192 p6@L155\u2016 \u2192 loan_final@L64 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160",
           "source": "fld_1687eb20f3",
           "target": "l2_tbl_53c3cce867",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 160,
+          "id": "l2e_674c282afd9f",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 p2.lending_ref@L201 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160 \u2192 \u2016data_dt@L160 \u2192 bdm_acc_loan_info_sup@L160\u2016 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160",
+          "source": "l2_tbl_6a8344ffbc",
+          "target": "l2_tbl_7b217fb63a",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 199,
+          "id": "l2e_18933a4d0122",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 p2.lending_ref@L201 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160 \u2192 \u2016p2.charge_department@L203 \u2192 p2@L199\u2016 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160",
+          "source": "l2_tbl_6a8344ffbc",
+          "target": "l2_tbl_acc506d6bd",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 199,
+          "id": "l2e_d6c8c9b77698",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016p2.lending_ref@L201 \u2192 p2@L199\u2016 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160",
+          "source": "fld_a73e04721c",
+          "target": "l2_tbl_acc506d6bd",
           "width": 1
         }
       },
@@ -114,14 +301,48 @@
           "id": "l2e_c1f940d2eb0f",
           "label": "JOIN",
           "line_style": "dashed",
-          "reason": "field flow (join step) \u2014 \u2016p6.lending_ref@L82 \u2192 loan_final@L64\u2016",
+          "reason": "field flow (join step) \u2014 \u2016p6.lending_ref@L82 \u2192 loan_final@L64\u2016 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160",
           "source": "fld_1687eb20f3",
           "target": "l2_tbl_5f136cce0e",
           "width": 2
         }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E91E63",
+          "desc": "JOIN key condition",
+          "edge_type": "JOIN",
+          "flow_kind": "field flow",
+          "highlight_line": 203,
+          "id": "l2e_41ebab507337",
+          "label": "JOIN",
+          "line_style": "dashed",
+          "reason": "field flow (join step) \u2014 p2.lending_ref@L201 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160 \u2192 \u2016p2.charge_department@L203 \u2192 \u27d0 output@L160\u2016 \u2192 bdm_acc_loan_info_sup@L160",
+          "source": "l2_tbl_6a8344ffbc",
+          "target": "l2_tbl_7b217fb63a",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E91E63",
+          "desc": "JOIN key condition",
+          "edge_type": "JOIN",
+          "flow_kind": "field flow",
+          "highlight_line": 201,
+          "id": "l2e_2c848e82bfc8",
+          "label": "JOIN",
+          "line_style": "dashed",
+          "reason": "field flow (join step) \u2014 \u2016p2.lending_ref@L201 \u2192 \u27d0 output@L160\u2016 \u2192 bdm_acc_loan_info_sup@L160",
+          "source": "fld_a73e04721c",
+          "target": "l2_tbl_7b217fb63a",
+          "width": 2
+        }
       }
     ],
-    "filtered_nodes": 5,
+    "filtered_nodes": 13,
     "nodes": [
       {
         "data": {
@@ -154,12 +375,70 @@
       {
         "data": {
           "context": "TOP0",
+          "defined_in": "INSERT",
+          "flow_target": true,
+          "id": "l2_tbl_6a8344ffbc",
+          "label": "bdm_acc_loan_info_sup",
+          "line_end": 210,
+          "line_start": 160,
+          "original_id": "e5c14f0671fd2233",
+          "table_name": "bdm_acc_loan_info_sup",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
           "defined_in": "TOP0",
           "id": "l2_tbl_7b217fb63a",
           "label": "output",
           "line_end": 210,
           "line_start": 160,
           "original_id": "4a4084293586b1d6",
+          "table_name": "\u27d0 output",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "JOIN",
+          "id": "l2_tbl_acc506d6bd",
+          "label": "p2@199",
+          "line_end": 210,
+          "line_start": 199,
+          "original_id": "fa3de6f4b1034617",
+          "table_name": "p2",
+          "type": "alias_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP1",
+          "defined_in": "INSERT",
+          "flow_target": true,
+          "id": "l2_tbl_c21b060796",
+          "label": "rrcdm_job_log_exec_par",
+          "line_end": 225,
+          "line_start": 211,
+          "original_id": "02c0d0599fa93e53",
+          "table_name": "rrcdm_job_log_exec_par",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP1",
+          "defined_in": "TOP1",
+          "id": "l2_tbl_236587aa4c",
+          "label": "output",
+          "line_end": 225,
+          "line_start": 211,
+          "original_id": "8073ded23edd597b",
           "table_name": "\u27d0 output",
           "type": "intermediate_table",
           "variable_type": "virtual_table"
@@ -189,13 +468,65 @@
           "type": "field",
           "variable_type": "field"
         }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_e2b38f37a7",
+          "is_target": false,
+          "label": "data_dt",
+          "orig_type": "column",
+          "original_id": "72a148e54e11caca",
+          "parent": "l2_tbl_6a8344ffbc",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_dd2ee26a89",
+          "is_target": false,
+          "label": "CHARGE_DEPARTMENT",
+          "orig_type": "column",
+          "original_id": "c79771ad023912cd",
+          "parent": "l2_tbl_6a8344ffbc",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_415b59d394",
+          "is_target": false,
+          "label": "charge_department",
+          "orig_type": "column",
+          "original_id": "6433051517d49800",
+          "parent": "l2_tbl_6a8344ffbc",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_a73e04721c",
+          "is_target": true,
+          "label": "lending_ref",
+          "orig_type": "column",
+          "original_id": "07402d11ea6b7b04",
+          "parent": "l2_tbl_6a8344ffbc",
+          "type": "field",
+          "variable_type": "field"
+        }
       }
     ],
     "script_name": "BDM_ACC_LOAN_INFO_SUP_M.sql",
     "search_matched": true,
     "target": "rollover_loan_info.lending_ref",
-    "total_edges": 7,
-    "total_nodes": 5
+    "total_edges": 20,
+    "total_nodes": 16
   },
   "full": {
     "edges": [

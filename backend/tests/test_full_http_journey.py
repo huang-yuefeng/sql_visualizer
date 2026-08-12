@@ -145,10 +145,19 @@ def test_full_http_journey(journey_ws):
     assert r.status_code == 200, r.text
     s = r.json()
     assert s["table"] == TARGET_TABLE and s["field"] == TARGET_FIELD, s
-    # Transitive closure pulls in all 5 scripts (step1..step5 are one
-    # table-flow component), so the fixed fixture is deterministic here.
-    assert s["match_mode"] == "expanded", s
-    assert s["script_ids"] == EXPECTED_SCRIPTS, s
+    # R29 (2026-08-12): the search returns the queried field's strict
+    # directional flow projection (match_mode "exact" — the R22
+    # no-matches/legacy marker, not a closure-size label). For
+    # stg_customers.customer_id downstream that is exactly the
+    # producing script (step2 writes the seed) + the consuming script
+    # (step3 reads it as a join key) — NOT the pre-R29 5-script
+    # transitive table-flow closure of the workspace (step1/4/5 never
+    # touch the field).
+    assert s["match_mode"] == "exact", s
+    assert s["script_ids"] == [
+        "multi_workflow/step2_enrich_customers.sql",
+        "multi_workflow/step3_join_orders_customers.sql",
+    ], s
     assert s["l1_graph"]["nodes"] and s["l1_graph"]["edges"], s
     view_id = s["view_id"]
     assert view_id, s
@@ -159,7 +168,10 @@ def test_full_http_journey(journey_ws):
     l1 = r.json()
     assert l1["view_id"] == view_id, l1
     assert l1["table"] == TARGET_TABLE and l1["field"] == TARGET_FIELD, l1
-    assert l1["script_ids"] == EXPECTED_SCRIPTS, l1
+    assert l1["script_ids"] == [
+        "multi_workflow/step2_enrich_customers.sql",
+        "multi_workflow/step3_join_orders_customers.sql",
+    ], l1
     nodes, edges = l1["l1_graph"]["nodes"], l1["l1_graph"]["edges"]
     assert nodes and edges, l1
     node_types = {n["data"]["type"] for n in nodes}
@@ -168,6 +180,19 @@ def test_full_http_journey(journey_ws):
                          "output_table"}, node_types
     for e in edges:
         assert e["data"]["edge_type"] in ("reads_from", "writes_to"), e
+    # R29: the L1 is the strict field-flow chain of the seed —
+    # crm_customers →(step2)→ stg_customers →(step3)→ analytics_orders
+    # (4 reads_from/writes_to hops, exactly the producing + consuming
+    # scripts; no step1/4/5).
+    assert {n["data"]["label"] for n in nodes
+            if n["data"]["type"] == "script_node"} == {
+        "multi_workflow/step2_enrich_customers.sql",
+        "multi_workflow/step3_join_orders_customers.sql",
+    }, nodes
+    assert {n["data"].get("table_name") for n in nodes
+            if n["data"]["type"] != "script_node"} == {
+        "crm_customers", "stg_customers", "analytics_orders"}, nodes
+    assert len(edges) == 4, len(edges)
 
     # ── Step 5: L2 graph for the JOIN script ───────────────────────────
     r = client.get(f"/api/workspace/{ws_id}/views/{view_id}/level2",
