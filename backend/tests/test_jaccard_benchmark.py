@@ -112,11 +112,35 @@ path property actually asserted, not any-type connectivity. (c) No
 dead-end flow nodes (≥1 flow in-edge, 0 flow out-edges; DML write
 targets exempt as terminal sinks) — the "no dead-end flow branches"
 half of R19.3 made an explicit enumeration.
+
+R29 DIRECTIONAL GROUND TRUTHS (2026-08-12, harness): the benchmark
+gains a direction axis — every case is (seed, script, direction). The
+existing 4 cases (bdm/sup/pl/dl) are pinned to direction="downstream"
+with byte-identical expectations (the future default of the backend's
+direction keyword — drift-free, jaccard_canonical.py point 14). The new
+cases compile their canonical closures from the R29 ground truth docs
+(tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO.md §6a.4,
+GROUND_TRUTH_RRCDM_JOB_LOG_EXEC_PAR.md §3.1-3.2,
+GROUND_TRUTH_ODS_HIE_IPACMSP.md §3.1-3.2,
+GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §3.1-3.2): UPSTREAM
+closures are the PRODUCTION-only writing chain (writers of writers back
+to the start — a new invariant bans FILTER/JOIN/INDIRECT edges from the
+upstream closure), DOWNSTREAM closures are the transitive effect scope
+to the end. The EMPTY projections (no writers / no readers) pin B = ∅ —
+the filtered response closure must be empty too, scored with an explicit
+0/0 guard (recall = precision = 1.0, never NaN) plus an empty-closure
+violation problem string. Backend-compat guard: until _build_l2_graph
+gains its direction keyword (backend team), the new cases COLLECT and
+SKIP via pytest.skip per item; the existing downstream cases run
+unchanged.
 """
 
+import inspect
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+import pytest
 
 # tests/ is not on sys.path in the pytest run (tests package layout) —
 # jaccard_canonical is a sibling data-only module, importable by path.
@@ -136,15 +160,58 @@ SQL_FILES = {
     "pl": "BDM_ACC_LOAN_INFO_PL.sql",
     "dl": "BDM_ACC_LOAN_INFO_Digitallending.sql",
 }
-TARGET_FIELD = "data_dt"
+# R29 (2026-08-12, harness): the case matrix is (seed, script,
+# direction). The first four cases ARE the existing seeds, wired to
+# their existing scripts and pinned to direction="downstream" (the
+# future backend keyword's default — byte-identical expectations,
+# drift-free). "pl" joined 2026-08-12 once BDM_ACC_LOAN_INFO_PL.sql
+# existed and parsed, "dl" joined 2026-08-12 once
+# BDM_ACC_LOAN_INFO_Digitallending.sql existed and parsed (see the
+# ground truth docs §8.5 for the probe-pinned served forms). The new
+# cases compile their canonical closures from the R29 ground truth
+# docs (jaccard_canonical.py point 14); they COLLECT and SKIP until the
+# backend gains its direction keyword.
+CASES = [(seed, SQL_FILES[seed], "downstream")
+         for seed in ("bdm", "sup", "pl", "dl")] + [
+    # R29 UPSTREAM — bdm seed's writers across all three scripts (doc
+    # §6a.4: PL writes data_dt@19, DL @99 — both literal-terminated
+    # write chains; SUP_M only READS bdm → upstream EMPTY).
+    ("bdm", "BDM_ACC_LOAN_INFO_PL.sql", "upstream"),
+    ("bdm", "BDM_ACC_LOAN_INFO_Digitallending.sql", "upstream"),
+    ("bdm", "BDM_ACC_LOAN_INFO_SUP_M.sql", "upstream"),
+    # R29 rrcdm seed — written by every script from a literal (doc
+    # §1/§3.1), read by NONE (§2.2/§3.2 → downstream EMPTY).
+    ("rrcdm", "BDM_ACC_LOAN_INFO_PL.sql", "upstream"),
+    ("rrcdm", "BDM_ACC_LOAN_INFO_SUP_M.sql", "upstream"),
+    ("rrcdm", "BDM_ACC_LOAN_INFO_PL.sql", "downstream"),
+    # R29 iiapty seed — ODS source, join-key usage in SUP_M only (doc
+    # §3.1 downstream effect chain to the rrcdm write; §3.2 upstream
+    # EMPTY — no writers anywhere).
+    ("iiapty", "BDM_ACC_LOAN_INFO_SUP_M.sql", "downstream"),
+    ("iiapty", "BDM_ACC_LOAN_INFO_SUP_M.sql", "upstream"),
+    # R29 lending_ref seed — the first REAL (non-literal) chain: DL
+    # writer (doc §3.1: acnw → lending_ref @99) and SUP_M reader (doc
+    # §3.2: effect chain through the sup write to the rrcdm write).
+    ("lending_ref", "BDM_ACC_LOAN_INFO_Digitallending.sql", "upstream"),
+    ("lending_ref", "BDM_ACC_LOAN_INFO_SUP_M.sql", "downstream"),
+]
+EXISTING_CASES = frozenset(CASES[:4])
+
+# R29 backend-compat guard (2026-08-12): the backend team adds
+# direction="downstream" to _build_l2_graph; until it lands, the new
+# direction cases must SKIP (pytest.skip per item) while the existing
+# downstream cases keep running byte-identical.
+_HAS_DIRECTION = "direction" in inspect.signature(_build_l2_graph).parameters
+
+TARGET_FIELDS = {
+    "bdm": "data_dt", "sup": "data_dt", "pl": "data_dt", "dl": "data_dt",
+    "rrcdm": "data_dt", "iiapty": "iiapty", "lending_ref": "lending_ref",
+}
 SEED_TABLE = {"bdm": "bdm_acc_loan_info", "sup": "bdm_acc_loan_info_sup",
-              "pl": "bdm_acc_loan_info", "dl": "bdm_acc_loan_info"}
-# SEEDS: "pl" joined 2026-08-12 once BDM_ACC_LOAN_INFO_PL.sql existed and
-# parsed (wait condition met — see tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO.md
-# §8.5 for the probe-pinned served forms); "dl" joined 2026-08-12 once
-# BDM_ACC_LOAN_INFO_Digitallending.sql existed and parsed (see
-# tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_Digitallending.md §8.5).
-SEEDS = ("bdm", "sup", "pl", "dl")
+              "pl": "bdm_acc_loan_info", "dl": "bdm_acc_loan_info",
+              "rrcdm": "rrcdm_job_log_exec_par",
+              "iiapty": "ods_hie_ipacmsp",
+              "lending_ref": "bdm_acc_loan_info"}
 FEATURES = ("nodes", "edges", "highlights")
 
 # ── Floors (recall/precision pairs, J12-12 2026-08-11): no direction may
@@ -214,17 +281,46 @@ FLOORS = {
         "edges": {"recall": 1.0000, "precision": 1.0000},
         "highlights": {"recall": 1.0000, "precision": 1.0000},
     },
+    # R29 seeds (2026-08-12, harness): rrcdm / iiapty / lending_ref —
+    # direction-keyed canonical closures from the ground truth docs
+    # (jaccard_canonical.py point 14). FLOORS pre-set to the full
+    # 1.0000/1.0000 (the same A=B standard as every seed); the cases
+    # COLLECT and SKIP until the backend gains its direction keyword —
+    # the floors become live assertions on the first direction-capable
+    # run (2026-08-12: pre-measurement).
+    "rrcdm": {
+        "nodes": {"recall": 1.0000, "precision": 1.0000},
+        "edges": {"recall": 1.0000, "precision": 1.0000},
+        "highlights": {"recall": 1.0000, "precision": 1.0000},
+    },
+    "iiapty": {
+        "nodes": {"recall": 1.0000, "precision": 1.0000},
+        "edges": {"recall": 1.0000, "precision": 1.0000},
+        "highlights": {"recall": 1.0000, "precision": 1.0000},
+    },
+    "lending_ref": {
+        "nodes": {"recall": 1.0000, "precision": 1.0000},
+        "edges": {"recall": 1.0000, "precision": 1.0000},
+        "highlights": {"recall": 1.0000, "precision": 1.0000},
+    },
 }
 
 
-def build_a(seed):
-    """Filtered L2 output for the seed's target field (served semantics)."""
-    script = SQL_FILES[seed]
+def build_a(seed, script, direction):
+    """Filtered L2 output for the seed's target field (served semantics).
+
+    R29 (2026-08-12): the direction keyword is threaded as
+    direction=<direction> into _build_l2_graph ONLY when the backend
+    supports it (_HAS_DIRECTION); without it the call is byte-identical
+    to the pre-R29 form (the existing downstream cases must pass
+    unchanged on the current backend)."""
     sql = open("/app/samples/sql_sample_v1/" + script,
                encoding="utf-8").read()
     result = extract_variables_from_sql(sql, script)
     build_dependency_graph(result, sql)
-    l2 = _build_l2_graph("bench", script, sql, SEED_TABLE[seed], TARGET_FIELD)
+    kwargs = {"direction": direction} if _HAS_DIRECTION else {}
+    l2 = _build_l2_graph("bench", script, sql, SEED_TABLE[seed],
+                         TARGET_FIELDS[seed], **kwargs)
     g = l2.get("graph") if isinstance(l2.get("graph"), dict) else l2
     nodes = {n["data"]["id"]: n["data"] for n in g["nodes"]}
     edges = [e["data"] for e in g["edges"]]
@@ -291,10 +387,16 @@ def find_entry_edge(entry, nodes, edges, inc, used):
     return None
 
 
-def match_seed(seed, nodes, edges):
+def match_seed(seed, script, direction, nodes, edges):
     """Per-row canonical match; returns {row_id: edge_id}. The response
     builds deterministically (sorted candidate order, used-set per edge),
-    so the test is stable across runs."""
+    so the test is stable across runs.
+
+    R29 (2026-08-12): the canonical rows are scoped by the case's
+    (script, direction) — legacy rows carry no keys and match ONLY the
+    existing downstream cases via the defaults (drift-free); the new
+    direction-keyed rows (jaccard_canonical.py point 14) match their own
+    (seed, script, direction) triples."""
     inc = defaultdict(set)
     for e in edges:
         inc[e["source"]].add(e["highlight_line"])
@@ -303,6 +405,10 @@ def match_seed(seed, nodes, edges):
     matched = {}
     for entry in JC.CANONICAL_EDGES:
         if entry["seed"] != seed:
+            continue
+        if entry.get("direction", "downstream") != direction:
+            continue
+        if entry.get("script", script) != script:
             continue
         hit = find_entry_edge(entry, nodes, edges, inc, used)
         if hit is not None:
@@ -384,7 +490,7 @@ def _reachable_flow(src, dst, edges):
     return False
 
 
-def r19_3_chain_problems(seed, nodes, edges, inc):
+def r19_3_chain_problems(seed, script, direction, nodes, edges, inc):
     """R19.3 no-bypass (J12-13, L2-level after the point-10 re-pin): the
     flow chain must route THROUGH the reader instance at L223. At L2 the
     reader instance is the R22-merged sup node — the write→read link of
@@ -400,12 +506,31 @@ def r19_3_chain_problems(seed, nodes, edges, inc):
     leg_ids[3] = stmt-2 write leg (the "pl" seed mirrors this chain as
     P15/P18/P22/P16). Returns problem strings; empty = chain OK."""
     problems = []
-    leg_ids = R19_3_CHAIN[seed]
+    # R29 (2026-08-12): the chain is asserted for the seeds that HAVE
+    # one (R19_3_CHAIN); the new seeds (rrcdm/iiapty/lending_ref) have
+    # no pinned chain — the guard returns []. Entry lookups are scoped
+    # by the case's (script, direction) exactly like match_seed.
+    leg_ids = R19_3_CHAIN.get(seed)
+    if leg_ids is None:
+        return problems
     legs = {}
     used = set()
+
+    def _chain_entry(row_id):
+        for e in JC.CANONICAL_EDGES:
+            if (e["seed"] == seed and e["row"] == row_id
+                    and e.get("direction", "downstream") == direction
+                    and e.get("script", script) == script):
+                return e
+        return None
+
     for row_id in leg_ids:
-        entry = next(e for e in JC.CANONICAL_EDGES
-                     if e["seed"] == seed and e["row"] == row_id)
+        entry = _chain_entry(row_id)
+        if entry is None:
+            problems.append(
+                f"R19.3 no-bypass: {seed} chain row {row_id} has no "
+                f"scoped canonical entry for {script}/{direction}")
+            continue
         hit = find_entry_edge(entry, nodes, edges, inc, used)
         if hit is None:
             problems.append(
@@ -418,12 +543,9 @@ def r19_3_chain_problems(seed, nodes, edges, inc):
         legs[row_id] = hit
         used.add(hit["id"])
     if len(legs) == len(leg_ids):
-        w_entry = next(e for e in JC.CANONICAL_EDGES
-                       if e["seed"] == seed and e["row"] == leg_ids[0])
-        rd_entry = next(e for e in JC.CANONICAL_EDGES
-                        if e["seed"] == seed and e["row"] == leg_ids[1])
-        w2_entry = next(e for e in JC.CANONICAL_EDGES
-                        if e["seed"] == seed and e["row"] == leg_ids[3])
+        w_entry = _chain_entry(leg_ids[0])
+        rd_entry = _chain_entry(leg_ids[1])
+        w2_entry = _chain_entry(leg_ids[3])
         w = legs[leg_ids[0]]   # write leg output1 -> target1
         rd = legs[leg_ids[1]]  # statement-2 read -> reader instance
         rl = legs[leg_ids[2]]  # read leg reader instance -> output2
@@ -488,14 +610,22 @@ def _output_vts_of_stmt(nodes, stmt):
             and _stmt_of_node(n) == stmt]
 
 
-def write_leg_endpoint_problems(seed, nodes, edges, inc):
+def write_leg_endpoint_problems(seed, script, direction, nodes, edges, inc):
     """J12-17 (a): every canonical write-leg row (carries "stmt") whose
     matched edge's ⟐output endpoint must BE the statement's own
     output VT (context TOPn / its line_start). Returns problem strings;
-    empty = every write leg attaches to its own statement's output."""
+    empty = every write leg attaches to its own statement's output.
+
+    R29 (2026-08-12): rows are scoped by the case's (script, direction)
+    like match_seed — legacy "stmt" rows keep matching the existing
+    downstream cases via the defaults."""
     problems = []
     for entry in JC.CANONICAL_EDGES:
         if entry["seed"] != seed or "stmt" not in entry:
+            continue
+        if entry.get("direction", "downstream") != direction:
+            continue
+        if entry.get("script", script) != script:
             continue
         stmt = entry["stmt"]
         hit = find_entry_edge(entry, nodes, edges, inc, set())
@@ -557,15 +687,39 @@ def dead_end_flow_nodes(nodes, edges):
     return dead
 
 
-def dead_end_flow_problems(seed, nodes, edges):
+def dead_end_flow_problems(seed, direction, nodes, edges):
     problems = []
     dead = dead_end_flow_nodes(nodes, edges)
     if dead:
         problems.append(
-            f"R19.3 J12-17(c): {seed} dead-end flow nodes (>=1 flow "
-            f"in-edge, 0 flow out-edges, not a DML write target): {dead} "
-            f"-- R19.3 'no dead-end flow branches' violated (J12-15 "
-            f"dead-end shape)")
+            f"R19.3 J12-17(c): {seed}/{direction} dead-end flow nodes "
+            f"(>=1 flow in-edge, 0 flow out-edges, not a DML write "
+            f"target): {dead} -- R19.3 'no dead-end flow branches' "
+            f"violated (J12-15 dead-end shape)")
+    return problems
+
+
+# R29 upstream invariant (2026-08-12): the upstream closure is the
+# PRODUCTION-only writing chain (writers of writers, back to the start —
+# doc §6a.4 / RRCDM §3.1 / LENDING_REF §3.1) — the reader-side
+# admissions (FILTER/JOIN/INDIRECT) must never appear in it. The
+# EMPTY-upstream seeds (SUP_M for bdm, every script for iiapty) assert
+# the empty closure via the 0/0-guarded scores + the empty-closure
+# problem string instead.
+UPSTREAM_BANNED_TYPES = {"FILTER", "JOIN", "INDIRECT"}
+
+
+def upstream_production_only_problems(seed, script, direction, edges):
+    problems = []
+    bad = [e for e in edges
+           if (e.get("edge_type") or "").split("/")[0] in UPSTREAM_BANNED_TYPES]
+    if bad:
+        first = [(e.get("id"), e.get("edge_type"), e.get("highlight_line"))
+                 for e in bad[:5]]
+        problems.append(
+            f"R29 upstream: {seed}/{Path(script).stem}/{direction} closure "
+            f"must be production-only (no reader-side admissions) but "
+            f"contains {len(bad)} FILTER/JOIN/INDIRECT edge(s): {first}")
     return problems
 
 
@@ -611,15 +765,27 @@ def dml_phantom_field_dups(nodes):
     return dups
 
 
-def compute_seed(seed):
-    nodes, edges = build_a(seed)
+def _canon_nodes(seed, script, direction):
+    """R29 (2026-08-12): the direction-keyed canonical closure wins when
+    present (jaccard_canonical.py CANONICAL_NODES_DIR — including the
+    explicit empty lists); the legacy per-seed CANONICAL_NODES stays the
+    source for the existing downstream cases (drift-free)."""
+    return JC.CANONICAL_NODES_DIR.get((seed, script, direction),
+                                      JC.CANONICAL_NODES.get(seed, []))
+
+
+def compute_case(seed, script, direction):
+    nodes, edges = build_a(seed, script, direction)
     inc = defaultdict(set)
     for e in edges:
         inc[e["source"]].add(e["highlight_line"])
         inc[e["target"]].add(e["highlight_line"])
-    matched = match_seed(seed, nodes, edges)
-    rows = [e for e in JC.CANONICAL_EDGES if e["seed"] == seed]
-    canon_nodes = JC.CANONICAL_NODES[seed]
+    matched = match_seed(seed, script, direction, nodes, edges)
+    rows = [e for e in JC.CANONICAL_EDGES
+            if e["seed"] == seed
+            and e.get("direction", "downstream") == direction
+            and e.get("script", script) == script]
+    canon_nodes = _canon_nodes(seed, script, direction)
     realized = [c for c in canon_nodes
                 if node_realized(c["label"], c["line"], nodes, inc)]
     hl_a = {e["highlight_line"] for e in edges if e["highlight_line"] >= 1}
@@ -635,7 +801,13 @@ def compute_seed(seed):
     # ni is the realized/matched/intersection count, so a direction may
     # exceed 1.0 (one response node realizes several same-label canonical
     # entries); the floor is "at least 1.0".
-    scores = {f: {"recall": ni / nb, "precision": ni / na}
+    # R29 empty-closure guard (2026-08-12): a direction whose ground
+    # truth projects EMPTY (B = ∅ — no writers / no readers) never
+    # produces a 0/0 NaN — recall = 1.0 (nothing lost) and precision =
+    # 1.0 iff A is empty too (a non-empty A scores 0.0 precision and the
+    # test adds the explicit empty-closure violation problem string).
+    scores = {f: {"recall": ni / nb if nb else 1.0,
+                  "precision": ni / na if na else 1.0}
               for f, (na, nb, ni) in counts.items()}
     return {
         "nodes": nodes,
@@ -646,83 +818,105 @@ def compute_seed(seed):
         "field_dups": dml_phantom_field_dups(nodes),
         "counts": counts,
         "scores": scores,
+        "empty": not rows and not canon_nodes,
     }
 
 
-def test_jaccard_benchmark(capsys):
-    results = {}
+@pytest.mark.parametrize(
+    "seed,script,direction", CASES,
+    ids=[f"{s}-{Path(scr).stem}-{d}" for s, scr, d in CASES])
+def test_jaccard_benchmark(capsys, seed, script, direction):
+    # R29 backend-compat guard (2026-08-12): the new direction cases
+    # collect and SKIP until _build_l2_graph gains its direction
+    # keyword (backend team); the existing downstream cases keep
+    # running byte-identical on the current backend.
+    if not _HAS_DIRECTION and (seed, script, direction) not in EXISTING_CASES:
+        pytest.skip(f"backend direction support pending (R29) — case "
+                    f"{seed}/{Path(script).stem}/{direction}")
+    r = compute_case(seed, script, direction)
+    inc = defaultdict(set)
+    for e in r["edges"]:
+        inc[e["source"]].add(e["highlight_line"])
+        inc[e["target"]].add(e["highlight_line"])
     problems = []
-    for seed in SEEDS:
-        r = compute_seed(seed)
-        results[seed] = r
-        inc = defaultdict(set)
-        for e in r["edges"]:
-            inc[e["source"]].add(e["highlight_line"])
-            inc[e["target"]].add(e["highlight_line"])
-        seed_problems = []
-        if r["unrealized"]:
-            seed_problems.append(f"{seed}: {len(r['unrealized'])} canonical nodes "
-                                 f"NOT realized: {r['unrealized']}")
-        if r["field_dups"]:
-            seed_problems.append(f"{seed}: DML phantom/proxy field invariant "
-                                 f"violated (R11-2 defect class / J12-10 stage-3 "
-                                 f"proxy ban): {r['field_dups']}")
-        bad = [e for e in r["edges"] if int(e.get("highlight_line") or 0) < 1]
-        if bad:
-            seed_problems.append(
-                f"{seed}: {len(bad)} edges with highlight_line < 1 "
-                f"(first: {[(e.get('id'), e.get('highlight_line')) for e in bad[:5]]})")
-        seed_problems.extend(r19_3_chain_problems(seed, r["nodes"], r["edges"], inc))
-        seed_problems.extend(
-            write_leg_endpoint_problems(seed, r["nodes"], r["edges"], inc))
-        seed_problems.extend(dead_end_flow_problems(seed, r["nodes"], r["edges"]))
-        r["chain_problems"] = [p for p in seed_problems if p.startswith("R19.3")]
-        problems.extend(seed_problems)
+    if r["unrealized"]:
+        problems.append(f"{seed}/{Path(script).stem}/{direction}: "
+                        f"{len(r['unrealized'])} canonical nodes NOT "
+                        f"realized: {r['unrealized']}")
+    if r["field_dups"]:
+        problems.append(f"{seed}/{Path(script).stem}/{direction}: DML "
+                        f"phantom/proxy field invariant violated (R11-2 "
+                        f"defect class / J12-10 stage-3 proxy ban): "
+                        f"{r['field_dups']}")
+    bad = [e for e in r["edges"] if int(e.get("highlight_line") or 0) < 1]
+    if bad:
+        problems.append(
+            f"{seed}/{Path(script).stem}/{direction}: {len(bad)} edges "
+            f"with highlight_line < 1 (first: "
+            f"{[(e.get('id'), e.get('highlight_line')) for e in bad[:5]]})")
+    if r["empty"] and (r["nodes"] or r["edges"]):
+        problems.append(
+            f"R29 EMPTY-closure violation: {seed}/{Path(script).stem}/"
+            f"{direction} — the ground truth projects EMPTY but the "
+            f"filtered response has {len(r['nodes'])} node(s) / "
+            f"{len(r['edges'])} edge(s)")
+    if direction == "downstream":
+        # Existing invariants (R19.3 / J12-17) run on the downstream
+        # closure — the shape they were written for.
+        problems.extend(r19_3_chain_problems(seed, script, direction,
+                                             r["nodes"], r["edges"], inc))
+        problems.extend(write_leg_endpoint_problems(
+            seed, script, direction, r["nodes"], r["edges"], inc))
+        problems.extend(dead_end_flow_problems(seed, direction,
+                                               r["nodes"], r["edges"]))
+    else:
+        # R29 upstream invariant: the writing chain is production-only.
+        problems.extend(upstream_production_only_problems(
+            seed, script, direction, r["edges"]))
     with capsys.disabled():
-        print("\n════════════ RECALL/PRECISION BENCHMARK — THE benchmark (target: data_dt) ════════════")
-        print(f"{'seed':5}{'feature':11}{'|A|':>6}{'|B|':>6}{'A∩B':>6}{'Recall':>9}{'Precision':>11}   floor R/P")
-        for seed in SEEDS:
-            r = results[seed]
-            for feat in FEATURES:
-                a, b, i = r["counts"][feat]
-                s = r["scores"][feat]
-                floor = FLOORS[seed][feat]
-                flag = ("   ← REGRESSION" if (round(s["recall"], 4) < floor["recall"]
-                                              or round(s["precision"], 4) < floor["precision"])
-                        else "")
-                print(f"{seed:5}{feat:11}{a:6}{b:6}{i:6}"
-                      f"{s['recall']:9.4f}{s['precision']:11.4f}"
-                      f"   {floor['recall']:.4f}/{floor['precision']:.4f}{flag}")
-        for seed in SEEDS:
-            r = results[seed]
-            if r["field_dups"]:
-                print(f"\n{seed} — R11-2/field proxy invariant VIOLATED "
-                      f"(DML phantom pairs / seed_ sync_ dml_ proxy ids): "
-                      f"{r['field_dups']}")
-            if r["unrealized"]:
-                print(f"\n{seed} — canonical nodes NOT realized "
-                      f"(J12-13 requirement nodes until Issues 2/3 land): {r['unrealized']}")
-            for p in r["chain_problems"]:
-                print(f"\n{p}")
-            if r["unmatched"]:
-                print(f"\n{seed} — improvement backlog: {len(r['unmatched'])} canonical edges unmatched: "
-                      f"{[x['row'] for x in r['unmatched']]}")
-                for x in r["unmatched"]:
-                    print(f"    row={x['row']} anchor={x['anchor']} rel={x['type']}  "
-                          f"{x['src']} -> {x['dst']}")
-        summary = "  |  ".join(
-            f"{seed} " + " ".join(f"{feat[:1].upper()}={results[seed]['scores'][feat]['recall']:.4f}/"
-                                  f"{results[seed]['scores'][feat]['precision']:.4f}"
-                                  for feat in FEATURES)
-            for seed in SEEDS)
-        print(f"\nRECALL/PRECISION: {summary}")
-        print("════════════════════════════════════════════════════════════════════════════")
-    for seed in SEEDS:
+        print(f"\n════════ RECALL/PRECISION BENCHMARK — {seed} / "
+              f"{Path(script).stem} / {direction} "
+              f"(target: {TARGET_FIELDS[seed]}) ════════")
+        print(f"{'feature':11}{'|A|':>6}{'|B|':>6}{'A∩B':>6}{'Recall':>9}"
+              f"{'Precision':>11}   floor R/P")
         for feat in FEATURES:
-            for direction in ("recall", "precision"):
-                val = results[seed]["scores"][feat][direction]
-                floor = FLOORS[seed][feat][direction]
-                assert round(val, 4) >= floor, (
-                    f"REGRESSION {seed}/{feat}/{direction}: {val:.4f} "
-                    f"< floor {floor:.4f}")
-    assert not problems, "benchmark invariants violated:\n" + "\n".join(problems)
+            a, b, i = r["counts"][feat]
+            s = r["scores"][feat]
+            floor = FLOORS[seed][feat]
+            flag = ("   ← REGRESSION" if (round(s["recall"], 4) < floor["recall"]
+                                          or round(s["precision"], 4) < floor["precision"])
+                    else "")
+            print(f"{feat:11}{a:6}{b:6}{i:6}"
+                  f"{s['recall']:9.4f}{s['precision']:11.4f}"
+                  f"   {floor['recall']:.4f}/{floor['precision']:.4f}{flag}")
+        if r["empty"]:
+            print("  (ground truth projects EMPTY — the closure must be "
+                  "empty too; 0/0-guarded scores)")
+        if r["field_dups"]:
+            print(f"\nR11-2/field proxy invariant VIOLATED "
+                  f"(DML phantom pairs / seed_ sync_ dml_ proxy ids): "
+                  f"{r['field_dups']}")
+        if r["unrealized"]:
+            print(f"\ncanonical nodes NOT realized: {r['unrealized']}")
+        for p in problems:
+            print(f"\n{p}")
+        if r["unmatched"]:
+            print(f"\nimprovement backlog: {len(r['unmatched'])} canonical "
+                  f"edges unmatched: {[x['row'] for x in r['unmatched']]}")
+            for x in r["unmatched"]:
+                print(f"    row={x['row']} anchor={x['anchor']} rel={x['type']}  "
+                      f"{x['src']} -> {x['dst']}")
+        summary = " ".join(
+            f"{feat[:1].upper()}={r['scores'][feat]['recall']:.4f}/"
+            f"{r['scores'][feat]['precision']:.4f}" for feat in FEATURES)
+        print(f"RECALL/PRECISION: {summary}")
+        print("═════════════════════════════════════════════════════════════")
+    for feat in FEATURES:
+        for score_dir in ("recall", "precision"):
+            val = r["scores"][feat][score_dir]
+            floor = FLOORS[seed][feat][score_dir]
+            assert round(val, 4) >= floor, (
+                f"REGRESSION {seed}/{Path(script).stem}/{direction}/"
+                f"{feat}/{score_dir}: {val:.4f} < floor {floor:.4f}")
+    assert not problems, ("benchmark invariants violated:\n"
+                          + "\n".join(problems))
