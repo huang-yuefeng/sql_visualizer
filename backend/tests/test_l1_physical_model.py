@@ -348,28 +348,30 @@ def test_r29_lending_ref_upstream_matches_doc(loan_info_3ws):
 
 
 def test_r29_lending_ref_downstream_matches_doc(loan_info_3ws):
-    """§2.2 downstream L1 — evidence-repaired (2026-08-12).
+    """§2.2 downstream L1 — row-level continuation (user ruling
+    2026-08-12: a statement that USES the queried field carries the
+    flow into ALL its write targets; a later statement reading those
+    rows continues the chain).
 
-    The doc pins {SUP_M} + [bdm_acc_loan_info, bdm_acc_loan_info_sup,
-    rrcdm_job_log_exec_par] (effect via the sup write @160 → sup
-    data_dt read @223 → rrcdm write @211). The engine's projection —
-    seed-zone FILTER/JOIN admission of the join-key partners (rollover/
-    loan_final + bdm_evt_loan_trans) — is LEGACY BYTE-IDENTICAL HEAD
-    behavior (walker team's /tmp/diag_byteidentity.py: all 8
-    downstream closures identical to pristine pre-R29 HEAD; the
-    direction trials only went SKIP → live). The doc's OWN §1 usage
-    list pins those instances, so its "inputs excluded" clause
-    contradicts the pinned behavior — the DOC needs the §2.2 repair per
-    the user's ground-truth-repair rule; the test matches the verified
-    engine truth: {DL, PL, SUP_M} + [bdm_acc_loan_info,
-    bdm_evt_loan_trans]."""
+    The sup-write statement uses lending_ref as a join key (its
+    SELECT), so the effect flows into ALL its write targets —
+    bdm_acc_loan_info_sup (@160); the rrcdm statement then filters
+    sup.data_dt (@225 — a column the sup write produced) — row-level
+    continuation — and writes rrcdm_job_log_exec_par (@211). The
+    closure: seed join-key usages → sup write → rrcdm log. Scripts:
+    all 3 (DL/PL carry the seed's own write instance); tables:
+    {bdm_acc_loan_info, bdm_acc_loan_info_sup, bdm_evt_loan_trans,
+    rrcdm_job_log_exec_par} — bdm_evt_loan_trans is the NOT-IN read
+    target @52, admitted by the seed-zone FILTER rule."""
     l1, scripts, tables = _r29_projection(
         loan_info_3ws, "bdm_acc_loan_info", "lending_ref", "downstream")
     assert l1["flow_empty"] is False
     assert scripts == ["BDM_ACC_LOAN_INFO_Digitallending.sql",
                        "BDM_ACC_LOAN_INFO_PL.sql",
                        "BDM_ACC_LOAN_INFO_SUP_M.sql"], scripts
-    assert tables == ["bdm_acc_loan_info", "bdm_evt_loan_trans"], tables
+    assert tables == ["bdm_acc_loan_info", "bdm_acc_loan_info_sup",
+                      "bdm_evt_loan_trans", "rrcdm_job_log_exec_par"], \
+        tables
 
 
 # GROUND_TRUTH_ODS_HIE_IPACMSP.md §2.1/2.2 (iiapty seed)
@@ -385,26 +387,27 @@ def test_r29_iiapty_upstream_empty_matches_doc(loan_info_3ws):
 
 
 def test_r29_iiapty_downstream_matches_doc(loan_info_3ws):
-    """§2.2 downstream L1 — evidence-repaired (2026-08-12).
+    """§2.2 downstream L1 — row-level continuation (user ruling
+    2026-08-12: a statement that USES the queried field carries the
+    flow into ALL its write targets; a later statement reading those
+    rows continues the chain).
 
-    The doc pins {SUP_M} + [ods_hie_ipacmsp, bdm_acc_loan_info_sup,
-    rrcdm_job_log_exec_par] (effect chain via the join key @151-152 →
-    sup write @160 → sup data_dt read @223 → rrcdm write @211). That
-    chain JUMPS FIELDS: iiapty is NOT among sup@160's written columns
-    (probe: internal_key, contract_no, acct_no, product_code,
-    interest_type, branch_code_sk, desc_length20, limit_contract_no,
-    abnormal_issue_flag, tag_*, sys_src_code, data_dt,
-    CHARGE_DEPARTMENT, rec_creat_dt_tm, reserved_field1-20), and the
-    committed D2 field-aware DML ruling (the converged gate, 2026-08-12)
-    forbids the cross-field leap — the closure stops at the statement
-    output. The engine truth is {SUP_M} + [ods_hie_ipacmsp] (the
-    seed's owning table only); the DOC needs the §2.2 repair per the
-    user's ground-truth-repair rule."""
+    The seed is a JOIN KEY of the sup-write statement (@151), so the
+    using statement carries the effect into ALL its write targets —
+    bdm_acc_loan_info_sup (@160) — even though iiapty itself is NOT
+    among the written columns (the ROW the effect rides on is selected
+    by the join key, so the carried rows are the write's rows). The
+    rrcdm statement filters sup.data_dt (@225 — a column the sup write
+    produced) — row-level continuation — and writes
+    rrcdm_job_log_exec_par (@211). Scripts: SUP_M only (the seed lives
+    only there); tables: {ods_hie_ipacmsp, bdm_acc_loan_info_sup,
+    rrcdm_job_log_exec_par}."""
     l1, scripts, tables = _r29_projection(
         loan_info_3ws, "ods_hie_ipacmsp", "iiapty", "downstream")
     assert l1["flow_empty"] is False
     assert scripts == ["BDM_ACC_LOAN_INFO_SUP_M.sql"], scripts
-    assert tables == ["ods_hie_ipacmsp"], tables
+    assert tables == ["bdm_acc_loan_info_sup", "ods_hie_ipacmsp",
+                      "rrcdm_job_log_exec_par"], tables
 
 
 # GROUND_TRUTH_RRCDM_JOB_LOG_EXEC_PAR.md §2.1/2.2 (rrcdm data_dt seed)
