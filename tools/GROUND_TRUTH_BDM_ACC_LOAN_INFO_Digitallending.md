@@ -477,6 +477,10 @@ Fields reading `bdm_acc_loan_info.data_dt` (verified by grep 2026-08-12):
 
 Seed `ODS_CUPD_CLD_ACCTMASTER_NEW.BNQXYE` (BDM_ACC_LOAN_INFO_Digitallending.sql): `BDM_ACC_LOAN_INFO_SUP_M.sql` contains **0** occurrences of BNQXYE, **0** of ODS_CUPD_CLD_ACCTMASTER_NEW, **0** of INT_OD_AMT (the BNQXYE-derived column) — it only reads `bdm_acc_loan_info` (the searched field's output TABLE). Under R29, SUP_M is excluded from L1 in BOTH directions. The old table-level L1 (production BFS + multi-hop expansion over the queried table's neighborhood) showed it — that behavior is superseded.
 
+### 6a.4 Upstream L2 — the writing flow inside the script (data_dt seed)
+
+The upstream scope is the **transitive writing chain** (user ruling 2026-08-12): writers of writers, back to the start. Inside BDM_ACC_LOAN_INFO_Digitallending, the seed's only writer is the partition write @99 (`PARTITION (data_dt = '$(load_date)', CHARGE_DEPARTMENT=...)`) — the written value is a LITERAL, so the chain terminates at the write: no producing fields, nothing further back. Expected upstream L2 payload: the `bdm_acc_loan_info` node + the `data_dt` write field @99 + the write statement's DML chain (literal → statement output → write); the statement's SELECT sources and its other output columns are different fields — not part of this flow. (This script's READ of the seed @560 is the DOWNSTREAM flow — not rendered in upstream mode.)
+
 # PART II — CANONICAL GROUND TRUTH v2 (benchmark spec, Digitallending round 2026-08-12)
 
 This part is the machine-comparable target. The benchmark

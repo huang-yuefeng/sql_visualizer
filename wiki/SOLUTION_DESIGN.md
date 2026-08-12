@@ -1418,6 +1418,11 @@ User rulings (2026-08-11), requirements R26/R27/R28 in REQUIREMENTS.md. All thre
   queried field (user ruling 2026-08-12): reads, WHERE clauses, any usage; a
   statement that uses the queried field carries the flow into everything it writes,
   even when the written column value is a literal (the usage selects the rows).
+- The upstream flow is the **transitive writing chain** (user ruling 2026-08-12):
+  the writing fields of *writing fields*, back-traced along the flow to the start —
+  not just the direct writer. The chain terminates at source tables not written in
+  the workspace, or at literals. Input tables of a writing statement that are not on
+  the chain stay out (field-level, not statement-level).
 - Tables reading/writing the **queried table** — without the queried field's flow —
   are **no longer included**.
 - The direction switch is a **query setting in the query panel** (upstream = writing
@@ -1457,16 +1462,32 @@ carries a field of the queried field's flow.
   panel control; L2 follows the view's direction automatically.
 - **Unchanged**: table-only searches (full table-level graph), L2's strict walker
   semantics, R22.3 not-in-flow response (manual verification of absent fields), the
-  Jaccard gate — L1 is not gated; L2 must stay byte-identical at the default
-  direction (direction is orthogonal to the closure seed).
+  Jaccard gate — L1 is not gated; L2 must stay byte-identical at the **downstream**
+  direction (the current gate's semantics: its flow targets are consumers, e.g. the
+  bdm seed reaches sup@160 and rrcdm@211 — the gate harness pins
+  `direction=downstream`; the upstream L2 is new behavior, verified against the new
+  upstream ground truth, see §4).
 
 ## 4. Verification targets
 
 - Upstream (default) search of `T.F`: L1 = scripts + tables on F's writing flow; a
   script reading T without F's flow is absent (SUP_M × BNQXYE case).
-- Downstream search: L1 = F's reading flow.
+- Downstream search: L1 = F's reading flow (effect scope).
 - L2 opened from L1 renders the same direction (zoom-in); no L1 control.
 - L2 flow reason anchors by direction: downstream → seed = source; upstream → seed =
   target (sources = the writing fields).
 - Table-only search: unchanged full table-level graph.
-- Jaccard gate + full backend suite green (L2 byte-identity at default direction).
+- **Two-directional verification (user ruling 2026-08-12):** downstream and upstream
+  are verified SEPARATELY, each against its own ground truth:
+  - **Downstream** = the existing Jaccard gate (its ground truth is the downstream
+    flow — flow targets are consumers); the gate harness pins `direction=downstream`;
+    L2 payload byte-identity + full backend suite green (L1 is not gated).
+  - **Upstream** = new ground truth built 2026-08-12 (before coding), four seeds in
+    `tools/GROUND_TRUTH_*.md`: `bdm_acc_loan_info.data_dt` (both; upstream
+    literal-terminated), `rrcdm_job_log_exec_par.data_dt` (upstream-only, empty
+    downstream), `ods_hie_ipacmsp.iiapty` (downstream-only, empty upstream),
+    `bdm_acc_loan_info.lending_ref` (both; real producing chain acnw → lending_ref).
+    Each seed pins the L1 projections (incl. the EMPTY directions — L1 must render a
+    clear "no flow in this direction" state, not an error) and the per-script L2
+    directional flows (e.g. data_dt upstream L2: literal-terminated write chains;
+    SUP_M upstream L2: empty).
