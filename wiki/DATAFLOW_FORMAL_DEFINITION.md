@@ -272,7 +272,7 @@ Result:
 
 ## Field-Level Data Flow
 
-When a user queries a specific field (`table=T, field=Y`), the L1 and L2 graphs show the **data flow of field Y** — the fields writing Y (upstream) and the fields reading Y (downstream). Both levels share the same field-level semantic (the strict table.field flow walker); they differ only in scale:
+When a user queries a specific field (`table=T, field=Y`), the L1 and L2 graphs show the **data flow of field Y** — the fields writing Y (upstream) and the fields using Y (downstream — the effect scope, see below). Both levels share the same field-level semantic (the strict table.field flow walker); they differ only in scale:
 
 - **L1** — cross-script projection: scripts + the tables between them that carry the flow. No fields, no intra-script structure.
 - **L2** — per-script zoom-in: tables + fields + edges inside the clicked script.
@@ -280,7 +280,7 @@ When a user queries a specific field (`table=T, field=Y`), the L1 and L2 graphs 
 **Flow direction (requirement change 2026-08-12, R29):** the direction is a **query setting in the query panel**, not an L1 panel control:
 
 - **Upstream (writing data flow, default)** — the fields that WRITE the queried field Y: the transitive production chain feeding Y ("where does Y come from"). Walked backward from Y.
-- **Downstream (reading data flow)** — the fields that READ Y: the transitive consumption chain from Y ("where does Y go"). Walked forward from Y.
+- **Downstream (reading data flow)** — the fields that USE Y (user ruling 2026-08-12: the downstream flow is the **effect scope** of Y): reads, WHERE clauses, filters, any usage — "where does Y's usage reach". A statement that uses Y carries the flow into everything it writes, even when the written column value is a literal (the usage selects the rows). Walked forward from Y.
 
 L1 renders the flow in the query direction; L2 follows automatically (zoom-in). Tables that only read or write the queried TABLE — without carrying any field of Y's directional flow — are excluded from L1 (no table-level inclusion).
 

@@ -1414,7 +1414,10 @@ User rulings (2026-08-11), requirements R26/R27/R28 in REQUIREMENTS.md. All thre
   differs: L1 = scripts + the tables between scripts (no fields); L2 = tables + fields
   inside the script (L2 is the zoom-in of L1).
 - Data flow = the fields **writing** the queried field (upstream) and the fields
-  **reading** it (downstream).
+  **using** it (downstream) — the downstream flow is the **effect scope** of the
+  queried field (user ruling 2026-08-12): reads, WHERE clauses, any usage; a
+  statement that uses the queried field carries the flow into everything it writes,
+  even when the written column value is a literal (the usage selects the rows).
 - Tables reading/writing the **queried table** — without the queried field's flow —
   are **no longer included**.
 - The direction switch is a **query setting in the query panel** (upstream = writing
