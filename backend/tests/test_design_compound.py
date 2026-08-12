@@ -24,7 +24,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from app.services.dataflow_service import _build_l1_graph, _build_l2_graph
 
 class TestCompoundNodesDesign:
-    """TC-C1..C5: Compound node structure per design §5.1"""
+    """TC-C1..C5: Compound node structure per design §5.1.
+
+    NOTE (R29, 2026-08-12): L1 field queries are the searched field's
+    directional flow — the d2 seed here is `staging_orders.amount` (a
+    real d2 table.field with a cross-script flow). The old "orders"/
+    "amount" seed referenced a table that does not exist in d2: the
+    superseded table-level fallback showed the whole pipeline regardless
+    of the seed, while the R29 directional projection correctly yields
+    the empty no-flow state for it."""
 
     def test_l1_has_table_nodes_and_script_nodes(self, d2_zip):
         """L1 graph must contain both table nodes and script nodes (pipeline)."""
@@ -34,7 +42,7 @@ class TestCompoundNodesDesign:
         tree = scan_folder(ws_id)
         scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
         index_scripts(ws_id, scripts)
-        result = _build_l1_graph(ws_id, scripts, "orders", "amount")
+        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
         nodes = result.get("nodes", [])
         types = {n["data"]["type"] for n in nodes}
         assert "script_node" in types, "L1 must have script nodes"
@@ -50,7 +58,7 @@ class TestCompoundNodesDesign:
         tree = scan_folder(ws_id)
         scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
         index_scripts(ws_id, scripts)
-        result = _build_l1_graph(ws_id, scripts, "orders", "amount")
+        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
         nodes = result.get("nodes", [])
         script_nodes = [n for n in nodes if n["data"]["type"] == "script_node"]
         for sn in script_nodes:
@@ -65,7 +73,7 @@ class TestCompoundNodesDesign:
         tree = scan_folder(ws_id)
         scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
         index_scripts(ws_id, scripts)
-        result = _build_l1_graph(ws_id, scripts, "orders", "amount")
+        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
         edges = result.get("edges", [])
         edges_with_roles = [e for e in edges
                            if e["data"].get("roles") or e["data"].get("role")]
@@ -80,7 +88,7 @@ class TestCompoundNodesDesign:
         tree = scan_folder(ws_id)
         scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
         index_scripts(ws_id, scripts)
-        result = _build_l1_graph(ws_id, scripts, "orders", "amount")
+        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
         nodes = result.get("nodes", [])
         table_nodes = [n for n in nodes
                        if n["data"]["type"] in ("source_table", "intermediate_table", "output_table")]
@@ -95,9 +103,9 @@ class TestCompoundNodesDesign:
         tree = scan_folder(ws_id)
         scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
         index_scripts(ws_id, scripts)
-        result = _build_l1_graph(ws_id, scripts, "orders", "amount")
+        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
         assert "target" in result
-        assert "orders.amount" in result["target"]
+        assert "staging_orders.amount" in result["target"]
         delete_workspace(ws_id)
 
     def test_l1_graph_is_not_empty_for_multiple_scripts(self, d2_zip):
@@ -108,7 +116,7 @@ class TestCompoundNodesDesign:
         tree = scan_folder(ws_id)
         scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
         index_scripts(ws_id, scripts)
-        result = _build_l1_graph(ws_id, scripts, "orders", "amount")
+        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
         assert len(result["nodes"]) > 0, "L1 graph must have nodes"
         delete_workspace(ws_id)
 

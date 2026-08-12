@@ -156,17 +156,24 @@ class TestRelevanceFilter:
 
 
 def test_l1_no_direct_script_to_script_edges(workspace_client, d2_zip):
-    """L1 invariant: scripts connect through table variables, never directly."""
+    """L1 invariant: scripts connect through table variables, never directly.
+
+    NOTE (R29, 2026-08-12): the seed is `staging_orders.amount` — a real
+    d2 table.field with a cross-script flow. The old "crm_customers"/
+    "customer_id" seed referenced a table that does not exist in d2: the
+    superseded table-level fallback showed the whole pipeline regardless
+    of the seed, while the R29 directional projection correctly yields
+    the empty no-flow state for it."""
     from app.services.dataflow_service import _build_l1_graph
 
     ws_id = workspace_client.create(d2_zip)
     workspace_client.index(ws_id)
-    
+
     scripts = ["step1_load_orders.sql", "step2_enrich_customers.sql",
                "step3_join_orders_customers.sql", "step4_aggregate_daily.sql",
                "step5_final_report.sql"]
-    
-    result = _build_l1_graph(ws_id, scripts, "crm_customers", "customer_id")
+
+    result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
     nodes = result.get("nodes", [])
     edges = result.get("edges", [])
     
@@ -206,8 +213,10 @@ class TestL2NotInFlow:
         when the searched field's text is absent from the script."""
         real_build = dfs._build_l2_graph
 
-        def wrapped(ws_id_, script_name, sql_text, table, field, relevance_filter=True):
-            res = real_build(ws_id_, script_name, sql_text, table, field, relevance_filter)
+        def wrapped(ws_id_, script_name, sql_text, table, field,
+                    relevance_filter=True, direction="downstream"):
+            res = real_build(ws_id_, script_name, sql_text, table, field,
+                             relevance_filter, direction)
             if relevance_filter and res.get("error") is None and field not in sql_text:
                 res = dict(res)
                 res["search_matched"] = False  # simulate BE1's contract
@@ -241,15 +250,21 @@ class TestL2NotInFlow:
         assert len(result["graph"]["nodes"]) == len(full["graph"]["nodes"]), result
         workspace_client.delete(ws_id)
 
-    def test_l2_natural_not_in_flow_expanded_script(self, workspace_client, d2_zip):
+    def test_l2_natural_not_in_flow_script(self, workspace_client, d2_zip):
         """End-to-end with _build_l2_graph's real search_matched flag (BE1
-        contract): the expanded closure includes a script that does not
-        reference the searched field → L2 for that script carries
-        search_matched:false + message + a usable graph."""
+        contract): a script outside the searched field's directional flow
+        carries search_matched:false + message + a usable graph.
+
+        NOTE (R29, 2026-08-12): field queries are now EXACT — the
+        directional field-flow search (API team's R29 contract) skips the
+        old table-closure expansion, so customers.customer_name matches
+        step2_enrich_customers.sql only; step4_aggregate.sql is outside
+        the flow and its L2 still renders the full script graph."""
         ws_id = workspace_client.create(d2_zip)
         workspace_client.index(ws_id)
         sr = workspace_client.search(ws_id, "customers", "customer_name")
-        assert sr["match_mode"] == "expanded", sr  # closure pulls in all 5 scripts
+        assert sr["match_mode"] == "exact", sr
+        assert sr["script_ids"] == ["step2_enrich_customers.sql"], sr
         from app.services.dataflow_service import get_level2_graph
         # step4_aggregate.sql never references customer_name
         result = get_level2_graph(ws_id, sr["view_id"], "step4_aggregate.sql",
@@ -304,8 +319,9 @@ class TestLevel1Endpoint:
     the search response path, so only flow-relevant scripts/tables survive."""
 
     def test_level1_lineage_filtered_consistent_with_search(self, workspace_client, d1_zip):
-        """The level1 endpoint rebuild mirrors the search-time filtered L1:
-        identical node set, and every field node is in the lineage pairs."""
+        """The level1 endpoint rebuild mirrors the search-time L1:
+        identical node set, and the R29 shape holds — no field nodes, no
+        superseded lineage_field_pairs, flow_empty always present."""
         ws_id = workspace_client.create(d1_zip)
         workspace_client.index(ws_id)
         from app.routers.dataflow import search_dataflow, get_level1
@@ -318,11 +334,12 @@ class TestLevel1Endpoint:
         search_ids = {n.get("data", n).get("id") for n in sr["l1_graph"]["nodes"]}
         level1_ids = {n.get("data", n).get("id") for n in nodes}
         assert level1_ids == search_ids, (search_ids, level1_ids)
-        # Every field node that survives is in the lineage field pairs
-        pairs = set(tuple(p) for p in l1["l1_graph"].get("lineage_field_pairs", []))
-        assert pairs, "L1 must carry lineage_field_pairs"
+        # R29 shape: no field nodes, no lineage_field_pairs, marker present
         for n in nodes:
-            nd = n.get("data", n)
-            if nd.get("type") == "field":
-                assert (nd.get("table_name", ""), nd.get("field_name", "")) in pairs, nd
+            assert n.get("data", n).get("type") != "field", \
+                "R29: L1 has no field nodes"
+        assert "lineage_field_pairs" not in l1["l1_graph"], \
+            "R29 supersedes lineage_field_pairs for field queries"
+        assert l1["l1_graph"].get("flow_empty") in (True, False), \
+            "the directional marker must always be present"
         workspace_client.delete(ws_id)
