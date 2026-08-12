@@ -20,6 +20,25 @@ _TABLE_TYPES = {
     VariableType.MERGE_TARGET, VariableType.UNION_BRANCH,
 }
 
+# ── Column-ish types tracked by the Phase-3 bare-name index (D3): the
+# full_col_index type universe — the evidence-scored resolution never
+# overrides with a same-named literal/table/proxy var.
+_SOURCE_COLUMN_TYPES = {
+    VariableType.COLUMN, VariableType.CTE_COLUMN, VariableType.EXPRESSION,
+    VariableType.AGGREGATE, VariableType.WINDOW, VariableType.CASE,
+    VariableType.TRANSFORM,
+}
+
+# Expression-building target types (D3 round dl): the evidence-scored
+# source resolution fires only for targets that BUILD a new value from
+# their source columns (CASE/expression/aggregate/window/transform vars —
+# e.g. DM_FLAG2's CASE over data_dt, or a join-key CONCAT). Plain column
+# reads (COLUMN/CTE_COLUMN) keep the legacy last-writer-wins pick — their
+# L2 shape is pinned by the bdm/sup/pl benchmark rounds.
+_EXPRESSION_BUILDING_TYPES = _SOURCE_COLUMN_TYPES - {
+    VariableType.COLUMN, VariableType.CTE_COLUMN,
+}
+
 
 def build_dependency_graph(
     result: ExtractionResult, sql_text: str = ""
@@ -344,10 +363,50 @@ def build_dependency_graph(
     # Phase 3: Column edges — REF / AGGREGATE / TRANSFORM / WINDOW / COMPUTED
     # ══════════════════════════════════════════════════════════════════
     # Each column carrying data between the tables connected in Phase 1.
+    # D3 (dl seed, 2026-08-12): a repeated column name read in several
+    # contexts resolves by extraction-time evidence ONLY when the
+    # last-writer-wins pick (full_col_index) lands OUTSIDE the target's
+    # own statement — a read inside an expression cannot reach into
+    # another statement's instance. DM_FLAG2's EXISTS-subquery
+    # BDM_ACC_INTERNAL_COUNTERPARTY.data_dt@407 (TOP0/exists3) resolved
+    # to the TOP1 WHERE instance data_dt@560; the target's OWN expression
+    # tables (recorded at extraction time via _extract_table_names) bound
+    # the possible read sites — a read inside the expression must be
+    # attributed to a table the expression mentions. Among the target's
+    # statement-root candidates (registration order), the first whose
+    # attributed source table (source_tables[0], case-insensitive)
+    # appears in the target's expression tables wins; no evidence match
+    # keeps the previous last-writer-wins pick. Same-root picks are
+    # never overridden (the SUP flagship's CONCAT join-key operands —
+    # repeated `p2.xxx` aliases inside one CTE — stay byte-identical).
+    def _stmt_root(ctx: str) -> str:
+        """Statement root of a context: 'TOP0/exists3' → 'TOP0',
+        'CTE{a}:join:p2/subq/x' → 'CTE{a}', 'TOP0:join:p3/…' → 'TOP0'."""
+        return (ctx or "TOP").split(":join:")[0].split("/")[0]
+
+    def _pick_source_var(src_col: str, target_var: VariableDefinition):
+        if src_col not in full_col_index:
+            return None
+        old_pick = full_col_index[src_col]
+        candidates = name_index.get(src_col, [])
+        if (len(candidates) > 1 and target_var.source_tables
+                and target_var.variable_type in _EXPRESSION_BUILDING_TYPES):
+            target_root = _stmt_root(target_var.context)
+            if _stmt_root(old_pick.context) != target_root:
+                target_tables = {t.lower() for t in target_var.source_tables}
+                for cand in candidates:
+                    if cand.variable_type not in _SOURCE_COLUMN_TYPES:
+                        continue  # same type universe as full_col_index
+                    if _stmt_root(cand.context) != target_root:
+                        continue  # a read inside the target's own statement only
+                    if cand.source_tables and cand.source_tables[0].lower() in target_tables:
+                        return cand
+        return old_pick
+
     for target_var in variables:
         for src_col in target_var.source_columns:
-            if src_col in full_col_index:
-                src_var = full_col_index[src_col]
+            src_var = _pick_source_var(src_col, target_var)
+            if src_var is not None:
                 _add_edge(src_var, target_var,
                          _classify_relationship(src_var, target_var),
                          "REFERENCE")

@@ -31,7 +31,10 @@ from app.models.variable import VariableDefinition, VariableType
 
 
 # Bump to invalidate analysis caches when extraction semantics change.
-EXTRACTOR_VERSION = "2026-08-11.2"
+# 2026-08-11.3: dependency-graph source-resolution change (D3, round dl) —
+# analysis caches store the dependency list, so engine-level semantics
+# changes ride the same version gate.
+EXTRACTOR_VERSION = "2026-08-11.3"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
