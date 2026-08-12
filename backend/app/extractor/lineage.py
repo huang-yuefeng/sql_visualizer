@@ -513,7 +513,8 @@ def _cte_occurrence(pm, name: str, occ):
 
 
 def compute_field_flow(graph_data, target_table, target_field,
-                       table_schemas=None, physical_model=None) -> set:
+                       table_schemas=None, physical_model=None,
+                       direction="downstream") -> set:
     """Strict table.field data flow closure (v3.3.140+, L2 only) —
     J12-10 stage 3: walks the PHYSICAL MODEL's edges and occurrences
     instead of the display graph with reconstruction heuristics. The
@@ -544,6 +545,45 @@ def compute_field_flow(graph_data, target_table, target_field,
     instance) — every lookup through the model (entities, edges,
     occurrence index), never display reconstruction.
 
+    R29 (2026-08-12) `direction` — the QUERY direction, per the formal
+    definition (wiki/DATAFLOW_FORMAL_DEFINITION.md §Field-Level Data
+    Flow). Default "downstream" = the current behavior EXACTLY (the
+    effect-scope walk above — the Jaccard gate pins byte-identity).
+    "upstream" = the TRANSITIVE WRITING chain of the field — where the
+    field's value comes from — with the upstream rule set:
+
+      U1 seeds = the field's WRITE instances only — the DML write
+         targets (occurrences that are the targets of the field's write
+         legs) whose statement's write leg carries the searched field
+         (the D2 _dml_write_leg index, matched case-insensitively —
+         PARTITION columns arrive in the SQL's own casing). Read
+         instances are NOT seeds and are NEVER admitted in upstream
+         mode — a script that only READS the field (SUP_M ×
+         bdm_acc_loan_info.data_dt) yields an EMPTY upstream closure.
+      U2 expand ONLY backward (the fwd=False adjacency tuples — the
+         producing side of the admitted nodes) over production edges:
+         FIELD_LAND backward (target → its producing source; REF/READ
+         field→holder edges are consumer-side — never producers),
+         ALIAS backward (alias → its original), DML backward (write
+         target → its write-leg sources, write-leg-gated on the written
+         field: the statement's output VT and the field-like var
+         carrying the searched field part), TABLE_FLOW backward along
+         the written legs (operation = the DML keyword; the leg source
+         joins only when its physical identity is already in the chain
+         — the write statement's OTHER input tables stay out:
+         field-level, not statement-level).
+      U3 NEVER walked upstream: FILTER, JOIN (the seed-zone rule is
+         downstream-only), SCHEMA, SUBQUERY, SET_OP, CORRELATED,
+         INDIRECT, SUBSET, and read edges (REF with operation=READ).
+      U4 literals are chain ENDS — admitted (write-leg sources are
+         FIELD_LIKE), no producers to expand.
+      U5 identity admissions, owner resolution, container rule: same
+         machinery, direction-free — EXCEPT the Issue-3 bare-instance
+         admission, which is read-recognition (R19.2) and would drag
+         read instances into the writing chain — downstream-only.
+      U6 termination: fields whose producer is a literal, or fields
+         with no write instance in the script (external source tables).
+
     physical_model is REQUIRED (TypeError when None). table_schemas is
     accepted for signature parity with compute_field_lineage but unused.
     Returns the set of node ids in the strict closure.
@@ -564,20 +604,70 @@ def compute_field_flow(graph_data, target_table, target_field,
     pm = physical_model
     occ = pm.occurrence
 
+    # ── D2 (2026-08-12): the forward DML admit is field-aware — never
+    # field-blind. Two per-call indexes:
+    #   _dml_write_leg[target var id] — field parts of the columns the
+    #     target's statement writes: the sources of the non-WRITE_READ
+    #     DML edges into the target (Phase-1c select-list columns and
+    #     Phase-8 projection/partition/literal write-leg vars all carry
+    #     the written column's name; PARTITION columns arrive in the
+    #     SQL's own casing → matched case-insensitively).
+    #   _stmt_field_parts[TOP statement] — field parts referenced by any
+    #     var of the statement (the write→read link admits only when the
+    #     reader statement actually consumes the searched field).
+    # (Built before the seed selection: R29 upstream seeds are the DML
+    # write targets — the index gates them.)
+    _dml_write_leg = {}
+    for _E in pm.edges:
+        if _E.edge_type != "DML":
+            continue
+        if (_E.operation or "").upper() == "WRITE_READ":
+            continue
+        _so = occ(_E.source_id)
+        if _so is not None:
+            _part = _occ_field_part(_so).lower()
+            if _part:
+                _dml_write_leg.setdefault(_E.target_id, set()).add(_part)
+    _stmt_field_parts = {}
+    for _vid, _o in pm.occurrences.items():
+        _stmt = (_o.get("context") or "TOP").split("/", 1)[0]
+        if not _stmt.startswith("TOP"):
+            continue
+        _part = _occ_field_part(_o).lower()
+        if _part:
+            _stmt_field_parts.setdefault(_stmt, set()).add(_part)
+
     # ── W1: seeds — occurrences of the PhysicalFields named target_field
     # on the searched name's entities. target_keys = every entity named
     # target_table (physical tables key by name; per-scope containers by
     # (name, context) — the union mirrors the display's name-based owner
     # match). ──
+    # R29 upstream (U1): seeds are the field's WRITE instances only —
+    # the DML write targets (occurrences that are the targets of the
+    # field's write legs) whose statement's write leg carries the
+    # searched field (the _dml_write_leg index, matched case-
+    # insensitively). Read instances are NOT seeds in upstream mode.
     target_keys = {k for k, t in pm.tables.items() if t.name == target_table}
     seeds = set()
-    for (tkey, fname), fld in pm.fields.items():
-        if tkey not in target_keys or fname != target_field:
-            continue
-        for vid in fld.occurrence_ids:
-            o = occ(vid)
-            if o is not None and o.get("variable_type") in FIELD_LIKE:
-                seeds.add(vid)
+    if direction == "upstream":
+        for E in pm.edges:
+            if E.edge_type != "DML":
+                continue
+            if (E.operation or "").upper() == "WRITE_READ":
+                continue
+            tgt_tbl = pm.tables.get(E.target[0]) if E.target[0] else None
+            if tgt_tbl is None or tgt_tbl.name != target_table:
+                continue
+            if target_field.lower() in _dml_write_leg.get(E.target_id, ()):
+                seeds.add(E.target_id)
+    else:
+        for (tkey, fname), fld in pm.fields.items():
+            if tkey not in target_keys or fname != target_field:
+                continue
+            for vid in fld.occurrence_ids:
+                o = occ(vid)
+                if o is not None and o.get("variable_type") in FIELD_LIKE:
+                    seeds.add(vid)
 
     # ── adjacency over the MODEL's PhysicalEdges (occurrence-level — the
     # edge endpoints ARE the raw var ids the graph nodes carry).
@@ -649,37 +739,6 @@ def compute_field_flow(graph_data, target_table, target_field,
         for vid in fld.occurrence_ids:
             owner_by_id[vid] = tkey
 
-    # ── D2 (2026-08-12): the forward DML admit is field-aware — never
-    # field-blind. Two per-call indexes:
-    #   _dml_write_leg[target var id] — field parts of the columns the
-    #     target's statement writes: the sources of the non-WRITE_READ
-    #     DML edges into the target (Phase-1c select-list columns and
-    #     Phase-8 projection/partition/literal write-leg vars all carry
-    #     the written column's name; PARTITION columns arrive in the
-    #     SQL's own casing → matched case-insensitively).
-    #   _stmt_field_parts[TOP statement] — field parts referenced by any
-    #     var of the statement (the write→read link admits only when the
-    #     reader statement actually consumes the searched field).
-    _dml_write_leg = {}
-    for _E in pm.edges:
-        if _E.edge_type != "DML":
-            continue
-        if (_E.operation or "").upper() == "WRITE_READ":
-            continue
-        _so = occ(_E.source_id)
-        if _so is not None:
-            _part = _occ_field_part(_so).lower()
-            if _part:
-                _dml_write_leg.setdefault(_E.target_id, set()).add(_part)
-    _stmt_field_parts = {}
-    for _vid, _o in pm.occurrences.items():
-        _stmt = (_o.get("context") or "TOP").split("/", 1)[0]
-        if not _stmt.startswith("TOP"):
-            continue
-        _part = _occ_field_part(_o).lower()
-        if _part:
-            _stmt_field_parts.setdefault(_stmt, set()).add(_part)
-
     # ── Joint fixpoint: expansion rounds and identity-admission rounds
     # alternate until neither grows (monotone — terminates; capped). ──
     visited = set(seeds)
@@ -694,6 +753,66 @@ def compute_field_flow(graph_data, target_table, target_field,
             nid = stack.pop()
             for (nb, et, fwd, read, op) in adjacency.get(nid, []):
                 if nb in visited:
+                    continue
+                if direction == "upstream":
+                    # R29 (2026-08-12): upstream = backward production
+                    # walk (U1-U6 in the docstring). Only the backward
+                    # tuples (fwd=False) are consulted, and only over
+                    # production edges — never FILTER/JOIN/SCHEMA/
+                    # SUBQUERY/SET_OP/CORRELATED/INDIRECT/SUBSET or read
+                    # edges (REF op=READ, U3), never forward (a chain
+                    # member's consumers are downstream, not producers).
+                    admit = False
+                    if not fwd:
+                        if et in FIELD_LAND:
+                            # U2a: field production backward (target →
+                            # its producing source).
+                            admit = not read
+                        elif et == "ALIAS":
+                            # U2b: alias → its original.
+                            admit = True
+                        elif et == "DML":
+                            # U2c: DML write target → its write-leg
+                            # sources, write-leg-gated on the written
+                            # field: the statement's own output VT (ctx
+                            # exactly TOP{numeric}, same shape as the
+                            # downstream D2 gate) admits when the write
+                            # leg carries the searched field; a field-like
+                            # var admits when its field part IS the
+                            # searched field (partition columns arrive in
+                            # the SQL's own casing → case-insensitive).
+                            # WRITE_READ links are never production (U3).
+                            if (op or "").upper() != "WRITE_READ":
+                                nb_o = occ(nb)
+                                if nb_o is not None:
+                                    if nb_o.get("variable_type") == "virtual_table":
+                                        _nb_ctx = nb_o.get("context") or ""
+                                        if (_nb_ctx.startswith("TOP")
+                                                and _nb_ctx[3:].isdigit()
+                                                and target_field.lower()
+                                                in _dml_write_leg.get(nid, ())):
+                                            admit = True
+                                    elif (nb_o.get("variable_type") in FIELD_LIKE
+                                          and _occ_field_part(nb_o).lower()
+                                          == target_field.lower()):
+                                        admit = True
+                        elif et == "TABLE_FLOW":
+                            # U2d: backward along the WRITTEN legs only —
+                            # operation is the DML keyword, and the leg
+                            # source joins only when its physical identity
+                            # is already in the chain (field-level gate:
+                            # the write statement's unrelated input tables
+                            # never enter the closure).
+                            if (op or "").upper() in _DML_WRITE_OPS:
+                                nb_o = occ(nb)
+                                if (nb_o is not None
+                                        and _occ_table_like(nb_o)
+                                        and _occ_identity(nb_o) in chain):
+                                    admit = True
+                    if admit:
+                        visited.add(nb)
+                        changed = True
+                        _register(nb)
                     continue
                 if et in FIELD_LAND:
                     # REF/READ (field → its owning table) admits only in
@@ -864,17 +983,25 @@ def compute_field_flow(graph_data, target_table, target_field,
         # source_tables/label). Aliases (identity != label) are hop nodes
         # served by ALIAS edges and the ALIAS rule — they do not re-admit
         # themselves here.
-        for nid, var in node_map.items():
-            if var.get("variable_type") not in ("table", "view"):
-                continue
-            if nid in visited:
-                continue
-            o = occ(nid)
-            ident = _occ_identity(o) if o is not None else ""
-            if ident and ident == (o or {}).get("name") and ident in chain:
-                visited.add(nid)
-                changed = True
-                _register(nid)
+        #
+        # R29 (2026-08-12): DOWNSTREAM-ONLY — this is read recognition
+        # (U5): upstream is a writing-only walk, and a bare READER of the
+        # table must never join it (the SUP_M reader
+        # `bdm_acc_loan_info_sup@223` is the bdm.data_dt seed's reader —
+        # it would enter the bdm.data_dt↑SUP_M closure, which must stay
+        # EMPTY; the PL reader bdm@263 likewise must not enter ↑PL).
+        if direction == "downstream":
+            for nid, var in node_map.items():
+                if var.get("variable_type") not in ("table", "view"):
+                    continue
+                if nid in visited:
+                    continue
+                o = occ(nid)
+                ident = _occ_identity(o) if o is not None else ""
+                if ident and ident == (o or {}).get("name") and ident in chain:
+                    visited.add(nid)
+                    changed = True
+                    _register(nid)
     # D1: the fixpoint is capped at 100 rounds (monotone — should never
     # fire); when it does, the closure may be incomplete — surface it in
     # the log instead of silently returning a partial closure.
@@ -886,7 +1013,8 @@ def compute_field_flow(graph_data, target_table, target_field,
 
 
 def filter_by_field_flow(graph_data, target_table, target_field,
-                         table_schemas=None, physical_model=None) -> dict:
+                         table_schemas=None, physical_model=None,
+                         direction="downstream") -> dict:
     """Filter graph to the strict table.field flow closure (v3.3.140+, L2 only).
 
     Returns a dict identical to graph_data except nodes = those whose id is in
@@ -898,11 +1026,17 @@ def filter_by_field_flow(graph_data, target_table, target_field,
 
     J12-10 stage 3: physical_model is REQUIRED (the walker consumes the
     physical model — see compute_field_flow).
+
+    R29 (2026-08-12): direction is passed through to compute_field_flow —
+    "downstream" (default) is the byte-identical legacy behavior;
+    "upstream" filters to the field's WRITING flow (backward production
+    walk — see compute_field_flow's U1-U6 rules).
     """
     if not graph_data:
         return graph_data
     closure = compute_field_flow(graph_data, target_table, target_field,
-                                 table_schemas, physical_model=physical_model)
+                                 table_schemas, physical_model=physical_model,
+                                 direction=direction)
     nodes = graph_data.get("nodes", []) or []
     edges = graph_data.get("edges", []) or []
     filtered_nodes = [n for n in nodes if n.get("data", n).get("id") in closure]

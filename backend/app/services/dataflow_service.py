@@ -39,7 +39,8 @@ class SearchView:
 
 async def create_search(ws_id: str, table: str, field: str,
                         table_index: dict, field_index: dict,
-                        lineage_mode: bool = True) -> dict:
+                        lineage_mode: bool = True,
+                        direction="downstream") -> dict:
     """Find scripts touching table AND field, build L1 graph.
 
     1. Find scripts from field_index that contain this field
@@ -47,6 +48,14 @@ async def create_search(ws_id: str, table: str, field: str,
     3. Intersection = scripts touching BOTH
     4. Build L1 graph via analyze_multiple_scripts()
     5. Store view in views.json (async — the write runs off the event loop, L9)
+
+    R29 (2026-08-12): `direction` ("downstream" default / "upstream")
+    selects the field flow direction — threaded into _build_l1_graph (the
+    L1 directional projection), persisted on the view, and honored in the
+    no-flow message. Field queries keep the EXACT script set (no
+    transitive table-closure expansion — that is a table-only search
+    behavior) and skip the R18 lineage filter (the directional L1 already
+    IS the field flow).
     """
     ws_dir = get_workspace_dir(ws_id)
     from app.services.logger import api_request
@@ -67,7 +76,8 @@ async def create_search(ws_id: str, table: str, field: str,
         return await _no_matches_result(
             ws_id, table, field,
             f"Field {table}.{field} is not queried by any script in this "
-            "workspace — no data flow exists for it")
+            "workspace — no data flow exists for it",
+            direction=direction)
     if not matching_scripts:
         # The field exists in the index (referenced under other tables) but
         # no script references it together with the searched table — the
@@ -75,48 +85,72 @@ async def create_search(ws_id: str, table: str, field: str,
         return await _no_matches_result(
             ws_id, table, field,
             f"No script in this workspace references {table}.{field} — "
-            "no data flow exists for it")
+            "no data flow exists for it",
+            direction=direction)
     else:
         # Full transitive closure: any script in the table-dependency connected
         # component can affect or be affected by the target variable.
         # Include ALL scripts reachable via table lineage, not just those
         # that directly reference the field.
-        visited_scripts = set(matching_scripts)
-        frontier_tables = set()
+        # R29 (2026-08-12): field queries SKIP the expansion — the
+        # directional field flow is exact, and the table-closure would drag
+        # in scripts that only touch the table (no field flow in either
+        # direction); the expansion stays a table-only-search behavior.
+        if not field:
+            visited_scripts = set(matching_scripts)
+            frontier_tables = set()
 
-        # Collect all tables touched by seed scripts
-        for s in matching_scripts:
-            for tname, tdata in table_index.items():
-                if s in tdata.get("scripts", []):
-                    frontier_tables.add(tname)
+            # Collect all tables touched by seed scripts
+            for s in matching_scripts:
+                for tname, tdata in table_index.items():
+                    if s in tdata.get("scripts", []):
+                        frontier_tables.add(tname)
 
-        # BFS: tables → scripts → more tables → more scripts ...
-        changed = True
-        max_iterations = 10
-        while changed and max_iterations > 0:
-            changed = False
-            max_iterations -= 1
-            new_tables = set()
-            for tname in frontier_tables:
-                for s in table_index.get(tname, {}).get("scripts", []):
-                    if s not in visited_scripts:
-                        visited_scripts.add(s)
-                        changed = True
-                        # This script touches other tables — add them to frontier
-                        for t2, td2 in table_index.items():
-                            if s in td2.get("scripts", []):
-                                new_tables.add(t2)
-            frontier_tables = new_tables
+            # BFS: tables → scripts → more tables → more scripts ...
+            changed = True
+            max_iterations = 10
+            while changed and max_iterations > 0:
+                changed = False
+                max_iterations -= 1
+                new_tables = set()
+                for tname in frontier_tables:
+                    for s in table_index.get(tname, {}).get("scripts", []):
+                        if s not in visited_scripts:
+                            visited_scripts.add(s)
+                            changed = True
+                            # This script touches other tables — add them to frontier
+                            for t2, td2 in table_index.items():
+                                if s in td2.get("scripts", []):
+                                    new_tables.add(t2)
+                frontier_tables = new_tables
 
-        if len(visited_scripts) > len(matching_scripts):
-            matching_scripts = sorted(visited_scripts)
-            match_mode = "expanded"
+            if len(visited_scripts) > len(matching_scripts):
+                matching_scripts = sorted(visited_scripts)
+                match_mode = "expanded"
 
-    # Build L1 graph
-    l1_graph = _build_l1_graph(ws_id, matching_scripts, table, field)
+    # Build L1 graph — R29: the directional projection (downstream keeps
+    # the byte-identical legacy shape; upstream renders the writing flow).
+    l1_graph = _build_l1_graph(ws_id, matching_scripts, table, field,
+                               direction=direction)
 
-    # R18: Apply lineage filter to L1 graph when lineage_mode
-    if lineage_mode:
+    # R29: a field query whose directional closure is EMPTY is a no-flow
+    # search, not a no-matches search — the field IS in the scripts (read
+    # but never written for upstream; written but never read for
+    # downstream) — respond with the no_flow state, mirroring the
+    # no_matches handling (the L1 builder stamps flow_empty on an empty
+    # directional flow).
+    if field and l1_graph.get("flow_empty"):
+        if direction == "upstream":
+            _msg = f"No writing flow for {table}.{field}"
+        else:
+            _msg = f"No reading flow for {table}.{field}"
+        return await _no_flow_result(ws_id, table, field, _msg,
+                                     direction=direction)
+
+    # R18: Apply lineage filter to L1 graph when lineage_mode — table-only
+    # searches only; field queries skip it (the directional L1 already IS
+    # the field flow).
+    if lineage_mode and not field:
         l1_graph = _filter_l1_by_lineage(l1_graph, table, field)
 
     # Create view
@@ -132,6 +166,8 @@ async def create_search(ws_id: str, table: str, field: str,
 
     # Persist to views.json (M8: match_mode saved so the search-mode banner
     # survives a reload — the no_matches path persists it too, in dataflow.py)
+    # R29: direction is persisted so the level1 GET restores the same
+    # directional projection on reload.
     await _persist_search_view(ws_id, {
         "view_id": view.view_id,
         "type": "search",
@@ -141,6 +177,7 @@ async def create_search(ws_id: str, table: str, field: str,
         "script_count": len(view.script_ids),
         "l1_graph_cache": view.l1_graph_cache,
         "match_mode": match_mode,
+        "direction": direction,
         "children": [],
         "created_at": view.created_at,
     })
@@ -152,16 +189,21 @@ async def create_search(ws_id: str, table: str, field: str,
         "script_ids": matching_scripts,
         "l1_graph": l1_graph,
         "match_mode": match_mode,
+        "direction": direction,
     }
 
 
-async def _no_matches_result(ws_id: str, table: str, field: str, message: str) -> dict:
+async def _no_matches_result(ws_id: str, table: str, field: str, message: str,
+                             direction="downstream") -> dict:
     """BE2: no-matches search result (field absent from index / no pair flow).
 
     Returns the banner-compatible shape the frontend renders for
     ``match_mode === "no_matches"`` (match_mode + message + empty L1 graph),
     identical to the F1 filter-active no_matches path in routers/dataflow.py.
     The view is persisted (R3) so a reload restores the banner.
+
+    R29 (2026-08-12): direction rides the persisted view + response (the
+    level1 GET fallback reads it back on reload).
     """
     view_id = uuid.uuid4().hex[:12]
     l1_graph = {"nodes": [], "edges": [], "target": "table.field"}
@@ -175,6 +217,7 @@ async def _no_matches_result(ws_id: str, table: str, field: str, message: str) -
         "l1_graph_cache": l1_graph,
         "match_mode": "no_matches",
         "message": message,
+        "direction": direction,
         "children": [],
     })
     return {
@@ -185,6 +228,44 @@ async def _no_matches_result(ws_id: str, table: str, field: str, message: str) -
         "l1_graph": l1_graph,
         "match_mode": "no_matches",
         "message": message,
+        "direction": direction,
+    }
+
+
+async def _no_flow_result(ws_id: str, table: str, field: str, message: str,
+                          direction="downstream") -> dict:
+    """R29: no-flow search result (the field IS in the scripts, but the
+    directional flow is EMPTY — read but never written for upstream,
+    written but never read for downstream).
+
+    Mirror of _no_matches_result: banner-compatible shape for
+    ``match_mode === "no_flow"`` (match_mode + message + empty L1 graph),
+    view persisted so a reload restores the banner.
+    """
+    view_id = uuid.uuid4().hex[:12]
+    l1_graph = {"nodes": [], "edges": [], "target": "table.field"}
+    await _persist_search_view(ws_id, {
+        "view_id": view_id,
+        "type": "search",
+        "table": table,
+        "field": field,
+        "script_ids": [],
+        "script_count": 0,
+        "l1_graph_cache": l1_graph,
+        "match_mode": "no_flow",
+        "message": message,
+        "direction": direction,
+        "children": [],
+    })
+    return {
+        "view_id": view_id,
+        "table": table,
+        "field": field,
+        "script_ids": [],
+        "l1_graph": l1_graph,
+        "match_mode": "no_flow",
+        "message": message,
+        "direction": direction,
     }
 
 
@@ -325,14 +406,20 @@ def _atomic_write_text(path: Path, text: str) -> None:
 
 
 def get_level2_graph(ws_id: str, view_id: str, script_name: str,
-                     table: str, field: str, filter_relevant_nodes: bool = True) -> dict:
+                     table: str, field: str, filter_relevant_nodes: bool = True,
+                     direction="downstream") -> dict:
     """Build L2 graph for a script. Loads pre-computed graph cache,
     applies relevance filter, returns {graph, parse_errors}.
 
     W5/R25: the per-edge payload (highlight_line / flow_kind / reason) is
     built into the graph at L2 build time (l2_builder._attach_flow_payload)
     — the old response-level `highlights` and the `highlight_strategy`
-    query param are gone (R25 item 3)."""
+    query param are gone (R25 item 3).
+
+    R29 (2026-08-12): `direction` ("downstream" default / "upstream")
+    threads into the strict flow filter AND the L2 builder — downstream
+    is byte-identical legacy behavior; upstream filters to the field's
+    WRITING flow, and the not-in-flow message names the writing side."""
     ws_dir = get_workspace_dir(ws_id)
     from app.services.logger import api_request, stage_graph
 
@@ -487,12 +574,14 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     if filter_relevant_nodes:
         filtered = filter_by_field_flow(graph_data, table, field,
                                         table_schemas=table_schemas,
-                                        physical_model=physical_model)
+                                        physical_model=physical_model,
+                                        direction=direction)
     else:
         filtered = graph_data
 
     # Build the transformed L2 graph with compound nodes
-    l2_result = _build_l2_graph(ws_id, script_name, sql_text, table, field, filter_relevant_nodes)
+    l2_result = _build_l2_graph(ws_id, script_name, sql_text, table, field,
+                                filter_relevant_nodes, direction)
 
     # BE2 (issues b+c): the script is not in the searched field's data flow.
     # `search_matched` is emitted by _build_l2_graph (BE1 contract): False
@@ -504,7 +593,8 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     search_matched = l2_result.get("search_matched", True)
     not_in_flow = bool(table and field) and filter_relevant_nodes and search_matched is False
     if not_in_flow:
-        l2_result = _build_l2_graph(ws_id, script_name, sql_text, table, field, False)
+        l2_result = _build_l2_graph(ws_id, script_name, sql_text, table, field,
+                                    False, direction)
         filtered = graph_data  # fallback counts reflect the full graph
 
     if not l2_result.get("error"):
@@ -524,11 +614,20 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         }
         if not_in_flow:
             response["search_matched"] = False
-            response["message"] = (
-                f"Script {script_name} is not in the data flow of "
-                f"{table}.{field} — the field is not queried in this script. "
-                "Showing the full script graph."
-            )
+            if direction == "upstream":
+                # R29: upstream searched the WRITING flow — the field is
+                # not written in this script.
+                response["message"] = (
+                    f"Script {script_name} is not in the writing flow of "
+                    f"{table}.{field} — the field is not written in this "
+                    "script. Showing the full script graph."
+                )
+            else:
+                response["message"] = (
+                    f"Script {script_name} is not in the data flow of "
+                    f"{table}.{field} — the field is not queried in this script. "
+                    "Showing the full script graph."
+                )
         return response
 
     # Fallback: return raw graph with edge count

@@ -145,6 +145,7 @@ async def search_dataflow(ws_id: str, body: dict):
             # F1: filter active but empty (empty intersection) — indexing
             # already passed (see 400 guard above); the filter simply matches
             # nothing. Return a successful empty result instead of a 400.
+            direction = body.get("direction", "downstream")  # R29
             result = {
                 "view_id": uuid.uuid4().hex[:12],
                 "table": table,
@@ -153,6 +154,7 @@ async def search_dataflow(ws_id: str, body: dict):
                 "l1_graph": {"nodes": [], "edges": [], "target": "table.field"},
                 "match_mode": "no_matches",
                 "message": "Filter active — no tables in scope",
+                "direction": direction,
             }
             # R3: the no_matches path also emits the R17 search diagnostic
             # (same block shape as a regular search, via the same _push hook).
@@ -175,13 +177,18 @@ async def search_dataflow(ws_id: str, body: dict):
                 "l1_graph_cache": {"nodes": [], "edges": [], "target": "table.field"},
                 "match_mode": "no_matches",
                 "message": "Filter active — no tables in scope",
+                "direction": direction,
                 "children": [],
             })
             return result
         raise HTTPException(status_code=400, detail="Indexes not found. Run index first.")
 
     lineage_mode = body.get("lineage_mode", True)  # R18: default True
-    result = await create_search(ws_id, table, field, ti, fi, lineage_mode=lineage_mode)
+    # R29: query direction — "downstream" (default) is the byte-identical
+    # legacy reading flow; "upstream" searches the field's WRITING flow.
+    direction = body.get("direction", "downstream")
+    result = await create_search(ws_id, table, field, ti, fi,
+                                 lineage_mode=lineage_mode, direction=direction)
 
     # ── R17: Search diagnostic logging ──
     _emit_search_diagnostic(ws_id, table, field,
@@ -231,8 +238,15 @@ async def remove_view(ws_id: str, view_id: str):
 
 
 @router.get("/workspace/{ws_id}/views/{view_id}/level1")
-async def get_level1(ws_id: str, view_id: str):
-    """Get L1 cross-script graph for a view. Rebuilds fresh each time."""
+async def get_level1(ws_id: str, view_id: str,
+                     direction: str | None = Query(None)):
+    """Get L1 cross-script graph for a view. Rebuilds fresh each time.
+
+    R29: `direction` query param overrides the view's persisted direction
+    (the search-time choice survives reload via views.json); defaults to
+    "downstream" (legacy reading flow). Passed to _build_l1_graph — the
+    directional projection (downstream byte-identical; upstream renders
+    the field's writing flow)."""
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
@@ -240,17 +254,21 @@ async def get_level1(ws_id: str, view_id: str):
     view = next((v for v in views if v["view_id"] == view_id), None)
     if not view:
         raise HTTPException(status_code=404, detail="View not found")
-    
+
     # Rebuild L1 graph fresh — never return stale cache
     from app.services.dataflow_service import _build_l1_graph, _filter_l1_by_lineage
     script_ids = view.get("script_ids", [])
     table = view.get("table", "")
     field = view.get("field", "")
-    l1_graph = _build_l1_graph(ws_id, script_ids, table, field)
+    direction = direction or view.get("direction") or "downstream"
+    l1_graph = _build_l1_graph(ws_id, script_ids, table, field,
+                               direction=direction)
     # BE2 (issues b+c): mirror the search-time path — search views carry a
     # table+field, so apply the same R18 lineage filter. Only flow-relevant
     # scripts/tables survive (keeps L1 simple, consistent with /search).
-    if table and field:
+    # R29: table-only searches only — field queries skip it (the
+    # directional L1 already IS the field flow, mirror of create_search).
+    if table and not field:
         l1_graph = _filter_l1_by_lineage(l1_graph, table, field)
 
     return {
@@ -259,13 +277,20 @@ async def get_level1(ws_id: str, view_id: str):
         "field": field,
         "script_ids": script_ids,
         "l1_graph": l1_graph,
+        "direction": direction,
     }
 
 
 @router.get("/workspace/{ws_id}/views/{view_id}/level2")
 def get_level2(ws_id: str, view_id: str, script: str = Query(...),
-               filter: bool = Query(True)):
+               filter: bool = Query(True),
+               direction: str | None = Query(None)):
     """Get L2 per-script graph for a view's script.
+
+    R29: `direction` query param overrides the view's persisted direction
+    (search-time choice survives reload via views.json); defaults to
+    "downstream". Threaded into get_level2_graph — the strict field-flow
+    filter and the L2 builder (upstream = the field's writing flow).
 
     W5/R25: every edge carries its per-edge payload (highlight_line /
     flow_kind / reason) built at L2 build time — the old response-level
@@ -304,8 +329,10 @@ def get_level2(ws_id: str, view_id: str, script: str = Query(...),
 
     table = view.get("table", "")
     field = view.get("field", "")
+    direction = direction or view.get("direction") or "downstream"
 
-    result = get_level2_graph(ws_id, view_id, script, table, field, filter)
+    result = get_level2_graph(ws_id, view_id, script, table, field, filter,
+                              direction)
     return result
 
 
