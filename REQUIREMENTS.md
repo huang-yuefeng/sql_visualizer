@@ -758,7 +758,7 @@ If filter is NOT active, show the full index scope instead:
 
 > **Priority:** P2 | **Date:** 2026-07-28
 
-**Description:** When a user searches for a specific field (`table=T, field=Y`), filter both L1 and L2 graphs to show only nodes and edges on the data flow path of field Y. UI/UX unchanged — same graph, same L1/L2 interactions, fewer elements.
+**Description:** When a user searches for a specific field (`table=T, field=Y`), both L1 and L2 show the data flow of field Y — the fields writing Y (upstream) and the fields reading Y (downstream). **L1 and L2 share the same field-level semantic** (the strict table.field flow walker) and differ only in scale: L1 = cross-script projection (scripts + the tables between scripts that carry the flow), L2 = per-script zoom-in (tables + fields). **Direction (requirement change 2026-08-12, see R29):** a query setting in the query panel — upstream (writing data flow, default) / downstream (reading data flow); L2 follows the query direction automatically. Tables that only read or write the queried TABLE are not included in L1.
 
 ### Formal Definition
 
@@ -853,19 +853,17 @@ Step 2: Expand R by BFS        — walk edges with type-specific rules, R stabil
 Step 3: Filter graph           — keep nodes/edges in R, drop rest (no name-based post-filter)
 Step 4: Wire into pipeline     — create_search accepts lineage_mode, calls filter_relevant
 
-Step 5 (L1 only): Cross-script constrained union
-    — For each script in the pipeline, compute Rᵢ via compute_field_lineage
-    — R₁ = ⋃ Rᵢ, constrained: fields excluded by conditional edges (JOIN/FILTER)
-      in ANY script are excluded from R₁
-Step 6 (L1+L2): Post-filter cleanup (R18.1)
-    — Remove tables with 0 field children (except terminal marker)
-    — Keep immediate downstream table as terminal marker (empty)
-    — Keep scripts connected to terminal marker (for manual L2 verification)
-    — Keep edges: terminal marker ↔ scripts (incoming + outgoing)
-    — Remove further downstream tables (not connected to terminal marker scripts)
+Step 5 (L1 only): Cross-script constrained union — SUPERSEDED (R29, 2026-08-12)
+    — see R29: L1 now uses the SAME strict field-level walker as L2, restricted to
+      the query direction (upstream = writing, default / downstream = reading),
+      projected to scripts + tables; no table-level admission, no field nodes
+Step 6 (L1+L2): Post-filter cleanup (R18.1) — L1 part SUPERSEDED (R29, 2026-08-12)
+    — L1: tables with 0 carried flow fields are removed; no terminal marker (the
+      flow terminates at the last carrying table)
+    — L2: unchanged — remove tables with 0 field children (except terminal marker)
 ```
 
-**Key design constraint:** Both L1 and L2 use `compute_field_lineage` as the single lineage engine. L1 does NOT use name matching. L1 is the constrained union of per-script L2 results, not an independent filter.
+**Key design constraint:** Both L1 and L2 use the same strict field-flow walker (`compute_field_flow`) as the single lineage engine — name matching is never a substitute (R18 base; R29, 2026-08-12, makes L1's filter the direction-aware projection of the per-script walker results instead of the table-level constrained union).
 
 ### R18.1 — Empty Table Cleanup After Lineage Filtering
 
@@ -876,6 +874,8 @@ Step 6 (L1+L2): Post-filter cleanup (R18.1)
 Downstream tables without the queried field are removed — **except for the immediate termination point**: keep the FIRST downstream table that lacks the field as a **terminal marker** (empty, 0 field children). Scripts connected to the terminal marker are **kept with their edges** — users can open each script's L2 view to manually verify that the queried field is not used in data-producing operations (e.g., only in JOIN, not INSERT). All further downstream tables (outputs of terminal-connected scripts) are removed.
 
 **Design principle:** Lineage follows **data flow of the field's value**, not structural table dependency. The terminal marker shows where automatic lineage tracing stops. Connected scripts are preserved for manual inspection — the user can click through to confirm the field is absent from each script's data flow, rather than trusting the algorithm blindly.
+
+> **Requirement change 2026-08-12 (R29):** the terminal-marker rules below are **superseded for L1** — tables not carrying the queried field's flow are excluded, with no marker table (the flow terminates at the last table that carries it). Manual verification of absent fields is served by L2's not-in-flow response (R22.3). The L2 side of R18.1 is unaffected.
 
 **What changes:**
 
@@ -1405,4 +1405,34 @@ range-expansion layer (`sql_range_finder`).
 - [ ] Vitest: node-legend entries render (source/target/waypoint); L2 no longer renders FlowKindLegend; L1 legend unchanged
 - [ ] Live check: source and target nodes are visually distinct in the L2 graph and the legend explains them
 - [ ] Frontend suite green; backend untouched
+
+## R29 — L1 field-level data flow + upstream/downstream query direction (requirement change, 2026-08-12)
+
+> **Priority:** P1 | **Date:** 2026-08-12 | **Status:** DEFINED — implementation pending (no source change)
+
+**Description:** L1 stops being a table-level pipeline around the queried table and becomes the **data flow of the queried field** — the same semantic as L2 — at cross-script scale. The flow direction (writing vs reading) is a **query setting in the query panel**, and L2 follows it automatically as the zoom-in of L1.
+
+### Problem
+
+Today L1 filters by the legacy **table-level** lineage (`compute_field_lineage` over production edges + SCHEMA, multi-hop expansion): a script enters L1 when it connects to the searched *table*'s table-level flow. Live case (2026-08-12): searching `ODS_CUPD_CLD_ACCTMASTER_NEW.BNQXYE`, the script `BDM_ACC_LOAN_INFO_SUP_M.sql` appears in L1 although it contains **0 occurrences** of BNQXYE, 0 of its source table, 0 of the BNQXYE-derived column `INT_OD_AMT` — it merely reads `bdm_acc_loan_info`, the output *table* of the searched field's pipeline. The user's intent: L1 must show the flow of the queried **field**, and the query must be able to distinguish the **writing** flow from the **reading** flow.
+
+### Requirement
+
+1. **L1 = the queried field's data flow (same semantic as L2).** L1's filter uses the same strict field-level walker as L2 (per-instance table.field identity, field-level admission rules) — not the table-level production BFS.
+2. **L1 scale: scripts + tables only.** Nodes are scripts and the tables between them that carry the flow. No field nodes, no intra-script structure — L2 is the zoom-in that shows tables + fields per script.
+3. **Data flow = writers + readers of the queried field.** Upstream: the fields that WRITE (produce) the queried field. Downstream: the fields that READ it.
+4. **No table-level inclusion.** Scripts and tables that only read or write the queried TABLE — without carrying any field of the queried field's flow — are **not** included (e.g. SUP_M for the BNQXYE search above).
+5. **Direction is a query setting in the query panel, not an L1 panel control.** The query panel gains an upstream/downstream setting — **upstream = writing data flow (default)**; **downstream = reading data flow**. L1 renders the flow in the query direction.
+6. **L2 follows the query direction automatically.** Opening a script's L2 shows that script's portion of the same directional flow — no separate direction control (L2 is the zoom-in of L1).
+7. **L2 flow-reason source/target anchoring follows the direction (user ruling 2026-08-12).** Downstream query → the queried field is the flow **SOURCE** (the R19.1 framing — the flow starts at the seed; unchanged). Upstream query → the queried field is the flow **TARGET** — the flow converges on it; the sources are the fields writing it.
+8. **Supersedes:** R18's L1 table-level filtering (production BFS + multi-hop expansion) and R18.1's L1 terminal-marker rules — the flow terminates at the last table carrying the queried field's flow; tables beyond are excluded. The L2 not-in-flow response (R22.3) and L2's strict walker semantics are unchanged.
+
+### Acceptance criteria
+
+- [ ] Searching `T.F` with the default upstream direction renders L1 as scripts + tables on F's **writing** flow; a script reading T without touching F's flow is absent
+- [ ] Switching the query to downstream re-renders L1 on F's **reading** flow
+- [ ] Opening a script's L2 shows the same direction of flow (zoom-in); no L1 panel control exists
+- [ ] L2 flow reason: downstream query anchors the seed as SOURCE; upstream query anchors the seed as TARGET (sources = the writing fields)
+- [ ] Table-only searches keep the current full table-level behavior (R29 applies to field queries only)
+- [ ] L2 payload byte-identity holds at the default direction (Jaccard gate + full backend suite unchanged; L1 is not part of the gate)
 

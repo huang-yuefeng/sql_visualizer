@@ -164,61 +164,60 @@ Output: graph {nodes, edges, input_tables, output_tables}
 
 ---
 
-## Algorithm 2 — L1 Graph (Cross-Script Pipeline)
+## Algorithm 2 — L1 Graph (Cross-Script Projection of the Queried Field's Flow)
 
-Runs on every search. Shows the cross-script data flow pipeline.
+Runs on every search. Shows the **queried field's data flow** at cross-script scale —
+scripts + the tables between them that carry the flow. **Semantic change 2026-08-12
+(R29, J12-22):** L1 is field-level (same strict walker as L2), NOT the table-level
+production BFS. The direction (upstream = writing, default / downstream = reading) is
+a **query setting in the query panel**, carried into the level1/level2 endpoints.
 
 ```
-Input:  workspace_id, target_table, target_field
+Input:  workspace_id, target_table, target_field,
+        direction (upstream | downstream, default upstream)
 Output: L1 graph {nodes, edges}
 
 2a. Find seed scripts from pair index
     pair_index[("stg_customers","customer_id")] → {step2, step3}
 
-2b. BFS expansion through shared tables
-    Seed scripts → tables they touch → other scripts touching those tables → repeat
-    visited_scripts = all scripts in the connected component
+2b. Per-script directional field flow (SAME walker as L2)
+    For each script in the workspace:
+      flow_i = field_flow(analysis_i, target_table, target_field, direction)
+      → the fields WRITING Y (upstream) / READING Y (downstream), per-instance
+      → the legacy table-level production BFS is GONE — a script that touches
+        the queried table but no queried-field flow yields an empty flow_i
 
 2c. Load per-script analysis (cached from step 1g)
-    For each script in visited_scripts:
+    For each script with a non-empty flow_i:
       → {input_tables, output_tables, graph, alias_map}
     Names already canonical. No aliases in input/output sets.
 
 2d. Classify tables by role (cross-script rollup)
-    all_inputs  = union of every script's input_tables
-    all_outputs = union of every script's output_tables
+    all_inputs  = union of every participating script's input_tables
+    all_outputs = union of every participating script's output_tables
 
     source_tables       = all_inputs - all_outputs
     intermediate_tables = all_inputs ∩ all_outputs
     output_tables       = all_outputs - all_inputs
 
-2e. Create table + script nodes + edges
+2e. Create table + script nodes + edges (participation by carried flow fields)
+    A table node is created iff it carries ≥1 field in the directional flow
+    (fields of the script's flow_i, projected to their owning table).
+    A script node is created iff its flow_i is non-empty.
     table nodes:  {id, label, type, table_name}
     script nodes: {id, label, type, script_name}
     edges: table → script (reads_from), script → table (writes_to)
 
-2f. Production BFS per script → lineage_field_pairs
-    For each script:
-      if target_table not in this script → skip
-      BFS from target_table through production edges only:
-        PRODUCTION = {REF, TRANSFORM, AGGREGATE, WINDOW, COMPUTED, DML, ALIAS}
-        + SCHEMA↑ (column → table)
-      → collect (table_name, field_name) of all reached columns
+2f. (removed — no lineage_field_pairs, no field nodes in L1; scale = scripts
+    + tables only; R29 2026-08-12)
 
-    Union across scripts + add target:
-    → lineage_field_pairs = set of (table_name, field_name) in lineage
+2g. (removed — same as 2f)
 
-2g. Create field nodes (only for pairs in lineage_field_pairs)
-    For each column in each script's graph:
-      if (table_name, field_name) ∈ lineage_field_pairs:
-        create field node with parent = table_node_id
-
-2h. R18.1 Empty table cleanup
-    Tables with ≥1 field → keep
-    Tables with 0 fields:
-      if written by a field-connected script → terminal marker → keep
-      else → remove
-    Outgoing edges from terminal marker → keep (manual L2 verification)
+2h. Cleanup
+    Tables with ≥1 carried flow field → keep
+    Tables with 0 carried flow fields → removed
+      (no terminal marker — the flow terminates at the last carrying table;
+       supersedes R18.1's L1 marker rules, R29 2026-08-12)
     Remove disconnected scripts
 
 2i. Layout + return
@@ -229,20 +228,26 @@ Output: L1 graph {nodes, edges}
 
 ## Algorithm 3 — L2 Graph (Per-Script Detail)
 
-Runs when user double-clicks a script node in L1.
+Runs when user double-clicks a script node in L1. L2 is the **zoom-in of L1**: the
+same field flow, in the same query direction, inside the clicked script. The
+direction (upstream = writing, default / downstream = reading) is carried from the
+query panel — no separate control (R29, 2026-08-12).
 
 ```
-Input:  workspace_id, script_name, target_table, target_field
+Input:  workspace_id, script_name, target_table, target_field,
+        direction (upstream | downstream, default upstream)
 Output: L2 graph {nodes, edges}
 
 3a. Load full graph (cached from step 1g)
     graph_3_2_15_{hash}.json → full_graph
     Names resolved. alias_map + table_fields pre-built.
 
-3b. Filter by lineage
-    lineage = compute_field_lineage(full_graph, table, field, table_schemas)
-    (SCHEMA validation works — names resolved, no fallback needed)
-    → keep only nodes/edges in lineage set → graph_data
+3b. Filter by the directional field flow
+    flow = field_flow(full_graph, table, field, direction)
+      — the STRICT field-level walker (per-instance table.field), restricted to
+        the query direction (upstream = fields writing Y / downstream = fields
+        reading Y)
+    → keep only nodes/edges in the flow → graph_data
 
 3c. Compound node construction
     table-like nodes → compound parents
@@ -1396,3 +1401,69 @@ User rulings (2026-08-11), requirements R26/R27/R28 in REQUIREMENTS.md. All thre
 - Rationale: R25 rule 5 already puts the flow-kind label ON every edge midpoint in category color — the edge legend duplicated the graph; the node roles were only S/T/W badges, never explained.
 - Node styles: distinct visual treatment for source / target / waypoint L2 table compounds, driven by the payload (`flow_role` full view; `flow_source`/`flow_target` filtered view; `is_target` seed copies) — renderer reads the payload, never guesses. Colors from the existing token palette.
 - Legend contents: Source node, Target node, Waypoint (source+target emphasized). Edge kinds stay visible on edges + hover tooltip (R25 secondary surface). L1 legend untouched. SCHEMA structure note stays reachable (toggle badge).
+
+---
+
+# J12-22 — L1 field-level data flow + upstream/downstream query direction (requirement change 2026-08-12)
+
+> **Date:** 2026-08-12 | **Status:** DEFINED (R29) — implementation pending, no source change
+
+## 1. The requirement (user's words, formalized)
+
+- L1 shows the **data flow of the queried field** — the same semantic as L2. The scale
+  differs: L1 = scripts + the tables between scripts (no fields); L2 = tables + fields
+  inside the script (L2 is the zoom-in of L1).
+- Data flow = the fields **writing** the queried field (upstream) and the fields
+  **reading** it (downstream).
+- Tables reading/writing the **queried table** — without the queried field's flow —
+  are **no longer included**.
+- The direction switch is a **query setting in the query panel** (upstream = writing
+  data flow, **default** / downstream = reading data flow) — NOT an L1 panel control.
+- L2 follows the query direction automatically (zoom-in consistency).
+- **Flow-reason anchoring (user ruling 2026-08-12):** the direction fixes which end of
+  the flow the queried field anchors in the L2 flow reason — downstream: the seed is
+  the flow SOURCE (R19.1 framing, unchanged); upstream: the seed is the flow TARGET
+  (the flow converges on it; the sources are the fields writing it).
+
+## 2. Why the current behavior differs (verified 2026-08-12)
+
+Current L1 (`l1_builder` + `dataflow_service._filter_l1_by_lineage`) filters by the
+LEGACY **table-level** lineage (`compute_field_lineage` over PRODUCTION_EDGES |
+SCHEMA + multi-hop expansion). Live case: searching `ODS_CUPD_CLD_ACCTMASTER_NEW.BNQXYE`,
+the script `BDM_ACC_LOAN_INFO_SUP_M.sql` appears as an L1 script node although it
+contains **0 occurrences** of BNQXYE, 0 of its source table, 0 of the BNQXYE-derived
+column `INT_OD_AMT` — it only reads `bdm_acc_loan_info` (the searched field's output
+TABLE, grep-verified). Under R29 it is excluded — a script participates only when it
+carries a field of the queried field's flow.
+
+## 3. Design deltas (implementation, when staffed)
+
+- **`l1_builder`**: per-script directional field flow with the SAME strict walker as
+  L2 (`compute_field_flow`-class, per-instance table.field), restricted to the query
+  direction (upstream = backward from Y over the writer rules / downstream = forward
+  over the reader rules). Project to script+table participation (a table participates
+  iff it carries ≥1 flow field; a script iff its flow is non-empty). Delete the
+  table-level production-BFS `lineage_field_pairs` path and the L1 field-node/terminal-
+  marker machinery.
+- **`dataflow_service` / `routers/dataflow`**: carry `direction` (default `upstream`)
+  from the search query into the level1 and level2 endpoints; L2 runs the same
+  direction. Flow-reason roles (R19.1 source / R19.2 targets) anchor by direction:
+  downstream keeps the seed as source; upstream renders the seed as the flow target
+  with the writing fields as the sources.
+- **Frontend**: query panel gains upstream/downstream buttons (query setting); no L1
+  panel control; L2 follows the view's direction automatically.
+- **Unchanged**: table-only searches (full table-level graph), L2's strict walker
+  semantics, R22.3 not-in-flow response (manual verification of absent fields), the
+  Jaccard gate — L1 is not gated; L2 must stay byte-identical at the default
+  direction (direction is orthogonal to the closure seed).
+
+## 4. Verification targets
+
+- Upstream (default) search of `T.F`: L1 = scripts + tables on F's writing flow; a
+  script reading T without F's flow is absent (SUP_M × BNQXYE case).
+- Downstream search: L1 = F's reading flow.
+- L2 opened from L1 renders the same direction (zoom-in); no L1 control.
+- L2 flow reason anchors by direction: downstream → seed = source; upstream → seed =
+  target (sources = the writing fields).
+- Table-only search: unchanged full table-level graph.
+- Jaccard gate + full backend suite green (L2 byte-identity at default direction).

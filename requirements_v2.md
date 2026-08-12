@@ -6,3 +6,19 @@ I am going to develop a requirement for the sql visualizer of a project.
 5. When click the node (script) on the first level graph, it will open the second level graph on the clicked script. 
 6. There should also a panel to show the SQL for the second level graph. The data flow related parts of the script should be high lighten. If the script is too long, it should be scrolled. There should be a export button to export data flow related SQL of the second level graph into an executable script. There should be a configuration file for sql export to be uploaded. If user doesn't upload any configuration it should use default configuration.
 7. The graph should try to reuse existing code.
+
+---
+
+### Amendment (2026-08-12) — L1 shows the queried FIELD's flow; upstream/downstream query direction
+
+§4 amended: the first-level graph shows the **data flow of the selected field** — the
+same semantic as the second-level graph — at cross-script scale: script nodes + the
+tables between scripts that carry the flow (no fields, no intra-script detail). Scripts
+and tables that only read or write the selected TABLE (without the selected field's
+flow) are not included.
+
+§2 amended: the query panel gains a direction setting — **upstream** (the writing data
+flow: fields writing the selected field; **default**) / **downstream** (the reading data
+flow: fields reading it). The first-level graph renders the flow in the chosen
+direction, and the second-level graph follows it automatically (it is the zoom-in of
+the first level).
