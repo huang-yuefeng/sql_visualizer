@@ -63,25 +63,35 @@ risky-spot flags resolved as follows:
    This doc writes the file's parens form; flow-irrelevant (closure seeds
    are on data_dt).
 
-**RECONSTRUCTION DEVIATIONS (file differs from the SOURCE screenshots —
-flow-irrelevant, none carries bdm_acc_loan_info.data_dt; the benchmark
-team may want them fixed in the file):**
-- **(a) L106** `,t_branch.org_no AS ORG_NO` — ACTIVE in the file; the
+**RECONSTRUCTION DEVIATIONS (resolved 2026-08-12 — the file now matches
+the SOURCE screenshots; none ever carried bdm_acc_loan_info.data_dt):**
+- **(a) L106** `,t_branch.org_no AS ORG_NO` — was ACTIVE at landing; the
   SOURCE has the column COMMENTED OUT (raw-pass x-coordinate: the leading
-  comma sits at x97.5, the shifted-right old-generation column, vs the
-  active column x88.5-90.5; the active ORG_NO is the literal
-  'CNHSBC900' at L107). The t_branch join L501-503 is commented in BOTH.
-- **(b) L278-289 150-block** — the K/L/I/CASE/END lines L278/280/282/
-  284/285/286/287 are ACTIVE in the file; the SOURCE has them COMMENTED
-  OUT (their commas sit at x98.5-110.5 — the old-generation column — vs
-  the active column x88-89.5 of L281/288/289/290; the p1/p2-based SUBSTR
-  lines L279/281/283/288/289 are active in BOTH). The L490 comment
-  `--150添加维护原始到期日` is an inline comment in both.
+  comma at x97.5 — the shifted-right old-generation column — vs the
+  active column x88.5-90.5). **FIXED by G2 (2026-08-12)**: the file now
+  has `--,t_branch.org_no AS ORG_NO --机构号`; the active ORG_NO is the
+  literal 'CNHSBC900' at L107; the t_branch join L501-503 is commented
+  in BOTH.
+- **(b) L278-289 150-block** — L278/280/282/284/285/286/287 were ACTIVE
+  at landing; the SOURCE has them COMMENTED OUT (their commas at
+  x98.5-110.5 vs the active column x88-89.5 of L281/288/289/290).
+  **FIXED by G2 (2026-08-12)**: the file now comments them — `--,` on
+  the comma-lines L278/280/282/284/286, `-- ` (no comma) on the END
+  lines L285/287 (G2's pixel work confirms no comma on the END lines).
+  The p1/p2-based SUBSTR lines L279/281/283/288/289 are active in BOTH;
+  the L490 comment `--150添加维护原始到期日` is an inline comment in both.
 - **(c) L491** — the file rewrites the source's MaxCompute-style
   `date_add('$(load_date)', -1)` as `date_add('$(load_date)', INTERVAL
   -1 DAY)` (sqlglot-mysql parse fix; same "yesterday" semantics).
 - **(d) L283** — `SUBSTR(p1.GXRQ, 1,4)...` in both file and source (the
   reconstruction notes' p1/p2 uncertainty resolved to p1).
+
+G2's fix was verified by three independent methods agreeing with this
+doc's x-coordinate reading (crop-level OCR dash artifacts on the 8 lines;
+6px dash-pair pixel geometry at x89-101 on the commented lines; "2"-
+shaped leading artifacts in the bulk OCR draft). Re-verified 2026-08-12:
+file still 562 lines, all anchor lines unchanged, sqlglot mysql parses
+(3 statements).
 
 > **WAIT-CONDITION NOTE (2026-08-12, updated):** the file-exists AND
 > parses condition is now SATISFIED — `samples/sql_sample_v1/
@@ -184,9 +194,9 @@ COMMENTED OUT (NOT in flow):
 ods_ccb_cb_loan_acctloantermhist (I)   L450-453  (join — replaced by K/L)
 ODS_CCB_REPAY_LOAN_ACCOUNT_DELTA (T)   L493-500  (derived P2 join — replaced by p2)
 bdm_pub_hsbc_acct_branch (t_branch)    L501-503  (join; the L106 column
-  t_branch.org_no is also commented out in the SOURCE — the active ORG_NO
-  is the literal 'CNHSBC900' at L107; NOTE the landed file has L106 ACTIVE
-  — reconstruction deviation (a))
+  t_branch.org_no is also commented out — the active ORG_NO is the
+  literal 'CNHSBC900' at L107; the landed file had L106 ACTIVE at
+  landing, fixed by G2 2026-08-12 — dev. (a))
 
 bdm_acc_loan_info ───────────────► rrcdm_job_log_exec_par  (stmt2 INSERT INTO L549, job log)
   read L559 (bare) → INSERT L549
@@ -322,6 +332,13 @@ data_dt closure — the field is never read in stmt1 (its only stmt1
 occurrence is the partition write); every source's load-date filter is its
 own P_DT/data_dt (negative proof §4.1). Requirement semantics:
 one-source→targets flow, no dead-ends, no-bypass cross-statement.
+NOTE (2026-08-12, comment-fix round): the columns now commented out in
+the final file — L106 ORG_NO (t_branch.org_no) and the 150-block
+L278/280/282/284/285/286/287 (K/L/I/CASE/END columns, devs. (a)/(b)) —
+carry NO bdm_acc_loan_info.data_dt occurrence (the CASEs' only
+data_dt-adjacent token is the '$(load_date)' literal, and literals are
+not traced). The closure count (8 nodes / 2 sinks) and the §4.3/§8.5
+requirement rows are UNCHANGED by the comment fix.
 
 ### 4.3 Edge inventory — what the graph must have (REQUIREMENT, mirrors SUP §4.3 items 3/4)
 
