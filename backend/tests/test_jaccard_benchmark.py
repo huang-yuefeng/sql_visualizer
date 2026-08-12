@@ -89,8 +89,10 @@ highlight_line >= 1; every canonical node must be realized in A; no
 duplicate (parent, label) pairs among Sync-2 DML phantom field nodes
 (id prefix "dml_") — the R11-2 rrcdm duplicate-data_dt regression guard
 (Round 12, 2026-08-10). The phantom scope, not the naive (parent, label)
-over all fields: per-statement source-side fields (C-9 dedup key
-(parent_table_id, label, stmt_idx)) legitimately repeat a label under one
+over all fields: per-statement source-side fields (the C-9 dedup key —
+(parent_table_id, label) since the 2026-08-11 J12-16 merge folded
+same-named field instances into ONE display field per physical table,
+dropping stmt_idx) legitimately repeat a label under one
 table — only the target-table column DISPLAY (the dml_ phantom copies)
 must show each column once. (2026-08-11: the J12-13 requirement nodes
 sup@223 / data_dt@225 were added to the bdm closure in point 9 and are
@@ -125,10 +127,21 @@ from app.extractor.variable_extractor_v2 import extract_variables_from_sql
 from app.extractor.dependency_graph import build_dependency_graph
 from app.services.l2_builder import _build_l2_graph
 
-SQL_NAME = "BDM_ACC_LOAN_INFO_SUP_M.sql"
+# Per-seed script files (pl-seed round 2026-08-11 — script-scoped wiring;
+# "bdm" seed semantics must stay as-is). SQL_NAME dropped: build_a reads
+# the seed's own script (the pl seed is a NEW script, BDM_ACC_LOAN_INFO_PL.sql).
+SQL_FILES = {
+    "bdm": "BDM_ACC_LOAN_INFO_SUP_M.sql",
+    "sup": "BDM_ACC_LOAN_INFO_SUP_M.sql",
+    "pl": "BDM_ACC_LOAN_INFO_PL.sql",
+}
 TARGET_FIELD = "data_dt"
-SEED_TABLE = {"bdm": "bdm_acc_loan_info", "sup": "bdm_acc_loan_info_sup"}
-SEEDS = ("bdm", "sup")
+SEED_TABLE = {"bdm": "bdm_acc_loan_info", "sup": "bdm_acc_loan_info_sup",
+              "pl": "bdm_acc_loan_info"}
+# SEEDS: "pl" joined 2026-08-12 once BDM_ACC_LOAN_INFO_PL.sql existed and
+# parsed (wait condition met — see tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO.md
+# §8.5 for the probe-pinned served forms).
+SEEDS = ("bdm", "sup", "pl")
 FEATURES = ("nodes", "edges", "highlights")
 
 # ── Floors (recall/precision pairs, J12-12 2026-08-11): no direction may
@@ -169,16 +182,30 @@ FLOORS = {
         "edges": {"recall": 1.0000, "precision": 1.0000},
         "highlights": {"recall": 1.0000, "precision": 1.0000},
     },
+    # "pl" seed (BDM_ACC_LOAN_INFO_PL.sql, pl-seed round 2026-08-11/12):
+    # measured 2026-08-12 after the J12-17 trunk fix (bare-INSERT output
+    # VT) — every requirement row (P15/P18/P22/P16) and probe-pinned
+    # extra (R1/V1/V2/M1/F1) matched, every canonical node realized:
+    # nodes 8/7 (= 1.1429 — the 7 served nodes realize all 8 canonical
+    # entries; the edgeless charge_department@265 FILTER-zone admission
+    # is the R11-2-style documented extra, doc §8.5), edges 9/9,
+    # highlights 5/5. FLOORS ratchet to the full 1.0000/1.0000.
+    "pl": {
+        "nodes": {"recall": 1.0000, "precision": 1.0000},
+        "edges": {"recall": 1.0000, "precision": 1.0000},
+        "highlights": {"recall": 1.0000, "precision": 1.0000},
+    },
 }
 
 
 def build_a(seed):
     """Filtered L2 output for the seed's target field (served semantics)."""
-    sql = open("/app/samples/sql_sample_v1/BDM_ACC_LOAN_INFO_SUP_M.sql",
+    script = SQL_FILES[seed]
+    sql = open("/app/samples/sql_sample_v1/" + script,
                encoding="utf-8").read()
-    result = extract_variables_from_sql(sql, SQL_NAME)
+    result = extract_variables_from_sql(sql, script)
     build_dependency_graph(result, sql)
-    l2 = _build_l2_graph("bench", SQL_NAME, sql, SEED_TABLE[seed], TARGET_FIELD)
+    l2 = _build_l2_graph("bench", script, sql, SEED_TABLE[seed], TARGET_FIELD)
     g = l2.get("graph") if isinstance(l2.get("graph"), dict) else l2
     nodes = {n["data"]["id"]: n["data"] for n in g["nodes"]}
     edges = [e["data"] for e in g["edges"]]
@@ -279,6 +306,15 @@ def match_seed(seed, nodes, edges):
 R19_3_CHAIN = {
     "bdm": [15, 21, 22, 16],
     "sup": [15, 18, "B1", 16],
+    # "pl" seed (2026-08-11 pl-seed round, BDM_ACC_LOAN_INFO_PL.sql) —
+    # the sup-chain mirror on bdm_acc_loan_info: P15 stmt-1 write leg
+    # output1 -> bdm@<L1t> (TABLE_FLOW, flow_kind='write'), P18 stmt-2
+    # read data_dt@<L2w> -> bdm@<L2f> (REF), P22 the reader's read leg
+    # bdm@<L2f> -> output2 (TABLE_FLOW), P16 stmt-2 write leg
+    # output2 -> rrcdm@<L2t> (TABLE_FLOW, flow_kind='write'). Line
+    # numbers (<L1t>/<L2f>/<L2t>) are pinned by the pl probe (ground
+    # truth doc §4.2/§8.5).
+    "pl": ["P15", "P18", "P22", "P16"],
 }
 
 
@@ -330,8 +366,11 @@ def r19_3_chain_problems(seed, nodes, edges, inc):
     `sup@223 → output2` (row 22 bdm / B1 sup), write leg `output2 →
     rrcdm@211` (row 16, flow_kind='write'). A DML WRITE_READ bypass
     (output → rrcdm directly, skipping the read) alone fails — the
-    missing read-leg hop breaks the chain. Returns problem strings;
-    empty = chain OK."""
+    missing read-leg hop breaks the chain. pl-seed round (2026-08-11):
+    the four legs are parameterized — leg_ids[0] = stmt-1 write leg,
+    leg_ids[1] = stmt-2 read, leg_ids[2] = reader's read leg,
+    leg_ids[3] = stmt-2 write leg (the "pl" seed mirrors this chain as
+    P15/P18/P22/P16). Returns problem strings; empty = chain OK."""
     problems = []
     leg_ids = R19_3_CHAIN[seed]
     legs = {}
@@ -346,24 +385,30 @@ def r19_3_chain_problems(seed, nodes, edges, inc):
                 f"{entry['src']} -> {entry['dst']} "
                 f"({entry['type']}@{entry['anchor']}, row {row_id}) -- "
                 f"the flow chain does not route THROUGH the reader "
-                f"instance at L223")
+                f"instance at L{entry['dst'].rsplit('@', 1)[-1]}")
             continue
         legs[row_id] = hit
         used.add(hit["id"])
     if len(legs) == len(leg_ids):
-        w = legs[15]           # write leg output1 -> sup@160
-        rd = legs[leg_ids[1]]  # statement-2 read -> sup@223
-        rl = legs[leg_ids[2]]  # read leg sup@223 -> output2
-        w2 = legs[16]          # write leg output2 -> rrcdm@211
+        w_entry = next(e for e in JC.CANONICAL_EDGES
+                       if e["seed"] == seed and e["row"] == leg_ids[0])
+        rd_entry = next(e for e in JC.CANONICAL_EDGES
+                        if e["seed"] == seed and e["row"] == leg_ids[1])
+        w2_entry = next(e for e in JC.CANONICAL_EDGES
+                        if e["seed"] == seed and e["row"] == leg_ids[3])
+        w = legs[leg_ids[0]]   # write leg output1 -> target1
+        rd = legs[leg_ids[1]]  # statement-2 read -> reader instance
+        rl = legs[leg_ids[2]]  # read leg reader instance -> output2
+        w2 = legs[leg_ids[3]]  # write leg output2 -> rrcdm
         if w.get("flow_kind") != "write":
             problems.append(
-                f"R19.3: {seed} write leg output->sup@160 must be "
+                f"R19.3: {seed} write leg output->{w_entry['dst']} must be "
                 f"flow_kind='write' (MISSING item 3 -- the engine emits "
                 f"DML as TABLE_FLOW stamped write, id *_dml_out), got "
                 f"{w.get('flow_kind')!r}")
         if w2.get("flow_kind") != "write":
             problems.append(
-                f"R19.3: {seed} write leg output->rrcdm@211 must be "
+                f"R19.3: {seed} write leg output->{w2_entry['dst']} must be "
                 f"flow_kind='write', got {w2.get('flow_kind')!r}")
         if rd["target"] != w["target"]:
             problems.append(
@@ -371,17 +416,20 @@ def r19_3_chain_problems(seed, nodes, edges, inc):
                 f"{rd['target']} != write-leg dst {w['target']} -- the "
                 f"write→read link (MISSING item 4) must be incident on "
                 f"the SAME node: the R22-merged reader instance at "
-                f"L160/L223")
+                f"L{rd_entry['dst'].rsplit('@', 1)[-1]}")
         if rl["source"] != w["target"]:
             problems.append(
                 f"R19.3 no-bypass: {seed} read-leg src {rl['source']} != "
-                f"write-leg dst {w['target']} -- sup must chain forward "
-                f"THROUGH the reader instance at L223")
+                f"write-leg dst {w['target']} -- "
+                f"{w_entry['dst'].rsplit('@', 1)[0]} must chain forward "
+                f"THROUGH the reader instance at "
+                f"L{rd_entry['dst'].rsplit('@', 1)[-1]}")
         if not _reachable_flow(rl["target"], w2["source"], edges):
             problems.append(
                 f"R19.3 no-bypass: {seed} the chain does not continue from "
-                f"the read-leg output VT ({rl['target']}) to the rrcdm "
-                f"write-leg source ({w2['source']}) -- NO flow-only path "
+                f"the read-leg output VT ({rl['target']}) to the "
+                f"{w2_entry['dst']} write-leg source ({w2['source']}) -- "
+                f"NO flow-only path "
                 f"(TABLE_FLOW/REF/DML/ALIAS hops only; SCHEMA/SUBSET/_value "
                 f"detours excluded): the write leg must attach to its own "
                 f"statement's output VT (J12-15 defect class)")

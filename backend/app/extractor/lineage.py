@@ -726,6 +726,26 @@ def compute_field_flow(graph_data, target_table, target_field,
                         and nb_o.get("variable_type") in FIELD_LIKE
                         and _occ_field_part(nb_o) == target_field
                     )
+                    if not admit and nb_o is not None:
+                        # D2 (2026-08-12): a statement's OWN output VT
+                        # (context exactly TOP{numeric} — a bare/VALUES
+                        # INSERT names its output "⟐ insert", not "⟐
+                        # output"; nested ⟐ containers carry "/" or ":"
+                        # context segments) is the write leg's trunk:
+                        # admitted backward from an admitted DML target
+                        # when the statement's write leg carries the
+                        # searched field — the same gate as the forward
+                        # admit, so the trunk joins the closure only when
+                        # the statement actually writes the field (the
+                        # routed trunk→target write leg needs its own
+                        # trunk node — J12-17).
+                        if nb_o.get("variable_type") == "virtual_table":
+                            _nb_ctx = (nb_o.get("context") or "")
+                            if (_nb_ctx.startswith("TOP")
+                                    and _nb_ctx[3:].isdigit()
+                                    and target_field.lower()
+                                    in _dml_write_leg.get(nid, ())):
+                                admit = True
                     if fwd:
                         # D2 (2026-08-12): never field-blind — the
                         # statement must actually carry the searched
