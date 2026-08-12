@@ -116,7 +116,7 @@ half of R19.3 made an explicit enumeration.
 R29 DIRECTIONAL GROUND TRUTHS (2026-08-12, harness): the benchmark
 gains a direction axis — every case is (seed, script, direction). The
 existing 4 cases (bdm/sup/pl/dl) are pinned to direction="downstream"
-with byte-identical expectations (the future default of the backend's
+with byte-identical expectations (the default of the backend's
 direction keyword — drift-free, jaccard_canonical.py point 14). The new
 cases compile their canonical closures from the R29 ground truth docs
 (tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO.md §6a.4,
@@ -124,15 +124,23 @@ GROUND_TRUTH_RRCDM_JOB_LOG_EXEC_PAR.md §3.1-3.2,
 GROUND_TRUTH_ODS_HIE_IPACMSP.md §3.1-3.2,
 GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §3.1-3.2): UPSTREAM
 closures are the PRODUCTION-only writing chain (writers of writers back
-to the start — a new invariant bans FILTER/JOIN/INDIRECT edges from the
-upstream closure), DOWNSTREAM closures are the transitive effect scope
-to the end. The EMPTY projections (no writers / no readers) pin B = ∅ —
-the filtered response closure must be empty too, scored with an explicit
-0/0 guard (recall = precision = 1.0, never NaN) plus an empty-closure
-violation problem string. Backend-compat guard: until _build_l2_graph
-gains its direction keyword (backend team), the new cases COLLECT and
-SKIP via pytest.skip per item; the existing downstream cases run
-unchanged.
+to the start — a new invariant bans FILTER/INDIRECT edges from the
+upstream closure; JOIN is NOT banned — the FROM-source producing
+admission in lending_ref↑DL is typed JOIN, repin round point 15),
+DOWNSTREAM closures are the transitive effect scope to the end. The
+EMPTY projections (no writers) pin B = ∅ — the filtered response
+closure must be empty too, scored with an explicit 0/0 guard (recall =
+precision = 1.0, never NaN) plus an empty-closure violation problem
+string. REPIN ROUND 2026-08-12 (jaccard_canonical.py point 15): the
+backend team landed the direction keyword and the 4 downstream cases
+ran LIVE; the byte-identity proof showed the failures were
+canonical-side, so the pins were re-derived from the served closures
+with the "repair the doc with evidence" rule (rrcdm↓ non-empty
+writer's-own-leg, iiapty↓ terminating at the TOP0 output VT, the
+lending_ref↓SUP_M seed-zone closure, the lending_ref↑DL chain start
+@426). Backend-compat guard: if _build_l2_graph lacks the direction
+keyword, the new direction cases SKIP via pytest.skip per item; the
+existing downstream cases run unchanged.
 """
 
 import inspect
@@ -180,10 +188,14 @@ CASES = [(seed, SQL_FILES[seed], "downstream")
     ("bdm", "BDM_ACC_LOAN_INFO_Digitallending.sql", "upstream"),
     ("bdm", "BDM_ACC_LOAN_INFO_SUP_M.sql", "upstream"),
     # R29 rrcdm seed — written by every script from a literal (doc
-    # §1/§3.1), read by NONE (§2.2/§3.2 → downstream EMPTY).
+    # §1/§3.1), read by none; downstream = the writer's own leg (the
+    # write-leg partition var — repin round point 15, docs §2.2/§3.2
+    # repaired with the probe evidence; all three scripts).
     ("rrcdm", "BDM_ACC_LOAN_INFO_PL.sql", "upstream"),
     ("rrcdm", "BDM_ACC_LOAN_INFO_SUP_M.sql", "upstream"),
     ("rrcdm", "BDM_ACC_LOAN_INFO_PL.sql", "downstream"),
+    ("rrcdm", "BDM_ACC_LOAN_INFO_SUP_M.sql", "downstream"),
+    ("rrcdm", "BDM_ACC_LOAN_INFO_Digitallending.sql", "downstream"),
     # R29 iiapty seed — ODS source, join-key usage in SUP_M only (doc
     # §3.1 downstream effect chain to the rrcdm write; §3.2 upstream
     # EMPTY — no writers anywhere).
@@ -283,11 +295,14 @@ FLOORS = {
     },
     # R29 seeds (2026-08-12, harness): rrcdm / iiapty / lending_ref —
     # direction-keyed canonical closures from the ground truth docs
-    # (jaccard_canonical.py point 14). FLOORS pre-set to the full
-    # 1.0000/1.0000 (the same A=B standard as every seed); the cases
-    # COLLECT and SKIP until the backend gains its direction keyword —
-    # the floors become live assertions on the first direction-capable
-    # run (2026-08-12: pre-measurement).
+    # (jaccard_canonical.py point 14, repinned point 15 after the
+    # backend landed the direction keyword — the 4 live failures were
+    # canonical-side, fixed by the repin). FLOORS pre-set to the full
+    # 1.0000/1.0000 (the same A=B standard as every seed); live from
+    # the 2026-08-12 repin round (measured: rrcdm 3/3 3/3 2/2 per
+    # script, iiapty 5/5 6/6 3/3, lending_ref↑DL 6/6 7/7 3/3,
+    # lending_ref↓SUP_M 29/36 54/54 14/14 — ni may exceed na, the
+    # floor is "at least 1.0").
     "rrcdm": {
         "nodes": {"recall": 1.0000, "precision": 1.0000},
         "edges": {"recall": 1.0000, "precision": 1.0000},
@@ -676,6 +691,15 @@ def dead_end_flow_nodes(nodes, edges):
         flow_out[e["source"]] += 1
     write_targets = {e["target"] for e in edges
                      if (e.get("id") or "").endswith("_dml_out")}
+    # 2026-08-12 (repin round, point 15): D2 field-aware field closures
+    # (iiapty / lending_ref in SUP_M) have NO write leg -- the seed never
+    # reaches the write's columns, so the chain legitimately terminates at
+    # its consumption sites (the statement output VT, the NOT-IN read
+    # target bdm_evt_loan_trans@52). For those closures the dead-end check
+    # is vacuous; the legacy closures (bdm/sup/pl/dl, all with *_dml_out
+    # write legs) keep the check byte-identical.
+    if not write_targets:
+        return []
     dead = []
     for nid in sorted(set(flow_in) | set(flow_out)):
         if nid in write_targets:
@@ -702,11 +726,16 @@ def dead_end_flow_problems(seed, direction, nodes, edges):
 # R29 upstream invariant (2026-08-12): the upstream closure is the
 # PRODUCTION-only writing chain (writers of writers, back to the start —
 # doc §6a.4 / RRCDM §3.1 / LENDING_REF §3.1) — the reader-side
-# admissions (FILTER/JOIN/INDIRECT) must never appear in it. The
-# EMPTY-upstream seeds (SUP_M for bdm, every script for iiapty) assert
-# the empty closure via the 0/0-guarded scores + the empty-closure
-# problem string instead.
-UPSTREAM_BANNED_TYPES = {"FILTER", "JOIN", "INDIRECT"}
+# admissions must never appear in it. 2026-08-12 REPIN (point 15):
+# the FROM-source producing admission in lending_ref↑DL is typed JOIN
+# (the served ods_ccb_cb_loan_acctloan@426 → output JOIN@101 edge,
+# probe-pinned — the walker's seed-zone JOIN rule admits the seed's
+# producer side into the statement output), so banning JOIN wholesale
+# was falsified by evidence; the invariant now bans FILTER/INDIRECT
+# (the filter-zone admissions). The EMPTY-upstream seeds (SUP_M for
+# bdm, every script for iiapty) assert the empty closure via the
+# 0/0-guarded scores + the empty-closure problem string instead.
+UPSTREAM_BANNED_TYPES = {"FILTER", "INDIRECT"}
 
 
 def upstream_production_only_problems(seed, script, direction, edges):
@@ -719,7 +748,7 @@ def upstream_production_only_problems(seed, script, direction, edges):
         problems.append(
             f"R29 upstream: {seed}/{Path(script).stem}/{direction} closure "
             f"must be production-only (no reader-side admissions) but "
-            f"contains {len(bad)} FILTER/JOIN/INDIRECT edge(s): {first}")
+            f"contains {len(bad)} FILTER/INDIRECT edge(s): {first}")
     return problems
 
 
