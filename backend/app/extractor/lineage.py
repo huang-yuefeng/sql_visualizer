@@ -16,6 +16,8 @@ are thin wrappers in dataflow_service.py that call these functions.
 from __future__ import annotations
 import logging
 
+from .walkable_set import FIELD_WALKABLE, NEVER_WALKED
+
 _log = logging.getLogger('dataflow')
 
 # ── Edge semantics table (single source of truth) ──
@@ -422,12 +424,14 @@ FIELD_LIKE = {"column", "cte_column", "literal", "aggregate", "expression",
 # Phase 4d/8 — commit 28d8210 retyped them from SUBSET to REF) are walked
 # ONLY field → holder; value-copy REF and the other types here are
 # bidirectional (the walker reads the edge's `read` flag from the adjacency).
-FIELD_LAND = {"REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED"}
-# Never walked by the strict walker. TABLE_FLOW/SCHEMA are replaced by
-# identity resolution (SCHEMA's label-keyed targets are last-writer-wins and
-# topologically broken); SUBQUERY/SET_OP/CORRELATED/INDIRECT/SUBSET carry no
-# field identity.
-NEVER = {"TABLE_FLOW", "SUBQUERY", "SET_OP", "CORRELATED", "INDIRECT", "SUBSET", "SCHEMA"}
+FIELD_LAND = FIELD_WALKABLE
+# Never walked by the strict walker. TABLE_FLOW has its own conditional
+# rule (forward-only, source identity in the chain) so it never reaches
+# the reject branch; the rest are the contract's NEVER_WALKED set.
+# TABLE_FLOW/SCHEMA are replaced by identity resolution (SCHEMA's
+# label-keyed targets are last-writer-wins and topologically broken);
+# SUBQUERY/SET_OP/CORRELATED/INDIRECT/SUBSET carry no field identity.
+NEVER = NEVER_WALKED
 
 
 def _is_containment(ed) -> bool:

@@ -343,3 +343,71 @@ class TestLoggerStderrGating:
         # Restore the default (env unset) for the rest of the suite.
         monkeypatch.delenv("SQL_VIZ_LOG_STDERR", raising=False)
         importlib.reload(lm)
+
+
+# ═══════════════════ 7. zip upload path-traversal members dropped ═══════════════════
+
+class TestZipTraversalDropped:
+    """create_workspace must never write outside <ws>/scripts.
+
+    The old guard was a string-prefix check (`str(target).startswith(
+    str(scripts_dir))`) — component-blind, so a member like
+    `../scripts_evil/evil.sql` (a sibling dir whose name merely *starts
+    with* "scripts") resolved inside the workspace yet passed, and any
+    sibling workspace whose id string-prefixes this one's would have been
+    writable too. The guard is now component-wise (is_relative_to, the
+    same idiom as get_script_path).
+    """
+
+    def _zip_with(self, members: dict[str, str]) -> bytes:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for name, content in members.items():
+                zf.writestr(name, content)
+        return buf.getvalue()
+
+    def test_sibling_scripts_dir_member_dropped(self):
+        """`../scripts_evil/…` was the string-prefix false-accept — must drop."""
+        ws_id = create_workspace(self._zip_with({
+            "ok.sql": UNIT_SQL,
+            "../scripts_evil/evil.sql": "-- evil\n",
+            "../escape.sql": "-- escape\n",
+            "../cache/evil.json": "{}\n",
+        }))
+        try:
+            ws_dir = get_workspace_dir(ws_id)
+            assert (ws_dir / "scripts" / "ok.sql").exists(), "legit member lost"
+            assert not (ws_dir / "scripts_evil").exists(), (
+                "sibling `scripts*` dir write accepted")
+            assert not (ws_dir / "escape.sql").exists(), (
+                "member escaped scripts/ into the ws root")
+            assert not (ws_dir / "cache" / "evil.json").exists(), (
+                "member escaped into the ws cache dir")
+        finally:
+            delete_workspace(ws_id)
+
+    def test_deep_dotdot_chain_dropped(self):
+        """`../../` climbs to WORKSPACE_ROOT — must drop."""
+        ws_id = create_workspace(self._zip_with({
+            "../../evil_root.sql": "-- evil\n",
+        }))
+        try:
+            ws_dir = get_workspace_dir(ws_id)
+            assert not (ws_dir.parent / "evil_root.sql").exists()
+            assert not (ws_dir / "scripts" / "evil_root.sql").exists()
+        finally:
+            delete_workspace(ws_id)
+
+    def test_absolute_member_dropped(self):
+        """An absolute-path member must never be extracted (zipfile lets
+        namelist carry absolute names; pathlib would join-and-resolve)."""
+        ws_id = create_workspace(self._zip_with({
+            "/tmp/e4_zip_abs_abs.sql": "-- evil\n",
+        }))
+        try:
+            ws_dir = get_workspace_dir(ws_id)
+            assert not list(ws_dir.rglob("e4_zip_abs_abs.sql")), (
+                "absolute member extracted")
+            assert not Path("/tmp/e4_zip_abs_abs.sql").exists()
+        finally:
+            delete_workspace(ws_id)

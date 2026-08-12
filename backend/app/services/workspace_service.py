@@ -83,9 +83,12 @@ def create_workspace(zip_bytes: bytes) -> str:
             # Skip directories and __MACOSX junk
             if member.endswith('/') or member.startswith('__MACOSX'):
                 continue
-            # Security: prevent path traversal
+            # Security: prevent path traversal (component-wise, like
+            # get_script_path — a string-prefix check would accept
+            # `../scripts_evil/x.sql` and any id-prefix-colliding sibling
+            # workspace as "inside").
             target = (scripts_dir / member).resolve()
-            if not str(target).startswith(str(scripts_dir.resolve())):
+            if not target.is_relative_to(scripts_dir.resolve()):
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(member) as src, open(target, 'wb') as dst:
