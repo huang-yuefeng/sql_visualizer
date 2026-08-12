@@ -1086,3 +1086,56 @@ recorded seed `rollover_loan_info.lending_ref`:
 - Probed closures pre/post (sup seeds, served L2): 6/6/7 → 5/5/7
   (charge_department/lending_ref); `data_dt` 7 → 7 (unchanged).
   Walker-level: 7/7/10 → 6/6/10.
+
+---
+
+## PL seed round — snapshot rebaseline (2026-08-12, Team D respawn)
+
+> Documented BEFORE the rebaseline run (standing rule). Probe-verified:
+> every content change below was produced by a read-only probe
+> (fresh `_run_build` serialization vs the committed snapshot files)
+> before `L2_SNAPSHOT_UPDATE=1` was executed.
+
+**Engine causes (two, both this round):**
+
+1. **Script addition (phase-1 deliverable):** the pl seed script
+   `samples/sql_sample_v1/BDM_ACC_LOAN_INFO_PL.sql` joined `sql_sample_v1`
+   (4 statements: `SET`@18, bare `INSERT`@19 [TOP0],
+   `SELECT`@21-251 [TOP1], `INSERT INTO rrcdm_job_log_exec_par`@253-265
+   [TOP2]). The harness (`test_l2_snapshot.py::_collect_scripts`) globs
+   `sql_sample_v1/*.sql` then `tpcds_qualified/*.sql`, sorted by name,
+   capped at `MAX_SCRIPTS=12` — the addition shifts every index and
+   pushes `11.sql` off the cap.
+2. **J12-17 bare-INSERT trunk fix (engine):** `_simplify_dml_edges`'
+   stmt-trunk registration only recognized the entity key `('⟐ output',
+   TOPn)`; a bare/VALUES `INSERT` (no SELECT body) names its output VT
+   `"⟐ insert"` (extractor), so the PL script's statement-1 write leg had
+   no trunk. Fix: the trunk check accepts ANY statement-level output VT
+   (entity name `⟐ *`, context exactly `TOP{numeric}`), plus a rule-2
+   self-loop guard (a bare INSERT's raw REF-READ `⟐insert→target`
+   duplicates the routed write leg — dropped, not retargeted), plus a
+   reverse-DML admit in `compute_field_flow` (a statement's own output VT
+   joins the closure backward from an admitted DML target only when the
+   statement's write leg carries the searched field).
+
+**Verified snapshot inventory (rebaselined 2026-08-12):**
+
+| File | Diff |
+|---|---|
+| 00_BDM_ACC_LOAN_INFO_PL.sql | **NEW** (no prior file). Seed `('bdm_acc_loan_info','data_dt')`; filtered view 7 nodes / 9 edges (the 9 canonical pl rows: P15/P16/P18/P22 + R1/V1/V2/M1/F1 — incl. the `insert`@19 trunk node and both write legs `hl=19`/`hl=253`, `_dml_out` ids, `flow_kind=write`); full view 302 nodes / 316 edges. Two independent builds byte-identical under PYTHONHASHSEED=0 (determinism probe). |
+| 01_BDM_ACC_LOAN_INFO_SUP_M.sql | Renumbered from 00; **content byte-identical** (probe: fresh serialization == committed file — the J12-17 admit never fires for the sup seeds). |
+| 02_01.sql … 11_10.sql | Renumbered from 01…10; **content byte-identical** (probe: 10/10 identical — the J12-17 admit never fires for the tpcds seeds). |
+| (old) 11_11.sql | Leaves the harness (12-script cap); stale file deleted. |
+
+Node/edge id sets, lines, reasons, seed selection: unchanged everywhere
+except the new 00 PL file. The `graph_3_2_23` cache prefix is NOT bumped
+(the J12-17 fix only re-routes closure edges for bare/VALUES-INSERT
+scripts — served payload shape unchanged).
+
+**Pin updates in the same round:**
+- `test_l2_snapshot.py` — unchanged; only the snapshot files renumber.
+- `test_dataflow/test_single_script_l1.py` — fixture `single_script_ws`
+  zipped the whole `sql_sample_v1` dir (`_make_zip(CASE_DIR)`); with the
+  PL script present the workspace is no longer single-script
+  (`match_mode='expanded'`, 2 script_ids). Fixture now zips exactly
+  `SCRIPT_NAME` — the test's single-script intent is restored.

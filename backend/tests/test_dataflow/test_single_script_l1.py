@@ -20,8 +20,10 @@ Fix (R24):
      still returns match_mode=no_matches + message + empty L1.
 """
 import asyncio
+import io
 import json
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -29,8 +31,6 @@ import pytest
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 REPO_ROOT = BACKEND_DIR.parent
 sys.path.insert(0, str(BACKEND_DIR))
-
-from tests.test_dataflow.conftest import _make_zip  # noqa: E402
 
 from app.services.workspace_service import get_workspace_dir  # noqa: E402
 
@@ -44,11 +44,22 @@ TARGET_FIELD = "lending_ref"
 ABSENT_FIELD = "ABROAD_LOAD_PURPOSE"
 
 
+def _single_script_zip() -> bytes:
+    """Zip exactly SCRIPT_NAME — sql_sample_v1 gained the pl-seed script
+    (BDM_ACC_LOAN_INFO_PL.sql, pl-seed round 2026-08-12), so the folder is
+    no longer single-script; the workspace must stay single-script for
+    match_mode='exact' (R24)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.write(CASE_DIR / SCRIPT_NAME, SCRIPT_NAME)
+    return buf.getvalue()
+
+
 @pytest.fixture
 def single_script_ws(workspace_client):
     """Single-script workspace built from samples/sql_sample_v1 (the user's
     exact repro folder), indexed, ready to search."""
-    ws_id = workspace_client.create(_make_zip(CASE_DIR))
+    ws_id = workspace_client.create(_single_script_zip())
     try:
         workspace_client.index(ws_id)
         yield ws_id

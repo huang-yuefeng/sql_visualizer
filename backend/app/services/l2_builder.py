@@ -1003,13 +1003,18 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
             break
 
     # ── J12-15: per-statement trunk map ──
-    # For every raw DML edge whose source var is a statement's ⟐ output VT
-    # (the model's entity_of_id key ('⟐ output', TOPn) — output VTs are
-    # (name, context)-keyed virtual entities with exactly one occurrence,
-    # the raw edge's source var), the statement's own output-VT compound
-    # becomes stmt_trunk[TOPn]. Statements without an output VT in the
-    # graph fall back to the global intermediate (mission contract: the
-    # "⟐ output"-preferred fallback stays for missing statement outputs).
+    # For every raw DML edge whose source var is a statement's own output
+    # VT — the model's entity_of_id key ('⟐ <name>', TOPn), output VTs
+    # being (name, context)-keyed virtual entities with exactly one
+    # occurrence, the raw edge's source var (J12-17: the name is not
+    # always "⟐ output" — a bare/VALUES INSERT (no SELECT body) names
+    # its output "⟐ insert"; any "⟐ "-prefixed statement-level VT whose
+    # context is exactly TOP{numeric} qualifies — nested ⟐ containers
+    # carry "/" or ":" context segments and are never DML sources). The
+    # statement's own output-VT compound becomes stmt_trunk[TOPn].
+    # Statements without an output VT in the graph fall back to the
+    # global intermediate (mission contract: the "⟐ output"-preferred
+    # fallback stays for missing statement outputs).
     by_orig = {tn.get("original_id"): tn for tn in table_nodes.values()}
     stmt_trunk = {}
     if physical_model is not None:
@@ -1020,12 +1025,18 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
                 continue
             src = fed.get("source", "")
             ekey = physical_model.entity_of_id.get(src)
+            _ek_ctx = ekey[1] if (
+                isinstance(ekey, tuple) and len(ekey) == 2
+                and isinstance(ekey[1], str)) else ""
             if not (isinstance(ekey, tuple) and len(ekey) == 2
-                    and isinstance(ekey[0], str) and ekey[0] == "⟐ output"):
+                    and isinstance(ekey[0], str)
+                    and ekey[0].startswith("⟐ ")
+                    and _ek_ctx.startswith("TOP")
+                    and _ek_ctx[3:].isdigit()):
                 continue
             tn = by_orig.get(src)
             if tn is not None:
-                stmt_trunk[ekey[1]] = tn["id"]
+                stmt_trunk[_ek_ctx] = tn["id"]
     # ALL ⟐ output compound ids — the per-statement trunk guards (rules
     # 1/2 and pattern 2) must exempt every output compound, not just the
     # global intermediate: the FIXED statement-1 write leg (output@TOP1
@@ -1127,6 +1138,13 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
             and etype != "TABLE_FLOW"
             and src not in output_ids and tgt not in output_ids
             and intermediate_id):
+            if src == _trunk_for(e):
+                # J12-17: the edge already starts at its own statement's
+                # trunk — retargeting would fold it into a self-loop
+                # (a bare/VALUES INSERT's raw REF READ ⟐insert→target
+                # duplicates the routed write leg trunk→target; its flow
+                # is already represented). Drop the redundant duplicate.
+                continue
             e["target"] = _trunk_for(e)
             e["id"] = f"l2e_{hashlib.md5(f'{e['source']}{e['target']}{e['edge_type']}'.encode()).hexdigest()[:12]}"
             new_dml_edges.append(e)

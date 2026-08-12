@@ -246,6 +246,36 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
    that statement's output VT (node context + line_start), never merely
    the label "output". Matching code ignores unknown keys -- nothing
    else changes.
+
+12. PL-SEED ROUND (2026-08-12, BDM_ACC_LOAN_INFO_PL.sql -- Team D).
+   B is compiled from tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO.md §4.2/§4.3
+   (J12-13: REQUIREMENT rows first, never the engine's emitted form) and
+   the served forms are probe-pinned in §8.5 AFTER the requirements were
+   written (the pin records realization, never redefinition). The pl
+   closure (9 edges): the R19.3 no-bypass chain rows P15/P18/P22/P16
+   (write leg output1->bdm@19, stmt-2 read data_dt@264->bdm@263, reader's
+   read leg bdm@263->output2, write leg output2->rrcdm@253) plus the
+   probe-pinned extras R1 (partition REF@19 into the output VT -- the
+   SUP X2 mirror), V1/V2 (value writes @19/@254 -- SUP rows 12/17/X4
+   mirrors; V1 lands on the bare-INSERT output VT "⟐ insert"), M1 (the
+   stmt2 output VT's membership SCHEMA@254 -- the SUP X3 mirror) and F1
+   (the stmt2 WHERE FILTER@264 -- the SUP X5 mirror). NO source/join
+   tables: the partition is literal-driven, so the data_dt closure has
+   none (probe-verified -- the sources feed the SELECT columns, never
+   the partition). The engine gap this round exposed and closed (J12-17
+   trunk for bare/VALUES INSERT statements): stmt1's output VT is named
+   "⟐ insert" (no SELECT body), which the J12-15 per-statement trunk
+   registration skipped (hard-coded "⟐ output" name check) and the D2
+   walker never admitted -- the stmt1 write leg fell back to stmt2's
+   output VT (the J12-15 endpoint-identity defect class). Fixed with
+   extraction-time info only (l2_builder.py stmt_trunk registration by
+   statement-level (name, TOPn) entity key; lineage.py reverse-DML
+   admission of a statement's own output VT gated on the write leg
+   carrying the searched field; the raw REF READ ⟐insert->target
+   duplicate dropped by the rule-2 self-loop guard). Final counts:
+   CANONICAL_EDGES 50 entries (27 bdm + 14 sup + 9 pl), CANONICAL_ROWS
+   46 tuples. The gate is GREEN -- pl FLOORS all 1.0000/1.0000
+   (measured: nodes 8/7, edges 9/9, highlights 5/5).
 """
 
 CANONICAL_ROWS = [
@@ -340,6 +370,22 @@ CANONICAL_ROWS = [
     ("X3", "bdm", "⟐output", 213, "data_dt", 213, "SCHEMA", 213),
     ("X4", "bdm", "data_dt", 213, "⟐output", 213, "TABLE_FLOW", 213),
     ("X5", "sup", "data_dt", 225, "sup", 225, "FILTER", 225),
+    # ── pl rows (2026-08-12 pl-seed round, BDM_ACC_LOAN_INFO_PL.sql --
+    #    REQUIREMENT rows P15/P16/P18/P22 from doc §4.2/§4.3 (the R19.3
+    #    no-bypass chain) + the probe-pinned extras R1/V1/V2/M1/F1 (the
+    #    SUP X-series canonization mirrors; served forms in doc §8.5).
+    #    P15/P16/V1/V2 carry "stmt" in CANONICAL_EDGES (J12-17 point 11;
+    #    note P16/V2's statement is TOP2 -- the pl script's stmt2 is the
+    #    second INSERT, TOP1 is the SELECT body between the two). ──
+    ("P15", "pl", "⟐output", 0, "bdm", 19, "TABLE_FLOW", 19),
+    ("P16", "pl", "⟐output", 0, "rrcdm", 253, "TABLE_FLOW", 253),
+    ("P18", "pl", "data_dt", 264, "bdm", 263, "REF", 263),
+    ("P22", "pl", "bdm", 263, "⟐output", 0, "TABLE_FLOW", 263),
+    ("V1", "pl", "data_dt", 19, "⟐output", 0, "TABLE_FLOW", 19),
+    ("V2", "pl", "data_dt", 254, "⟐output", 0, "TABLE_FLOW", 254),
+    ("R1", "pl", "data_dt", 19, "⟐output", 0, "REF", 19),
+    ("M1", "pl", "⟐output", 0, "data_dt", 254, "SCHEMA", 254),
+    ("F1", "pl", "data_dt", 264, "bdm", 264, "FILTER", 264),
 ]
 
 # FLAT per-seed closure edge lists (B sets): 27 bdm + 14 sup = 41 entries
@@ -449,6 +495,24 @@ CANONICAL_EDGES = [
     {"row": "S5", "seed": "sup", "src": "p2@199", "dst": "p2.data_dt@202", "type": "SCHEMA", "anchor": 202, "spec": "anchor_rel"},
     {"row": "B1", "seed": "sup", "src": "sup@223", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 223, "spec": "anchor_rel_ep"},
     {"row": "C3", "seed": "sup", "src": "p2@199", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 199, "spec": "anchor_rel_ep"},
+    # ── pl closure (9): P15/P18/P22/P16 -- REQUIREMENT rows (doc §4.2/
+    #    §4.3, the R19.3 no-bypass chain; P15/P16 carry "stmt", J12-17:
+    #    the write legs must attach to their OWN statement's output VT --
+    #    P15's is the bare-INSERT output "⟐ insert"@19 TOP0, served with
+    #    label "insert") + the probe-pinned extras R1/V1/V2/M1/F1 (the
+    #    SUP X-row mirrors, doc §8.5): R1 the partition REF@19 into the
+    #    output VT (X2 mirror), V1/V2 the value writes @19/@254 (rows
+    #    12/17/X4 mirrors), M1 the stmt2 output VT's membership SCHEMA@254
+    #    (X3 mirror), F1 the stmt2 WHERE FILTER@264 (X5 mirror).
+    {"row": "P15", "seed": "pl", "src": "⟐output@0", "dst": "bdm@19", "type": "TABLE_FLOW", "anchor": 19, "spec": "anchor_rel_ep", "stmt": "TOP0"},
+    {"row": "V1", "seed": "pl", "src": "data_dt@19", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 19, "spec": "anchor_rel_ep", "stmt": "TOP0"},
+    {"row": "R1", "seed": "pl", "src": "data_dt@19", "dst": "⟐output@0", "type": "REF", "anchor": 19, "spec": "anchor_rel_ep"},
+    {"row": "P16", "seed": "pl", "src": "⟐output@0", "dst": "rrcdm@253", "type": "TABLE_FLOW", "anchor": 253, "spec": "anchor_rel_ep", "stmt": "TOP2"},
+    {"row": "V2", "seed": "pl", "src": "data_dt@254", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 254, "spec": "anchor_rel_ep", "stmt": "TOP2"},
+    {"row": "M1", "seed": "pl", "src": "⟐output@0", "dst": "data_dt@254", "type": "SCHEMA", "anchor": 254, "spec": "anchor_rel_ep"},
+    {"row": "P18", "seed": "pl", "src": "data_dt@264", "dst": "bdm@263", "type": "REF", "anchor": 263, "spec": "anchor_rel_ep"},
+    {"row": "P22", "seed": "pl", "src": "bdm@263", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 263, "spec": "anchor_rel_ep"},
+    {"row": "F1", "seed": "pl", "src": "data_dt@264", "dst": "bdm@264", "type": "FILTER", "anchor": 264, "spec": "anchor_rel_ep"},
 ]
 
 # Response-node-LABEL -> canonical-label alignment (served node ids are
@@ -469,6 +533,10 @@ NORMALIZE_MAP = {
     "subq": "⟐subq",
     "subq1": "⟐subq1",
     "output": "⟐output",
+    # "insert" (2026-08-12 pl-seed round): the bare/VALUES INSERT
+    # statement's output VT is named "⟐ insert" (no SELECT body), served
+    # with label "insert" -- the stmt1 write leg's own trunk (J12-17).
+    "insert": "⟐output",
     # field folds: canonical qualified spelling -> bare response spelling
     "p1.data_dt": "data_dt",
     "p2.data_dt": "data_dt",
@@ -530,6 +598,33 @@ CANONICAL_NODES = {
         {"label": "p2.data_dt", "line": 202, "kind": "field"},
         {"label": "p2", "line": 199, "kind": "alias",
          "note": "flood-era-pin-suspect"},
+    ],
+    # "pl" seed (2026-08-12 pl-seed round, BDM_ACC_LOAN_INFO_PL.sql --
+    # the data_dt closure per doc §7.2, probe-pinned in §8.5). NO
+    # source/join tables: the partition is literal-driven -- the stmt1
+    # sources feed the SELECT columns, never data_dt (probe evidence).
+    # The two bdm entries mirror the SUP bdm@160/sup@223 pair: R22's
+    # label-keyed merge unifies the stmt1-INSERT instance (L19) and the
+    # stmt2 FROM-read instance (L263) into ONE served node. The two
+    # ⟐output entries are the two statements' output VTs (stmt1's served
+    # label is "insert", stmt2's is "output" -- both normalize to
+    # ⟐output; line evidence + statement context separate them).
+    "pl": [
+        {"label": "data_dt", "line": 19, "kind": "field",
+         "note": "stmt1 partition write PARTITION(data_dt=...)@19"},
+        {"label": "data_dt", "line": 254, "kind": "field",
+         "note": "stmt2 output column '${load_date}' AS data_dt@254"},
+        {"label": "data_dt", "line": 264, "kind": "field",
+         "note": "stmt2 WHERE read data_dt='${load_date}'@264"},
+        {"label": "bdm", "line": 19, "kind": "table",
+         "note": "stmt1 INSERT target instance (R22-merged with bdm@263)"},
+        {"label": "bdm", "line": 263, "kind": "table",
+         "note": "stmt2 FROM-read instance (R22-merged with bdm@19)"},
+        {"label": "rrcdm", "line": 253, "kind": "table"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "stmt1 output VT -- served label 'insert' (bare-INSERT output)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "stmt2 output VT -- served label 'output'"},
     ],
 }
 
