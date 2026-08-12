@@ -1485,7 +1485,9 @@ carries a field of the queried field's flow.
   are verified SEPARATELY, each against its own ground truth:
   - **Downstream** = the existing Jaccard gate (its ground truth is the downstream
     flow — flow targets are consumers); the gate harness pins `direction=downstream`;
-    L2 payload byte-identity + full backend suite green (L1 is not gated).
+    L2 payload byte-identity + full backend suite green (L1 is not gated — it is
+    verified **manually** against the ground truth docs at implementation time,
+    user decision 2026-08-12; no automated L1 check).
   - **Upstream** = new ground truth built 2026-08-12 (before coding), four seeds in
     `tools/GROUND_TRUTH_*.md`: `bdm_acc_loan_info.data_dt` (both; upstream
     literal-terminated), `rrcdm_job_log_exec_par.data_dt` (upstream-only, empty
