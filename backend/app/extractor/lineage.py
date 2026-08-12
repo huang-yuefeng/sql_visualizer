@@ -592,9 +592,9 @@ def compute_field_flow(graph_data, target_table, target_field,
         # FIELD_LAND types keep both directions.
         read = bool(E.edge_type == "REF" and E.operation == "READ")
         adjacency.setdefault(E.source_id, []).append(
-            (E.target_id, E.edge_type, True, read))
+            (E.target_id, E.edge_type, True, read, E.operation))
         adjacency.setdefault(E.target_id, []).append(
-            (E.source_id, E.edge_type, False, read))
+            (E.source_id, E.edge_type, False, read, E.operation))
 
     # ── seed_zone: memoized BFS from the seeds over FIELD_LAND edges
     # (both directions), computed lazily per queried node. ──
@@ -609,7 +609,7 @@ def compute_field_flow(graph_data, target_table, target_field,
                 if cur in zone:
                     continue
                 zone.add(cur)
-                for (nb, et, fwd, read) in adjacency.get(cur, []):
+                for (nb, et, fwd, read, _op) in adjacency.get(cur, []):
                     # read edges traverse field → holder only (same rule
                     # as the expansion loop).
                     if (et in FIELD_LAND and nb not in zone
@@ -645,6 +645,37 @@ def compute_field_flow(graph_data, target_table, target_field,
         for vid in fld.occurrence_ids:
             owner_by_id[vid] = tkey
 
+    # ── D2 (2026-08-12): the forward DML admit is field-aware — never
+    # field-blind. Two per-call indexes:
+    #   _dml_write_leg[target var id] — field parts of the columns the
+    #     target's statement writes: the sources of the non-WRITE_READ
+    #     DML edges into the target (Phase-1c select-list columns and
+    #     Phase-8 projection/partition/literal write-leg vars all carry
+    #     the written column's name; PARTITION columns arrive in the
+    #     SQL's own casing → matched case-insensitively).
+    #   _stmt_field_parts[TOP statement] — field parts referenced by any
+    #     var of the statement (the write→read link admits only when the
+    #     reader statement actually consumes the searched field).
+    _dml_write_leg = {}
+    for _E in pm.edges:
+        if _E.edge_type != "DML":
+            continue
+        if (_E.operation or "").upper() == "WRITE_READ":
+            continue
+        _so = occ(_E.source_id)
+        if _so is not None:
+            _part = _occ_field_part(_so).lower()
+            if _part:
+                _dml_write_leg.setdefault(_E.target_id, set()).add(_part)
+    _stmt_field_parts = {}
+    for _vid, _o in pm.occurrences.items():
+        _stmt = (_o.get("context") or "TOP").split("/", 1)[0]
+        if not _stmt.startswith("TOP"):
+            continue
+        _part = _occ_field_part(_o).lower()
+        if _part:
+            _stmt_field_parts.setdefault(_stmt, set()).add(_part)
+
     # ── Joint fixpoint: expansion rounds and identity-admission rounds
     # alternate until neither grows (monotone — terminates; capped). ──
     visited = set(seeds)
@@ -657,7 +688,7 @@ def compute_field_flow(graph_data, target_table, target_field,
         stack = list(visited)
         while stack:
             nid = stack.pop()
-            for (nb, et, fwd, read) in adjacency.get(nid, []):
+            for (nb, et, fwd, read, op) in adjacency.get(nid, []):
                 if nb in visited:
                     continue
                 if et in FIELD_LAND:
@@ -695,6 +726,23 @@ def compute_field_flow(graph_data, target_table, target_field,
                         and nb_o.get("variable_type") in FIELD_LIKE
                         and _occ_field_part(nb_o) == target_field
                     )
+                    if fwd:
+                        # D2 (2026-08-12): never field-blind — the
+                        # statement must actually carry the searched
+                        # field. Write edges (INSERT/UPDATE/DELETE/
+                        # MERGE) admit only when the statement's write
+                        # leg (the DML-edge sources into the target)
+                        # writes the searched field; the write→read link
+                        # (WRITE_READ) admits only when the reader
+                        # statement references the searched field.
+                        if (op or "").upper() == "WRITE_READ":
+                            _stmt = ((nb_o or {}).get("context") or "TOP"
+                                     ).split("/", 1)[0]
+                            admit = target_field.lower() in _stmt_field_parts.get(
+                                _stmt, ())
+                        else:
+                            admit = target_field.lower() in _dml_write_leg.get(
+                                nb, ())
                 elif et == "TABLE_FLOW":
                     # Q1, forward-only: (a) table-like source whose
                     # physical identity is in the chain; (b) VT whose
@@ -703,7 +751,19 @@ def compute_field_flow(graph_data, target_table, target_field,
                     admit = False
                     if fwd:
                         src_o = occ(nid)
-                        if src_o is not None and src_o.get(
+                        if (op or "").upper() in _DML_WRITE_OPS:
+                            # D2 (2026-08-12): the table-level write
+                            # legs (Phase 1c-extra/1c-direct TABLE_FLOW
+                            # edges INTO a DML target, operation = the
+                            # DML keyword) are the DML write admit's
+                            # twins — same rule: the statement's write
+                            # leg must carry the searched field (else a
+                            # chain member's identity alone would drag
+                            # every DML target of any statement into
+                            # every closure).
+                            admit = target_field.lower() in _dml_write_leg.get(
+                                nb, ())
+                        elif src_o is not None and src_o.get(
                                 "variable_type") == "virtual_table":
                             sctx = src_o.get("context") or ""
                             for fv in node_map.values():
