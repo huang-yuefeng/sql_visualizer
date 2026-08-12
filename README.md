@@ -131,28 +131,7 @@ sb.total_amount ──────────► batch_total_amount
 
 Two indexes speed up matching: a `name → [variables]` lookup and a `full_column_ref → variable` lookup. Self-loops are prevented, and each source-target pair creates at most one edge.
 
-### Stage 3: Natural Language Explanation (`claude_service.py`, 117 lines)
-
-Variable metadata is packaged into a prompt and sent to **Claude Opus 4.8** with adaptive thinking:
-
-- **System prompt**: Positions Claude as a GPS financial SQL analyst
-- **User prompt**: Script name + JSON array of variables (name, type, SQL expression, source tables, context)
-
-Claude responds with structured explanations covering five dimensions:
-
-```json
-{
-  "business_meaning": "Total monetary value of transactions settled in this batch",
-  "computation": "Sum of gps_transactions.amount grouped by settlement_batch_id",
-  "data_lineage": "Traces to gps_transactions.amount → batch_summary CTE → final output",
-  "dependencies": "Depends on gps_transactions.amount and GROUP BY on settlement_batch_id",
-  "business_significance": "Critical for reconciliation — variance against batch_total triggers investigation"
-}
-```
-
-The response is **streamed via SSE** (`text/event-stream`) so the frontend can render text token-by-token. If `ANTHROPIC_API_KEY` is not set, the endpoint returns a graceful fallback message instead of crashing.
-
-### Stage 4: Visualize (React + Cytoscape.js)
+### Stage 3: Visualize (React + Cytoscape.js)
 
 The backend's `graph_service.py` converts variables and dependencies into **Cytoscape.js-compatible JSON** — each variable becomes a node with pre-computed `shape`, `color`, and `size` based on its type. Each dependency becomes an edge with `source` and `target` IDs.
 
@@ -217,8 +196,7 @@ sql_understanding/
 │   │   │   └── extractor_v2.py          # Existing sqlglot-based SQL parser
 │   │   ├── services/
 │   │   │   ├── analysis_service.py      # Full pipeline + file-based caching
-│   │   │   ├── graph_service.py         # Cytoscape.js-compatible nodes/edges
-│   │   │   └── claude_service.py        # Anthropic SDK streaming explanations
+│   │   │   └── graph_service.py         # Cytoscape.js-compatible nodes/edges
 │   ├── static/                      # Pre-built frontend (served in production)
 │   ├── vendor/                      # 31 Python wheels for offline install
 │   │   └── routers/
@@ -306,14 +284,6 @@ Open `http://localhost:8000` — the API, Swagger docs (`/docs`), and the intera
 > pip download -r requirements.txt -d vendor/
 > ```
 
-### (Optional) Enable AI Explanations
-
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
-
-When the key is set, clicking **"Explain with AI"** on any variable streams a natural-language explanation from Claude Opus 4.8. Without the key, the endpoint returns a graceful fallback message.
-
 ## API Reference
 
 ### Analyze SQL
@@ -379,17 +349,6 @@ GET /api/scripts/{script_id}/variables/{var_id}
 ```
 
 Returns the variable plus its upstream dependencies (what it depends on) and downstream dependencies (what depends on it).
-
-### Explain with AI
-
-```http
-POST /api/scripts/{script_id}/explain
-Content-Type: application/json
-
-{ "variable_ids": ["abc123", "def456"] }
-```
-
-Streams an SSE response with Claude's explanation. Send an empty `variable_ids` array to explain all variables. Requires `ANTHROPIC_API_KEY`.
 
 ## Variable Types
 
@@ -458,8 +417,6 @@ All settings are read from environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | *(empty)* | Anthropic API key for Claude explanations |
-| `ANTHROPIC_MODEL` | `claude-opus-4-8` | Model ID for explanations |
 | `HOST` | `0.0.0.0` | FastAPI listen host |
 | `PORT` | `8000` | FastAPI listen port |
 | `DEBUG` | `true` | Enable debug mode |
@@ -507,7 +464,6 @@ All sample DDL and queries are in [`samples/financial/`](samples/financial/).
 ./release.sh "fix: corrected EXISTS keyword classification"
 
 # On target machine — pull, reassemble, deploy
-export ANTHROPIC_API_KEY=sk-...
 ./target_deploy.sh
 ```
 
