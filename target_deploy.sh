@@ -64,24 +64,32 @@ else
 fi
 
 # Optional online check: is the local checkout strictly behind origin/main?
-if command -v timeout &>/dev/null; then
-    REMOTE_HEAD=$(timeout 10 git ls-remote origin refs/heads/main 2>/dev/null | head -1)
+# macOS has no GNU `timeout` (coreutils) — prefer `gtimeout`, else `timeout`.
+# If neither exists, SKIP the remote check entirely: an unbounded
+# `git ls-remote` on a restricted network can hang for minutes (the 2026-08-12
+# MacBook freeze — `command -v timeout` failed, else-branch ran unguarded).
+TOOL_TIMEOUT=""
+for _t in gtimeout timeout; do
+    if command -v "$_t" >/dev/null 2>&1; then TOOL_TIMEOUT="$_t"; break; fi
+done
+
+if [ -n "$TOOL_TIMEOUT" ]; then
+    REMOTE_HEAD=$($TOOL_TIMEOUT 10 git ls-remote origin refs/heads/main 2>/dev/null | head -1)
 else
-    REMOTE_HEAD=$(git ls-remote origin refs/heads/main 2>/dev/null | head -1)
+    REMOTE_HEAD=""
+    log "  ${YELLOW}No timeout tool (gtimeout/timeout) — skipping remote version check${NC}"
 fi
 
 if [ -n "$REMOTE_HEAD" ]; then
     # Track fetch success explicitly — a failed fetch must NOT fall back to
     # the stale origin/main ref (previously swallowed by `|| true`).
     FETCH_OK=false
-    if command -v timeout &>/dev/null; then
-        if timeout 15 git fetch origin --quiet 2>/dev/null; then
+    if [ -n "$TOOL_TIMEOUT" ]; then
+        if $TOOL_TIMEOUT 15 git fetch origin --quiet 2>/dev/null; then
             FETCH_OK=true
         fi
     else
-        if git fetch origin --quiet 2>/dev/null; then
-            FETCH_OK=true
-        fi
+        log "  ${YELLOW}No timeout tool — skipping origin fetch${NC}"
     fi
 
     if [ "$FETCH_OK" = true ]; then
@@ -127,11 +135,31 @@ log "  Done: $(ls -lh "$(basename "$IMAGE_FILE")" | awk '{print $5}')"
 log "  Verifying checksums..."
 # Verify AFTER joining — the tarball is gitignored and only exists
 # on a fresh clone after the cat above (Bug fix 2026-08-04).
-if md5sum -c checksums.md5; then
-    log "  ${GREEN}Checksums OK${NC}"
+# macOS has no GNU md5sum — fall back to `md5 -q` per-part comparison.
+if command -v md5sum >/dev/null 2>&1; then
+    if md5sum -c checksums.md5; then
+        log "  ${GREEN}Checksums OK${NC}"
+    else
+        echo -e "${RED}  Checksum verification FAILED${NC}" | tee -a "$LOG_FILE" >&2
+        exit 1
+    fi
 else
-    echo -e "${RED}  Checksum verification FAILED${NC}" | tee -a "$LOG_FILE" >&2
-    exit 1
+    ALL_OK=1
+    while read -r EXPECTED FILE; do
+        ACTUAL=$(md5 -q "$FILE" 2>/dev/null)
+        if [ -z "$ACTUAL" ] || [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo -e "  ${RED}FAILED: $FILE${NC}" | tee -a "$LOG_FILE" >&2
+            ALL_OK=0
+        else
+            echo "  OK: $FILE"
+        fi
+    done < checksums.md5
+    if [ "$ALL_OK" -eq 1 ]; then
+        log "  ${GREEN}Checksums OK${NC}"
+    else
+        echo -e "${RED}  Checksum verification FAILED${NC}" | tee -a "$LOG_FILE" >&2
+        exit 1
+    fi
 fi
 cd ..
 
@@ -183,7 +211,9 @@ fi
 # ── 7. Health check with extended timeout ────────────────────────────
 log "=== Health check ==="
 HEALTHY=false
-for i in $(seq 1 30); do
+i=0
+while [ "$i" -lt 30 ]; do
+    i=$((i+1))
     sleep 2
     HEALTH_JSON=$(curl -sf http://127.0.0.1:8000/api/health 2>/dev/null || true)
     if [ -n "$HEALTH_JSON" ]; then
