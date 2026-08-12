@@ -39,9 +39,9 @@ docker compose -f docker-compose.yml restart 2>&1 || echo "Trying with sudo..." 
 
 echo -e "${YELLOW}⏳ Waiting for backend...${NC}"
 for i in $(seq 1 15); do
-  if curl -s --max-time 2 http://192.168.0.66:8000/api/health > /dev/null 2>&1; then
+  if curl -s --max-time 2 http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
     echo -e "${GREEN}✅ Backend healthy${NC}"
-    VER=$(curl -s --max-time 2 http://192.168.0.66:8000/api/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','?'))" 2>/dev/null || echo "?")
+    VER=$(curl -s --max-time 2 http://127.0.0.1:8000/api/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','?'))" 2>/dev/null || echo "?")
     echo -e "${GREEN}✅ Version: $VER${NC}"
     echo -e "${GREEN}✅ Deploy complete — hard-refresh browser (Ctrl+Shift+R)${NC}"
     exit 0

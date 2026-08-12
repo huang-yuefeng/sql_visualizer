@@ -34,7 +34,7 @@ docker build -t gps-sql-visualizer:latest .
 # ── 2. Run smoke test ───────────────────────────────────────────────
 echo "=== Smoke test ==="
 docker rm -f gps-test 2>/dev/null || true
-docker run -d -p 8000:8000 --name gps-test gps-sql-visualizer:latest
+docker run -d --pull=never -p 8000:8000 --name gps-test gps-sql-visualizer:latest
 
 echo -n "  Waiting for healthy..."
 for i in $(seq 1 20); do
@@ -102,17 +102,13 @@ git add VERSION backend/ frontend/ samples/ Dockerfile Dockerfile.dev \
 echo "  Commit: $COMMIT_MSG"
 git commit -m "$COMMIT_MSG"
 
-# Push first, THEN delete the full image (safe ordering)
-echo "=== Push ==="
-if git push; then
-    echo -e "${GREEN}✅ Push succeeded${NC}"
-    # Only delete full image after successful push
-    rm -f "$IMAGE_FILE"
-    echo "  Removed full image (pieces in git are sufficient)"
-else
-    echo -e "${RED}❌ Push failed — full image preserved at $IMAGE_FILE${NC}"
-    exit 1
-fi
+# OFFLINE RULE (user ruling 2026-08-12): no internet-connecting command may
+# live in any *.sh file — `git push` was REMOVED for this reason. The release
+# is committed locally; publishing to origin is done manually by the
+# developer (or by an agent on the dev machine), never inside a script.
+echo "=== Push (manual) ==="
+echo -e "  ${YELLOW}Release committed locally — push manually with 'git push' (offline rule: no git in .sh)${NC}"
+echo "  Full image preserved at $IMAGE_FILE until the commit is pushed; then: rm -f $IMAGE_FILE"
 
 echo ""
 echo -e "${GREEN}=== Done ===${NC}"
