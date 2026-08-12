@@ -75,21 +75,31 @@ def _table_name_by_id(graph: dict) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# L1: lineage_field_pairs (production edges only)
+# L1 (R29): the queried field's directional flow — scripts + tables only
 # ══════════════════════════════════════════════════════════════════════
 
-def test_l1_lineage_pairs_stg_customers(multi_workflow_ws):
-    """L1 over the 5-step workflow: stg_customers.customer_id traces back
-    only through production edges — exactly stg_customers + crm_customers,
-    with no raw_orders/stg_orders pairs leaked via the step3 JOIN."""
+def test_l1_field_query_shape_stg_customers(multi_workflow_ws):
+    """L1 over the 5-step workflow under R29: stg_customers.customer_id
+    projects the strict walker's directional closure — scripts + tables
+    only, no field nodes, no lineage_field_pairs (superseded), and every
+    edge is a reads_from/writes_to restricted to participating nodes (no
+    script→script edges)."""
     script_names = sorted(f.name for f in WORKFLOW_DIR.glob("step*.sql"))
     l1 = _build_l1_graph(multi_workflow_ws, script_names,
                          TARGET_TABLE, TARGET_FIELD)
-    pairs = {tuple(p) for p in l1.get("lineage_field_pairs", [])}
-    assert pairs == {
-        ("stg_customers", "customer_id"),
-        ("crm_customers", "customer_id"),
-    }
+    assert l1.get("flow_empty") is False, l1
+    assert "lineage_field_pairs" not in l1, \
+        "R29 supersedes the lineage_field_pairs path for field queries"
+    assert all(n["data"].get("type") != "field" for n in l1["nodes"])
+    types = {n["data"]["type"] for n in l1["nodes"]}
+    assert "script_node" in types
+    assert types & {"source_table", "intermediate_table", "output_table"}
+    type_map = {n["data"]["id"]: n["data"]["type"] for n in l1["nodes"]}
+    for e in l1["edges"]:
+        ed = e["data"]
+        assert ed["edge_type"] in ("reads_from", "writes_to"), ed
+        assert not (type_map.get(ed["source"]) == "script_node"
+                    and type_map.get(ed["target"]) == "script_node"), ed
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -228,54 +238,31 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
 # C2: L1 field pairs are covered by the prebuilt P4 table_fields
 # ══════════════════════════════════════════════════════════════════════
 
-def test_l1_pairs_covered_by_table_fields(multi_workflow_ws):
-    """C2: every L1 lineage_field_pair must be covered by the prebuilt P4
-    table_fields — both from fresh on-the-fly analysis (no disk cache) and
-    from the graph caches written by index_scripts (cached path). L1 must
-    produce the same pairs with and without the disk caches."""
-    from app.services.multi_script_service import analyze_multiple_scripts
+def test_l1_projection_identical_fresh_and_cached(multi_workflow_ws):
+    """C2 (R29 shape): the directional projection must be identical with
+    and without the disk caches — fresh on-the-fly analysis (no cache)
+    and the analysis caches written by index_scripts produce the same
+    script + table projection (the models are built from the same
+    deterministic pipeline either way)."""
     from app.services.folder_index_service import index_scripts
 
     ws_id = multi_workflow_ws
     script_names = sorted(f.name for f in WORKFLOW_DIR.glob("step*.sql"))
-    sql_by_name = {n: (WORKFLOW_DIR / n).read_text() for n in script_names}
 
-    # Fresh run: no disk caches exist yet — the on-the-fly P4 absorption
-    # (build_graph_data table_fields) must cover the pairs.
-    l1 = _build_l1_graph(ws_id, script_names, TARGET_TABLE, TARGET_FIELD)
-    pairs = {tuple(p) for p in l1.get("lineage_field_pairs", [])}
-    assert pairs == {
-        ("stg_customers", "customer_id"),
-        ("crm_customers", "customer_id"),
-    }
+    def _projection():
+        l1 = _build_l1_graph(ws_id, script_names, TARGET_TABLE, TARGET_FIELD)
+        scripts = sorted(n["data"]["label"] for n in l1["nodes"]
+                         if n["data"]["type"] == "script_node")
+        tables = sorted(n["data"].get("table_name", "") for n in l1["nodes"]
+                        if n["data"].get("table_name"))
+        edges = sorted((e["data"]["id"], e["data"]["edge_type"])
+                       for e in l1["edges"])
+        return scripts, tables, edges, l1.get("flow_empty")
 
-    fresh = analyze_multiple_scripts([(n, sql_by_name[n]) for n in script_names])
-    fresh_tf = set()
-    for s in fresh.get("scripts", []):
-        for tbl, flds in (s.get("graph", {}).get("table_fields", {}) or {}).items():
-            for fn in flds:
-                fresh_tf.add((tbl, fn))
-    assert pairs <= fresh_tf, \
-        f"pairs {pairs - fresh_tf} missing from fresh-analysis table_fields"
-
-    # Cached run: index leaves post-S4b analysis caches (C-2 invalidates
-    # index-time graph caches — they'd be pre-S4b and stale). Rebuild
-    # graph_data from the analysis caches exactly as the L2 miss path does;
-    # the P4 table_fields absorption must cover the same pairs, and L1 must
-    # still produce the identical pair set.
+    fresh = _projection()
     index_scripts(ws_id, script_names)
-    from app.services.graph_service import build_graph_data
-    cached_tf = set()
-    for ac_path in sorted(get_workspace_dir(ws_id).glob("cache/analysis_*.json")):
-        gdata = build_graph_data(json.loads(ac_path.read_text()))
-        for tbl, flds in (gdata.get("table_fields", {}) or {}).items():
-            for fn in flds:
-                cached_tf.add((tbl, fn))
-    assert pairs <= cached_tf, \
-        f"pairs {pairs - cached_tf} missing from analysis-cache table_fields"
-
-    l1_cached = _build_l1_graph(ws_id, script_names, TARGET_TABLE, TARGET_FIELD)
-    assert {tuple(p) for p in l1_cached.get("lineage_field_pairs", [])} == pairs
+    cached = _projection()
+    assert fresh == cached, (fresh, cached)
 
 
 # ══════════════════════════════════════════════════════════════════════

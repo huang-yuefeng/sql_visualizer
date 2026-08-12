@@ -106,16 +106,21 @@ class TestSingleScriptSearchL1:
             assert nd.get("id"), nd
 
     def test_build_l1_graph_single_script_full_pipeline(self, workspace_client, single_script_ws):
-        """_build_l1_graph itself (pre-filter) builds the full pipeline for
-        one script: script node + tables + edges + lineage_field_pairs —
-        not the old bare script node."""
+        """_build_l1_graph itself (pre-filter) builds the R29 directional
+        projection for one script: script node + participating tables +
+        reads/writes edges — no field nodes (the old bare script node and
+        the superseded lineage_field_pairs shape are gone)."""
         from app.services.l1_builder import _build_l1_graph
         l1 = _build_l1_graph(single_script_ws, [SCRIPT_NAME],
                              TARGET_TABLE, TARGET_FIELD)
         assert _script_node_labels(l1) == [SCRIPT_NAME], l1
         assert l1["edges"], "single-script L1 must have script↔table edges"
-        assert l1.get("lineage_field_pairs"), \
-            "single-script L1 must carry lineage_field_pairs"
+        assert l1.get("flow_empty") is False, l1
+        assert "lineage_field_pairs" not in l1, \
+            "R29 supersedes lineage_field_pairs for field queries"
+        assert all(n.get("data", n).get("type") != "field"
+                   for n in l1["nodes"]), \
+            "R29: no field nodes in L1"
         tables = {n.get("data", n).get("table_name", "")
                   for n in l1["nodes"] if n.get("data", n).get("table_name")}
         assert TARGET_TABLE in tables, tables

@@ -10,7 +10,7 @@ import logging
 import traceback
 
 from app.services.workspace_service import get_workspace_dir
-from app.extractor.lineage import compute_field_lineage, PRODUCTION_EDGES
+from app.extractor.lineage import compute_field_lineage, compute_field_flow, PRODUCTION_EDGES
 from app.extractor.physical_model import build_physical_model
 from app.services.logger import _push
 
@@ -250,17 +250,216 @@ def _push_l1_degraded(ws_id: str, table: str, field: str,
         _push(ws_id, "profile", line)
 
 
-def _build_l1_graph(ws_id: str, script_names: list[str],
-                    table: str, field: str) -> dict:
-    """Build Level 1 cross-script pipeline graph.
+def _build_l1_directional_field_flow(all_scripts: list[dict],
+                                     model_by_script: dict,
+                                     table: str, field: str,
+                                     direction: str) -> dict:
+    """R29 (J12-22): L1 = the queried field's directional flow projection.
 
-    Nodes: source tables (blue rect), scripts (orange rounded-rect),
-           intermediate tables (gray rect), output tables (green rect).
-    Edges: undirected table↔script per formal §5.1: (s,t) ∈ E iff s uses t, with role badges for target var.
+    Per script, the SAME strict walker as L2 (compute_field_flow — the
+    per-instance table.field walker, called with the query direction)
+    runs over the per-script physical model (model_by_script, built by
+    _build_l1_graph from the analysis cache or the inline pipeline). A
+    script participates iff its directional closure is non-empty; a
+    table participates iff it carries >= 1 closure field — the owning
+    PhysicalTables of the closure's node ids (the model's field
+    attribution for field occurrences, the entity index for table-like
+    occurrences; the seed's own table joins when seed instances are in
+    the closure, which they always are). Only physical tables project
+    — CTEs/⟐ containers are intra-script structure (L2's domain).
+
+    Emits script nodes + participating table nodes + reads_from/
+    writes_to edges restricted to participating nodes. No field nodes,
+    no intra-script structure, no terminal markers (R29 item 8
+    supersedes R18.1 — the flow terminates at the last table carrying
+    it). When EVERY script's directional flow is empty the graph is
+    empty with flow_empty=True — the search endpoint renders the
+    "no flow in this direction" state (message, not an error).
+
+    A walker failure on one script skips that script (logged); when
+    every script's walk fails (e.g. a systemic walker error) the first
+    exception propagates so the caller's M4-B degraded fallback fires —
+    a build failure must never masquerade as "no flow".
+    """
+    def _owning_tables(m, closure: set) -> dict:
+        """Physical tables owning >= 1 closure node (name → table)."""
+        owner_by_id = {}
+        for (tkey, _fname), fld in m.fields.items():
+            for vid in fld.occurrence_ids:
+                owner_by_id.setdefault(vid, tkey)
+        out = {}
+        for vid in closure:
+            for tkey in (owner_by_id.get(vid), m.entity_of_id.get(vid)):
+                if tkey is None:
+                    continue
+                tbl = m.tables.get(tkey)
+                if tbl is None or tbl.kind != "physical":
+                    continue
+                out.setdefault(tbl.name, tbl)
+        return out
+
+    participating = []          # script entries carrying the directional flow
+    participating_tables = {}   # table name → PhysicalTable (first seen)
+    failures = 0
+    first_exc = None
+
+    for s in all_scripts:
+        sname = s.get("script_name", "")
+        m = model_by_script.get(sname)
+        gdata = s.get("graph", {})
+        if m is None or not gdata or not gdata.get("nodes"):
+            continue
+        try:
+            closure = compute_field_flow(gdata, table, field,
+                                         physical_model=m,
+                                         direction=direction)
+        except Exception as exc:
+            failures += 1
+            if first_exc is None:
+                first_exc = exc
+            _log.error("L1 R29: compute_field_flow failed for %s.%s "
+                       "direction=%s in %s: %s",
+                       table, field, direction, sname, exc, exc_info=True)
+            continue
+        if not closure:
+            continue  # this script does not carry the directional flow
+        participating.append(s)
+        for tname, tbl in _owning_tables(m, closure).items():
+            participating_tables.setdefault(tname, tbl)
+
+    if not participating:
+        if failures:
+            raise first_exc  # systemic walker failure → M4-B degraded fallback
+        return {"nodes": [], "edges": [], "target": f"{table}.{field}",
+                "script_count": 0, "source_tables": [],
+                "intermediate_tables": [], "output_tables": [],
+                "flow_empty": True, "degraded": False}
+
+    nodes = []
+    edges = []
+    seen_node_ids = set()
+    seen_edge_ids = set()
+
+    def add_node(nid, label, ntype, **extra):
+        if nid in seen_node_ids:
+            return
+        seen_node_ids.add(nid)
+        d = {"id": nid, "label": label, "type": ntype}
+        d.update(extra)
+        nodes.append({"data": d})
+
+    def add_edge(src, tgt, label, etype, role=None, roles=None):
+        eid = f"{src}->{tgt}"
+        if eid in seen_edge_ids:
+            return
+        seen_edge_ids.add(eid)
+        d = {"id": eid, "source": src, "target": tgt,
+             "label": label, "edge_type": etype}
+        if roles:
+            d["roles"] = roles
+            d["role"] = ", ".join(roles)
+        elif role:
+            d["roles"] = [role]
+            d["role"] = role
+        edges.append({"data": d})
+
+    # ── Participating tables — classified by the participating scripts'
+    # read/write pattern (the projection's own edges; a table carrying
+    # the flow but listed as no script's input/output still projects —
+    # defaulting to source). ──
+    inputs_by_script = {}
+    outputs_by_script = {}
+    all_inputs = set()
+    all_outputs = set()
+    for s in participating:
+        sname = s.get("script_name", "")
+        ins = {t for t in s.get("input_tables", [])
+               if t in participating_tables}
+        outs = {t for t in s.get("output_tables", [])
+                if t in participating_tables}
+        inputs_by_script[sname] = ins
+        outputs_by_script[sname] = outs
+        all_inputs |= ins
+        all_outputs |= outs
+
+    source_tables = sorted(all_inputs - all_outputs)
+    intermediate_tables = sorted(all_inputs & all_outputs)
+    output_tables = sorted(all_outputs - all_inputs)
+    # Safety net: participating tables with no script IO slot (name
+    # divergence) still project — as source.
+    for tname in sorted(participating_tables):
+        if tname not in all_inputs and tname not in all_outputs:
+            source_tables.append(tname)
+    source_tables = sorted(set(source_tables))
+
+    for tname in source_tables:
+        add_node(f"tbl_{tname}", tname, "source_table", table_name=tname)
+    for tname in intermediate_tables:
+        add_node(f"tbl_{tname}", tname, "intermediate_table", table_name=tname)
+    for tname in output_tables:
+        add_node(f"tbl_{tname}", tname, "output_table", table_name=tname)
+
+    # ── Script nodes + restricted reads_from/writes_to edges ──
+    for s in participating:
+        sid = s["script_id"]
+        sname = s["script_name"]
+        roles = detect_role(s.get("graph", {}), table, field)
+
+        add_node(sid, sname, "script_node",
+                 script_name=sname,
+                 total_variables=s.get("total_variables", 0),
+                 input_tables=sorted(inputs_by_script.get(sname, set())),
+                 output_tables=sorted(outputs_by_script.get(sname, set())),
+                 roles=roles)
+
+        for tname in sorted(inputs_by_script.get(sname, set())):
+            add_edge(f"tbl_{tname}", sid, tname, "reads_from",
+                     roles=roles if roles else None)
+        for tname in sorted(outputs_by_script.get(sname, set())):
+            add_edge(sid, f"tbl_{tname}", tname, "writes_to",
+                     roles=roles if roles else None)
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "target": f"{table}.{field}",
+        "source_tables": source_tables,
+        "intermediate_tables": intermediate_tables,
+        "output_tables": output_tables,
+        "script_count": len(participating),
+        "flow_empty": False,
+        "degraded": False,
+    }
+
+
+def _build_l1_graph(ws_id: str, script_names: list[str],
+                    table: str, field: str,
+                    direction: str = "downstream") -> dict:
+    """Build Level 1 cross-script directional field-flow graph (R29).
+
+    Field queries (field truthy): L1 is the queried field's data flow —
+    the SAME strict field-level semantic as L2 — at cross-script scale:
+    script nodes + the tables between them that carry the flow, in the
+    query direction (upstream = writing flow / downstream = reading
+    flow). No field nodes, no intra-script structure (L2 is the
+    zoom-in). Per-script participation comes from the strict walker
+    (compute_field_flow) run in the query direction over the per-script
+    physical model; a table participates iff it carries >= 1 closure
+    field. When EVERY script's directional flow is empty the graph is
+    empty with flow_empty=True — the search endpoint renders the
+    "no flow in this direction" state (message, not an error).
+
+    Table-only searches (field falsy): the full table-level pipeline
+    graph — scripts + source/intermediate/output tables +
+    reads_from/writes_to edges + model-projected field children —
+    unchanged (R29 applies to field queries only).
+
+    Edges: table↔script per formal §5.1: (s,t) ∈ E iff s uses t, with
+    role badges for target var.
     """
     if len(script_names) < 1:
         return {"nodes": [], "edges": [], "target": f"{table}.{field}",
-                "degraded": False}
+                "degraded": False, "flow_empty": True}
 
     scripts_dir = get_workspace_dir(ws_id) / "scripts"
     script_data = []
@@ -365,6 +564,18 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                                                  script_name=sname)
             if model is not None:
                 model_by_script[sname] = model
+
+        # ── R29 (J12-22): the queried field's DIRECTIONAL flow ──
+        # Field queries REPLACE the table-level machinery below entirely:
+        # L1 is the queried field's data flow at cross-script scale
+        # (scripts + the tables that carry the flow — no field nodes, no
+        # intra-script structure, no terminal markers; R29 item 8
+        # supersedes R18/R18.1). Table-only searches (field falsy) keep
+        # the full table-level behavior (R29 applies to field queries
+        # only).
+        if field:
+            return _build_l1_directional_field_flow(
+                all_scripts, model_by_script, table, field, direction)
 
         nodes = []
         edges = []
@@ -813,6 +1024,10 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             "lineage_field_pairs": [list(p) for p in lineage_field_pairs],
             # M4-B: stable frontend contract — `degraded` is always present.
             "degraded": False,
+            # R29: the directional marker is always present — table-level
+            # graphs are never "flow empty" (the marker only describes the
+            # directional field-flow state).
+            "flow_empty": False,
         }
     except Exception as exc:
         # M4-B: the degraded fallback must be VISIBLE, not a silent success —
@@ -832,7 +1047,7 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
         except Exception:
             pass  # diagnostics must never break the response path
         return {"nodes": nodes, "edges": [], "target": f"{table}.{field}",
-                "degraded": True}
+                "degraded": True, "flow_empty": False}
 
 
 
