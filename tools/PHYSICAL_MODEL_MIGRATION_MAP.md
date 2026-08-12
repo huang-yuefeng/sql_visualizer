@@ -1051,3 +1051,38 @@ the old pin anchored the rank() inputs' FIRST file appearance
 window occurrences (L21-24, `partition by lochierarchy` at L21) — rule-1
 "source field's appearance" now yields 21. Fixture repaired with the
 extractor evidence (ground-truth-may-be-wrong rule), not the engine.
+
+---
+
+## D2 field-aware DML admit — snapshot rebaseline (2026-08-12, commit 24a7807)
+
+> **Documented POST-HOC.** The standing rule requires the documented diff
+> BEFORE the rebaseline; Team L's rebaseline commit landed without this
+> entry (the brief did not restate the rule). The diff below is written
+> from the actual commit (24a7807) and the probe evidence, on 2026-08-12,
+> to repair the record. The rebaseline itself was verified legitimate:
+> full view byte-identical, benchmark gate green, suite 809 passed.
+
+**Verified snapshot diff (2026-08-12, rebaselined):** 00
+BDM_ACC_LOAN_INFO_SUP_M.sql, filtered (seed) view only, under the
+recorded seed `rollover_loan_info.lending_ref`:
+
+- Nodes 8 → 5, edges 10 → 7. Removed from the filtered view:
+  - `l2_tbl_236587aa4c` (`output` ⟐VT @211, TOP1), `l2_tbl_c21b060796`
+    (`rrcdm_job_log_exec_par` @211), `l2_tbl_6a8344ffbc`
+    (`bdm_acc_loan_info_sup` @160) — the stmt-2 DML write-leg family.
+  - Edges `l2e_73632d4f7c7a_dml_out` + `l2e_3b8e8e62b668_dml_out`
+    (TABLE_FLOW write legs) and `l2e_b4fc03d22434` (TABLE_FLOW read
+    into the stmt-2 output).
+- Why: D2 fix (field-aware DML admit, lineage.py `compute_field_flow`).
+  stmt 211's `INSERT INTO rrcdm_job_log_exec_par(data_dt, object_domain,
+  …, remarks)` writes none of `lending_ref`/`charge_department`, so the
+  write leg no longer admits those seeds into the closure; the
+  TABLE_FLOW write-leg twin (op='INSERT') uses the same gate. `data_dt`
+  IS written by stmt 211, so the `data_dt` seed keeps the rrcdm branch
+  (canonical rows 16/17 preserved — benchmark floors unchanged).
+- Full view **byte-identical** (204 nodes / 471 edges, all ids, lines,
+  reasons, seed selection).
+- Probed closures pre/post (sup seeds, served L2): 6/6/7 → 5/5/7
+  (charge_department/lending_ref); `data_dt` 7 → 7 (unchanged).
+  Walker-level: 7/7/10 → 6/6/10.
