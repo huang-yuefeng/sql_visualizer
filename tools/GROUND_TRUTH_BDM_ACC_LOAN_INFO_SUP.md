@@ -353,6 +353,47 @@ RESOLVED (W2, 2026-08-10).
 
 ---
 
+## 6a. L1 ground truth — the cross-script projection of the queried field's flow (requirement change 2026-08-12, R29)
+
+> **Semantic (authoritative, R29):** L1 shows the data flow of the QUERIED FIELD — the same field-level semantic as L2 — at cross-script scale: script nodes + the tables between scripts that carry the flow (no fields). Data flow = the fields WRITING the queried field (upstream) + the fields READING it (downstream). Scripts/tables that only read or write the queried TABLE (not the queried field's flow) are NOT included. The direction is a QUERY PANEL setting — upstream (writing data flow, **default**) / downstream (reading data flow); L2 follows automatically (zoom-in of L1). **Flow-reason anchoring (user ruling 2026-08-12):** in the L2 flow reason the direction fixes which end of the flow the queried field anchors — downstream: the seed is the flow SOURCE (R19.1 framing, unchanged); upstream: the seed is the flow TARGET (the flow converges on it; the sources are the fields writing it).
+
+Seed for this doc: `bdm_acc_loan_info.data_dt`, workspace = `samples/sql_sample_v1/` (3 scripts: BDM_ACC_LOAN_INFO_PL.sql, BDM_ACC_LOAN_INFO_Digitallending.sql, BDM_ACC_LOAN_INFO_SUP_M.sql). The L1 view is workspace-scoped — this projection is shared by the PL / Digitallending / SUP ground truth docs of this seed.
+
+### 6a.1 Upstream L1 (writing data flow — DEFAULT direction)
+
+Fields writing `bdm_acc_loan_info.data_dt` (the partition writes, verified by grep 2026-08-12):
+
+| Script | Line | Write |
+|--------|------|-------|
+| BDM_ACC_LOAN_INFO_PL.sql | 19 | `INSERT OVERWRITE TABLE bdm_acc_loan_info PARTITION(data_dt='${load_date}', CHARGE_DEPARTMENT=...)` — bare INSERT, writes ONLY the partition columns |
+| BDM_ACC_LOAN_INFO_Digitallending.sql | 99 | `INSERT OVERWRITE TABLE bdm_acc_loan_info PARTITION (data_dt = '$(load_date)', CHARGE_DEPARTMENT=...)` |
+
+The partition values are literals — the writing flow terminates at these two writes (no further producers).
+
+**L1 upstream projection (scripts + tables):**
+- Scripts: `BDM_ACC_LOAN_INFO_PL`, `BDM_ACC_LOAN_INFO_Digitallending`
+- Tables: `bdm_acc_loan_info` (the DML target carrying the write fields)
+- **Excluded:** `BDM_ACC_LOAN_INFO_SUP_M` — it READS bdm_acc_loan_info but writes no `data_dt` into it (its writes are bdm_acc_loan_info_sup@160 + rrcdm_job_log_exec_par@211). The old table-level L1 admitted it via its bdm reads; R29 excludes it (no table-level inclusion).
+
+### 6a.2 Downstream L1 (reading data flow)
+
+Fields reading `bdm_acc_loan_info.data_dt` (verified by grep 2026-08-12):
+
+| Script | Read lines | Notes |
+|--------|-----------|-------|
+| BDM_ACC_LOAN_INFO_SUP_M.sql | 18, 43, 84/158 | `WHERE data_dt = '$(load_date)'` (CTE{rollover_loan_info}); `SUBSTR(p1.data_dt,1,7)`; `p1.data_dt = '$(load_date)'` (CTE{loan_final}) — the reads derive the `bdm_acc_loan_info_sup.data_dt` partition write@160 |
+| BDM_ACC_LOAN_INFO_PL.sql | 264 | stmt3 `WHERE data_dt = '${load_date}'` on the bdm read@263 |
+| BDM_ACC_LOAN_INFO_Digitallending.sql | 560 | stmt2 `WHERE data_dt = '$(load_date)'` on the bdm read@559 |
+
+**L1 downstream projection (scripts + tables):**
+- Scripts: `BDM_ACC_LOAN_INFO_SUP_M`, `BDM_ACC_LOAN_INFO_PL`, `BDM_ACC_LOAN_INFO_Digitallending`
+- Tables: `bdm_acc_loan_info` (the read instances), `bdm_acc_loan_info_sup` (SUP_M's data_dt partition write@160 — a field reading the seed)
+- `rrcdm_job_log_exec_par`: the write legs of the reading statements. SUP_M's rrcdm@211 is probe-pinned IN the seed's closure (traceability R19.2 — "bdm seed reaches sup@160 AND rrcdm@211", chain through the sup@223 read leg). PL@253 and Digitallending@549 write legs (data_dt written from a LITERAL) enter only if their statement outputs enter the directional closure — **pin when the direction-aware walker lands** (R29 implementation).
+
+### 6a.3 The exclusion case that motivated the change (verified 2026-08-12)
+
+Seed `ODS_CUPD_CLD_ACCTMASTER_NEW.BNQXYE` (BDM_ACC_LOAN_INFO_Digitallending.sql): `BDM_ACC_LOAN_INFO_SUP_M.sql` contains **0** occurrences of BNQXYE, **0** of ODS_CUPD_CLD_ACCTMASTER_NEW, **0** of INT_OD_AMT (the BNQXYE-derived column) — it only reads `bdm_acc_loan_info` (the searched field's output TABLE). Under R29, SUP_M is excluded from L1 in BOTH directions. The old table-level L1 (production BFS + multi-hop expansion over the queried table's neighborhood) showed it — that behavior is superseded.
+
 # PART II — CANONICAL GROUND TRUTH v2 (benchmark spec, consolidated 2026-08-07)
 
 This part is the machine-comparable target. The benchmark

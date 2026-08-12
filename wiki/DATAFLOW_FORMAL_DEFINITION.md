@@ -56,7 +56,9 @@ SCHEMA edges from ⟐ output:
 No SCHEMA to c.is_active       → WHERE only, not in output
 ```
 
-**In L1+L2:** Output table compound nodes display exactly the columns listed by their outgoing SCHEMA edges. If the SCHEMA edges were filtered by lineage, only lineage-relevant fields appear.
+**In L2:** Output table compound nodes display exactly the columns listed by their outgoing SCHEMA edges. If the SCHEMA edges were filtered by lineage, only lineage-relevant fields appear.
+
+**In L1 (R29, 2026-08-12):** tables appear without field children — L1 scale is scripts + tables only.
 
 ### Script
 A single SQL file. Contains statements (SELECT, INSERT, CREATE, etc.) that produce and consume variables.
@@ -98,14 +100,20 @@ Formally: the set of all nodes V' ⊆ V and edges E' ⊆ E such that there exist
 
 ## Level 1 Graph
 
-**Nodes**: scripts + tables  
-**Edges**: TABLE_FLOW between scripts (via shared tables)
+**Nodes**: scripts + tables (the tables on the queried field's flow, between scripts — no fields, no intra-script detail)  
+**Edges**: reads_from (table → script), writes_to (script → table)
 
-For a target table.field:
-- Find all scripts that reference this field
-- For each script, find its input tables and output tables
-- Connect: input_table → script → output_table
-- Scripts sharing tables are connected
+L1 shows the **data flow of the queried field** — the same field-level semantic as L2 — projected to cross-script scale. It is not a table-level pipeline around the queried table: a script or table appears in L1 **iff** it carries a field in the queried field's flow.
+
+For a target table.field Y, in the query direction D (upstream by default):
+- Compute Y's field flow with the **same strict field-level walker L2 uses**, restricted to direction D
+- **Writing/upstream flow**: the fields that WRITE (produce) Y — walked backward from Y
+- **Reading/downstream flow**: the fields that READ Y — walked forward from Y
+- A script participates iff its script contains ≥1 field of the directional flow
+- A table participates iff it carries ≥1 field of the directional flow
+- Scripts and tables that only read or write the queried TABLE (not the queried field's flow) are **not** included
+
+**Query direction (requirement change 2026-08-12, R29):** the direction is a **query setting in the query panel** — upstream (writing data flow, **default**) / downstream (reading data flow). L1 renders the flow in that direction; L2 follows the same direction automatically — L2 is the zoom-in of L1.
 
 ## Level 2 Graph (within a single script)
 
@@ -118,6 +126,8 @@ For a target table.field within script S:
 - The "relevant" subset shows only nodes on paths to/from the target
 - The "full" graph shows all variables in the script
 
+L2 is the **zoom-in of L1**: it shows the same field flow of Y, in the same query direction (upstream/writing or downstream/reading), inside the clicked script. No separate direction control — the direction is carried from the query panel (R29, 2026-08-12).
+
 ## Cycles
 
 Cycles CAN exist in the data flow:
@@ -129,7 +139,7 @@ The visualization should handle cycles by using layered layout (topological sort
 
 ## Display Principles
 
-1. **L1**: snake/dagre-layered layout — scripts as subgraphs, tables as compound nodes containing their fields
+1. **L1**: snake/dagre-layered layout — scripts as subgraphs, tables as compound nodes on the queried field's flow (no field children; R29, 2026-08-12)
 2. **L2**: same layout — tables as compound nodes, operations as edges, field-level detail
 3. Edge color = edge type (16 distinct colors)
 4. Directional arrows on all edges
@@ -262,7 +272,22 @@ Result:
 
 ## Field-Level Data Flow
 
-When a user queries a specific field (`table=T, field=Y`), the L1 and L2 graphs are filtered to show only nodes and edges on the data flow path of field Y. UI/UX unchanged — same graph structure, same L1/L2 interactions, fewer elements.
+When a user queries a specific field (`table=T, field=Y`), the L1 and L2 graphs show the **data flow of field Y** — the fields writing Y (upstream) and the fields reading Y (downstream). Both levels share the same field-level semantic (the strict table.field flow walker); they differ only in scale:
+
+- **L1** — cross-script projection: scripts + the tables between them that carry the flow. No fields, no intra-script structure.
+- **L2** — per-script zoom-in: tables + fields + edges inside the clicked script.
+
+**Flow direction (requirement change 2026-08-12, R29):** the direction is a **query setting in the query panel**, not an L1 panel control:
+
+- **Upstream (writing data flow, default)** — the fields that WRITE the queried field Y: the transitive production chain feeding Y ("where does Y come from"). Walked backward from Y.
+- **Downstream (reading data flow)** — the fields that READ Y: the transitive consumption chain from Y ("where does Y go"). Walked forward from Y.
+
+L1 renders the flow in the query direction; L2 follows automatically (zoom-in). Tables that only read or write the queried TABLE — without carrying any field of Y's directional flow — are excluded from L1 (no table-level inclusion).
+
+**Source/target anchoring in the L2 flow reason (user ruling 2026-08-12, R29):** the direction fixes which end of the flow the queried field Y anchors:
+
+- **Downstream (reading)** — Y is the flow **SOURCE**: the flow starts at Y (the R19.1 framing, unchanged).
+- **Upstream (writing)** — Y is the flow **TARGET**: the flow converges on Y; the sources are the fields writing it.
 
 ### Lineage Set R
 
@@ -600,39 +625,43 @@ Excluded: c.full_name, c.segment, c.region, c.is_active
 │   → build L2 graph (per-script: tables + fields + edges) │
 ├──────────────────────────────────────────────────────────┤
 │ NEW                                                       │
-│ compute_field_lineage(Y, graph)                           │
-│   → BFS from Y through 16 edge-type-specific rules       │
-│   → returns lineage set R (fields + tables + scripts)    │
+│ field_flow(Y, graph, direction)                           │
+│   → strict field-level walker (compute_field_flow class) │
+│   → direction: upstream (fields WRITING Y) /             │
+│                downstream (fields READING Y)             │
+│   → returns the directional flow F (fields + tables)     │
 │                                                           │
-│ filter_graph(graph, R)                                    │
-│   → keep nodes ∈ R, drop rest                            │
-│   → keep edges where both endpoints ∈ R                  │
-│   → post-cleanup: remove table nodes with 0 field children│
-│   → same structure, fewer elements                       │
+│ L1: project F to scripts + tables (R29, 2026-08-12)      │
+│ L2: keep nodes ∈ F, drop rest                            │
+│   → post-cleanup: remove table nodes with 0 flow fields  │
+│   → L1 scale = scripts + tables; L2 scale = fields       │
 └──────────────────────────────────────────────────────────┘
 ```
 
-### Cross-Script Lineage Union
+### Cross-Script Projection (L1, requirement change 2026-08-12, R29)
 
-L1 spans multiple scripts. L2 computes lineage per script. For L1, the lineage set R₁ is the **constrained union** of per-script R sets:
+L1 spans multiple scripts. Each script runs the **same strict field-flow walker as L2** (per-instance table.field identity, restricted to the query direction — upstream/writing or downstream/reading), yielding the directional flow Fᵢ inside that script. L1 is the **projection** of the per-script flows onto script+table level:
 
-R₁ = ⋃ R(scriptᵢ)  subject to: if a field is excluded from R in any script due to conditional edge rules (JOIN, FILTER), it is excluded from R₁ regardless of its presence in other scripts' R sets.
+- A script node appears iff its script contains ≥1 field in its directional flow Fᵢ.
+- A table node appears iff it carries ≥1 field in Fᵢ — a table read/written by a script for OTHER fields is not enough; only the queried field's flow counts.
+- **No table-level expansion**: a script that merely reads or writes the queried TABLE without carrying the queried field's flow is excluded.
 
-Rationale: two scripts may independently include a field in their isolated R sets, but a third script connecting them via a conditional edge (e.g., JOIN ON equality) breaks the propagation. The cross-script constraint ensures that conditional edges spanning script boundaries are respected.
+This supersedes the earlier constrained-union formulation and the table-level production BFS (which admitted table-neighborhood scripts — e.g. a script reading `bdm_acc_loan_info` appeared for a `ODS_CUPD_CLD_ACCTMASTER_NEW.BNQXYE` search although it touches neither BNQXYE nor any BNQXYE-derived field).
 
-### Terminal Marker Edge Rules
+### Termination (L1, requirement change 2026-08-12, R29)
 
-After R₁ filtering and table cleanup:
-- **Incoming edges** to the terminal marker from field-connected scripts are **kept** (shows where the data flow ends)
-- **Outgoing edges** from the terminal marker to scripts are **kept** (enables manual L2 verification)
-- **Scripts connected to the terminal marker** are **kept** — they can be opened for L2 inspection
-- **Further downstream tables** (outputs of terminal-connected scripts) are **removed**
-- **Disconnected scripts** (no remaining table connections after cleanup) are removed from L1
+The directional flow terminates at the **last table that carries a flow field**. Tables beyond that point — including tables that only read or write the queried TABLE — are **not** included: no table-level inclusion, no terminal-marker table. This supersedes the earlier terminal-marker rules (R18.1) for L1:
+
+- Tables with ≥1 flow field → **kept**
+- Tables with 0 flow fields → **removed** (no exception — the old "first downstream table that lacks the field" marker is exactly a table outside the queried field's flow)
+- Scripts with no remaining table connection (no carried flow field) → **removed** from L1
+
+Manual verification of absent fields is served by L2's not-in-flow response (R22.3): opening the script shows the banner "not in the data flow of T.F" plus the full graph — no marker table needed in L1.
 
 ### Single Lineage Engine
 
-Both L1 and L2 must use `compute_field_lineage` (edge-type-specific BFS). Name matching is never a substitute for lineage computation. L1's filter is the constrained union of per-script `compute_field_lineage` results, not an independent filtering algorithm.
+Both L1 and L2 must use the **same strict field-flow walker** (`compute_field_flow` — the field-level, per-instance table.field walker; the legacy table-level `compute_field_lineage` covers only the no-field-query path). Name matching is never a substitute for lineage computation. L1's flow is the direction-aware projection of the per-script walker results (R29, 2026-08-12) — not an independent table-level filtering algorithm.
 
 ### Backward Compatibility
 
-When no specific field is queried (table-only search), or when `lineage_mode` is off, the full table-level graph is shown — behavior unchanged from the current definition.
+When no specific field is queried (table-only search), or when `lineage_mode` is off, the full table-level graph is shown — behavior unchanged from the current definition. The upstream/downstream query direction applies only to field queries (R29, 2026-08-12).
