@@ -3,7 +3,7 @@
 # Requires: backend container restarted with latest code
 # Usage: ./test-layout.sh [ws_id] [table] [field]
 set -e
-BASE="${API_BASE:-http://192.168.0.66:8000}"
+BASE="${API_BASE:-http://127.0.0.1:8000}"
 WS_ID="${1:-}"
 TABLE="${2:-crm_customers}"
 FIELD="${3:-customer_id}"

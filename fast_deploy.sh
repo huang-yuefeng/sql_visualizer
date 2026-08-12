@@ -2,7 +2,7 @@
 set -e
 cd "$(dirname "$0")"
 # Build frontend
-cd frontend && npx vite build --logLevel warn
+cd frontend && ./node_modules/.bin/vite build --logLevel warn
 cd ..
 # Copy built files
 rm -rf backend/app/static/*

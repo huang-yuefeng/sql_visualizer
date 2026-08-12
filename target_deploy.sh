@@ -32,7 +32,7 @@ rollback() {
         docker tag "${IMAGE_NAME}:${ROLLBACK_TAG}" "${IMAGE_NAME}:latest"
         docker rmi "${IMAGE_NAME}:${ROLLBACK_TAG}" 2>/dev/null || true
 
-        docker run -d \
+        docker run -d --pull=never \
             -p 0.0.0.0:8000:8000 \
             --name "$CONTAINER_NAME" \
             --restart unless-stopped \
@@ -55,7 +55,8 @@ if [ -f "$IMAGE_DIR/RELEASE.txt" ]; then
     PIECE_BUILT=$(sed -n 's/^BUILT=//p' "$IMAGE_DIR/RELEASE.txt" 2>/dev/null | head -1)
     log "  Piece manifest: VERSION=${PIECE_VERSION} COMMIT=${PIECE_COMMIT} BUILT=${PIECE_BUILT}"
     if [ "$PIECE_VERSION" != "$REPO_VERSION" ]; then
-        echo -e "\n${RED}MISMATCH: pieces are v${PIECE_VERSION} but repo VERSION is v${REPO_VERSION} — image pieces are stale, run 'git pull' and retry${NC}" | tee -a "$LOG_FILE" >&2
+        echo -e "\n${RED}MISMATCH: pieces are v${PIECE_VERSION} but repo VERSION is v${REPO_VERSION} — image pieces are stale${NC}" | tee -a "$LOG_FILE" >&2
+        echo -e "${RED}  Fix: obtain fresh docker_image/ pieces from the developer (offline transfer) and retry${NC}" | tee -a "$LOG_FILE" >&2
         exit 1
     fi
 else
@@ -63,64 +64,10 @@ else
     exit 1
 fi
 
-# Optional online check: is the local checkout strictly behind origin/main?
-# macOS has no GNU `timeout` (coreutils) — prefer `gtimeout`, else `timeout`.
-# If neither exists, SKIP the remote check entirely: an unbounded
-# `git ls-remote` on a restricted network can hang for minutes (the 2026-08-12
-# MacBook freeze — `command -v timeout` failed, else-branch ran unguarded).
-TOOL_TIMEOUT=""
-for _t in gtimeout timeout; do
-    if command -v "$_t" >/dev/null 2>&1; then TOOL_TIMEOUT="$_t"; break; fi
-done
-
-if [ -n "$TOOL_TIMEOUT" ]; then
-    REMOTE_HEAD=$($TOOL_TIMEOUT 10 git ls-remote origin refs/heads/main 2>/dev/null | head -1)
-else
-    REMOTE_HEAD=""
-    log "  ${YELLOW}No timeout tool (gtimeout/timeout) — skipping remote version check${NC}"
-fi
-
-if [ -n "$REMOTE_HEAD" ]; then
-    # Track fetch success explicitly — a failed fetch must NOT fall back to
-    # the stale origin/main ref (previously swallowed by `|| true`).
-    FETCH_OK=false
-    if [ -n "$TOOL_TIMEOUT" ]; then
-        if $TOOL_TIMEOUT 15 git fetch origin --quiet 2>/dev/null; then
-            FETCH_OK=true
-        fi
-    else
-        log "  ${YELLOW}No timeout tool — skipping origin fetch${NC}"
-    fi
-
-    if [ "$FETCH_OK" = true ]; then
-        BEHIND=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo "?")
-        AHEAD=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo "?")
-        if [ "$BEHIND" != "?" ] && [ "$AHEAD" != "?" ] && [ "$BEHIND" -gt 0 ] && [ "$AHEAD" -eq 0 ]; then
-            # Strictly behind origin/main (fetch ok + behind + NOT diverged) → reset advice.
-            REMOTE_VERSION=$(git show origin/main:VERSION 2>/dev/null || echo "?")
-            if [ "$REMOTE_VERSION" = "?" ]; then
-                REMOTE_VERSION="unknown version"
-            else
-                REMOTE_VERSION="v${REMOTE_VERSION}"
-            fi
-            echo -e "\n${RED}STALE CHECKOUT: local v${REPO_VERSION} is ${BEHIND} commit(s) behind origin/main (origin/main: ${REMOTE_VERSION})${NC}" | tee -a "$LOG_FILE" >&2
-            echo -e "${RED}  Fix: git clean -fd docker_image/ && git reset --hard origin/main${NC}" | tee -a "$LOG_FILE" >&2
-            exit 1
-        elif [ "$BEHIND" = "?" ] || [ "$AHEAD" = "?" ]; then
-            log "  ${YELLOW}Could not compare local HEAD with origin/main — skipping remote version check${NC}"
-        elif [ "$BEHIND" -eq 0 ] && [ "$AHEAD" -gt 0 ]; then
-            log "  ${YELLOW}Local checkout is ${AHEAD} commit(s) AHEAD of origin/main — unpushed commits present; skipping remote version check (do NOT reset)${NC}"
-        elif [ "$BEHIND" -gt 0 ] && [ "$AHEAD" -gt 0 ]; then
-            log "  ${YELLOW}Local checkout DIVERGED from origin/main (${AHEAD} ahead, ${BEHIND} behind) — resolve manually; skipping remote version check${NC}"
-        else
-            log "  Checkout up to date with origin/main"
-        fi
-    else
-        log "  ${YELLOW}git fetch from origin failed — skipping remote version check (origin may be unreachable)${NC}"
-    fi
-else
-    log "  ${YELLOW}origin unreachable (offline?) — skipping remote version check${NC}"
-fi
+# OFFLINE-ONLY TARGET (user rule 2026-08-12): no internet connections are
+# ever allowed on this machine — git operations in particular. The former
+# origin check (`git ls-remote` / `git fetch`) was REMOVED for this reason.
+# The version guard above (repo VERSION vs RELEASE.txt manifest) is the gate.
 
 # ── 1. Reassemble image ─────────────────────────────────────────────
 log "=== Reassemble image ==="
@@ -186,7 +133,7 @@ docker rmi "${IMAGE_NAME}:latest" 2>/dev/null || true
 docker load < "$IMAGE_FILE" || rollback
 
 # ── 4.5. Verify loaded image version (before starting) ───────────────
-IMAGE_VERSION=$(docker run --rm "${IMAGE_NAME}:latest" cat /app/VERSION 2>/dev/null || echo "unknown")
+IMAGE_VERSION=$(docker run --rm --pull=never "${IMAGE_NAME}:latest" cat /app/VERSION 2>/dev/null || echo "unknown")
 log "  Loaded image VERSION: v${IMAGE_VERSION} (repo expects v${REPO_VERSION})"
 if [ "$IMAGE_VERSION" != "$REPO_VERSION" ]; then
     echo -e "\n${RED}  VERSION MISMATCH: loaded image is v${IMAGE_VERSION} but repo expects v${REPO_VERSION}${NC}" | tee -a "$LOG_FILE" >&2
@@ -195,7 +142,7 @@ fi
 
 # ── 5. Start container ──────────────────────────────────────────────
 log "=== Start container ==="
-docker run -d \
+docker run -d --pull=never \
     -p 0.0.0.0:8000:8000 \
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \

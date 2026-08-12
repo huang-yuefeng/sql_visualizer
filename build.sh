@@ -11,7 +11,7 @@ docker build -t gps-sql-visualizer:latest .
 
 echo "=== Start container ==="
 docker rm -f gps-test 2>/dev/null || true
-docker run -d -p 8000:8000 --name gps-test gps-sql-visualizer:latest
+docker run -d --pull=never -p 8000:8000 --name gps-test gps-sql-visualizer:latest
 
 # Wait for health
 echo -n "  Waiting for healthy..."
