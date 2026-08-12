@@ -34,7 +34,7 @@ docker build -t gps-sql-visualizer:latest .
 # ── 2. Run smoke test ───────────────────────────────────────────────
 echo "=== Smoke test ==="
 docker rm -f gps-test 2>/dev/null || true
-docker run -d -p 8000:8000 -e ANTHROPIC_API_KEY=test-key --name gps-test gps-sql-visualizer:latest
+docker run -d -p 8000:8000 --name gps-test gps-sql-visualizer:latest
 
 echo -n "  Waiting for healthy..."
 for i in $(seq 1 20); do

@@ -2,7 +2,7 @@
 # GPS SQL Data Flow Visualizer — fully offline Docker image
 #
 # Build:   docker build -t gps-sql-visualizer .
-# Run:     docker run -p 8000:8000 -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY gps-sql-visualizer
+# Run:     docker run -p 8000:8000 gps-sql-visualizer
 #
 # All Python dependencies are installed from vendored wheels — no PyPI access
 # is required at build time, and no Node.js is needed at runtime (the frontend

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Target-machine deployment with rollback on failure.
 # Prerequisites: Docker installed, image pieces in docker_image/.
-# Usage:  export ANTHROPIC_API_KEY=sk-... && ./target_deploy.sh
+# Usage:  ./target_deploy.sh
 set -e
 cd "$(dirname "$0")"
 
@@ -34,7 +34,6 @@ rollback() {
 
         docker run -d \
             -p 0.0.0.0:8000:8000 \
-            -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
             --name "$CONTAINER_NAME" \
             --restart unless-stopped \
             "${IMAGE_NAME}:latest"
@@ -170,7 +169,6 @@ fi
 log "=== Start container ==="
 docker run -d \
     -p 0.0.0.0:8000:8000 \
-    -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \
     "${IMAGE_NAME}:latest" || rollback
