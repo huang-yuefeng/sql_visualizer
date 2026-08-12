@@ -12,7 +12,7 @@
           "id": "l2e_9d4d96e7bc77",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 p6.lending_ref@L82 \u2192 \u2016loan_final@L64 \u2192 \u27d0 output@L160\u2016 \u2192 bdm_acc_loan_info_sup@L160",
+          "reason": "chain (CTE chain) \u2014 p6.lending_ref@L82 \u2192 \u2016loan_final@L64 \u2192 \u27d0 output@L160\u2016",
           "source": "l2_tbl_5f136cce0e",
           "target": "l2_tbl_7b217fb63a",
           "width": 3
@@ -29,60 +29,9 @@
           "id": "l2e_1baf84d82c1a",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 p6.lending_ref@L82 \u2192 \u2016p6@L155 \u2192 loan_final@L64\u2016 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160",
+          "reason": "chain (CTE chain) \u2014 p6.lending_ref@L82 \u2192 \u2016p6@L155 \u2192 loan_final@L64\u2016",
           "source": "l2_tbl_53c3cce867",
           "target": "l2_tbl_5f136cce0e",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 223,
-          "id": "l2e_b4fc03d22434",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 p6.lending_ref@L82 \u2192 loan_final@L64 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160 \u2192 \u2016bdm_acc_loan_info_sup@L223 \u2192 \u27d0 output@L211\u2016 \u2192 rrcdm_job_log_exec_par@L211",
-          "source": "l2_tbl_6a8344ffbc",
-          "target": "l2_tbl_236587aa4c",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "write",
-          "color": "#2980B9",
-          "desc": "INSERT/UPDATE/DELETE/MERGE",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "write",
-          "highlight_line": 211,
-          "id": "l2e_73632d4f7c7a_dml_out",
-          "label": "TABLE_FLOW",
-          "line_style": "double",
-          "reason": "write (write leg) \u2014 p6.lending_ref@L82 \u2192 loan_final@L64 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L223 \u2192 \u2016\u27d0 output@L211 \u2192 rrcdm_job_log_exec_par@L211\u2016",
-          "source": "l2_tbl_236587aa4c",
-          "target": "l2_tbl_c21b060796",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "write",
-          "color": "#2980B9",
-          "desc": "INSERT/UPDATE/DELETE/MERGE",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "write",
-          "highlight_line": 160,
-          "id": "l2e_3b8e8e62b668_dml_out",
-          "label": "TABLE_FLOW",
-          "line_style": "double",
-          "reason": "write (write leg) \u2014 p6.lending_ref@L82 \u2192 loan_final@L64 \u2192 \u2016\u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160\u2016",
-          "source": "l2_tbl_7b217fb63a",
-          "target": "l2_tbl_6a8344ffbc",
           "width": 3
         }
       },
@@ -148,7 +97,7 @@
           "id": "l2e_2e0391b6c43e",
           "label": "REF",
           "line_style": "solid",
-          "reason": "read \u2014 \u2016p6.lending_ref@L82 \u2192 p6@L155\u2016 \u2192 loan_final@L64 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160",
+          "reason": "read \u2014 \u2016p6.lending_ref@L82 \u2192 p6@L155\u2016",
           "source": "fld_1687eb20f3",
           "target": "l2_tbl_53c3cce867",
           "width": 1
@@ -165,14 +114,14 @@
           "id": "l2e_c1f940d2eb0f",
           "label": "JOIN",
           "line_style": "dashed",
-          "reason": "field flow (join step) \u2014 \u2016p6.lending_ref@L82 \u2192 loan_final@L64\u2016 \u2192 \u27d0 output@L160 \u2192 bdm_acc_loan_info_sup@L160",
+          "reason": "field flow (join step) \u2014 \u2016p6.lending_ref@L82 \u2192 loan_final@L64\u2016",
           "source": "fld_1687eb20f3",
           "target": "l2_tbl_5f136cce0e",
           "width": 2
         }
       }
     ],
-    "filtered_nodes": 8,
+    "filtered_nodes": 5,
     "nodes": [
       {
         "data": {
@@ -205,56 +154,12 @@
       {
         "data": {
           "context": "TOP0",
-          "defined_in": "INSERT",
-          "flow_target": true,
-          "id": "l2_tbl_6a8344ffbc",
-          "label": "bdm_acc_loan_info_sup",
-          "line_end": 210,
-          "line_start": 160,
-          "original_id": "e5c14f0671fd2233",
-          "table_name": "bdm_acc_loan_info_sup",
-          "type": "source_table",
-          "variable_type": "table"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP0",
           "defined_in": "TOP0",
           "id": "l2_tbl_7b217fb63a",
           "label": "output",
           "line_end": 210,
           "line_start": 160,
           "original_id": "4a4084293586b1d6",
-          "table_name": "\u27d0 output",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP1",
-          "defined_in": "INSERT",
-          "flow_target": true,
-          "id": "l2_tbl_c21b060796",
-          "label": "rrcdm_job_log_exec_par",
-          "line_end": 225,
-          "line_start": 211,
-          "original_id": "02c0d0599fa93e53",
-          "table_name": "rrcdm_job_log_exec_par",
-          "type": "source_table",
-          "variable_type": "table"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP1",
-          "defined_in": "TOP1",
-          "id": "l2_tbl_236587aa4c",
-          "label": "output",
-          "line_end": 225,
-          "line_start": 211,
-          "original_id": "8073ded23edd597b",
           "table_name": "\u27d0 output",
           "type": "intermediate_table",
           "variable_type": "virtual_table"
@@ -289,8 +194,8 @@
     "script_name": "BDM_ACC_LOAN_INFO_SUP_M.sql",
     "search_matched": true,
     "target": "rollover_loan_info.lending_ref",
-    "total_edges": 10,
-    "total_nodes": 9
+    "total_edges": 7,
+    "total_nodes": 5
   },
   "full": {
     "edges": [
