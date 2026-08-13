@@ -1521,7 +1521,7 @@ carries a field of the queried field's flow.
     `tools/GROUND_TRUTH_*.md`: `bdm_acc_loan_info.data_dt` (both; upstream
     literal-terminated), `rrcdm_job_log_exec_par.data_dt` (upstream-only, empty
     downstream), `ods_hie_ipacmsp.iiapty` (downstream-only, empty upstream),
-    `bdm_acc_loan_info.lending_ref` (both; real producing chain acnw → lending_ref).
+    `bdm_acc_loan_info.lending_ref` (both; real producing chain acctnbr → lending_ref).
     Each seed pins the L1 projections (incl. the EMPTY directions — L1 must render a
     clear "no flow in this direction" state, not an error) and the per-script L2
     directional flows (e.g. data_dt upstream L2: literal-terminated write chains;

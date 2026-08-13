@@ -7,7 +7,7 @@
 ## 1. Workspace facts (verified 2026-08-12)
 
 **Writers (one):**
-- BDM_ACC_LOAN_INFO_Digitallending.sql @99 — the `INSERT OVERWRITE bdm_acc_loan_info` writes `lending_ref` from the statement output column `A.acctnbr AS LENDING_REF` @101, produced by the `A` alias of `ods_ccb_cb_loan_acctloan` @426 (a real alias/transform chain: ODS field → bdm field). **REPAIRED 2026-08-12:** the chain start is `ods_ccb_cb_loan_acctloan.acnw` @426 (probe-pinned served closure); the doc's earlier `ODS_CUPD_CLD_ACCTMASTER_NEW.acnw` @62/@82 instances belong to the `temp_kmbh_gl` CTE segment (see the last §1 bullet) — NOT part of this producing chain.
+- BDM_ACC_LOAN_INFO_Digitallending.sql @99 — the `INSERT OVERWRITE bdm_acc_loan_info` writes `lending_ref` from the statement output column `A.acctnbr AS LENDING_REF` @101, produced by the `A` alias of `ods_ccb_cb_loan_acctloan` @426 (a real alias/transform chain: ODS field → bdm field). **REPAIRED 2026-08-12:** the chain start is `ods_ccb_cb_loan_acctloan.acctnbr` @426 (probe-pinned served closure); the doc's earlier `ODS_CUPD_CLD_ACCTMASTER_NEW.acnw` @62/@82 instances belong to the `temp_kmbh_gl` CTE segment (see the last §1 bullet) — NOT part of this producing chain.
 - BDM_ACC_LOAN_INFO_PL.sql — **0 occurrences** of `lending_ref` (grep-verified): PL writes the TABLE `bdm_acc_loan_info` @19 but NOT this field → PL is not a writer of the seed.
 
 **Readers (one):**
@@ -19,10 +19,10 @@
 
 ### 2.1 Upstream L1 (writing — DEFAULT direction)
 
-The upstream flow is the **transitive writing chain** (user ruling 2026-08-12): the writing fields of writing fields, back-traced to the start. Chain: `ods_ccb_cb_loan_acctloan.acnw` (the `A` alias @426) → `A.acctnbr AS LENDING_REF` @101 → the statement output → the write target @99 → the seed. Terminates at the ODS source (nobody in the workspace writes it). **REPAIRED 2026-08-12:** the chain start is the ODS FROM source @426 (probe-pinned served closure; the `@62/@82 acnw` instances are the `temp_kmbh_gl` segment — different chain).
+The upstream flow is the **transitive writing chain** (user ruling 2026-08-12): the writing fields of writing fields, back-traced to the start. Chain: `ods_ccb_cb_loan_acctloan.acctnbr` (the `A` alias @426) → `A.acctnbr AS LENDING_REF` @101 → the statement output → the write target @99 → the seed. Terminates at the ODS source (nobody in the workspace writes it). **REPAIRED 2026-08-12:** the chain start is the ODS FROM source @426 (probe-pinned served closure; the `@62/@82 acnw` instances are the `temp_kmbh_gl` segment — different chain).
 
 - **Scripts:** `BDM_ACC_LOAN_INFO_Digitallending`
-- **Tables:** `bdm_acc_loan_info` (the DML target), `ods_ccb_cb_loan_acctloan` (the chain start — its `acnw` field writes the seed via the `A` alias)
+- **Tables:** `bdm_acc_loan_info` (the DML target), `ods_ccb_cb_loan_acctloan` (the chain start — its `acctnbr` field writes the seed via the `A` alias)
 - **Excluded — the field-vs-table exclusion from the WRITING side:** `BDM_ACC_LOAN_INFO_PL` writes the queried TABLE `bdm_acc_loan_info` @19 but contains 0 occurrences of `lending_ref` — it does not carry the queried field's flow → excluded (the mirror of the SUP_M/BNQXYE reading-side case).
 
 ### 2.2 Downstream L1 (reading)
@@ -51,7 +51,7 @@ The served instance line set is 9/13/16/22/26/29/41/50/52/64/67/84/117/150/160/1
 ## 4. Edge cases pinned
 
 - Field-vs-table exclusion on the **writing side** (PL writes the table, not the field → excluded) — the mirror image of the SUP_M/BNQXYE reading-side case.
-- The upstream scope is the **transitive writing chain** (writers of writers, back to the start): the chain start `ods_ccb_cb_loan_acctloan` (the `A` alias, carrying `acnw`) is IN the projection even though no script writes it — the chain terminates there (user ruling 2026-08-12). **REPAIRED 2026-08-12:** the chain start is the ODS FROM source @426 (probe evidence) — the doc's earlier `ODS_CUPD_CLD_ACCTMASTER_NEW` @62/@82 reading was the temp_kmbh_gl segment, not this chain. A write statement's unrelated input tables are NOT in the chain and stay out.
-- A real producer chain (acnw → lending_ref) must be followed by the upstream walker (ALIAS/TRANSFORM + DML forward); the FROM-source admission into the statement output is typed JOIN (the walker's seed-zone JOIN rule — the upstream invariant bans FILTER/INDIRECT, not JOIN).
+- The upstream scope is the **transitive writing chain** (writers of writers, back to the start): the chain start `ods_ccb_cb_loan_acctloan` (the `A` alias, carrying `acctnbr`) is IN the projection even though no script writes it — the chain terminates there (user ruling 2026-08-12). **REPAIRED 2026-08-12:** the chain start is the ODS FROM source @426 (probe evidence) — the doc's earlier `ODS_CUPD_CLD_ACCTMASTER_NEW` @62/@82 reading was the temp_kmbh_gl segment, not this chain. A write statement's unrelated input tables are NOT in the chain and stay out.
+- A real producer chain (acctnbr → lending_ref) must be followed by the upstream walker (ALIAS/TRANSFORM + DML forward); the FROM-source admission into the statement output is typed JOIN (the walker's seed-zone JOIN rule — the upstream invariant bans FILTER/INDIRECT, not JOIN).
 - **Row-level continuation (REPAIRED 2026-08-12, user ruling):** the statement that USES the queried field carries the effect into ALL its write targets — even when the seed is not among the written columns, because the SELECTED ROWS are the rows selected by the seed's join keys / outputs (sup write @160). A later statement whose ROW-SELECTION uses a column the write produced (the rrcdm statement's `sup.data_dt` filter @225) continues the chain into ITS write targets (@211). The pre-repin "stops at the loan_final output / NOT-IN target" reading is superseded — the lending_ref chain runs to rrcdm@211.
 - CTE/temp columns derived from OTHER tables with the same column name (`temp_kmbh_gl.lending_ref`) are NOT the seed — instance identity matters.

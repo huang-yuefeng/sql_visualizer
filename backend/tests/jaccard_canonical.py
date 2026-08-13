@@ -369,7 +369,7 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
      §2.2/§3.1/§4 repaired back to the ruling.
    - lending_ref↑DL: the §3.1 chain start was wrong (the doc's acnw
      @62/@82 belongs to the temp_kmbh_gl segment, not this chain) --
-     the chain starts at the ODS FROM source A.acnw @426 and the
+     the chain starts at the ODS FROM source A.acctnbr @426 and the
      output column is A.acctnbr AS LENDING_REF @101 (rows LFD1-7);
      the FROM-source admission is typed JOIN (the upstream invariant
      bans FILTER/INDIRECT, NOT JOIN -- see the consumer test).
@@ -811,7 +811,7 @@ CANONICAL_EDGES = [
     #    lending_ref↑DL -- bdm_acc_loan_info.lending_ref UPSTREAM, the
     #    suite's first REAL (non-literal) producing chain
     #    (GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §3.1: the
-    #    chain runs from ods_ccb_cb_loan_acctloan.acnw (A.acnw @426)
+    #    chain runs from ods_ccb_cb_loan_acctloan.acctnbr (A.acctnbr @426)
     #    to the write target bdm_acc_loan_info.lending_ref @99).
     #    2026-08-12 repin (point 15): the chain START is the ODS FROM
     #    source @426 (probe-pinned; the doc's acnw @62/@82 instances
@@ -1328,14 +1328,14 @@ CANONICAL_NODES_DIR = {
     ("iiapty", "BDM_ACC_LOAN_INFO_SUP_M.sql", "upstream"): [],
     # lending_ref↑DL -- the REAL (non-literal) producing chain (doc
     # §3.1; 2026-08-12 repin, point 15: the chain start is the ODS
-    # FROM source ods_ccb_cb_loan_acctloan A.acnw @426, probe-pinned
+    # FROM source ods_ccb_cb_loan_acctloan A.acctnbr @426, probe-pinned
     # -- the doc's @62/@82 acnw instances belong to the temp_kmbh_gl
     # segment, not this chain; the statement output column is
     # A.acctnbr AS LENDING_REF @101; the write target
     # bdm_acc_loan_info.lending_ref @99 (DML forward)).
     ("lending_ref", "BDM_ACC_LOAN_INFO_Digitallending.sql", "upstream"): [
         {"label": "ods_ccb_cb_loan_acctloan", "line": 426, "kind": "table",
-         "note": "the chain start (the A alias's FROM source @426; carries acnw)"},
+         "note": "the chain start (the A alias's FROM source @426; carries acctnbr)"},
         {"label": "A@426", "line": 426, "kind": "table",
          "note": "the A alias node (alias label embeds the line)"},
         {"label": "acctnbr", "line": 101, "kind": "field",

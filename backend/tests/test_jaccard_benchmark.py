@@ -202,7 +202,7 @@ CASES = [(seed, SQL_FILES[seed], "downstream")
     ("iiapty", "BDM_ACC_LOAN_INFO_SUP_M.sql", "downstream"),
     ("iiapty", "BDM_ACC_LOAN_INFO_SUP_M.sql", "upstream"),
     # R29 lending_ref seed — the first REAL (non-literal) chain: DL
-    # writer (doc §3.1: acnw → lending_ref @99) and SUP_M reader (doc
+    # writer (doc §3.1: acctnbr → lending_ref @99) and SUP_M reader (doc
     # §3.2: effect chain through the sup write to the rrcdm write).
     ("lending_ref", "BDM_ACC_LOAN_INFO_Digitallending.sql", "upstream"),
     ("lending_ref", "BDM_ACC_LOAN_INFO_SUP_M.sql", "downstream"),

@@ -4829,21 +4829,27 @@ round, not an issue-3 defect; the read leg itself renders.
 
 **Fix:** set `parentViewIdRef.current = viewId` in the L1 branch of `handleViewTreeClick`; clear on child navigation.
 
-## CR7 · Direction default contradicts the documented contract (Medium — needs user ruling)
+## CR7 · Direction default contradicts the documented contract (Medium — RULED)
 
-> **Priority:** P2 | **Status:** Open | **Type:** Data contract
+> **Priority:** P2 | **Status:** Open (ruled — queued) | **Type:** Data contract
 
 **Symptom:** docs say `default upstream` (SOLUTION_DESIGN/REQUIREMENTS), but the backend + client default to `downstream` (`dataflow_service.py:43,410`; `l1_builder.py:437`; `dataflow.py:189,263`; `client.js:90,110`). The UI (`FilterPanel.jsx:43`) compensates by always sending upstream, so the user-facing default is upstream — but a direct API caller or a missed frontend path gets downstream.
 
-**Fix (needs ruling):** (a) change backend/client defaults to `"upstream"` (with legacy-compat), or (b) document "UI default = upstream" vs "API default = downstream" explicitly + add a test asserting the UI always passes it.
+**Ruling (2026-08-13):** the system shows **write operations to the target field** as the default → default direction = `"upstream"` (writing flow). Resolves to option (a).
 
-## CR8 · Stale ground-truth claims contradict the repaired ground truth (Medium — needs user ruling)
+**Fix:** change backend/client defaults to `"upstream"` (with legacy-compat), so direct API callers and missed frontend paths also get the writing direction; keep the UI sending upstream explicitly.
+
+## CR8 · Stale ground-truth claims contradict the repaired ground truth (Medium — sub-issue A ruled, sub-issue B pending)
 
 > **Priority:** P2 | **Status:** Open | **Type:** Documentation
 
-**Symptom:** docs still say `rrcdm_job_log_exec_par.data_dt` is "upstream-only, empty downstream" and `lending_ref` chain is `acnw → lending_ref`; the repaired ground truth says the opposite (rrcdm downstream = the writer's-own-leg chain; `lending_ref` starts at `ods_ccb_cb_loan_acctloan.acctnbr`, per `A.acctnbr AS LENDING_REF`). The LENDING_REF doc mixes `acnw`/`acctnbr`.
+**Symptom:** two stale claims — (A) `lending_ref` chain mislabeled `acnw → lending_ref`; (B) `rrcdm_job_log_exec_par.data_dt` "upstream-only, empty downstream".
 
-**Fix (needs ruling on the canonical value):** update bullets to the repaired 2026-08-12 behavior; use `acctnbr` consistently.
+**Sub-issue A — RULED (2026-08-13), corrected:** the chain-start field is `acctnbr`, not `acnw`. SQL evidence: `A.acctnbr AS LENDING_REF` @101 with `FROM ods_ccb_cb_loan_acctloan A` @426. `acnw` is a field of `ODS_CUPD_CLD_ACCTMASTER_NEW` (the `temp_kmbh_gl`/`temp_kmbh_ie` CTE) — unrelated to the queried field. **Corrected (doc/comment-only, no behavior):** `tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md` (5 spots), `REQUIREMENTS.md:1444`, `wiki/SOLUTION_DESIGN.md:1524`, `backend/tests/test_jaccard_benchmark.py:205`, `backend/tests/jaccard_canonical.py:372/814/1338`.
+
+**Sub-issue B — awaiting ruling:** `REQUIREMENTS.md:1444` still lists `rrcdm_job_log_exec_par.data_dt` as "(upstream-only, empty downstream)"; the repaired 2026-08-12 ground truth says its downstream is non-empty (the writer's-own-leg chain: sup write @160 → `sup.data_dt` read @225 → rrcdm write @211). Needs the user to confirm flipping that line.
+
+**Fix (remaining):** flip the `rrcdm_job_log_exec_par.data_dt` acceptance-criteria bullet to "downstream non-empty (writer's-own-leg chain)".
 
 ## CR9 · Missing router/API-level tests for direction paths (Medium — test gap)
 
@@ -4853,13 +4859,15 @@ round, not an issue-3 defect; the read leg itself renders.
 
 **Fix:** add a router-level upstream journey + a `no_flow` case.
 
-## CR10 · Direction ground truth + L2 snapshot repinned from served closures (Medium — benchmark circularity)
+## CR10 · Direction ground truth + L2 snapshot repinned from served closures (Medium — benchmark circularity, RULED)
 
-> **Priority:** P2 | **Status:** Open | **Type:** Benchmark weakness
+> **Priority:** P2 | **Status:** Open (ruled — queued) | **Type:** Benchmark weakness
 
 **Symptom:** several downstream L1 projections + jaccard rows were "repinned to the engine truth"/served closures; the 02_SUP_M snapshot regenerated (5/7 → 13/20). With floors at exactly 1.0000/1.0000, these now largely assert the engine matches its own output — the J12-21 class (silent over/under-admission) would be enshrined as correct. Related: J12-13 (fixture circular), J12-17 (benchmark blind spot).
 
-**Fix:** re-derive canonical rows from SQL/textual evidence where possible; keep a distinct independent assertion for repinned seeds; document the 13/20 rebaseline.
+**Ruling (2026-08-13):** ground truth MUST be built by a **different / independent method** — it can never be derived from the system's own output. That is the purpose of the benchmark. Confirms the circularity is a real defect: any row repinned from a served closure is invalid ground truth and must be re-derived.
+
+**Fix:** re-derive canonical rows from SQL/textual evidence (independent of the engine); keep a distinct independent assertion for repinned seeds; document the 13/20 rebaseline as pending re-derivation.
 
 ## CR11 · Low-severity hardening + state-sync (consolidated)
 
