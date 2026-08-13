@@ -4839,17 +4839,15 @@ round, not an issue-3 defect; the read leg itself renders.
 
 **Fix:** change backend/client defaults to `"upstream"` (with legacy-compat), so direct API callers and missed frontend paths also get the writing direction; keep the UI sending upstream explicitly.
 
-## CR8 · Stale ground-truth claims contradict the repaired ground truth (Medium — sub-issue A ruled, sub-issue B pending)
+## CR8 · Stale ground-truth claims contradict the repaired ground truth (Medium — RESOLVED 2026-08-13)
 
-> **Priority:** P2 | **Status:** Open | **Type:** Documentation
+> **Priority:** P2 | **Status:** Resolved | **Type:** Documentation
 
 **Symptom:** two stale claims — (A) `lending_ref` chain mislabeled `acnw → lending_ref`; (B) `rrcdm_job_log_exec_par.data_dt` "upstream-only, empty downstream".
 
 **Sub-issue A — RULED (2026-08-13), corrected:** the chain-start field is `acctnbr`, not `acnw`. SQL evidence: `A.acctnbr AS LENDING_REF` @101 with `FROM ods_ccb_cb_loan_acctloan A` @426. `acnw` is a field of `ODS_CUPD_CLD_ACCTMASTER_NEW` (the `temp_kmbh_gl`/`temp_kmbh_ie` CTE) — unrelated to the queried field. **Corrected (doc/comment-only, no behavior):** `tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md` (5 spots), `REQUIREMENTS.md:1444`, `wiki/SOLUTION_DESIGN.md:1524`, `backend/tests/test_jaccard_benchmark.py:205`, `backend/tests/jaccard_canonical.py:372/814/1338`.
 
-**Sub-issue B — awaiting ruling:** `REQUIREMENTS.md:1444` still lists `rrcdm_job_log_exec_par.data_dt` as "(upstream-only, empty downstream)"; the repaired 2026-08-12 ground truth says its downstream is non-empty (the writer's-own-leg chain: sup write @160 → `sup.data_dt` read @225 → rrcdm write @211). Needs the user to confirm flipping that line.
-
-**Fix (remaining):** flip the `rrcdm_job_log_exec_par.data_dt` acceptance-criteria bullet to "downstream non-empty (writer's-own-leg chain)".
+**Sub-issue B — RULED (2026-08-13):** the writer's own leg must be displayed in L2, and is a STANDARD case (a written-only field: no readers, but the write site is a FIELD_LIKE occurrence → non-empty downstream = write column → statement output → DML target). The code already serves this (byte-identity probe: closures identical to HEAD); only the docs were wrong. **Corrected (doc-only):** `REQUIREMENTS.md:1444`, `wiki/SOLUTION_DESIGN.md:1522`, plus a new "Writer's Own Leg" standard-case subsection in `wiki/DATAFLOW_FORMAL_DEFINITION.md`.
 
 ## CR9 · Missing router/API-level tests for direction paths (Medium — test gap)
 
