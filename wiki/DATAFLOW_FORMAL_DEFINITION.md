@@ -141,9 +141,52 @@ The visualization should handle cycles by using layered layout (topological sort
 
 1. **L1**: snake/dagre-layered layout — scripts as subgraphs, tables as compound nodes on the queried field's flow (no field children; R29, 2026-08-12)
 2. **L2**: same layout — tables as compound nodes, operations as edges, field-level detail
-3. Edge color = edge type (16 distinct colors)
-4. Directional arrows on all edges
+3. Edge color = edge type for **value flow**; **structure** edges (SCHEMA/ALIAS/SUBSET) share one uniform gray (R30, 2026-08-13)
+4. **Mid-point** direction arrows on **value-flow** edges (`source → target`); structure edges carry no arrow (R30, 2026-08-13)
 5. Tooltips on hover for edge type descriptions
+
+## Edge Direction Display (R30, 2026-08-13)
+
+The L2 graph separates **value-flow** edges from **structure** edges and shows each
+value-flow edge's direction with a **mid-point arrow**; a click on a value-flow edge
+reveals its **flow cone** in two colors — a static highlight, no animation.
+
+### Two edge classes
+
+| Class | Edge types | Rendering |
+|-------|-----------|-----------|
+| **Value flow** | `TABLE_FLOW, DML, TRANSFORM, COMPUTED, AGGREGATE, WINDOW, REF, FILTER, JOIN, SET_OP, SUBQUERY, CORRELATED, INDIRECT` | per-type color; **mid-point arrow**; highlightable |
+| **Structure** | `SCHEMA, ALIAS, SUBSET` | one uniform gray (`#7F8C8D`); no arrow; never highlighted |
+
+`TABLE_FLOW` ("table feeds output") is a **value-flow** edge — not a structure edge.
+(Defect: `graph_service.CATEGORY_MAP` currently maps `TABLE_FLOW` to `"structure"`,
+rendering it as structure — see the bug list, J12-23.)
+
+### Mid-point arrow
+
+Each value-flow edge renders its direction arrow at the **midpoint** of the line
+(native `mid-target-arrow-shape`), oriented along `source → target` — the direction
+value flows. The arrow is placed mid-line so it is never covered by the node label
+that sits at the line end.
+
+### Click-edge flow cone
+
+Clicking a value-flow edge `u → v` highlights its flow cone in two colors, anchored
+to the edge's own `source → target` direction (independent of the query's
+upstream/downstream switch):
+
+- **Before** (amber `#F5A623`) = the value-flow edges **upstream** of `u` — the flow
+  that enters the clicked edge ("where the data came from").
+- **After** (cyan `#22D3EE`) = the value-flow edges **downstream** of `v` — the flow
+  the clicked edge feeds ("where the data goes").
+- The clicked edge itself is the **pivot** (gold, `edge-selected`).
+- Non-cone edges are dimmed (focus mode).
+
+The cone is **value-flow only** — structure edges are never part of it. The
+"before/after" split is relative to the clicked edge, so it composes with the query
+direction switch without conflict: the switch decides which closure the whole view
+shows (upstream/writing vs downstream/reading of the seed); the click decides which
+local sub-flow to highlight.
 
 ---
 

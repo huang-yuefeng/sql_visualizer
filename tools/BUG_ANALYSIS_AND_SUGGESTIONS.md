@@ -4757,3 +4757,17 @@ round, not an issue-3 defect; the read leg itself renders.
 **Why the benchmark can't see it**: none of the 4 benchmark seeds (bdm/sup/pl/dl) searches a table that is ALSO read inside a nested CTE/subquery in its script — the Issue-3 rule fires only in its intended peer-statement case there, so floors stayed 1.0000/1.0000 (809 passed) while this over-admission shipped. User live-testing is the detector for this class.
 
 **Fix direction (queued, no source change made)**: gate the Issue-3 admission with the W6b-style scope test (mirror of lineage.py:790-802): admit the bare instance only when its context is an ancestor-or-equal of a VISITED field var carrying the target field part. Checked against both cases: SUP-M intended `bdm@223` ctx=TOP1 — visited `data_dt` vars with ctx TOP1 (L550/L560) → `fctx == sctx` → admitted ✓ (J12-19 edge still renders); Digitallending `ODS@65` ctx=CTE{temp_kmbh_gl}/subq/t — visited BNQXYE vars only in TOP0 → TOP0 is neither equal nor a descendant → rejected ✓ (whole CTE branch leaves the closure; BNQXYE closure shrinks 14 → 9: seed/INT_OD_AMT/p1@487/ODS@487/p2@491/⟐ output@99). Alternative: post-walk prune of members whose only admission path runs through pure table-level edges (ALIAS/TABLE_FLOW/container) with no incident field-level edge — heavier, also gate-safe. Verify with the Jaccard gate + payload byte-compare + visual check.
+
+### J12-23 · `TABLE_FLOW` edges miscategorized as "structure" — rendered light-blue instead of value-flow green (R30 pre-req; found while designing R30 2026-08-13; display bug — bug list only, no source change)
+
+**Symptom:** In L2, `TABLE_FLOW` edges ("table feeds output") render in the light-blue structure color (`#AED6F1`) instead of their value-flow green. They are visually indistinguishable from SCHEMA/ALIAS/SUBSET containment edges — the most important value-flow edge reads as structure.
+
+**Root cause:** `graph_service.CATEGORY_MAP` maps **four** types to `"structure"`:
+
+```python
+"SCHEMA": "structure", "ALIAS": "structure", "SUBSET": "structure", "TABLE_FLOW": "structure",
+```
+
+`TABLE_FLOW` is the **primary value-flow edge** (green, width 3, "table feeds output") — not a containment/rename/bridge edge. The frontend styles `edge[category="structure"]` (`graphStyles.js:607`) to light-blue, and there is **no** `edge[category="flow"]` rule to override it, so `TABLE_FLOW` inherits the structure color. The `structureEdges.js` toggle only hides SCHEMA (by edge_type), so the mislabeled `TABLE_FLOW` also evades the structure-toggle's intent.
+
+**Fix (part of R30, when staffed):** recategorize `TABLE_FLOW` out of `"structure"` into a value-flow category (e.g. `"flow"`); leave `SCHEMA/ALIAS/SUBSET` as `"structure"` and give them one uniform gray. See R30 (REQUIREMENTS.md) and J12-23 (SOLUTION_DESIGN.md). No source change made — documentation only.
