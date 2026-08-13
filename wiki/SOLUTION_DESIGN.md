@@ -1404,6 +1404,35 @@ User rulings (2026-08-11), requirements R26/R27/R28 in REQUIREMENTS.md. All thre
 
 ---
 
+# J12-21 — field-flow closure: same-table identity is not lineage (scope-gate the bare-physical-identity admission) (fix design, 2026-08-13)
+
+> **Date:** 2026-08-13 | **Status:** DEFINED — bug-list only (J12-21), no source change
+
+## 1. The requirement (user's words, formalized)
+
+- A node belongs in the L2 flow **iff it is on the queried field Y's flow path** — it produces, consumes, or carries Y. Sharing the same physical table as Y is **necessary but not sufficient**.
+- A bare table instance `T@L` inside an unrelated CTE/subquery is admitted only when its scope is on Y's flow path (an ancestor-or-equal scope of a visited field var carrying Y). If it reads another column of T, it is out.
+- Physical tables merge to one node (R22); per-context aliases/CTEs/subqueries do **not** — so an unscoped table-identity admission leaks those structure nodes into the graph, which is the defect.
+
+## 2. Why the current behavior differs (verified 2026-08-12)
+
+- The Issue-3 "bare physical identity" rule (`lineage.py:867-877`) admits **any** var whose physical identity == the in-closure table's name, scanning the whole script with **no context/statement scoping**. It is table-aware, not field-aware.
+- Cascade: a bare table read inside an unrelated CTE admits the alias (W3), the CTE container, and the derived-table output (W6a), all of which are per-context nodes that do not merge.
+- Example: search `ODS_CUPD_CLD_ACCTMASTER_NEW.BNQXYE` (occurs once, L288, main statement). The CTE `temp_kmbh_gl` inner subquery `FROM ODS_CUPD_CLD_ACCTMASTER_NEW p1` (L65, reads `acnw`) admits `ODS@65` → `p1@65` → `temp_kmbh_gl@58` → `⟐ t@62`, ballooning the closure 9 → 14.
+
+## 3. Design deltas (implementation, when staffed)
+
+- Gate the Issue-3 admission with a W6b-style scope test (mirror of `lineage.py:790-802`): admit the bare instance only when its context is ancestor-or-equal to a VISITED field var carrying the target field part.
+- Keep the intended peer-statement case: SUP-M `bdm_acc_loan_info_sup@223` (ctx TOP1) is on `data_dt`'s flow path → admitted (J12-19 edge still renders).
+- Reject the CTE case: `ODS@65` ctx `CTE{temp_kmbh_gl}/subq/t` is not on any BNQXYE-visited scope → rejected → whole CTE branch leaves (closure 14 → 9: seed / INT_OD_AMT / p1@487 / ODS@487 / p2@491 / ⟐ output@99).
+- Alternative (heavier, also gate-safe): post-walk prune of members whose only admission path is table-level edges (ALIAS/TABLE_FLOW/container) with no incident field-level edge.
+
+## 4. Verification targets
+
+- BNQXYE closure == 9 members (no `⟐ t@62/82`, no `temp_kmbh_gl/ie`, no `p1@65/85`).
+- SUP-M `data_dt` closure still renders the J12-19 field→own-table edge (peer-statement bare read admitted).
+- Jaccard gate neutral (4 seeds never read the searched table inside a nested CTE) + payload byte-compare + visual check.
+
 # J12-22 — L1 field-level data flow + upstream/downstream query direction (requirement change 2026-08-12)
 
 > **Date:** 2026-08-12 | **Status:** DEFINED (R29) — implementation pending, no source change

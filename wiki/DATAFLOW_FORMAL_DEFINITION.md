@@ -359,6 +359,16 @@ Fields with the **same name** as the queried field are not automatically in the 
 
 This enforces the principle that lineage follows the data flow of the field's **value**: if the queried field Y does not reach a table's columns (e.g., used only in a JOIN condition but not INSERTed), that table is structurally downstream but not in Y's lineage. The termination marker is the sole exception — it provides visual confirmation of where the flow ends.
 
+### Table Identity ≠ Field Flow (J12-21, 2026-08-13)
+
+**Sharing the same physical table is not lineage.** A node enters R only if it is on the queried field Y's **flow path** — it produces, consumes, or carries Y (or a field derived from Y). Referencing the same physical table as Y is **necessary but not sufficient**.
+
+A bare table instance `T@L` inside an unrelated CTE/subquery is admitted only when its scope is on Y's flow path (an ancestor-or-equal scope of a visited field var carrying Y). If `T@L` reads `T.other_col` while Y is `T.target_col` referenced only elsewhere, `T@L` is **out** — even though it is the same physical table T.
+
+Example: querying `ODS_CUPD_CLD_ACCTMASTER_NEW.BNQXYE` (referenced once, in the main statement) while the script also holds a CTE `temp_kmbh_gl` whose inner subquery reads `FROM ODS_CUPD_CLD_ACCTMASTER_NEW p1` (producing `acnw`/`MXKMBH`, never `BNQXYE`). The CTE branch (`p1@65`, `⟐ t@62`, `temp_kmbh_gl@58`) must **not** enter R. Only the main-statement path (`p1@487 → … → ⟐ output@99`), which actually carries `BNQXYE`, is in R.
+
+Display note: the physical table merges to one node (R22), but per-context aliases/CTEs/subqueries do **not** merge — those are the nodes an unscoped table-identity admission would leak in. This is the field-level analogue of the L1 "no table-level expansion" rule.
+
 ### Edge-Type Rules
 
 Each of the 16 edge types has a specific rule. Direction: **↑** = upstream (backward from Y — "where does Y come from?"), **↓** = downstream (forward from Y — "where does Y go?").
