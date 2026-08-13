@@ -50,6 +50,13 @@ EDGE_SEMANTICS = {
     # closure over a SUBSET bridge, which is what kept constants, filter-
     # only columns, and detached second-statement vars in the graph.
     "SUBSET":     {"propagates_value": False, "always_bidir": False},
+    # ROW_FLOW (2026-08-13, #226): the R29 row-selection BRIDGE — emitted
+    # by compute_field_flow AFTER the closure fixpoint (an output edge,
+    # never a walk input). It propagates the searched field's ROW-SELECTION
+    # (its WHERE/JOIN usage) into the downstream statement's rows, where
+    # the field's VALUE does NOT flow — never walkable, never value-
+    # carrying (both flags False).
+    "ROW_FLOW":   {"propagates_value": False, "always_bidir": False},
 }
 
 # Production edges "produce" a value in the target — derived from EDGE_SEMANTICS,
@@ -537,7 +544,8 @@ def _cte_occurrence(pm, name: str, occ):
 
 def compute_field_flow(graph_data, target_table, target_field,
                        table_schemas=None, physical_model=None,
-                       direction="downstream") -> set:
+                       direction="downstream",
+                       row_flow_out=None) -> set:
     """Strict table.field data flow closure (v3.3.140+, L2 only) —
     J12-10 stage 3: walks the PHYSICAL MODEL's edges and occurrences
     instead of the display graph with reconstruction heuristics. The
@@ -612,6 +620,22 @@ def compute_field_flow(graph_data, target_table, target_field,
     physical_model is REQUIRED (TypeError when None). table_schemas is
     accepted for signature parity with compute_field_lineage but unused.
     Returns the set of node ids in the strict closure.
+
+    ROW_FLOW (2026-08-13, #226): when `row_flow_out` is a list (not
+    None) AND direction is "downstream", the closure fixpoint is
+    followed by the row-level-flow bridge emission: the R29 continuation
+    rounds may admit continuation TARGETS (the far CTEs/reads) as NODES
+    with no edge connecting them back to the searched field's source —
+    the only link is a containment SCHEMA edge (container → nested VT),
+    excluded from the walk (I5). Every such containment edge crossing
+    the seed's connected component (the value-flow side, holding the
+    nested VT) to a DISCONNECTED continuation component (the container
+    side) emits a ROW_FLOW edge from the nested VT to the container —
+    the row-selection bridge that makes the L2 graph a single connected
+    flow. Never fires when the closure is already connected (every
+    benchmark seed: comps == 1, zero cross-component containment edges —
+    the Jaccard gate stays byte-identical). Appends edge dicts (raw
+    graph shape) to `row_flow_out`; the returned node set is unchanged.
     """
     if physical_model is None:
         raise TypeError(
@@ -1227,6 +1251,65 @@ def compute_field_flow(graph_data, target_table, target_field,
         _log.warning("compute_field_flow fixpoint hit the 100-round cap "
                      "(%d nodes in closure) for %s.%s — closure may be "
                      "incomplete", len(visited), target_table, target_field)
+
+    # ── ROW_FLOW bridges (#226, 2026-08-13): the R29 continuation rounds
+    # may have admitted continuation TARGETS as NODES with no edge back to
+    # the searched field's source — the only link is a containment SCHEMA
+    # edge (container → nested VT, excluded from the walk by I5). Emit a
+    # ROW_FLOW edge from the nested VT (the value-flow side, in the seed's
+    # component) to the container (the disconnected continuation side) for
+    # every such containment edge crossing the seed-component boundary.
+    # Gated on `row_flow_out is not None` (only filter_by_field_flow asks)
+    # and downstream (row-selection is a downstream effect; upstream is a
+    # writing chain with no continuation rounds). A connected closure (all
+    # benchmark seeds) emits nothing. ──
+    if row_flow_out is not None and direction == "downstream" and visited:
+        # Connected components of the closure over NON-containment edges
+        # (the adjacency dict already excludes containment, I5).
+        comp_of = {}
+        _cid = 0
+        for _nid in visited:
+            if _nid in comp_of:
+                continue
+            comp_of[_nid] = _cid
+            _stack = [_nid]
+            while _stack:
+                _cur = _stack.pop()
+                for (_nb, _et, _fwd, _read, _op) in adjacency.get(_cur, []):
+                    if _nb in visited and _nb not in comp_of:
+                        comp_of[_nb] = _cid
+                        _stack.append(_nb)
+            _cid += 1
+        # The seed component (the value-flow side holding the nested VT).
+        _seed_comp = None
+        for _s in seeds:
+            if _s in comp_of:
+                _seed_comp = comp_of[_s]
+                break
+        if _seed_comp is not None:
+            for _E in pm.edges:
+                if _E.edge_type != "SCHEMA" or not _E.containment:
+                    continue
+                _container = _E.source_id
+                _nested_vt = _E.target_id
+                if (_nested_vt not in comp_of
+                        or _container not in comp_of):
+                    continue
+                if (_comp_of_nested_vt := comp_of[_nested_vt]) != _seed_comp:
+                    continue
+                if comp_of[_container] == _seed_comp:
+                    continue  # already connected — no bridge needed
+                row_flow_out.append({
+                    "id": f"{_nested_vt}->{_container}",
+                    "source": _nested_vt,
+                    "target": _container,
+                    "label": "ROW_FLOW",
+                    "relationship": "ROW_FLOW",
+                    "edge_type": "ROW_FLOW",
+                    "operation": "ROW_SELECTION",
+                    "color": "#2ECC71",
+                    "containment": False,
+                })
     return visited
 
 
@@ -1249,12 +1332,21 @@ def filter_by_field_flow(graph_data, target_table, target_field,
     "downstream" (default) is the byte-identical legacy behavior;
     "upstream" filters to the field's WRITING flow (backward production
     walk — see compute_field_flow's U1-U6 rules).
+
+    ROW_FLOW (2026-08-13, #226): the walker emits row-selection bridge
+    edges (nested subquery VT → continuation container) into `row_flow_out`
+    when the R29 continuation rounds left the closure disconnected; they
+    are appended to the filtered edge list (raw graph shape, wrapped in
+    {"data": ...} like every other served edge). Never fires when the
+    closure is already connected (every benchmark seed).
     """
     if not graph_data:
         return graph_data
+    row_flow_out = []
     closure = compute_field_flow(graph_data, target_table, target_field,
                                  table_schemas, physical_model=physical_model,
-                                 direction=direction)
+                                 direction=direction,
+                                 row_flow_out=row_flow_out)
     nodes = graph_data.get("nodes", []) or []
     edges = graph_data.get("edges", []) or []
     node_map = {n.get("data", n).get("id"): n.get("data", n) for n in nodes}
@@ -1266,6 +1358,12 @@ def filter_by_field_flow(graph_data, target_table, target_field,
                           not _is_spurious_ref_copy(
                               e.get("data", e),
                               node_map.get(e.get("data", e).get("source"))))]
+    # ROW_FLOW bridges: only when both endpoints are served nodes (they
+    # are — the walker only emits for closure members).
+    for _rf in row_flow_out:
+        if (_rf["source"] in node_map and _rf["target"] in node_map
+                and _rf["source"] != _rf["target"]):
+            filtered_edges.append({"data": _rf})
     return {
         **{k: v for k, v in graph_data.items() if k not in ("nodes", "edges")},
         "nodes": filtered_nodes,

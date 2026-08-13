@@ -113,6 +113,7 @@ Conditional and indirect data influences.
 |-----------|---------|-------------|
 | `INDIRECT` | Defined variable → bare name ref | `cnt` in HAVING referencing `COUNT(*) AS cnt` in SELECT |
 | `FILTER` | WHERE/HAVING condition | `WHERE t.status = 'active'` — filter controls row flow |
+| `ROW_FLOW` | Row-level flow bridge (R29 continuation) | Searched field's row-selection effect into a downstream statement's rows (e.g. subquery output `⟐ t` → CTE `temp_kmbh_gl`); the field's VALUE does not flow — which ROWS flow. Emitted by the L2 walker (#226), never by the dependency builder |
 
 ---
 

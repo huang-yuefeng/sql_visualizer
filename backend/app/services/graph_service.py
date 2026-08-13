@@ -76,12 +76,17 @@ EDGE_TYPE_STYLE = {
     "SET_OP":     {"color": "#F1C40F", "line": "dashed",  "width": 2, "desc": "UNION/INTERSECT/EXCEPT"},
     "SUBQUERY":   {"color": "#16A085", "line": "dotted",  "width": 2, "desc": "Subquery reference"},
     "SUBSET":     {"color": "#7F8C8D", "line": "dotted",  "width": 1, "desc": "Disconnected bridge"},
+    # ROW_FLOW (2026-08-13, #226): the row-level flow bridge — flow-class
+    # edge (arrow + highlightable); per the uniform-style requirement it
+    # shares the single line style — its TYPE NAME tells the user it is
+    # row-level flow, not a color.
+    "ROW_FLOW":   {"color": "#2ECC71", "line": "solid",  "width": 2, "desc": "Row-level flow"},
 }
 
 EDGE_TYPE_ORDER = [
     "TABLE_FLOW", "ALIAS", "REF", "AGGREGATE", "TRANSFORM", "WINDOW",
     "COMPUTED", "SCHEMA", "INDIRECT", "FILTER", "JOIN", "CORRELATED",
-    "DML", "SET_OP", "SUBQUERY", "SUBSET",
+    "DML", "SET_OP", "SUBQUERY", "SUBSET", "ROW_FLOW",
 ]
 
 CATEGORY_MAP = {
@@ -96,6 +101,10 @@ CATEGORY_MAP = {
     # renders in the structure color; SCHEMA/ALIAS/SUBSET stay "structure".
     "SCHEMA": "structure", "ALIAS": "structure", "SUBSET": "structure",
     "TABLE_FLOW": "flow",
+    # ROW_FLOW (2026-08-13, #226): row-selection flow — a flow-class edge
+    # (highlightable, part of the flow path) even though the strict
+    # walker never FOLLOWS it (it is emitted by the walker as an output).
+    "ROW_FLOW": "flow",
 }
 
 def get_edge_style(edge_type: str) -> dict:

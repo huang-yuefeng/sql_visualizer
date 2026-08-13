@@ -10,14 +10,14 @@ VALID_CATEGORIES = {"copy", "compute", "aggregate", "filter", "combine", "write"
 class TestCategoryMapping:
     """Verify edge type → 8-category mapping."""
 
-    def test_all_13_edge_types_have_category(self):
+    def test_all_17_edge_types_have_category(self):
         """Every edge type must map to a valid category."""
         expected_types = {
             "REF", "TRANSFORM", "COMPUTED", "AGGREGATE", "WINDOW",
             "FILTER", "JOIN", "INDIRECT", "CORRELATED",
             "SET_OP", "SUBQUERY",
             "DML",
-            "SCHEMA", "ALIAS", "SUBSET", "TABLE_FLOW",
+            "SCHEMA", "ALIAS", "SUBSET", "TABLE_FLOW", "ROW_FLOW",
         }
         for et in expected_types:
             cat = _get_category(et)
@@ -52,6 +52,9 @@ class TestCategoryMapping:
     def test_table_flow_is_flow(self):
         assert _get_category("TABLE_FLOW") == "flow"
 
+    def test_row_flow_is_flow(self):
+        assert _get_category("ROW_FLOW") == "flow"
+
     def test_unknown_edge_type_defaults_to_structure(self):
         assert _get_category("UNKNOWN_TYPE") == "structure"
         assert _get_category("") == "structure"
@@ -75,6 +78,6 @@ class TestCategoryMapping:
             "FILTER", "JOIN", "INDIRECT", "CORRELATED",
             "SET_OP", "SUBQUERY",
             "DML",
-            "SCHEMA", "ALIAS", "SUBSET", "TABLE_FLOW",
+            "SCHEMA", "ALIAS", "SUBSET", "TABLE_FLOW", "ROW_FLOW",
         }
         assert set(CATEGORY_MAP.keys()) == expected

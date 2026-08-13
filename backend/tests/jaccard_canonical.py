@@ -1095,6 +1095,15 @@ NORMALIZE_MAP = {
     # statement's output VT is named "⟐ insert" (no SELECT body), served
     # with label "insert" -- the stmt1 write leg's own trunk (J12-17).
     "insert": "⟐output",
+    # ── #223 display-label alignment (2026-08-13): the B5 label
+    #    sanitization now renders a subquery-output VT `⟐ X` (X ≠
+    #    "output") as "output(X)" so it reads as "the output of the
+    #    subquery X", clearly distinct from the derived-table alias X.
+    #    The served labels for the bdm/pl benchmark VTs follow this form;
+    #    the canonical identity (⟐subq / ⟐subq1 / ⟐output) is unchanged.
+    "output(subq)": "⟐subq",
+    "output(subq1)": "⟐subq1",
+    "output(insert)": "⟐output",
     # field folds: canonical qualified spelling -> bare response spelling
     "p1.data_dt": "data_dt",
     "p2.data_dt": "data_dt",

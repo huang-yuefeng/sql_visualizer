@@ -155,7 +155,10 @@ def test_b3_subquery_scope_field_parents_under_its_subquery(sample_ws):
         source_tables), so the derived-table columns parent under the
         physical compound, not under the VT
       - the rollover CTE's loan_maturity_dt parents under the
-        bdm_acc_loan_info compound node."""
+        bdm_acc_loan_info compound node.
+    #223 (2026-08-13): subquery-output VTs display as `output(X)` — the
+    `label` matches carry the display label (`output(subq1)`), while
+    `table_name` keeps the internal `⟐ X` (unchanged)."""
     ws_id, sql = sample_ws
     graph = _build_l2_graph(ws_id, "BDM_ACC_LOAN_INFO_SUP_M.sql", sql,
                             TABLE, "lending_ref", relevance_filter=False)
@@ -180,17 +183,19 @@ def test_b3_subquery_scope_field_parents_under_its_subquery(sample_ws):
             f"expected exactly one VT {label!r} ctx *{ctx_suffix}: {hits}"
         return hits[0]
 
-    # exact extraction-attributed ownership (Team A probe, 2026-08-10)
-    assert kids_of(vt("subq1", "/subq1")["id"]) == {"lending_ref"}, \
-        kids_of(vt("subq1", "/subq1")["id"])
-    assert kids_of(vt("accu/subq3", ":join:accu/subq3")["id"]) == {"data_dt"}, \
-        kids_of(vt("accu/subq3", ":join:accu/subq3")["id"])
-    assert kids_of(vt("branch/subq4", ":join:branch/subq4")["id"]) == {"MAXp_dt"}, \
-        kids_of(vt("branch/subq4", ":join:branch/subq4")["id"])
+    # exact extraction-attributed ownership (Team A probe, 2026-08-10);
+    # labels carry the #223 display form `output(X)` for ⟐ VTs
+    assert kids_of(vt("output(subq1)", "/subq1")["id"]) == {"lending_ref"}, \
+        kids_of(vt("output(subq1)", "/subq1")["id"])
+    assert kids_of(vt("output(accu/subq3)", ":join:accu/subq3")["id"]) == {"data_dt"}, \
+        kids_of(vt("output(accu/subq3)", ":join:accu/subq3")["id"])
+    assert kids_of(vt("output(branch/subq4)", ":join:branch/subq4")["id"]) == {"MAXp_dt"}, \
+        kids_of(vt("output(branch/subq4)", ":join:branch/subq4")["id"])
     # subq / subq2 / the p2 VTs carry NO fields (their outputs resolved to
     # the physical bdm_acc_loan_info at extraction -- I2 source_tables)
-    for label, suffix in (("subq", "/subq1/subq"), ("subq2", "/subq/subq2"),
-                          ("p2", ":join:p2")):
+    for label, suffix in (("output(subq)", "/subq1/subq"),
+                          ("output(subq2)", "/subq/subq2"),
+                          ("output(p2)", ":join:p2")):
         for v in [n for n in sq
                   if n.get("variable_type") == "virtual_table"
                   and n.get("label") == label

@@ -278,8 +278,8 @@ def test_cte_keyed_by_name_subquery_by_context():
 
 # ── Edge typing ─────────────────────────────────────────────────────────
 
-def test_all_16_edge_types_preserved():
-    """One PhysicalEdge per raw dependency, all 16 edge types unchanged."""
+def test_all_17_edge_types_preserved():
+    """One PhysicalEdge per raw dependency, all 17 edge types unchanged."""
     vars_ = [
         _tbl("t1", "t1", line=1),
         _col("f1", "t1.a", "t1", line=2),
@@ -288,7 +288,7 @@ def test_all_16_edge_types_preserved():
     deps = [_dep("f1", "f2", et) for et in sorted(EDGE_TYPES)]
     model = build_physical_model(_graph(vars_, deps))
     assert {e.edge_type for e in model.edges} == set(EDGE_TYPES)
-    assert len(model.edges) == 16
+    assert len(model.edges) == 17
     for et in EDGE_TYPES:
         edge = next(e for e in model.edges if e.edge_type == et)
         assert edge.source == ("t1", "a")
