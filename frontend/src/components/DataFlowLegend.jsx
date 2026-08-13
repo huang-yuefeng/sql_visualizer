@@ -1,5 +1,5 @@
 import React from 'react';
-import { L2_ROLE_COLORS } from '../utils/graphStyles';
+import { L2_ROLE_COLORS, SEARCHED_FIELD_COLOR } from '../utils/graphStyles';
 
 const L2_LEGEND = [
   { label: 'Table', color: '#4A90D9', shape: '■' },
@@ -91,6 +91,15 @@ const L2_NODE_ROLE_LEGEND = [
     dashed: true,
     desc: 'intermediate tables on the flow path',
   },
+  {
+    role: 'searched',
+    label: 'Searched field',
+    color: SEARCHED_FIELD_COLOR,
+    fill: SEARCHED_FIELD_COLOR,
+    strong: true,
+    circle: true, // fields render as ellipses — the swatch mirrors the shape
+    desc: 'the field you searched — gold on the source table and every alias/CTE/target node that carries it',
+  },
 ];
 
 function L2NodeRoleLegend({ structureEdgesHidden, structureEdgeCount }) {
@@ -100,7 +109,8 @@ function L2NodeRoleLegend({ structureEdgesHidden, structureEdgeCount }) {
       {L2_NODE_ROLE_LEGEND.map(item => (
         <span key={item.role} className="legend-item" title={item.desc}>
           <span style={{
-            display: 'inline-block', width: 12, height: 12, borderRadius: 2,
+            display: 'inline-block', width: 12, height: 12,
+            borderRadius: item.circle ? '50%' : 2,
             flexShrink: 0, verticalAlign: 'middle',
             background: item.fill,
             border: `2px ${item.dashed ? 'dashed' : 'solid'} ${item.color}`,

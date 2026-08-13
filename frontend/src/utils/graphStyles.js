@@ -1,4 +1,10 @@
 // Cytoscape.js stylesheet
+
+// Single source of truth for the searched field's gold styling — shared by
+// the field-is_target style rule below AND the L2 node-role legend swatch
+// (DataFlowLegend.jsx), so the legend always matches the graph.
+export const SEARCHED_FIELD_COLOR = '#FFD700';
+
 export const NODE_STYLES = [
   // Default node style
   {
@@ -36,15 +42,16 @@ export const NODE_STYLES = [
   { selector: 'node[variable_type="literal"]', style: { 'shape': 'ellipse', 'width': 25, 'height': 25, 'background-color': '#CCCCCC' } },
 
   // Field children (L2 compound) — uniform styling, override variable_type shapes
-  { selector: 'node[type="field"]', style: { 
+  { selector: 'node[type="field"]', style: {
     'shape': 'ellipse', 'width': 14, 'height': 14,
     'background-color': '#A8D4FF', 'border-width': 1, 'border-color': '#5DADE2',
     'font-size': 10, 'color': '#ffffff', 'text-outline-color': '#1a1a2e', 'text-outline-width': 3,
     'text-valign': 'center', 'text-margin-y': 0,
   } },
-  // Field children that are target → gold highlight
+  // Field children that are target → gold highlight (the searched seed
+  // field, gold on the source table AND every alias/CTE/target copy)
   { selector: 'node[type="field"][is_target]', style: {
-    'border-color': '#FFD700', 'border-width': 2, 'background-color': '#FFD700',
+    'border-color': SEARCHED_FIELD_COLOR, 'border-width': 2, 'background-color': SEARCHED_FIELD_COLOR,
   } },
 
   // Highlighted / dimmed states
