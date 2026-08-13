@@ -17,6 +17,32 @@ from app.services.sql_highlight_service import get_highlight_ranges
 router = APIRouter(tags=["dataflow"])
 
 
+# ── R29 direction allowlist (CR2/CR7) ──
+# Every consumer below tests only `direction == "upstream"` — an
+# unvalidated value ("UPSTREAM", a typo, an empty string) silently fell
+# through to the downstream branch. Validate once at the router boundary
+# (400 on anything outside the allowlist) and default to "upstream" (the
+# writing flow — R29's documented default, so a direct API caller or a
+# missed frontend path gets the same default the UI sends).
+_VALID_DIRECTIONS = {"upstream", "downstream"}
+
+
+def _normalize_direction(value) -> str:
+    """Validate + normalize the R29 direction at the router boundary.
+
+    None (omitted) → the default "upstream"; anything outside the
+    allowlist → 400. Callers get a canonical value, never a silent
+    fall-through to the downstream branch.
+    """
+    if value is None:
+        return "upstream"
+    if value not in _VALID_DIRECTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid direction %r — must be 'upstream' or 'downstream'" % value)
+    return value
+
+
 def _load_index(ws_id: str) -> tuple[dict, dict, bool, int, int]:
     """Load table_index and field_index from cache. Prefers filtered index.
 
@@ -135,6 +161,13 @@ async def search_dataflow(ws_id: str, body: dict):
     if not table or not field:
         raise HTTPException(status_code=400, detail="Both 'table' and 'field' are required")
 
+    # R29: query direction — "upstream" (default) is the field's WRITING
+    # flow; "downstream" is the byte-identical legacy reading flow.
+    # CR2: validate once at the boundary — every consumer below tests only
+    # `direction == "upstream"`, so an invalid value must 400 here rather
+    # than silently falling through to the downstream branch.
+    direction = _normalize_direction(body.get("direction"))
+
     ti, fi, filtered_active, scope_tables, scope_fields = _load_index(ws_id)
     # BE2: base-index presence drives the R17 suggestion (base vs CSV scope).
     base_ti, base_fi = _load_base_index(ws_id)
@@ -145,7 +178,6 @@ async def search_dataflow(ws_id: str, body: dict):
             # F1: filter active but empty (empty intersection) — indexing
             # already passed (see 400 guard above); the filter simply matches
             # nothing. Return a successful empty result instead of a 400.
-            direction = body.get("direction", "downstream")  # R29
             result = {
                 "view_id": uuid.uuid4().hex[:12],
                 "table": table,
@@ -184,9 +216,6 @@ async def search_dataflow(ws_id: str, body: dict):
         raise HTTPException(status_code=400, detail="Indexes not found. Run index first.")
 
     lineage_mode = body.get("lineage_mode", True)  # R18: default True
-    # R29: query direction — "downstream" (default) is the byte-identical
-    # legacy reading flow; "upstream" searches the field's WRITING flow.
-    direction = body.get("direction", "downstream")
     result = await create_search(ws_id, table, field, ti, fi,
                                  lineage_mode=lineage_mode, direction=direction)
 
@@ -244,7 +273,7 @@ async def get_level1(ws_id: str, view_id: str,
 
     R29: `direction` query param overrides the view's persisted direction
     (the search-time choice survives reload via views.json); defaults to
-    "downstream" (legacy reading flow). Passed to _build_l1_graph — the
+    "upstream" (the writing flow). Passed to _build_l1_graph — the
     directional projection (downstream byte-identical; upstream renders
     the field's writing flow)."""
     ws = get_workspace(ws_id)
@@ -260,7 +289,11 @@ async def get_level1(ws_id: str, view_id: str,
     script_ids = view.get("script_ids", [])
     table = view.get("table", "")
     field = view.get("field", "")
-    direction = direction or view.get("direction") or "downstream"
+    # CR2: an explicit query param is validated strictly ("" and typos →
+    # 400); only an ABSENT param falls back to the view's persisted
+    # direction (or the upstream default).
+    direction = (_normalize_direction(direction) if direction is not None
+                 else _normalize_direction(view.get("direction")))
     l1_graph = _build_l1_graph(ws_id, script_ids, table, field,
                                direction=direction)
     # BE2 (issues b+c): mirror the search-time path — search views carry a
@@ -289,7 +322,7 @@ def get_level2(ws_id: str, view_id: str, script: str = Query(...),
 
     R29: `direction` query param overrides the view's persisted direction
     (search-time choice survives reload via views.json); defaults to
-    "downstream". Threaded into get_level2_graph — the strict field-flow
+    "upstream". Threaded into get_level2_graph — the strict field-flow
     filter and the L2 builder (upstream = the field's writing flow).
 
     W5/R25: every edge carries its per-edge payload (highlight_line /
@@ -329,7 +362,11 @@ def get_level2(ws_id: str, view_id: str, script: str = Query(...),
 
     table = view.get("table", "")
     field = view.get("field", "")
-    direction = direction or view.get("direction") or "downstream"
+    # CR2: an explicit query param is validated strictly ("" and typos →
+    # 400); only an ABSENT param falls back to the view's persisted
+    # direction (or the upstream default).
+    direction = (_normalize_direction(direction) if direction is not None
+                 else _normalize_direction(view.get("direction")))
 
     result = get_level2_graph(ws_id, view_id, script, table, field, filter,
                               direction)

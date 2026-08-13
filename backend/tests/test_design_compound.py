@@ -42,7 +42,8 @@ class TestCompoundNodesDesign:
         tree = scan_folder(ws_id)
         scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
         index_scripts(ws_id, scripts)
-        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
+        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount",
+                                 direction="downstream")
         nodes = result.get("nodes", [])
         types = {n["data"]["type"] for n in nodes}
         assert "script_node" in types, "L1 must have script nodes"
@@ -58,7 +59,8 @@ class TestCompoundNodesDesign:
         tree = scan_folder(ws_id)
         scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
         index_scripts(ws_id, scripts)
-        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
+        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount",
+                                 direction="downstream")
         nodes = result.get("nodes", [])
         script_nodes = [n for n in nodes if n["data"]["type"] == "script_node"]
         for sn in script_nodes:
@@ -73,7 +75,8 @@ class TestCompoundNodesDesign:
         tree = scan_folder(ws_id)
         scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
         index_scripts(ws_id, scripts)
-        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
+        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount",
+                                 direction="downstream")
         edges = result.get("edges", [])
         edges_with_roles = [e for e in edges
                            if e["data"].get("roles") or e["data"].get("role")]
@@ -88,7 +91,8 @@ class TestCompoundNodesDesign:
         tree = scan_folder(ws_id)
         scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
         index_scripts(ws_id, scripts)
-        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
+        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount",
+                                 direction="downstream")
         nodes = result.get("nodes", [])
         table_nodes = [n for n in nodes
                        if n["data"]["type"] in ("source_table", "intermediate_table", "output_table")]
@@ -103,7 +107,8 @@ class TestCompoundNodesDesign:
         tree = scan_folder(ws_id)
         scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
         index_scripts(ws_id, scripts)
-        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
+        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount",
+                                 direction="downstream")
         assert "target" in result
         assert "staging_orders.amount" in result["target"]
         delete_workspace(ws_id)
@@ -116,7 +121,8 @@ class TestCompoundNodesDesign:
         tree = scan_folder(ws_id)
         scripts = [c['path'] for c in tree.get('children', []) if c.get('type') == 'file' and c.get('is_sql')]
         index_scripts(ws_id, scripts)
-        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
+        result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount",
+                                 direction="downstream")
         assert len(result["nodes"]) > 0, "L1 graph must have nodes"
         delete_workspace(ws_id)
 

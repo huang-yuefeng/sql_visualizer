@@ -2,6 +2,8 @@
 
 > **Seed:** `bdm_acc_loan_info.lending_ref` | **Workspace:** `samples/sql_sample_v1/` (3 scripts) | **Date:** 2026-08-12 | **Status:** DEFINED (R29) — §2.1/§2.2/§3.1/§3.2 REPAIRED 2026-08-12 with probe evidence (repin round: upstream chain start @426; downstream row-level-continuation closure runs through the sup write @160 to the rrcdm write @211 — see §3.1/§3.2)
 >
+> **CR10 re-derivation status (2026-08-13):** the §3.1 (6 nodes / 7 edges) and §3.2 (37 nodes / 79 edges) closures were REPINNED FROM THE SERVED CLOSURES (probe-pinned) — circular per the CR10 ruling. The independent re-derivation (backend/tests/test_independent_r29_ground_truth.py) re-verifies the closures against the SQL SOURCE TEXT: the upstream chain (INSERT bdm @99, A.acctnbr AS LENDING_REF @101, FROM ods_ccb_cb_loan_acctloan A @426; the acnw @62/@82 instances are the temp_kmbh_gl/temp_kmbh_ie CTE segment) and the downstream CTE-zone flow (join keys @41/@117/@150, NOT-IN target bdm_evt_loan_trans @52, sup write @160, p2 self-join @199-203, rrcdm continuation @211/@223/@225) are SQL-verifiable. Engine-form rows flagged `pending` in jaccard_canonical.py: LFD2 (FROM-source JOIN admission), LFD3 (output-VT membership SCHEMA), LFS68 (sup→output REF@160). REMOVED (independently refuted): LFS6/LFS7 — identical duplicate self-loops (lending_ref@22 → lending_ref@22 REF@22) dumped from the served closure (the row-11 class; a self-loop has no SQL-text data-flow meaning).
+>
 > **Shape purpose:** the queried field has BOTH writers and readers, and — unlike `data_dt` — the upstream writer is a **REAL field chain** (no literals): the walker's producing logic is exercised in the upstream direction.
 
 ## 1. Workspace facts (verified 2026-08-12)

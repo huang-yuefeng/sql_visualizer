@@ -224,8 +224,13 @@ def test_l1_single_script_flagship_model_backed(loan_info_ws):
     node + participating tables (the seed's bdm_acc_loan_info read
     instances carry the lending_ref flow) + reads/writes edges + no
     field nodes."""
+    # R29 (2026-08-13): the builder default direction is now "upstream"
+    # (writing flow); this script only READS bdm_acc_loan_info.lending_ref,
+    # so the flagship single-script path needs the downstream (reading)
+    # projection to produce the flow.
     l1 = _build_l1_graph(loan_info_ws, [LOAN_INFO_NAME],
-                         "bdm_acc_loan_info", "lending_ref")
+                         "bdm_acc_loan_info", "lending_ref",
+                         direction="downstream")
     assert l1.get("degraded") is False
     assert l1.get("flow_empty") is False
     assert any(n["data"].get("type") == "script_node"
@@ -353,22 +358,23 @@ def test_r29_lending_ref_downstream_matches_doc(loan_info_3ws):
     flow into ALL its write targets; a later statement reading those
     rows continues the chain).
 
-    The sup-write statement uses lending_ref as a join key (its
-    SELECT), so the effect flows into ALL its write targets —
+    REPAIRED 2026-08-12 (repin round, probe evidence; the doc's §2.2 is
+    the authority): the downstream READING flow of lending_ref starts at
+    the READ instances, which live ONLY in SUP_M — the sup-write
+    statement uses the seed as join keys / SELECT outputs (@41/@117/@150),
+    so the effect rides its output ROWS into ALL its write targets —
     bdm_acc_loan_info_sup (@160); the rrcdm statement then filters
     sup.data_dt (@225 — a column the sup write produced) — row-level
-    continuation — and writes rrcdm_job_log_exec_par (@211). The
-    closure: seed join-key usages → sup write → rrcdm log. Scripts:
-    all 3 (DL/PL carry the seed's own write instance); tables:
+    continuation — and writes rrcdm_job_log_exec_par (@211). DL/PL carry
+    the seed's WRITE instance (the UPSTREAM side), so they stay OUT of the
+    downstream projection. Scripts: SUP_M only; tables:
     {bdm_acc_loan_info, bdm_acc_loan_info_sup, bdm_evt_loan_trans,
     rrcdm_job_log_exec_par} — bdm_evt_loan_trans is the NOT-IN read
     target @52, admitted by the seed-zone FILTER rule."""
     l1, scripts, tables = _r29_projection(
         loan_info_3ws, "bdm_acc_loan_info", "lending_ref", "downstream")
     assert l1["flow_empty"] is False
-    assert scripts == ["BDM_ACC_LOAN_INFO_Digitallending.sql",
-                       "BDM_ACC_LOAN_INFO_PL.sql",
-                       "BDM_ACC_LOAN_INFO_SUP_M.sql"], scripts
+    assert scripts == ["BDM_ACC_LOAN_INFO_SUP_M.sql"], scripts
     assert tables == ["bdm_acc_loan_info", "bdm_acc_loan_info_sup",
                       "bdm_evt_loan_trans", "rrcdm_job_log_exec_par"], \
         tables

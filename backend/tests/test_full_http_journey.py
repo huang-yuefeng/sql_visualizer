@@ -141,18 +141,25 @@ def test_full_http_journey(journey_ws):
 
     # ── Step 3: search ─────────────────────────────────────────────────
     r = client.post(f"/api/workspace/{ws_id}/search",
-                    json={"table": TARGET_TABLE, "field": TARGET_FIELD})
+                    json={"table": TARGET_TABLE, "field": TARGET_FIELD,
+                          # R29 (2026-08-13): the router default direction
+                          # is now "upstream"; this journey pins the
+                          # DOWNSTREAM (reading) projection — step2 writes
+                          # the seed + step3 reads it as a join key.
+                          "direction": "downstream"})
     assert r.status_code == 200, r.text
     s = r.json()
     assert s["table"] == TARGET_TABLE and s["field"] == TARGET_FIELD, s
     # R29 (2026-08-12): the search returns the queried field's strict
     # directional flow projection (match_mode "exact" — the R22
-    # no-matches/legacy marker, not a closure-size label). For
-    # stg_customers.customer_id downstream that is exactly the
-    # producing script (step2 writes the seed) + the consuming script
-    # (step3 reads it as a join key) — NOT the pre-R29 5-script
-    # transitive table-flow closure of the workspace (step1/4/5 never
-    # touch the field).
+    # no-matches/legacy marker, not a closure-size label). `script_ids`
+    # is the MATCHING set (field ∩ table scripts) — direction
+    # independent: step2 writes the seed AND step3 reads it as a join
+    # key, so both match. The L1 GRAPH below is the downstream (reading)
+    # projection: per the formal definition, downstream = the fields that
+    # USE Y (the transitive effect scope), walked forward from Y — so the
+    # downstream L1 carries only the CONSUMING script (step3); the
+    # producing script (step2) is the upstream side.
     assert s["match_mode"] == "exact", s
     assert s["script_ids"] == [
         "multi_workflow/step2_enrich_customers.sql",
@@ -180,19 +187,21 @@ def test_full_http_journey(journey_ws):
                          "output_table"}, node_types
     for e in edges:
         assert e["data"]["edge_type"] in ("reads_from", "writes_to"), e
-    # R29: the L1 is the strict field-flow chain of the seed —
-    # crm_customers →(step2)→ stg_customers →(step3)→ analytics_orders
-    # (4 reads_from/writes_to hops, exactly the producing + consuming
-    # scripts; no step1/4/5).
+    # R29: the downstream L1 is the seed's effect scope — only the
+    # CONSUMING script (step3 reads the seed as a join key and writes
+    # analytics_orders): stg_customers →(step3)→ analytics_orders (2
+    # reads_from/writes_to hops). The producing script (step2) is the
+    # upstream side of the seed, so it is not in the downstream
+    # projection (upstream L1 = step2 only); step1/4/5 never touch the
+    # field.
     assert {n["data"]["label"] for n in nodes
             if n["data"]["type"] == "script_node"} == {
-        "multi_workflow/step2_enrich_customers.sql",
         "multi_workflow/step3_join_orders_customers.sql",
     }, nodes
     assert {n["data"].get("table_name") for n in nodes
             if n["data"]["type"] != "script_node"} == {
-        "crm_customers", "stg_customers", "analytics_orders"}, nodes
-    assert len(edges) == 4, len(edges)
+        "stg_customers", "analytics_orders"}, nodes
+    assert len(edges) == 2, len(edges)
 
     # ── Step 5: L2 graph for the JOIN script ───────────────────────────
     r = client.get(f"/api/workspace/{ws_id}/views/{view_id}/level2",

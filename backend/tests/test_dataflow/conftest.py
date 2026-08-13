@@ -95,13 +95,18 @@ def workspace_client():
             from app.services.folder_index_service import autocomplete as ac
             return ac(idx, type_, q)
 
-        def search(self, ws_id, table, field):
+        def search(self, ws_id, table, field, direction="downstream"):
+            """Run create_search. R29 (2026-08-13): the service-layer default
+            direction flipped to "upstream" (writing flow), so this helper
+            passes "downstream" explicitly to preserve the original
+            reading-flow intent of the callers that go through it."""
             from app.services.dataflow_service import create_search
             import asyncio
             cache_dir = get_workspace_dir(ws_id) / "cache"
             ti = json.loads((cache_dir / "table_index.json").read_text()) if (cache_dir / "table_index.json").exists() else {}
             fi = json.loads((cache_dir / "field_index.json").read_text()) if (cache_dir / "field_index.json").exists() else {}
-            return asyncio.run(create_search(ws_id, table, field, ti, fi))
+            return asyncio.run(create_search(ws_id, table, field, ti, fi,
+                                             direction=direction))
 
         def _collect_sql(self, tree):
             paths = []

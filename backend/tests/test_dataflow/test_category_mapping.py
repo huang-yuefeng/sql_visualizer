@@ -1,14 +1,14 @@
-"""Test that edge types map to correct 7 visual categories."""
+"""Test that edge types map to correct 8 visual categories."""
 import pytest
 import sys
 sys.path.insert(0, '/home/huangyf/work/sql_visualizer/backend')
 from app.services.graph_service import get_category as _get_category, CATEGORY_MAP
 
-VALID_CATEGORIES = {"copy", "compute", "aggregate", "filter", "combine", "write", "structure"}
+VALID_CATEGORIES = {"copy", "compute", "aggregate", "filter", "combine", "write", "structure", "flow"}
 
 
 class TestCategoryMapping:
-    """Verify edge type → 7-category mapping."""
+    """Verify edge type → 8-category mapping."""
 
     def test_all_13_edge_types_have_category(self):
         """Every edge type must map to a valid category."""
@@ -46,8 +46,11 @@ class TestCategoryMapping:
         assert _get_category("DML") == "write"
 
     def test_structure_is_structure(self):
-        for et in ["SCHEMA", "ALIAS", "SUBSET", "TABLE_FLOW"]:
+        for et in ["SCHEMA", "ALIAS", "SUBSET"]:
             assert _get_category(et) == "structure", f"{et} should be structure"
+
+    def test_table_flow_is_flow(self):
+        assert _get_category("TABLE_FLOW") == "flow"
 
     def test_unknown_edge_type_defaults_to_structure(self):
         assert _get_category("UNKNOWN_TYPE") == "structure"
@@ -61,7 +64,7 @@ class TestCategoryMapping:
         assert len(seen) == len(CATEGORY_MAP), "Duplicate edge types in CATEGORY_MAP"
 
     def test_all_categories_used(self):
-        """All 7 categories should be reachable."""
+        """All 8 categories should be reachable."""
         used = set(CATEGORY_MAP.values())
         assert VALID_CATEGORIES == used, f"Unused categories: {VALID_CATEGORIES - used}"
 

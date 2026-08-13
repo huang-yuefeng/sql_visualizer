@@ -141,6 +141,18 @@ lending_ref↓SUP_M seed-zone closure, the lending_ref↑DL chain start
 @426). Backend-compat guard: if _build_l2_graph lacks the direction
 keyword, the new direction cases SKIP via pytest.skip per item; the
 existing downstream cases run unchanged.
+
+CR10 (2026-08-13, benchmark circularity -- RULED): several R29
+direction closures (rrcdm down, iiapty down, lending_ref up/down)
+were REPINNED from served closures (the engine's own output) in the
+point-15 round. That is circular -- the ground truth MUST be built by
+a different/independent method. The independent re-derivation lives in
+test_independent_r29_ground_truth.py (asserts the closures against the
+SQL SOURCE TEXT alone). Rows whose exact edge FORM is an engine-
+emission convention are flagged "pending" in jaccard_canonical.py and
+printed here as PENDING RE-DERIVATION -- they stay scored (removing
+them would silently change the gate) but are never silently asserted
+as independent ground truth; the integrator routes them.
 """
 
 import inspect
@@ -852,6 +864,14 @@ def compute_case(seed, script, direction):
         "edges": edges,
         "matched": matched,
         "unmatched": [r for r in rows if r["row"] not in matched],
+        # CR10 (2026-08-13): rows whose exact edge FORM is an engine-
+        # emission convention (output-VT membership SCHEMA, FROM-source
+        # JOIN admission, table-instance REF into the output VT, anchor
+        # mismatches) -- NOT independently SQL-text-derivable. They stay
+        # in B (removing them would silently change the gate) but are
+        # printed distinctly as PENDING RE-DERIVATION, never silently
+        # asserted as engine truth.
+        "pending": [r for r in rows if r.get("pending")],
         "unrealized": [c for c in canon_nodes if c not in realized],
         "field_dups": dml_phantom_field_dups(nodes),
         "counts": counts,
@@ -944,6 +964,12 @@ def test_jaccard_benchmark(capsys, seed, script, direction):
             for x in r["unmatched"]:
                 print(f"    row={x['row']} anchor={x['anchor']} rel={x['type']}  "
                       f"{x['src']} -> {x['dst']}")
+        if r["pending"]:
+            print(f"\nPENDING RE-DERIVATION (CR10): {len(r['pending'])} canonical "
+                  f"rows are engine-form -- not independently SQL-text-verifiable; "
+                  f"they stay scored but must NOT be treated as independent ground "
+                  f"truth until re-derived: "
+                  f"{[(x['row'], x['type'] + '@' + str(x['anchor'])) for x in r['pending']]}")
         summary = " ".join(
             f"{feat[:1].upper()}={r['scores'][feat]['recall']:.4f}/"
             f"{r['scores'][feat]['precision']:.4f}" for feat in FEATURES)

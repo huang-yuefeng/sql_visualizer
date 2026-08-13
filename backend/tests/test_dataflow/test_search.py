@@ -173,7 +173,8 @@ def test_l1_no_direct_script_to_script_edges(workspace_client, d2_zip):
                "step3_join_orders_customers.sql", "step4_aggregate_daily.sql",
                "step5_final_report.sql"]
 
-    result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount")
+    result = _build_l1_graph(ws_id, scripts, "staging_orders", "amount",
+                             direction="downstream")
     nodes = result.get("nodes", [])
     edges = result.get("edges", [])
     
@@ -236,7 +237,7 @@ class TestL2NotInFlow:
 
         # "ghost" appears in no script — the script is not in its data flow
         result = dfs.get_level2_graph(ws_id, sr["view_id"], "step2_report.sql",
-                                      "orders", "ghost")
+                                      "orders", "ghost", direction="downstream")
         assert result.get("search_matched") is False, result
         assert "ghost" in result.get("message", ""), result
         assert "not in the data flow" in result.get("message", ""), result
@@ -246,7 +247,8 @@ class TestL2NotInFlow:
         assert len(result["graph"]["edges"]) > 0, result
         # Identical to an explicit unfiltered build
         full = dfs.get_level2_graph(ws_id, sr["view_id"], "step2_report.sql",
-                                    "orders", "ghost", filter_relevant_nodes=False)
+                                    "orders", "ghost", filter_relevant_nodes=False,
+                                    direction="downstream")
         assert len(result["graph"]["nodes"]) == len(full["graph"]["nodes"]), result
         workspace_client.delete(ws_id)
 
@@ -268,7 +270,8 @@ class TestL2NotInFlow:
         from app.services.dataflow_service import get_level2_graph
         # step4_aggregate.sql never references customer_name
         result = get_level2_graph(ws_id, sr["view_id"], "step4_aggregate.sql",
-                                  "customers", "customer_name")
+                                  "customers", "customer_name",
+                                  direction="downstream")
         assert result.get("search_matched") is False, result
         assert "customer_name" in result.get("message", ""), result
         assert len(result["graph"]["nodes"]) > 1, result
@@ -282,7 +285,7 @@ class TestL2NotInFlow:
         sr = workspace_client.search(ws_id, "orders", "amount")
         from app.services.dataflow_service import get_level2_graph
         result = get_level2_graph(ws_id, sr["view_id"], "step2_report.sql",
-                                  "orders", "amount")
+                                  "orders", "amount", direction="downstream")
         assert "search_matched" not in result, result
         assert "message" not in result, result
         workspace_client.delete(ws_id)
@@ -296,7 +299,8 @@ class TestL2NotInFlow:
         import app.services.dataflow_service as dfs
         self._wrap_search_matched(monkeypatch, dfs)
         result = dfs.get_level2_graph(ws_id, sr["view_id"], "step2_report.sql",
-                                      "orders", "ghost", filter_relevant_nodes=False)
+                                      "orders", "ghost", filter_relevant_nodes=False,
+                                      direction="downstream")
         assert "search_matched" not in result, result
         workspace_client.delete(ws_id)
 
@@ -309,7 +313,7 @@ class TestL2NotInFlow:
         import app.services.dataflow_service as dfs
         self._wrap_search_matched(monkeypatch, dfs)
         result = dfs.get_level2_graph(ws_id, sr["view_id"], "step2_report.sql",
-                                      "", "")
+                                      "", "", direction="downstream")
         assert "search_matched" not in result, result
         workspace_client.delete(ws_id)
 
@@ -325,8 +329,13 @@ class TestLevel1Endpoint:
         ws_id = workspace_client.create(d1_zip)
         workspace_client.index(ws_id)
         from app.routers.dataflow import search_dataflow, get_level1
-        sr = asyncio.run(search_dataflow(ws_id, {"table": "orders", "field": "amount"}))
-        l1 = asyncio.run(get_level1(ws_id, sr["view_id"]))
+        # R29 (2026-08-13): the router default direction is now "upstream";
+        # this fixture is read-only (orders.amount is read, never written),
+        # so the search + level1 must run the downstream (reading) flow to
+        # exercise the original lineage-filter intent.
+        sr = asyncio.run(search_dataflow(ws_id, {"table": "orders", "field": "amount",
+                                                 "direction": "downstream"}))
+        l1 = asyncio.run(get_level1(ws_id, sr["view_id"], direction="downstream"))
         assert l1["view_id"] == sr["view_id"], l1
         nodes = l1["l1_graph"]["nodes"]
         assert nodes, l1

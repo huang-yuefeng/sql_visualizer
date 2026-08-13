@@ -322,6 +322,8 @@ Seed `ODS_CUPD_CLD_ACCTMASTER_NEW.BNQXYE` (BDM_ACC_LOAN_INFO_Digitallending.sql)
 
 The upstream scope is the **transitive writing chain** (user ruling 2026-08-12): writers of writers, back to the start. Inside BDM_ACC_LOAN_INFO_PL, the seed's only writer is the partition write @19 (`PARTITION(data_dt='${load_date}', CHARGE_DEPARTMENT=...)`) — the written value is a LITERAL, so the chain terminates at the write: no producing fields, nothing further back. Expected upstream L2 payload: the `bdm_acc_loan_info` node + the `data_dt` write field @19 + the write statement's DML chain (literal → statement output → write); the statement's SELECT sources and its other output columns are different fields — not part of this flow. (This script's READ of the seed @264 is the DOWNSTREAM flow — not rendered in upstream mode.)
 
+> **CR10 re-derivation status (2026-08-13):** this §6a.4 upstream L2 payload (the bdm↑PL / bdm↑DL partition chains, UBP1-3 / UBD1-3) was compiled from this prose (J12-13, never the served form) — the chain start is the LITERAL partition write, verified in the SQL source (`INSERT OVERWRITE TABLE bdm_acc_loan_info PARTITION(data_dt='${load_date}', …)` PL@19, `… PARTITION (data_dt = '$(load_date)', …)` DL@99), and the bdm↑SUP_M EMPTY pin (SUP_M writes no `data_dt` into `bdm_acc_loan_info`; its DML targets are `bdm_acc_loan_info_sup` @160 and `rrcdm_job_log_exec_par` @211) is SQL-verifiable. No `pending` rows here — the write-chain rows are the documented literal→output→write DML-routing form.
+
 # PART II — CANONICAL GROUND TRUTH v2 (benchmark spec, pl-seed round 2026-08-11)
 
 This part is the machine-comparable target. The benchmark

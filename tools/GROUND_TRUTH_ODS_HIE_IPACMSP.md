@@ -2,6 +2,8 @@
 
 > **Seed:** `ods_hie_ipacmsp.iiapty` | **Workspace:** `samples/sql_sample_v1/` (3 scripts) | **Date:** 2026-08-12 | **Status:** DEFINED (R29) — §2.2/§3.1/§4 REPAIRED 2026-08-12 with probe evidence (repin round: the row-level-continuation chain runs to the rrcdm write @211 — see §2.2/§3.1)
 >
+> **CR10 re-derivation status (2026-08-13):** the §3.1 13-node / 17-edge closure was REPINNED FROM THE SERVED CLOSURE (the point-15 repin round, probe-pinned) — circular per the CR10 ruling. The independent re-derivation (backend/tests/test_independent_r29_ground_truth.py) re-verifies the closure against the SQL SOURCE TEXT: the seed zone (LEFT JOIN ods_hie_ipacmsp p5 @151, p5.iiapty = p4.iiapty @153), the sup write @160, the p2 self-join zone @199-203, and the rrcdm continuation (@211 insert / @223 FROM / @225 data_dt filter) are all SQL-verifiable; the exact edge FORMS flagged `pending` in jaccard_canonical.py (IID3/IID6/IID8 — engine-emission conventions) must be re-derived before they count as independent ground truth.
+>
 > **Shape purpose:** the queried field has READERS but NO WRITERS in the workspace (ODS source table) — exercises the **downstream join-key closure** case and the **EMPTY upstream projection**.
 
 ## 1. Workspace facts (verified 2026-08-12)

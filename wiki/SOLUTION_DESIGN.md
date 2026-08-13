@@ -1435,7 +1435,7 @@ User rulings (2026-08-11), requirements R26/R27/R28 in REQUIREMENTS.md. All thre
 
 # J12-22 — L1 field-level data flow + upstream/downstream query direction (requirement change 2026-08-12)
 
-> **Date:** 2026-08-12 | **Status:** DEFINED (R29) — implementation pending, no source change
+> **Date:** 2026-08-12 | **Status:** IMPLEMENTED (R29, v3.3.153)
 
 ## 1. The requirement (user's words, formalized)
 

@@ -39,7 +39,8 @@ class TestCompoundTableNodes:
         names = sorted(
             [p.name for p in scripts_dir.glob("*.sql")]
         )
-        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id")
+        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id",
+                                 direction="downstream")
         table_nodes = [n for n in result["nodes"]
                        if n["data"]["type"] in ("source_table", "intermediate_table", "output_table")]
         assert len(table_nodes) >= 1, f"Expected >=1 table nodes, got {len(table_nodes)}"
@@ -52,7 +53,8 @@ class TestCompoundTableNodes:
         ws_id = ws_with_d2_etl
         scripts_dir = get_workspace_dir(ws_id) / "scripts"
         names = sorted([p.name for p in scripts_dir.glob("*.sql")])
-        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id")
+        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id",
+                                 direction="downstream")
         table_nodes = [n for n in result["nodes"]
                        if n["data"]["type"] in ("source_table", "intermediate_table", "output_table")]
         for tn in table_nodes:
@@ -65,7 +67,8 @@ class TestCompoundTableNodes:
         ws_id = ws_with_d2_etl
         scripts_dir = get_workspace_dir(ws_id) / "scripts"
         names = sorted([p.name for p in scripts_dir.glob("*.sql")])
-        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id")
+        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id",
+                                 direction="downstream")
         source_tables = result.get("source_tables", [])
         intermediate = set(result.get("intermediate_tables", []))
         output_tables = set(result.get("output_tables", []))
@@ -81,7 +84,8 @@ class TestCompoundTableNodes:
         ws_id = ws_with_d2_etl
         scripts_dir = get_workspace_dir(ws_id) / "scripts"
         names = sorted([p.name for p in scripts_dir.glob("*.sql")])
-        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id")
+        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id",
+                                 direction="downstream")
         edge_types = set()
         for e in result["edges"]:
             et = e["data"].get("edge_type", "N/A")
@@ -106,7 +110,8 @@ class TestFieldClassification:
         ws_id = ws_with_d2_etl
         scripts_dir = get_workspace_dir(ws_id) / "scripts"
         names = sorted([p.name for p in scripts_dir.glob("*.sql")])
-        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id")
+        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id",
+                                 direction="downstream")
         # Check that the result structure is valid
         assert "nodes" in result
         assert "edges" in result
@@ -117,7 +122,8 @@ class TestFieldClassification:
         ws_id = ws_with_d2_etl
         scripts_dir = get_workspace_dir(ws_id) / "scripts"
         names = sorted([p.name for p in scripts_dir.glob("*.sql")])
-        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id")
+        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id",
+                                 direction="downstream")
         field_nodes = [n for n in result["nodes"]
                        if n["data"].get("type") == "field"]
         for fn in field_nodes:
@@ -159,8 +165,11 @@ class TestL2Graph:
             data = e["data"]
             assert "edge_type" in data, f"L2 edge missing edge_type"
             cat = data.get("category")
-            assert cat in ("copy", "compute", "aggregate", "filter", "combine", "write", "structure"), \
-                f"L2 edge category '{cat}' not in 7 valid categories"
+            # J12-23: TABLE_FLOW carries the "flow" category (the primary
+            # value-flow edge), so the valid-category set is now 8.
+            assert cat in ("copy", "compute", "aggregate", "filter",
+                           "combine", "write", "structure", "flow"), \
+                f"L2 edge category '{cat}' not in valid categories"
     def test_l2_graph_nodes_have_parent_for_table_fields(self, ws_with_d2_etl):
         """Field nodes in L2 must have parent set to their table node ID."""
         ws_id = ws_with_d2_etl
@@ -294,7 +303,8 @@ class TestElkCompatibility:
         ws_id = ws_with_d2_etl
         scripts_dir = get_workspace_dir(ws_id) / "scripts"
         names = sorted([p.name for p in scripts_dir.glob("*.sql")])
-        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id")
+        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id",
+                                 direction="downstream")
         for n in result["nodes"]:
             data = n["data"]
             # Either explicit width/height or determinable from type
@@ -310,7 +320,8 @@ class TestElkCompatibility:
         ws_id = ws_with_d2_etl
         scripts_dir = get_workspace_dir(ws_id) / "scripts"
         names = sorted([p.name for p in scripts_dir.glob("*.sql")])
-        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id")
+        result = _build_l1_graph(ws_id, names, "staging_orders", "customer_id",
+                                 direction="downstream")
         # Build adjacency from edges
         adj = {}
         for e in result["edges"]:

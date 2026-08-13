@@ -40,7 +40,7 @@ class SearchView:
 async def create_search(ws_id: str, table: str, field: str,
                         table_index: dict, field_index: dict,
                         lineage_mode: bool = True,
-                        direction="downstream") -> dict:
+                        direction="upstream") -> dict:
     """Find scripts touching table AND field, build L1 graph.
 
     1. Find scripts from field_index that contain this field
@@ -49,7 +49,7 @@ async def create_search(ws_id: str, table: str, field: str,
     4. Build L1 graph via analyze_multiple_scripts()
     5. Store view in views.json (async — the write runs off the event loop, L9)
 
-    R29 (2026-08-12): `direction` ("downstream" default / "upstream")
+    R29 (2026-08-12): `direction` ("upstream" default / "downstream")
     selects the field flow direction — threaded into _build_l1_graph (the
     L1 directional projection), persisted on the view, and honored in the
     no-flow message. Field queries keep the EXACT script set (no
@@ -144,7 +144,12 @@ async def create_search(ws_id: str, table: str, field: str,
             _msg = f"No writing flow for {table}.{field}"
         else:
             _msg = f"No reading flow for {table}.{field}"
+        # CR3: keep the real matching_scripts on the no-flow view so a
+        # later GET /level1|/level2 with the opposite direction can
+        # re-project — the field IS in these scripts, only this direction's
+        # closure is empty.
         return await _no_flow_result(ws_id, table, field, _msg,
+                                     script_ids=matching_scripts,
                                      direction=direction)
 
     # R18: Apply lineage filter to L1 graph when lineage_mode — table-only
@@ -194,7 +199,7 @@ async def create_search(ws_id: str, table: str, field: str,
 
 
 async def _no_matches_result(ws_id: str, table: str, field: str, message: str,
-                             direction="downstream") -> dict:
+                             direction="upstream") -> dict:
     """BE2: no-matches search result (field absent from index / no pair flow).
 
     Returns the banner-compatible shape the frontend renders for
@@ -233,7 +238,8 @@ async def _no_matches_result(ws_id: str, table: str, field: str, message: str,
 
 
 async def _no_flow_result(ws_id: str, table: str, field: str, message: str,
-                          direction="downstream") -> dict:
+                          script_ids: list[str] | None = None,
+                          direction="upstream") -> dict:
     """R29: no-flow search result (the field IS in the scripts, but the
     directional flow is EMPTY — read but never written for upstream,
     written but never read for downstream).
@@ -241,7 +247,13 @@ async def _no_flow_result(ws_id: str, table: str, field: str, message: str,
     Mirror of _no_matches_result: banner-compatible shape for
     ``match_mode === "no_flow"`` (match_mode + message + empty L1 graph),
     view persisted so a reload restores the banner.
+
+    CR3: `script_ids` carries the real matching_scripts — the directional
+    graph stays empty, but the persisted script set lets a later
+    GET /level1|/level2 with the opposite direction re-project (the
+    views that most need a direction switch).
     """
+    script_ids = script_ids or []
     view_id = uuid.uuid4().hex[:12]
     l1_graph = {"nodes": [], "edges": [], "target": "table.field"}
     await _persist_search_view(ws_id, {
@@ -249,8 +261,8 @@ async def _no_flow_result(ws_id: str, table: str, field: str, message: str,
         "type": "search",
         "table": table,
         "field": field,
-        "script_ids": [],
-        "script_count": 0,
+        "script_ids": script_ids,
+        "script_count": len(script_ids),
         "l1_graph_cache": l1_graph,
         "match_mode": "no_flow",
         "message": message,
@@ -261,7 +273,7 @@ async def _no_flow_result(ws_id: str, table: str, field: str, message: str,
         "view_id": view_id,
         "table": table,
         "field": field,
-        "script_ids": [],
+        "script_ids": script_ids,
         "l1_graph": l1_graph,
         "match_mode": "no_flow",
         "message": message,
@@ -407,7 +419,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
 
 def get_level2_graph(ws_id: str, view_id: str, script_name: str,
                      table: str, field: str, filter_relevant_nodes: bool = True,
-                     direction="downstream") -> dict:
+                     direction="upstream") -> dict:
     """Build L2 graph for a script. Loads pre-computed graph cache,
     applies relevance filter, returns {graph, parse_errors}.
 
@@ -416,7 +428,7 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     — the old response-level `highlights` and the `highlight_strategy`
     query param are gone (R25 item 3).
 
-    R29 (2026-08-12): `direction` ("downstream" default / "upstream")
+    R29 (2026-08-12): `direction` ("upstream" default / "downstream")
     threads into the strict flow filter AND the L2 builder — downstream
     is byte-identical legacy behavior; upstream filters to the field's
     WRITING flow, and the not-in-flow message names the writing side."""

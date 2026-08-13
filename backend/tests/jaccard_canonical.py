@@ -381,7 +381,8 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
      sup-write statement USES lending_ref → carries the flow into
      the sup write @160; the sup data_dt row-selection @225
      continues the chain into the rrcdm write @211 (37 nodes /
-     79 edges / 21 highlights, rows LFS1-79).
+     79 edges / 21 highlights, rows LFS1-79; CR10 2026-08-13 removes
+     the duplicate self-loops LFS6/LFS7 -- 77 edges remain).
      GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §2.2/§3.2/§4
      repaired back to the ruling.
    All 4 old blocks (IIP1-9, LFD1-3, LFS1-17, and the EMPTY pins)
@@ -396,6 +397,46 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
    usage lines per-(field, statement) admission dedup (the doc's
    @48/@156/@163/@201/@206 do NOT render -- pinned as excluded with
    the D2 ruling).
+
+16. CR10 INDEPENDENT RE-DERIVATION (2026-08-13, Team D -- benchmark
+   circularity ruling, CR10). The point-15 repin round derived the R29
+   direction closures FROM THE SERVED L2 CLOSURES (the engine's own
+   output), which is circular: with floors at exactly 1.0000/1.0000 the
+   benchmark asserts the engine matches its own output and can never
+   catch the J12-21 class (silent over/under-admission). The ruling:
+   ground truth MUST be built by a different/independent method. This
+   point records the independent re-derivation (the enforcement lives in
+   backend/tests/test_independent_r29_ground_truth.py, which asserts the
+   closures against the SQL SOURCE TEXT alone):
+   - The NODE closures (CANONICAL_NODES_DIR) for the repinned seeds are
+     re-verified to be SQL-text-grounded: every (label, line) is a real
+     identifier/occurrence of the script (the only exceptions are the
+     ⟐ output/subquery VTs and the served-truncated CONCAT labels).
+   - Rows whose exact edge FORM is an engine-emission convention (not a
+     SQL-text property) are flagged "pending": True -- the output-VT
+     membership SCHEMA edges (URP2/URS2/RDP2/RDS2/RDD2 -- the Phase-4c
+     membership rendering, no SQL-text analogue), the FROM-source JOIN
+     admission (LFD2 -- the seed-zone JOIN rule), the output-VT
+     membership of the output column (LFD3), the field-REF anchored at
+     the TABLE line while the SQL field occurrence is on the ON clause
+     line (IID3 -- anchor 151, SQL p5.iiapty @153), the alias-membership
+     SCHEMA (IID6), and the table-instance REF into the output VT at the
+     write line (IID8/LFS68 -- no SQL construct at the write site emits a
+     sup->output REF). These rows stay in B (removing them would silently
+     change the gate) but are printed distinctly by the consumer test as
+     PENDING RE-DERIVATION -- never silently asserted as engine truth.
+   - REMOVED (independently refuted): rows LFS6/LFS7 were IDENTICAL
+     duplicate self-loops (lending_ref@22 -> lending_ref@22 REF@22,
+     anchor 22) dumped from the served closure. A self-loop has no
+     SQL-text data-flow meaning (the row-11 class, removed 2026-08-10);
+     two identical rows are a copy-paste artifact. If the engine emits a
+     lending_ref@22 self-loop it is an over-admission -- the independent
+     assertion (test_no_self_loop_edges) now surfaces it instead of
+     asserting it. The subquery's lending_ref@22 output remains canonical
+     as the ⟐subq1 VT membership (LFS9/LFS11).
+   The legacy direction-less entries (bdm/sup/pl/dl, points 1-13) are
+   untouched -- they predate the R29 harness and are derived from the
+   docs' REQUIREMENT sections (J12-13), not from served closures.
 """
 
 CANONICAL_ROWS = [
@@ -713,13 +754,13 @@ CANONICAL_EDGES = [
     {"row": "URP1", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "upstream",
      "src": "data_dt@254", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 254, "spec": "anchor_rel_ep"},
     {"row": "URP2", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "upstream",
-     "src": "⟐output@0", "dst": "data_dt@254", "type": "SCHEMA", "anchor": 254, "spec": "anchor_rel_ep"},
+     "src": "⟐output@0", "dst": "data_dt@254", "type": "SCHEMA", "anchor": 254, "spec": "anchor_rel_ep", "pending": True},
     {"row": "URP3", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "upstream",
      "src": "⟐output@0", "dst": "rrcdm@253", "type": "TABLE_FLOW", "anchor": 253, "spec": "anchor_rel_ep"},
     {"row": "URS1", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "upstream",
      "src": "data_dt@213", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep"},
     {"row": "URS2", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "upstream",
-     "src": "⟐output@0", "dst": "data_dt@213", "type": "SCHEMA", "anchor": 213, "spec": "anchor_rel_ep"},
+     "src": "⟐output@0", "dst": "data_dt@213", "type": "SCHEMA", "anchor": 213, "spec": "anchor_rel_ep", "pending": True},
     {"row": "URS3", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "upstream",
      "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep"},
     #    rrcdm↓PL / rrcdm↓SUP_M / rrcdm↓DL -- rrcdm_job_log_exec_par.
@@ -737,19 +778,19 @@ CANONICAL_EDGES = [
     {"row": "RDP1", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "downstream",
      "src": "data_dt@254", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 254, "spec": "anchor_rel_ep"},
     {"row": "RDP2", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "downstream",
-     "src": "⟐output@0", "dst": "data_dt@254", "type": "SCHEMA", "anchor": 254, "spec": "anchor_rel_ep"},
+     "src": "⟐output@0", "dst": "data_dt@254", "type": "SCHEMA", "anchor": 254, "spec": "anchor_rel_ep", "pending": True},
     {"row": "RDP3", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "downstream",
      "src": "⟐output@0", "dst": "rrcdm@253", "type": "TABLE_FLOW", "anchor": 253, "spec": "anchor_rel_ep", "stmt": "TOP2"},
     {"row": "RDS1", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "data_dt@213", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep"},
     {"row": "RDS2", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "⟐output@0", "dst": "data_dt@213", "type": "SCHEMA", "anchor": 213, "spec": "anchor_rel_ep"},
+     "src": "⟐output@0", "dst": "data_dt@213", "type": "SCHEMA", "anchor": 213, "spec": "anchor_rel_ep", "pending": True},
     {"row": "RDS3", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep", "stmt": "TOP1"},
     {"row": "RDD1", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "downstream",
      "src": "data_dt@550", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 550, "spec": "anchor_rel_ep"},
     {"row": "RDD2", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "downstream",
-     "src": "⟐output@0", "dst": "data_dt@550", "type": "SCHEMA", "anchor": 550, "spec": "anchor_rel_ep"},
+     "src": "⟐output@0", "dst": "data_dt@550", "type": "SCHEMA", "anchor": 550, "spec": "anchor_rel_ep", "pending": True},
     {"row": "RDD3", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "downstream",
      "src": "⟐output@0", "dst": "rrcdm@549", "type": "TABLE_FLOW", "anchor": 549, "spec": "anchor_rel_ep", "stmt": "TOP1"},
     #    iiapty↓SUP_M -- ods_hie_ipacmsp.iiapty DOWNSTREAM, the
@@ -777,17 +818,17 @@ CANONICAL_EDGES = [
     {"row": "IID2", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "ods_hie_ipacmsp@151", "dst": "p5@151@151", "type": "ALIAS", "anchor": 151, "spec": "anchor_rel_ep"},
     {"row": "IID3", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "iiapty@151", "dst": "p5@151@151", "type": "REF", "anchor": 151, "spec": "anchor_rel_ep"},
+     "src": "iiapty@151", "dst": "p5@151@151", "type": "REF", "anchor": 151, "spec": "anchor_rel_ep", "pending": True},
     {"row": "IID4", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "p5@151@151", "dst": "loan_final@64", "type": "TABLE_FLOW", "anchor": 151, "spec": "anchor_rel_ep"},
     {"row": "IID5", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "iiapty@151", "dst": "loan_final@64", "type": "JOIN", "anchor": 153, "spec": "anchor_rel_ep"},
     {"row": "IID6", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "p5@151@151", "dst": "iiapty@151", "type": "SCHEMA", "anchor": 153, "spec": "anchor_rel_ep"},
+     "src": "p5@151@151", "dst": "iiapty@151", "type": "SCHEMA", "anchor": 153, "spec": "anchor_rel_ep", "pending": True},
     {"row": "IID7", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "sup@160", "dst": "p2@199@199", "type": "ALIAS", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": "IID8", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "sup@160", "dst": "⟐output@0", "type": "REF", "anchor": 160, "spec": "anchor_rel_ep"},
+     "src": "sup@160", "dst": "⟐output@0", "type": "REF", "anchor": 160, "spec": "anchor_rel_ep", "pending": True},
     {"row": "IID9", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep", "stmt": "TOP0"},
     {"row": "IID10", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
@@ -834,9 +875,9 @@ CANONICAL_EDGES = [
     {"row": "LFD1", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
      "src": "A@426@426", "dst": "acctnbr@101", "type": "SCHEMA", "anchor": 101, "spec": "anchor_rel_ep"},
     {"row": "LFD2", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
-     "src": "ods_ccb_cb_loan_acctloan@426", "dst": "⟐output@0", "type": "JOIN", "anchor": 101, "spec": "anchor_rel_ep"},
+     "src": "ods_ccb_cb_loan_acctloan@426", "dst": "⟐output@0", "type": "JOIN", "anchor": 101, "spec": "anchor_rel_ep", "pending": True},
     {"row": "LFD3", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
-     "src": "⟐output@0", "dst": "LENDING_REF@101", "type": "SCHEMA", "anchor": 101, "spec": "anchor_rel_ep"},
+     "src": "⟐output@0", "dst": "LENDING_REF@101", "type": "SCHEMA", "anchor": 101, "spec": "anchor_rel_ep", "pending": True},
     {"row": "LFD4", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
      "src": "ods_ccb_cb_loan_acctloan@426", "dst": "A@426@426", "type": "ALIAS", "anchor": 426, "spec": "anchor_rel_ep"},
     {"row": "LFD5", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
@@ -845,41 +886,27 @@ CANONICAL_EDGES = [
      "src": "ods_ccb_cb_loan_acctloan@426", "dst": "A@426@426", "type": "REF", "anchor": 426, "spec": "anchor_rel_ep"},
     {"row": "LFD7", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
      "src": "⟐output@0", "dst": "bdm@99", "type": "TABLE_FLOW", "anchor": 99, "spec": "anchor_rel_ep"},
-    #    lending_ref↓SUP_M -- bdm_acc_loan_info.lending_ref DOWNSTREAM,
-    #    the seed-zone closure (2026-08-12 repin, point 15: the doc's
-    #    §3.2 effect-chain pin was wrong -- the closure is the CTE-zone
-    #    flow of the seed's instances, terminating at the loan_final
-    #    SELECT output / the NOT-IN read table; it does NOT continue to
-    #    the sup write (the seed never reaches sup's columns -- the D2
-    #    field-aware ruling, same as iiapty; the response's lack of a
-    #    write leg is byte-identical to HEAD per the backend team's
-    #    probe)). 54 served edges / 29 served nodes, probe-pinned: the
-    #    loop resolved the doc's §1 usage lines to the served
-    #    per-(field, statement) admission set (lines 13/16/22/26/29/41/
-    #    50/52/67/84/117/150). The served forms: JOIN@41/@67/@117/@150
-    #    (the rollover/loan_final join keys, both the p1-side and the
-    #    po*/p4-side comparison instances), REF@16/@22/@29/@41/@52/@84/
-    #    @117/@150 (the reads), TABLE_FLOW@9/@16/@22/@26/@29/@64/@84
-    #    (the CTE FROM hops + the output admissions), SCHEMA@13/@22/
-    #    @26/@41/@50 (the membership edges), ALIAS@29/@84 (bdm → p1).
-    #    The doc's @48/@156/@163/@201/@206 lines are NOT in the served
-    #    closure (the NOT-IN side renders REF@52 onto
-    #    bdm_evt_loan_trans; the p6 join and the p2/p3 statements admit
-    #    other field instances) -- excluded per the D2 ruling. The two
-    #    lending_ref↓SUP_M -- bdm_acc_loan_info.lending_ref
-    #    DOWNSTREAM: the seed's CTE-zone flow + the R29 row-level
-    #    continuation (2026-08-12 ruling: the sup-write statement USES
-    #    lending_ref as join keys/SELECT outputs → carries the flow
-    #    into the sup write @160; the sup data_dt row-selection @225
-    #    continues the chain into the rrcdm write @211 -- the chain
-    #    END). Served closure (repin round, probe-pinned): 37 nodes /
-    #    79 edges / 21 highlights -- the CTE-zone flow (rollover /
+    #    lending_ref↓SUP_M -- bdm_acc_loan_info.lending_ref DOWNSTREAM:
+    #    the seed's CTE-zone flow + the R29 row-level continuation
+    #    (2026-08-12 ruling: the sup-write statement USES lending_ref as
+    #    join keys/SELECT outputs → carries the flow into the sup write
+    #    @160; the sup data_dt row-selection @225 continues the chain
+    #    into the rrcdm write @211 -- the chain END). Repin round (point
+    #    15): 37 served nodes / 79 edges / 21 highlights, probe-pinned --
+    #    CR10 (2026-08-13) removes the duplicate self-loops LFS6/LFS7, so
+    #    77 edges remain. The closure: the CTE-zone flow (rollover /
     #    subq / subq1 / loan_final instances + the join-key siblings
-    #    @41/@117/@150), the sup write @160, the p2 self-join zone
-    #    @199-203, and the rrcdm write @211. The two truncated CONCAT
-    #    expression labels, the edgeless data_dt and the edgeless
-    #    CHARGE_DEPARTMENT are pinned in the node list (label-only);
-    #    the engine truncates expression labels at 38/36 chars. ──
+    #    @41/@117/@150 -- CONCAT(p2.poctcd,…) operands @41/@117 and
+    #    RPAD(p4.iiapty,…)||p4.iiblno @150, all SQL-verifiable), the
+    #    NOT-IN target bdm_evt_loan_trans @52, the sup write @160, the
+    #    p2 self-join zone @199-203, and the rrcdm write @211. The two
+    #    truncated CONCAT expression labels, the edgeless data_dt and
+    #    the edgeless CHARGE_DEPARTMENT are pinned in the node list
+    #    (label-only); the engine truncates expression labels at 38/36
+    #    chars. The doc's @48/@156/@163/@201/@206 lines are NOT in the
+    #    served closure (the NOT-IN side renders REF@52 onto
+    #    bdm_evt_loan_trans; the p6 join and the p2/p3 statements admit
+    #    other field instances) -- excluded per the D2 ruling. ──
     {"row": "LFS1", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "rollover@9", "dst": "loan_final@64", "type": "TABLE_FLOW", "anchor": 9, "spec": "anchor_rel_ep"},
     {"row": "LFS2", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
@@ -890,10 +917,16 @@ CANONICAL_EDGES = [
      "src": "lending_ref@16", "dst": "bdm@16", "type": "REF", "anchor": 16, "spec": "anchor_rel_ep"},
     {"row": "LFS5", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "bdm@16", "dst": "rollover@9", "type": "TABLE_FLOW", "anchor": 16, "spec": "anchor_rel_ep"},
-    {"row": "LFS6", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "lending_ref@22", "dst": "lending_ref@22", "type": "REF", "anchor": 22, "spec": "anchor_rel_ep"},
-    {"row": "LFS7", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "lending_ref@22", "dst": "lending_ref@22", "type": "REF", "anchor": 22, "spec": "anchor_rel_ep"},
+    # CR10 REMOVED (2026-08-13): rows LFS6/LFS7 were IDENTICAL duplicate
+    # self-loops (lending_ref@22 -> lending_ref@22 REF@22, anchor 22) dumped
+    # from the served closure by the point-15 repin round. A self-loop has
+    # no SQL-text data-flow meaning (the row-11 class, removed 2026-08-10:
+    # "the engine never emits a table self-loop"); two identical rows are
+    # a copy-paste dump artifact. The subquery's lending_ref@22 output is
+    # already canonical as the ⟐subq1 VT membership (rows LFS9/LFS11). If
+    # the engine emits a lending_ref@22 self-loop it is an over-admission —
+    # the independent CR10 assertion (test_independent_r29_ground_truth.py
+    # test_no_self_loop_edges) now surfaces it instead of asserting it.
     {"row": "LFS8", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "rollover@9", "dst": "lending_ref@22", "type": "SCHEMA", "anchor": 22, "spec": "anchor_rel_ep"},
     {"row": "LFS9", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
@@ -1015,7 +1048,7 @@ CANONICAL_EDGES = [
     {"row": "LFS67", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "sup@160", "dst": "p2@199@199", "type": "ALIAS", "anchor": 160, "spec": "anchor_rel_ep"},
     {"row": "LFS68", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "sup@160", "dst": "⟐output@0", "type": "REF", "anchor": 160, "spec": "anchor_rel_ep"},
+     "src": "sup@160", "dst": "⟐output@0", "type": "REF", "anchor": 160, "spec": "anchor_rel_ep", "pending": True},
     {"row": "LFS69", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep", "stmt": "TOP0"},
     {"row": "LFS70", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",

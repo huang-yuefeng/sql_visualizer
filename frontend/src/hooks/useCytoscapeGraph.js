@@ -80,6 +80,28 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     // Strip field "parent" → "_tableParent" before Cytoscape sees them
     nodes = stripFieldParents(nodes);
 
+    // J12-19 (render-only): field→own-table edges would render INSIDE the
+    // table box (fields sit at table.pos + frozen offset; the box paints an
+    // opaque background, and Cytoscape draws edges below nodes) — invisible
+    // and un-clickable. Tag them with a class so the stylesheet can raise
+    // their z-index above the box. The payload is untouched (new element
+    // objects only); the SQL highlight on edge click was already correct.
+    const fieldParent = {};
+    for (const n of nodes) {
+      const d = n.data;
+      if (d && d.type === 'field' && d._tableParent) fieldParent[d.id] = d._tableParent;
+    }
+    if (Object.keys(fieldParent).length) {
+      edges = edges.map(e => {
+        const d = e.data;
+        if (!d || !d.source || !d.target) return e;
+        if (fieldParent[d.source] === d.target || fieldParent[d.target] === d.source) {
+          return { ...e, classes: `${e.classes || ''} field-to-own-parent`.trim() };
+        }
+        return e;
+      });
+    }
+
     const isL2 = level === 'L2';
     const baseEdgeStyles = isL2
       ? [...TURN_EDGE_STYLES, ...BUNDLED_EDGE_STYLES,
