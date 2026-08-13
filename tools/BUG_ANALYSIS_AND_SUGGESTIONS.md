@@ -1485,12 +1485,14 @@ This fixes both the table-suggestion direction and the reverse direction (`getFi
 > - ❌ **WRONG/STALE:** CW5 (format_version: 3 **already implemented** — `folder_index_service.py:96`, `l2_builder.py:97-111`, `l1_builder.py:711`, Lessons Learned item 4), CW6 (4-file layout split is documented intentional design — CLAUDE.md:61 frozen offsets; "field drift" unverified; suggested fix contradicts design)
 >
 > **Corrected priority:** CW8, CW1, CW3, CW7, CW9 (take) — not the original "CW1, CW9, CW10". All five taken items implemented and independently reviewed (APPROVE), 334 tests pass.
+>
+> **Re-verified 2026-08-13 (v3.3.153):** status lines below updated to current source. Net disposition — CW1/CW3/CW7/CW8/CW9 ✅ Fixed; CW4 ✅ Fixed (monolith split into named phases, C1); CW10 ✅ Fixed (`test_full_http_journey.py` + `test_l1_l2_integration.py` + `test_flow_roles.py`); CW2 ⚠️ Partial (refactor still judged speculative); CW5/CW6 ❌ Stale.
 
 ---
 
 ## CW1 — Pervasive Silent `except Exception` Error Swallowing
 
-> **Priority:** P1 | **Status:** Open | **Type:** Systemic defect
+> **Priority:** P1 | **Status:** ✅ Fixed (v3.3.129) — 5 inner `except Exception as exc:` now log warning/error; top-level handler keeps the visible M4-B degraded fallback | **Type:** Systemic defect
 
 **Location:** `l1_builder.py` lines 384, 713, 726, 739, 752, 797, 831
 
@@ -1524,7 +1526,7 @@ except Exception as exc:
 
 ## CW2 — Unguarded Deeply Nested Dictionary Access
 
-> **Priority:** P1 | **Status:** Open | **Type:** Systemic defect
+> **Priority:** P1 | **Status:** ⚠️ Partial — defensive `n.get("data", n)` pervasive (33 sites); dataclass/TypedDict refactor judged speculative, not pursued | **Type:** Systemic defect
 
 **Location:** `l2_builder.py` line 208-340, and pervasive across all services
 
@@ -1564,7 +1566,7 @@ Normalize once on cache read; all downstream code works with a stable contract.
 
 ## CW3 — L1 Builder Duplicate Extraction Logic
 
-> **Priority:** P2 | **Status:** Open | **Type:** Code smell
+> **Priority:** P2 | **Status:** ✅ Fixed (v3.3.129) — `_extract_table_field_pairs` helper (l1_builder.py:196) replaces both duplicate loops | **Type:** Code smell
 
 **Location:** `l1_builder.py` lines 700-830
 
@@ -1597,7 +1599,7 @@ def _extract_table_field_pairs(lineage_set: set, nodes: list,
 
 ## CW4 — L2 Builder is 811-Line Monolithic Function
 
-> **Priority:** P1 | **Status:** Open | **Type:** Architecture
+> **Priority:** P1 | **Status:** ✅ Fixed (addressed) — `_build_l2_graph` split into named phases (`_build_edge_list`, `_simplify_dml_edges`, `_map_search_target_ids`, `_promote_field_edges`, `_combine_edges`, `_dedup_edges`, `_closure_walk`, `_downstream_walk`, `_assemble_output`, …) | **Type:** Architecture
 
 **Location:** `l2_builder.py` entire file
 
@@ -1642,7 +1644,7 @@ Each stage becomes independently testable.
 
 ## CW5 — Unversioned Graph Cache Format
 
-> **Priority:** P2 | **Status:** Open | **Type:** Data contract
+> **Priority:** P2 | **Status:** ❌ Stale — already implemented: `format_version: 4` + `GRAPH_CACHE_PREFIX` (cache_keys.py, single source of truth) version the graph cache | **Type:** Data contract
 
 **Location:** `l2_builder.py:97`, `dataflow_service.py:277`, `graph_service.py:120`
 
@@ -1670,7 +1672,7 @@ Write: `data["_schema_version"] = CACHE_SCHEMA_VERSION`.
 
 ## CW6 — Fragmented Frontend Layout Responsibility
 
-> **Priority:** P2 | **Status:** Open | **Type:** Architecture
+> **Priority:** P2 | **Status:** ❌ Stale — intentional design: `config/layout.js` (single source of truth) + `layoutCore.js` (shared helpers) + per-algo coordinators | **Type:** Architecture
 
 **Location:** `snakeLayout.js` (107 lines), `layoutCore.js` (206 lines), `elkLayout.js`, `DataFlowGraph.jsx`
 
@@ -1698,7 +1700,7 @@ Run once after any layout, fixing field drift regardless of layout algorithm.
 
 ## CW7 — `edge_type`/`relationship` Dual Naming
 
-> **Priority:** P3 | **Status:** Open | **Type:** Code smell
+> **Priority:** P3 | **Status:** ✅ Fixed (v3.3.129) — normalized on cache read (l2_builder.py:109-112 `setdefault("edge_type", …)`); `or`-chains kept for legacy safety | **Type:** Code smell
 
 **Location:** Pervasive across backend
 
@@ -1751,7 +1753,7 @@ r = find_sql_range(enriched_copy, sql_text) or \
 
 ## CW9 — Missing `import re` in l1_builder.py
 
-> **Priority:** P1 | **Status:** Open | **Type:** Defect
+> **Priority:** P1 | **Status:** ✅ Fixed (moot) — `detect_role` no longer uses regex; `re` is absent from l1_builder.py so the NameError cannot occur | **Type:** Defect
 
 **Location:** `l1_builder.py` line ~130
 
@@ -1769,7 +1771,7 @@ But `import re` does not appear at the top of `l1_builder.py`. The `re` import e
 
 ## CW10 — No Integration Test for Full User Journey
 
-> **Priority:** P1 | **Status:** Open | **Type:** Test gap
+> **Priority:** P1 | **Status:** ✅ Fixed — `test_full_http_journey.py` + `test_l1_l2_integration.py` + `test_flow_roles.py` cover the full upload→index→search→L1→L2 journey | **Type:** Test gap
 
 **Location:** `backend/tests/`
 
