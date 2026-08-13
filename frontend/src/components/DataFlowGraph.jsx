@@ -12,7 +12,7 @@ export default function DataFlowGraph(props) {
   const {
     graphData, level, layoutMode, onOpenL2,
     onToggleFilter, l2Filtered, onEdgeClick, onToggleLayout, selectedEdgeId,
-    onCanvasTap, showStructureEdges, onToggleStructureEdges
+    onCanvasTap
   } = props;
 
   const containerRef = useRef(null);
@@ -27,7 +27,6 @@ export default function DataFlowGraph(props) {
     level: level || 'L1',
     layoutMode: layoutMode || 'snake',
     showRoleBadges: true,
-    showStructureEdges,
     onEdgeTap: (e) => {
       // R25/§8.8: the per-edge payload (highlight_line / flow_kind /
       // reason) is the single source of truth — pass the full edge data
@@ -144,23 +143,10 @@ export default function DataFlowGraph(props) {
             {l2Filtered ? 'Show All' : 'Show Relevant'}
           </button>
         )}
-        {/* R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow.
-            Display toggle (client-side only) — default OFF = hidden. The
-            edge count on the button reflects what is hidden/shown. */}
-        {level === 'L2' && (
-          <button className={`btn btn-sm ${showStructureEdges ? 'btn-active' : 'btn-outline'}`}
-            onClick={onToggleStructureEdges}
-            title={showStructureEdges
-              ? 'Structure edges visible — click to hide (SCHEMA containment is not data flow)'
-              : 'Structure edges hidden — click to show (SCHEMA containment is not data flow)'}>
-            Structure {showStructureEdges ? 'on' : 'off'}
-            {structureEdgeCount > 0 ? ` (${structureEdgeCount})` : ''}
-          </button>
-        )}
       </div>
       <DataFlowLegend
         level={level === 'L2' ? 'L2' : 'L1'}
-        structureEdgesHidden={level === 'L2' && !showStructureEdges}
+        structureEdgesHidden={level === 'L2'}
         structureEdgeCount={structureEdgeCount}
       />
       <div className="graph-extra-controls">

@@ -29,10 +29,6 @@ export default function DataFlowApp() {
   const [activeViewId, setActiveViewId] = useState(null);
   const parentViewIdRef = useRef(null);
   const [graphLevel, setGraphLevel] = useState('L1');
-  // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — the
-  // L2 graph hides them by default (toggle default OFF). Client-side
-  // display preference only: the payload is untouched, nothing re-fetches.
-  const [showStructureEdges, setShowStructureEdges] = useState(false);
   const [layoutMode, setLayoutMode] = useState('snake'); // 'snake' or 'pipeline'
   // R29: query direction — 'upstream' (writing flow, default) or 'downstream' (reading flow)
   const [direction, setDirection] = useState('upstream');
@@ -425,14 +421,13 @@ export default function DataFlowApp() {
   const sqlHighlightLine = (selectedEdge && Number.isInteger(selectedEdge.highlight_line)
     && selectedEdge.highlight_line >= 1) ? selectedEdge.highlight_line : null;
 
-  // R19.4/R19.6a: the Show All edge count reflects the structure toggle —
-  // hidden SCHEMA edges are subtracted so the badge never claims edges
+  // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow and are
+  // always hidden — subtract them so the Show All badge never claims edges
   // that aren't rendered (counts come from the SAME response graph that
   // is displayed — filtered vs full — so the arithmetic is exact).
   const currentL2Graph = l2Filtered ? l2Graph : (l2FullGraph ? l2FullGraph.graph : null);
   const structureEdgeCount = useMemo(() => countStructureEdges(currentL2Graph), [currentL2Graph]);
-  const visibleEdgeCount = Math.max(0,
-    (l2Result?.total_edges || 0) - (showStructureEdges ? 0 : structureEdgeCount));
+  const visibleEdgeCount = Math.max(0, (l2Result?.total_edges || 0) - structureEdgeCount);
 
   // ── Clear edge selection ────────────────────────────────────────────
   // ── Delete view ───────────────────────────────────────────────────
@@ -703,8 +698,6 @@ export default function DataFlowApp() {
               onEdgeClick={handleEdgeClick}
               onCanvasTap={clearEdgeSelection}
               selectedEdgeId={selectedEdge?.id}
-              showStructureEdges={showStructureEdges}
-              onToggleStructureEdges={() => setShowStructureEdges(v => !v)}
             />
           </div>
           {/* Resize handle: L2 graph | SQL panel */}

@@ -27,9 +27,9 @@ import { decorateLabelWithLine } from '../utils/labelDecoration';
 
 const TABLE_SEL = TABLE_SELECTOR;
 
-// R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — hidden
-// by default behind a client-side display toggle. The selector matches
-// edge_type (canonical) and tolerates the legacy relationship key.
+// R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — always
+// hidden (the display toggle was removed as seldom-used). The selector
+// matches edge_type (canonical) and tolerates the legacy relationship key.
 const SCHEMA_EDGE_SELECTOR = '[edge_type="SCHEMA"], [relationship="SCHEMA"]';
 
 /**
@@ -68,9 +68,6 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
   const fieldRelRef = useRef(null);
 
   const { level, layoutMode } = options;
-  // R19.4: default OFF — SCHEMA structure/containment edges are hidden
-  // unless the caller explicitly passes showStructureEdges: true.
-  const showStructureEdges = options.showStructureEdges === true;
 
   useEffect(() => {
     if (!containerRef.current || !graphData) return;
@@ -151,13 +148,11 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     });
 
     // ── R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow ──
-    // Hidden by default via a style class — client-side visibility only:
-    // the edges STAY in the graph model (the payload is untouched and
-    // nothing re-fetches); edge taps on hidden edges never fire, so the
-    // SQL highlight-on-edge-click keeps working for visible edges.
-    if (optsRef.current.showStructureEdges !== true) {
-      cy.edges(SCHEMA_EDGE_SELECTOR).addClass('structure-hidden');
-    }
+    // Always hidden via a style class — client-side visibility only: the
+    // edges STAY in the graph model (the payload is untouched and nothing
+    // re-fetches); edge taps on hidden edges never fire, so the SQL
+    // highlight-on-edge-click keeps working for visible edges.
+    cy.edges(SCHEMA_EDGE_SELECTOR).addClass('structure-hidden');
 
     // ── R27: "@L{line}" after L2 node names (display-only projection) ──
     // Append `@L{line_start}` to the RENDERED label of every L2 node
@@ -238,15 +233,6 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
       }
     };
   }, [graphData, containerRef]);
-
-  // R19.4/R19.6a: live structure-edge toggle — an option change without
-  // a graphData change flips the hidden class on the existing instance
-  // (a fresh graph already got the class at creation time above).
-  useEffect(() => {
-    const cy = cyRef.current;
-    if (!cy || cy.destroyed()) return;
-    cy.edges(SCHEMA_EDGE_SELECTOR).toggleClass('structure-hidden', !showStructureEdges);
-  }, [showStructureEdges]);
 
   const fit = useCallback((p = undefined) => {
     if (cyRef.current && !cyRef.current.destroyed()) {
