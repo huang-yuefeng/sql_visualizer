@@ -1594,3 +1594,65 @@ carries a field of the queried field's flow.
 - Click a mid-chain edge: amber cone upstream, cyan cone downstream, gold pivot,
   non-cone dimmed; click a structure edge: no cone; click empty space: cleared.
 - Correct in both query directions (downstream/upstream views).
+
+# v3.3.157 — L2 table node style redesign: display names + solid color-only palette (frontend, display-only)
+
+> **Date:** 2026-08-13 | **Version:** 3.3.157 (released) | **Status:** IMPLEMENTED —
+> merged; build + tests green; v3.3.157 deployed
+
+## 1. The change (display-only)
+
+Frontend-only rendering change for the 5 L2 table-compound node types (Algorithm 3,
+step 3c). The backend classification is **unchanged** — the `type` strings
+`source_table` / `output_table` / `cte_table` / `intermediate_table` /
+`alias_table` are untouched, so there is no cache, benchmark, or snapshot impact;
+L1 untouched.
+
+1. **Display names** — `L2_TABLE_TYPE_NAMES` in `frontend/src/utils/graphStyles.js`:
+   `source_table`→"Source table", `output_table`→"Target table",
+   `cte_table`→"With table", `intermediate_table`→"Anonymous table",
+   `alias_table`→"Alias table".
+2. **Solid rectangles** — all 5 L2 table compounds render solid (dashed borders
+   removed); differentiation is by **color only**.
+3. **Palette** single-sourced as `L2_TABLE_COLORS`:
+
+   | Type | Display name | Fill | Border |
+   |------|--------------|------|--------|
+   | `source_table` | Source table | blue `#4A90D9` | `#5DADE2` |
+   | `output_table` | Target table | green `#2ECC71` | `#58D68D` |
+   | `cte_table` | With table | purple `#9B59B6` | `#AF7AC5` |
+   | `intermediate_table` | Anonymous table | gray `#5a5a7a` | `#7a7a9a` |
+   | `alias_table` | Alias table | cyan `#17A2B8` | `#3BB9C9` |
+
+   Notes: **With table** border changed from green to purple (`#AF7AC5`) so it no
+   longer collides with Target; **Alias table** changed from orange to cyan
+   (`#3BB9C9`) so it no longer reads as the searched-field gold `#FFD700`.
+4. **Legend regrouped by level** (`DataFlowLegend.jsx`) — "L2 Node Types" (the 5
+   types + display names + their colors), "L2 Node Roles" (Source / Target /
+   Waypoint, unchanged), "Field Marker" (the searched field, gold, field-level).
+
+## 2. Why the legend changed
+
+The v3.3.156 legend entry (R28) called the gold/yellow nodes "Searched field", but
+those nodes are **alias tables** (orange before this change). The searched-field
+gold `#FFD700` is a **field-level marker** only (the `is_target` seed-copy
+highlight, R28). The redesign separates node types / node roles / field marker
+into distinct groups so no level is presented as a peer of another.
+
+## 3. Files
+
+- `frontend/src/utils/graphStyles.js` — `L2_TABLE_TYPE_NAMES` + `L2_TABLE_COLORS`
+  (single source of truth for both maps).
+- `frontend/src/components/DataFlowLegend.jsx` — legend regrouped by level.
+- No backend / extractor / cache / benchmark / snapshot changes.
+
+## 4. Verification
+
+- Visual check on the flagship sample: 5 distinct solid table compounds,
+  color-only differentiation, legend grouped by level.
+- Jaccard gate neutral — display-only; node `type` strings and payload unchanged.
+- Integration (2026-08-13): L2 node-type probe on the flagship sample confirms L2
+  emits only the 5 compound types + `field` (the legacy `L2_DETAIL_STYLES`
+  `virtual_table`/`subquery_output`/etc. rules are dead in L2 output — no
+  collision with the new Target green); full frontend suite 138/138 pass;
+  `npm run build` clean.

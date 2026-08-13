@@ -123,6 +123,12 @@ explained the color.
 
 **Status: implemented 2026-08-13 (v3.3.156).**
 
+**Note (2026-08-13, v3.3.157) — SUPERSEDED by the L2 table node style redesign**
+(see the "L2 table node style redesign: display names + solid color-only palette"
+amendment below). The gold/yellow nodes this entry described are **alias tables**,
+not the searched field; the redesigned legend separates the 5 node types from the
+field marker (gold, field-level), so no "Searched field" node-level entry remains.
+
 §4 diagnosed (NOT a build task — a confirmed defect in the current output). When the
 searched field is a **JOIN KEY** (its value is consumed by the join and never becomes an
 output column), the L2 graph splits into **two disconnected components**:
@@ -169,3 +175,47 @@ field's **row-selection effect** as an explicit, *named* edge instead of orphane
   between the admitted continuation nodes instead of leaving them unconnected.
 
 **Status: NOT yet implemented** (recorded only, per "do not start build source code").
+
+---
+
+### Amendment (2026-08-13) — L2 table node style redesign: display names + solid color-only palette
+
+§4 amended (display only): the 5 L2 table-node types get clear display names and a
+new solid color-only palette. Backend `type` strings are unchanged (`source_table` /
+`output_table` / `cte_table` / `intermediate_table` / `alias_table`) — no cache,
+benchmark, or snapshot impact; L1 untouched.
+
+1. **Display names** — a frontend-only map `L2_TABLE_TYPE_NAMES` in
+   `frontend/src/utils/graphStyles.js` gives each type a readable label:
+   - `source_table` → **Source table**
+   - `output_table` → **Target table**
+   - `cte_table` → **With table**
+   - `intermediate_table` → **Anonymous table**
+   - `alias_table` → **Alias table**
+2. **Solid rectangles** — all 5 L2 table compounds render as SOLID rectangles
+   (dashed borders removed). Differentiation is by **color only**.
+3. **New palette** (single-sourced as `L2_TABLE_COLORS` in `graphStyles.js`):
+   - **Source table** — blue `#4A90D9` (border `#5DADE2`)
+   - **Target table** — green `#2ECC71` (border `#58D68D`)
+   - **With table** — purple `#9B59B6` (border `#AF7AC5`; changed from green, so
+     it no longer collides with Target)
+   - **Anonymous table** — gray `#5a5a7a` (border `#7a7a9a`)
+   - **Alias table** — cyan `#17A2B8` (border `#3BB9C9`; changed from orange, so
+     it no longer reads as the searched-field gold `#FFD700`)
+4. **Legend regrouped by level** (`DataFlowLegend.jsx`): three groups —
+   **"L2 Node Types"** (the 5 types + display names + their colors),
+   **"L2 Node Roles"** (Source / Target / Waypoint, unchanged), and **"Field
+   Marker"** (the searched field, gold, field-level). This fixes the v3.3.156
+   mislabel: that legend entry called the gold/yellow nodes "Searched field", but
+   those nodes are **alias tables** (orange); the searched-field gold is a
+   field-level marker only. Grouping types/roles/field-marker separately ensures
+   no level is presented as a peer of another.
+
+**Status: implemented 2026-08-13 (v3.3.157).** Code: `L2_TABLE_TYPE_NAMES` +
+`L2_TABLE_COLORS` in `frontend/src/utils/graphStyles.js` (solid palette, all 5
+compound rules), `DataFlowLegend.jsx` legend regrouped into L2 Node Types / L2
+Node Roles / Field Marker, `DataFlowLegend.test.jsx` covers the 5 type labels +
+swatch colors + solid borders (138 frontend tests pass). The stale green/dashed
+`cte_table` override was also removed from `L2_DETAIL_STYLES` so the purple/solid
+With-table actually renders in L2. Display-only — backend type strings, caches,
+snapshots, and the Jaccard benchmark are unchanged.
