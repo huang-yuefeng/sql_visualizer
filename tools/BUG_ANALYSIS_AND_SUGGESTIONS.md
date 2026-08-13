@@ -4805,13 +4805,15 @@ round, not an issue-3 defect; the read leg itself renders.
 
 **Fix:** pass `matching_scripts` through; persist `script_ids`/`script_count` while keeping the `match_mode="no_flow"` banner + empty directional graph.
 
-## CR4 · Field-search L1 drops `lineage_field_pairs` + field nodes (breaking schema, no version bump) (Medium)
+## CR4 · Field-search L1 drops `lineage_field_pairs` + field nodes (Medium — RESOLVED 2026-08-13, option a)
 
-> **Priority:** P2 | **Status:** Open | **Type:** Data contract
+> **Priority:** P2 | **Status:** Resolved | **Type:** Data contract
 
 **Symptom:** pre-R29 field queries returned the table-level L1 incl. field children + `lineage_field_pairs`; the directional projection returns neither; `flow_empty`/`no_flow` are new states. Breaking response-shape change with no `format_version`/schema marker. (Note: "no field nodes in L1" is intended R29 design — the *unversioned shape change* is the concern.)
 
-**Fix:** keep `"lineage_field_pairs": []` present (+ optionally a schema marker); document the `no_flow` match mode; confirm all shipped clients consume the new shape.
+**Ruling (2026-08-13):** option (a) — acceptable breaking change. No consumer in the repo needs the old content: `lineage_field_pairs` is referenced only by the backend's table-only R18 path (`l1_builder.py:1024` → `dataflow_service.py:300`) and by tests that pin the superseded shape; the frontend never reads it. Field-node styling (`graphStyles.js`/`layout.js` `type="field"`) applies to the L2 graph (which still has fields), not L1. A format change is a consumer request, not something the backend preserves.
+
+**Resolved action (doc-only):** the directional L1 shape is already documented (formal definition + solution design "delete the lineage_field_pairs path and L1 field-node machinery"); no backward-compat key is added.
 
 ## CR5 · L1 defaults unmatched tables to `source_table` (Medium)
 
