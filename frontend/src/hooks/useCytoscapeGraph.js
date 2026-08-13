@@ -19,7 +19,8 @@ import fcose from 'cytoscape-fcose';
 cytoscape.use(fcose);
 import { NODE_STYLES, COMPOUND_STYLES, L1_PIPELINE_EDGE_STYLES, TURN_EDGE_STYLES,
   BUNDLED_EDGE_STYLES, CATEGORY_EDGE_STYLES, SCRIPT_CARD_STYLES,
-  OPERATION_NODE_STYLES, L2_DETAIL_STYLES, L2_NODE_ROLE_STYLES } from '../utils/graphStyles';
+  OPERATION_NODE_STYLES, L2_DETAIL_STYLES, L2_NODE_ROLE_STYLES,
+  L2_UNIFORM_EDGE_STYLES, L2_EDGE_CLASSES } from '../utils/graphStyles';
 import { stripFieldParents, computeFieldRelPos, positionTableFields } from '../utils/layoutCore';
 import { TABLE_SELECTOR } from '../config/layout';
 import { runSnakeLayout } from '../utils/snakeLayout';
@@ -105,7 +106,13 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
          ...CATEGORY_EDGE_STYLES, ...OPERATION_NODE_STYLES, ...L2_DETAIL_STYLES,
          // R28: source/target/waypoint role styles LAST — they must win
          // the specificity tie against the compound-type styles below.
-         ...L2_NODE_ROLE_STYLES]
+         ...L2_NODE_ROLE_STYLES,
+         // R30/#224-#225: L2 uniform edge style + mid-point arrow + flow
+         // cone. MUST be last — wins the specificity tie against the
+         // per-type `edge[color]` / `edge[category=...]` / `edge[flow_kind]`
+         // rules so every L2 edge renders identically (the cone classes
+         // then override the uniform base on focus).
+         ...L2_UNIFORM_EDGE_STYLES]
       : [...SCRIPT_CARD_STYLES];
     const edgeStyles = [...L1_PIPELINE_EDGE_STYLES, ...baseEdgeStyles];
 
@@ -153,6 +160,15 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     // re-fetches); edge taps on hidden edges never fire, so the SQL
     // highlight-on-edge-click keeps working for visible edges.
     cy.edges(SCHEMA_EDGE_SELECTOR).addClass('structure-hidden');
+
+    // ── R30/#224: L2 uniform edge style — tag every L2 edge ───────────
+    // The `.l2-uniform` rule is appended LAST in the stylesheet above, so
+    // for these edges it wins the specificity tie against the per-type
+    // `edge[color]` / `edge[category=...]` / `edge[flow_kind]` rules —
+    // every L2 edge renders ONE uniform line (single color/width/style,
+    // no text label, mid-point arrow). L1 edges never carry the class, so
+    // L1 rendering is unchanged.
+    if (isL2) cy.edges().addClass(L2_EDGE_CLASSES.uniform);
 
     // ── R27: "@L{line}" after L2 node names (display-only projection) ──
     // Append `@L{line_start}` to the RENDERED label of every L2 node

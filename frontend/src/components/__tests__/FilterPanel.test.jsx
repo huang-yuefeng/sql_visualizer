@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import FilterPanel from '../FilterPanel';
 import { uploadFilterConfig } from '../../api/client';
 
@@ -35,10 +35,7 @@ describe('FilterPanel — F4/R2 warning banner', () => {
     });
     mountPanel();
 
-    // Expand the filter panel so the file inputs exist
-    fireEvent.click(screen.getByText('Narrow Index (optional)'));
-
-    // Attach a CSV to the Script→Table input, then apply the filter
+    // The upload inputs are always visible — no Narrow Index dropdown to expand
     const fileInputs = screen.getAllByLabelText(/SCRIPT_NAME, TABLE_NAME/i);
     fireEvent.change(fileInputs[0], {
       target: { files: [new File(['s,orders\n'], 'st.csv')] },
@@ -67,8 +64,6 @@ describe('FilterPanel — F4/R2 warning banner', () => {
     });
     mountPanel();
 
-    fireEvent.click(screen.getByText('Narrow Index (optional)'));
-
     const fileInputs = screen.getAllByLabelText(/SCRIPT_NAME, TABLE_NAME/i);
     fireEvent.change(fileInputs[0], {
       target: { files: [new File(['s,orders\n'], 'st.csv')] },
@@ -90,18 +85,53 @@ describe('FilterPanel — F4/R2 warning banner', () => {
     });
     mountPanel();
 
-    // Expand the filter panel so the file inputs exist
-    fireEvent.click(screen.getByText('Narrow Index (optional)'));
-
     const fileInputs = screen.getAllByLabelText(/SCRIPT_NAME, TABLE_NAME/i);
     fireEvent.change(fileInputs[0], {
       target: { files: [new File(['s,orders\n'], 'st.csv')] },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Apply Filter' }));
 
-    // banner header reflects the active filter once the upload resolves
-    expect(await screen.findByText('Index Filter ACTIVE — 12 tables, 80 fields')).toBeInTheDocument();
+    // filter-area status reflects the active filter once the upload resolves
+    expect(await screen.findByText('ACTIVE — 12 tables, 80 fields')).toBeInTheDocument();
     expect(screen.queryByText(/⚠️/)).not.toBeInTheDocument();
     expect(screen.queryByText(/ignored:/)).not.toBeInTheDocument();
+  });
+});
+
+describe('FilterPanel — two-area layout + direction', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  it('renders distinct Filter and Search areas with upload inputs visible by default', () => {
+    mountPanel();
+    const filterArea = screen.getByTestId('filter-area');
+    const searchArea = screen.getByTestId('search-area');
+    expect(filterArea).toBeInTheDocument();
+    expect(searchArea).toBeInTheDocument();
+    expect(filterArea.querySelector('.area-title')).toHaveTextContent('Filter');
+    expect(searchArea.querySelector('.area-title')).toHaveTextContent('Search');
+    // upload inputs are visible without expanding anything (no Narrow Index banner)
+    expect(screen.getAllByLabelText(/SCRIPT_NAME, TABLE_NAME/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText(/SYSTEM, TABLE_NAME, COL_NAME, COL_COMMENT/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Narrow Index (optional)')).not.toBeInTheDocument();
+  });
+
+  it('renders the direction toggle with Upstream selected by default', () => {
+    mountPanel();
+    const upstream = screen.getByRole('button', { name: /Upstream/ });
+    const downstream = screen.getByRole('button', { name: /Downstream/ });
+    expect(upstream).toBeInTheDocument();
+    expect(downstream).toBeInTheDocument();
+    expect(upstream.className).toContain('btn-active');
+    expect(downstream.className).not.toContain('btn-active');
+  });
+
+  it('places the direction toggle inside the Search area', () => {
+    mountPanel();
+    const searchArea = screen.getByTestId('search-area');
+    expect(within(searchArea).getByRole('button', { name: /Upstream/ })).toBeInTheDocument();
+    expect(within(searchArea).getByRole('button', { name: /Downstream/ })).toBeInTheDocument();
   });
 });

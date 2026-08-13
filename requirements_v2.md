@@ -22,3 +22,135 @@ flow: fields writing the selected field; **default**) / **downstream** (the read
 flow: fields reading it). The first-level graph renders the flow in the chosen
 direction, and the second-level graph follows it automatically (it is the zoom-in of
 the first level).
+
+---
+
+### Amendment (2026-08-13) — filter panel two-area layout; remove L2 Structure toggle
+
+Two UI simplifications: the query panel is split into two areas, and the L2 graph
+toolbar drops a seldom-used toggle.
+
+**§2 amended — filter panel split into two visually distinct areas:**
+- The query panel becomes two areas with **different styles**: a **Filter** area and a
+  **Search** area.
+- **Filter area** (CSV uploads + apply/clear): the Script→Table CSV and Table→Column
+  CSV upload buttons plus Apply Filter / Clear Filter. The collapsible "Narrow Index
+  (optional)" dropdown is REMOVED — the upload buttons are always visible by default.
+- **Search area** (query + direction + search): the Table and Field autocomplete
+  boxes, then the **Direction** toggle (↑ Upstream / ↓ Downstream), then the Search
+  button (with pin). The direction toggle sits UNDER the table/field boxes and BEFORE
+  Search so it cannot be skipped; **upstream** remains the default.
+
+**§4 amended — remove the L2 "Structure off" toggle:**
+- The L2 graph toolbar's "Structure on/off (N)" button is removed (seldom used).
+  SCHEMA structure/containment edges stay permanently hidden (their documented
+  default). The legend note and the "Show All" edge count still reflect the hidden
+  structure edges.
+
+---
+
+### Amendment (2026-08-13) — click-edge flow cone (two-color before/after highlight)
+
+§4 amended: clicking a **value-flow** edge `u → v` in the L2 graph highlights its
+**flow cone** in two colors, anchored to the edge's own `source → target` direction:
+
+- **Before** (amber `#F5A623`) — the value-flow edges **upstream** of `u` (the flow
+  entering the clicked edge: "where the data came from").
+- **After** (cyan `#22D3EE`) — the value-flow edges **downstream** of `v` (the flow
+  the clicked edge feeds: "where the data goes").
+- The clicked edge itself is the **pivot** (gold).
+- Non-cone edges are dimmed (focus mode); structure edges are never part of the cone.
+
+**Status: NOT yet implemented.** The two colors (`#F5A623` / `#22D3EE`) and the
+upstream/downstream traversal are not in the source — edge click currently only
+highlights the single clicked edge (gold) and drives the SQL highlight. Full spec:
+`wiki/DATAFLOW_FORMAL_DEFINITION.md` §"Click-edge flow cone" (R30).
+
+---
+
+### Amendment (2026-08-13) — virtual-table display label: "output(X)"
+
+§4 amended (display clarity): a subquery-output **virtual-table** node (internal
+name `⟐ X`) currently strips the `⟐` marker at render and displays as the bare
+alias `X` — indistinguishable from the derived-table alias `X` of the same name
+(e.g. `⟐ t` renders as `t@L62` beside the alias `t@L75`, the `t@62` confusion).
+
+- Rename the **display** label to `output(X)` (e.g. `output(t)@L62`) so it reads
+  as "the output of the subquery X", clearly distinct from the alias `X`.
+- Top-level `⟐ output` keeps the name `output` (no collision — "output" is never
+  a user alias; a `(output)` suffix there would be redundant).
+- The internal `table_name` stays `⟐ X` — field-parent matching and edge routing
+  rely on it and are unchanged.
+- Display-only change (the B5 label sanitization in `l2_builder.py`); no extractor
+  or benchmark impact.
+
+**Status: NOT yet implemented** (recorded only, per "do not start build source code").
+
+---
+
+### Amendment (2026-08-13) — L2 edge styling: uniform style + mid-point arrow
+
+§4 amended (display): simplify L2 edge rendering.
+
+1. **Uniform edge style.** Remove the per-edge-type color AND the edge text label;
+   every edge uses ONE uniform line style (single color, single width, single line
+   style). This supersedes R30's "edge color = edge type for value flow; structure
+   edges gray" (wiki §144, §156-159) — now all edges look alike.
+2. **Mid-point arrow.** Move the direction arrow from the target **end** of the edge
+   to the **middle** of the edge (native `mid-target-arrow-shape`), oriented
+   `source → target`. This is R30's "mid-point direction arrows" (wiki §145,
+   §165-170) — currently NOT implemented (the code still uses
+   `target-arrow-shape: triangle`, an end arrow, in `graphStyles.js`).
+
+**Status: NOT yet implemented** (recorded only, per "do not start build source code").
+
+---
+
+### Amendment (2026-08-13) — DIAGNOSED DEFECT: L2 renders disconnected "continuation" tables
+
+§4 diagnosed (NOT a build task — a confirmed defect in the current output). When the
+searched field is a **JOIN KEY** (its value is consumed by the join and never becomes an
+output column), the L2 graph splits into **two disconnected components**:
+
+- **Value-flow component** — source table → alias → searched field → JOIN → subquery VT
+  (`⟐ t`), where the field's value correctly terminates.
+- **Continuation-target component** — the R29 row-level continuation's far tables
+  (`temp_kmbh_gl/ie` CTEs → `⟐ output` → `bdm_acc_loan_info` / `rrcdm_job_log_exec_par`),
+  connected to each other but with **no edge** bridging to the searched field's source.
+
+Repro: `ODS_HUB_SSALSFP.ALACB` in `BDM_ACC_LOAN_INFO_Digitallending.sql` (downstream)
+yields 2 components; no path from `ODS_HUB_SSALSFP` to `bdm_acc_loan_info` /
+`rrcdm_job_log_exec_par`.
+
+**Root cause.** The R29 row-level continuation (wiki §718–724: "the chain continues while
+a later statement uses a field written in the effect") admits the continuation **targets
+as nodes** (`_cont_cols` / `_effect_cols` / `_sel_stmts` in `compute_field_flow`), but
+does NOT admit any **edge** connecting them to the source — the bridge `⟐ t → temp_kmbh_gl`
+carries *other* fields' values (`lending_ref` ← `p1.acnw`, `MXKMBH` ← `SSALSFP.ALCBAL`),
+never the join key's. L1 hides this (the script node bridges via `reads_from`/`writes_to`);
+L2 renders only field-value edges, so the gap is exposed. This violates the documented
+"L2 is the zoom-in of L1 showing the same flow" and "chain continues" contract.
+
+**Decision (2026-08-13, user): option (b) — add a dedicated row-level edge type.**
+
+Add a 17th edge type **`ROW_FLOW`** ("row-level flow") so the L2 graph shows the searched
+field's **row-selection effect** as an explicit, *named* edge instead of orphaned islands.
+
+- **Name**: `ROW_FLOW` — the user sees "row-level flow" in the tooltip / legend / edge
+  reason, so it reads as a different kind of flow from value flow.
+- **Semantics**: propagates the searched field's **row-selection** (its WHERE/JOIN usage)
+  into the downstream statement's rows, where the field's **value** does NOT flow. Distinct
+  from `TABLE_FLOW` (table-to-table *value* flow) and from the value-copy types
+  (REF/TRANSFORM/…). The searched field selects *which rows* flow, not *what value* flows.
+- **Bridge**: in the ALACB repro the missing edge is `⟐ t → temp_kmbh_gl` (and `⟐ t →
+  temp_kmbh_ie`) — the subquery's rows feeding the CTE. These become `ROW_FLOW` edges,
+  connecting the value-flow component (source → JOIN → `⟐ t`) to the continuation-target
+  component (`temp_kmbh_*` → `⟐ output` → `bdm_acc_loan_info` → `rrcdm_job_log_exec_par`),
+  eliminating the disconnected islands.
+- **Styling**: flow-class edge (arrow + highlightable); per the uniform-style requirement
+  (above) it shares the single line style — its *type name* is what tells the user it is
+  row-level flow, not a color.
+- **Walker**: `compute_field_flow`'s R29 continuation rounds now emit the `ROW_FLOW` edges
+  between the admitted continuation nodes instead of leaving them unconnected.
+
+**Status: NOT yet implemented** (recorded only, per "do not start build source code").

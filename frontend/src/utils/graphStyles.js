@@ -969,3 +969,89 @@ export const L2_NODE_ROLE_STYLES = [
     },
   },
 ];
+
+// ══════════════════════════════════════════════════════════════════
+// R30/#224-#225: L2 uniform edge style + mid-point arrow
+// (2026-08-13) — every L2 edge renders ONE uniform line (single color,
+// single width, single line-style, NO edge text label) with a
+// MID-POINT direction arrow (native `mid-target-arrow-shape`, oriented
+// source → target). Supersedes the per-type colors and the R25
+// flow_kind mid-edge labels for L2. L1 is untouched: the uniform class
+// is added to every L2 edge in useCytoscapeGraph; L1 edges never carry
+// it. MUST be appended LAST in the assembled sheet so it wins the
+// specificity tie against `edge[color]` / `edge[category=...]` /
+// `edge[flow_kind]` (element+attribute == element+class in cytoscape;
+// the later rule wins).
+// ══════════════════════════════════════════════════════════════════
+
+// Class-name constants — single source of truth shared by the
+// stylesheet selectors (here) and the class application (DataFlowGraph).
+export const L2_EDGE_CLASSES = {
+  uniform: 'l2-uniform',
+  coneBefore: 'flow-cone-before',   // amber #F5A623 — upstream of the pivot
+  coneAfter: 'flow-cone-after',     // cyan   #22D3EE — downstream of the pivot
+  conePivot: 'flow-cone-pivot',     // gold — the clicked edge itself
+  coneDimmed: 'flow-cone-dimmed',   // focus mode — everything outside the cone
+};
+
+export const L2_UNIFORM_EDGE_COLOR = '#7F8C8D';
+
+export const L2_FLOW_CONE_COLORS = {
+  before: '#F5A623',
+  after: '#22D3EE',
+  pivot: '#FFD700',
+};
+
+export const L2_UNIFORM_EDGE_STYLES = [
+  // Uniform base — every L2 edge (the `.l2-uniform` class is applied in
+  // useCytoscapeGraph). Keeps `curve-style` from the per-type rules
+  // (ALIAS unbundled-bezier) — "uniform" is about color/width/line-style,
+  // not curve shape.
+  {
+    selector: `edge.${L2_EDGE_CLASSES.uniform}`,
+    style: {
+      'width': 2,
+      'line-color': L2_UNIFORM_EDGE_COLOR,
+      'line-style': 'solid',
+      // Mid-point direction arrow, oriented source → target (R30):
+      // the target-END arrow is removed, the MID arrow shows direction.
+      'target-arrow-shape': 'none',
+      'mid-target-arrow-shape': 'triangle',
+      'mid-target-arrow-color': L2_UNIFORM_EDGE_COLOR,
+      'arrow-scale': 0.8,
+      // NO edge text label (supersedes R25 flow_kind mid-edge labels).
+      'label': '',
+    },
+  },
+  // ── Click-edge flow cone (R30/#222) — transient focus state ──────
+  // These rules must sit AFTER the uniform rule (equal specificity, the
+  // later rule wins) so the cone colors override the uniform base.
+  {
+    selector: `edge.${L2_EDGE_CLASSES.coneBefore}`,
+    style: {
+      'line-color': L2_FLOW_CONE_COLORS.before,
+      'mid-target-arrow-color': L2_FLOW_CONE_COLORS.before,
+    },
+  },
+  {
+    selector: `edge.${L2_EDGE_CLASSES.coneAfter}`,
+    style: {
+      'line-color': L2_FLOW_CONE_COLORS.after,
+      'mid-target-arrow-color': L2_FLOW_CONE_COLORS.after,
+    },
+  },
+  {
+    selector: `edge.${L2_EDGE_CLASSES.conePivot}`,
+    style: {
+      'width': 4,
+      'line-color': L2_FLOW_CONE_COLORS.pivot,
+      'mid-target-arrow-color': L2_FLOW_CONE_COLORS.pivot,
+    },
+  },
+  {
+    selector: `edge.${L2_EDGE_CLASSES.coneDimmed}`,
+    style: {
+      'opacity': 0.15,
+    },
+  },
+];
