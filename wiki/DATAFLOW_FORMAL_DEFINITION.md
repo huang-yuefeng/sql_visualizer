@@ -89,6 +89,7 @@ An edge e = (source, target, type) represents a data flow relationship:
 | **DML** | source → target_table | INSERT/UPDATE/DELETE/MERGE target |
 | **SET_OP** | branch_L + branch_R → union_result | UNION/INTERSECT/EXCEPT combining branches |
 | **SUBSET** | disconnected_component → bridge | Connects otherwise disconnected subgraphs |
+| **ROW_FLOW** | rowset_A → rowset_B | Row-level flow: the searched field's row-selection (WHERE/JOIN) selects rows that flow into the downstream statement's output, without the field's value being copied |
 
 ## Data Flow Path
 
@@ -156,6 +157,7 @@ reveals its **flow cone** in two colors — a static highlight, no animation.
 | Class | Edge types | Rendering |
 |-------|-----------|-----------|
 | **Value flow** | `TABLE_FLOW, DML, TRANSFORM, COMPUTED, AGGREGATE, WINDOW, REF, FILTER, JOIN, SET_OP, SUBQUERY, CORRELATED, INDIRECT` | per-type color; **mid-point arrow**; highlightable |
+| **Row-level flow** | `ROW_FLOW` | flow-class (arrow + highlightable); named so the user sees it is row-level, not value, flow |
 | **Structure** | `SCHEMA, ALIAS, SUBSET` | one uniform gray (`#7F8C8D`); no arrow; never highlighted |
 
 `TABLE_FLOW` ("table feeds output") is a **value-flow** edge — not a structure edge.
@@ -385,7 +387,7 @@ This is a **standard case, not an edge case** — it arises for every written-on
 
 ### Edge-Type Rules
 
-Each of the 16 edge types has a specific rule. Direction: **↑** = upstream (backward from Y — "where does Y come from?"), **↓** = downstream (forward from Y — "where does Y go?").
+Each of the 17 edge types has a specific rule. Direction: **↑** = upstream (backward from Y — "where does Y come from?"), **↓** = downstream (forward from Y — "where does Y go?").
 
 ---
 
@@ -630,6 +632,7 @@ Bidirectional. All UNION branches contribute to the combined output.
 | INDIRECT | defined ← ref | defined → ref | No |
 | SUBSET | component ↔ main | component ↔ main | No (always) |
 | SET_OP | branch ← parent | branch → parent | No |
+| ROW_FLOW | rowset ← consumer | rowset → consumer | Yes — row-selection only |
 
 ### Worked Example
 

@@ -134,7 +134,7 @@ Output: graph {nodes, edges, input_tables, output_tables}
       TABLE_FLOW → ALIAS → REF → AGGREGATE → TRANSFORM → WINDOW
       → COMPUTED → SCHEMA → INDIRECT → FILTER → JOIN → DML
 
-    → VariableDependency[] (16 edge types)
+    → VariableDependency[] (17 edge types)
 
 1f. Build graph nodes — ALL name resolution here
     For each column variable ("c.customer_id"):
@@ -454,7 +454,7 @@ SQL Text
   ├── variable_extractor_v2.py   → VariableDefinition[] (15 types)
   │     └── sqlglot parse → AST walk → classify each identifier
   │
-  ├── dependency_graph.py        → VariableDependency[] (16 edge types)
+  ├── dependency_graph.py        → VariableDependency[] (17 edge types)
   │     └── 12-phase ordered edge creation
   │
   └── graph_service.py           → Cytoscape JSON (nodes + edges)
@@ -977,7 +977,7 @@ vars + deps      one entity per            walk/closure   pure projection
 |--------|-----|---------|
 | `PhysicalTable` | physical table name (qualified when present in SQL) | field map; **roles** set (`read`, `write`, `merge_target`, `cte_fed`, …); occurrence ids (original var ids — nothing lost); alias views pointing at it |
 | `PhysicalField` | `table + field` | line info (first/last appearance); value sources (feeding var ids); uses; display label |
-| `PhysicalEdge` | source field → target field | typed (the 16 edge types stay); derived once from the dependency graph |
+| `PhysicalEdge` | source field → target field | typed (the 17 edge types stay); derived once from the dependency graph |
 
 Rules:
 - One `PhysicalTable` per physical name — the merge_target/table split
@@ -1016,7 +1016,10 @@ Rules:
 
 - The 15 `VariableType` members — they remain the occurrence roles that
   feed the model (per-occurrence one-of typing is correct extraction).
-- The 16 edge types and their styles/categories.
+- The 16 edge types and their styles/categories — plus the new `ROW_FLOW`
+  edge type (17th) for row-level (row-selection) flow, added 2026-08-13
+  (see requirements_v2.md: ROW_FLOW bridges the R29 row-level continuation
+  in L2 instead of leaving orphaned output tables).
 - The canonical taxonomy (`models/sql_model.py`), extraction semantics,
   node/edge *display* labels (kept stable through the migration so the
   Jaccard gate and pinned tests stay comparable).
@@ -1341,7 +1344,7 @@ from the backend (`graph_service.py` EDGE_TYPE_STYLE/NODE_STYLES).
 | `--warning` | `#B26A00` | `#E3A008` | warnings |
 | `--danger` | `#DB0011` | `#FF5A66` | destructive (HSBC red family) |
 
-## 5. Edge palette harmonization (graph_service.py, 16 types)
+## 5. Edge palette harmonization (graph_service.py, 17 types)
 
 Keep all hues; retune the red-family + DML to the brand:
 FILTER `#E74C3C` → `#DB0011` (HSBC red — the strongest filter semantic),

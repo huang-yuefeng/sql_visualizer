@@ -529,32 +529,50 @@ body { background: var(--bg-app); color: var(--ink-900); }
   font-weight: normal !important;
 }
 
-/* ── Prominent Index Filter Banner ── */
-.index-filter-banner {
+/* ── Filter / Search two-area layout ── */
+.filter-area {
   border: 1px solid var(--border-strong);
   border-radius: 4px;
   margin-bottom: 10px;
   overflow: hidden;
   background: var(--bg-surface);
 }
-.index-filter-banner.active {
-  border-color: var(--warning);
-  background: var(--bg-surface);
+.filter-area.active { border-color: var(--warning); }
+.filter-area .area-header { background: var(--bg-hover); }
+.filter-area.active .area-title { color: var(--warning); }
+
+.search-area {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+  background: var(--accent-soft);
+  padding: 8px 10px;
+  margin-bottom: 10px;
 }
-.ifb-header {
+.search-area .area-header { padding: 0 0 6px 0; }
+
+.area-header {
   display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px; cursor: pointer;
+  padding: 8px 10px;
   font-size: 0.75rem;
   user-select: none;
 }
-.ifb-header:hover { background: var(--bg-hover); }
-.ifb-icon { font-size: 0.9rem; }
-.ifb-title { flex: 1; color: var(--ink-600); font-weight: 500; }
-.index-filter-banner.active .ifb-title { color: var(--warning); font-weight: 600; }
-.ifb-toggle { color: var(--ink-400); font-size: 0.6rem; }
-.ifb-body { padding: 0 10px 10px 10px; }
-.ifb-hint { font-size: 0.65rem; color: var(--ink-400); margin: 0 0 6px 0; }
-.ifb-actions { display: flex; gap: 6px; margin-top: 6px; }
+.area-icon { font-size: 0.9rem; }
+.area-title {
+  flex: 1; color: var(--ink-600); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+.area-status { color: var(--warning); font-weight: 600; font-size: 0.7rem; }
+
+.filter-area-body { padding: 0 10px 10px 10px; }
+.filter-hint { font-size: 0.65rem; color: var(--ink-400); margin: 0 0 6px 0; }
+.filter-actions { display: flex; gap: 6px; margin-top: 6px; }
+
+.direction-group {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.direction-label { font-size: 0.7rem; color: var(--ink-400); }
 
 /* ── Filter warning banner (F4/R2): ignored tables + human warning ── */
 .filter-warning {

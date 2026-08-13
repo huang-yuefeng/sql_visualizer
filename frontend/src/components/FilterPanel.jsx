@@ -35,7 +35,6 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
   const [filterIgnored, setFilterIgnored] = useState([]);     // F4/R2: payload.ignored_tables
   const [filterIgnoredRows, setFilterIgnoredRows] = useState(null); // D2: payload.ignored_rows
   const [uploadingFilter, setUploadingFilter] = useState(false);
-  const [filterExpanded, setFilterExpanded] = useState(false);
   const [searchHistory, setSearchHistory] = useState(loadHistory);
   const [pinnedSearches, setPinnedSearches] = useState(loadPins);
   const [showHistory, setShowHistory] = useState(false);
@@ -173,18 +172,16 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
     <div className="filter-panel">
       <h3>Search Data Flow</h3>
 
-      {/* ── Prominent Index Filter Banner ── */}
-      <div className={`index-filter-banner ${filterActive ? 'active' : ''}`}>
-        <div className="ifb-header" onClick={() => setFilterExpanded(!filterExpanded)}>
-          <span className="ifb-icon">{filterActive ? '🔍' : '📋'}</span>
-          <span className="ifb-title">
-            {filterActive 
-              ? `Index Filter ACTIVE — ${filterStats || ''}` 
-              : 'Narrow Index (optional)'}
-          </span>
-          <span className="ifb-toggle">{filterExpanded ? '▲' : '▼'}</span>
+      {/* ── FILTER area — upload CSVs to narrow the autocomplete index ── */}
+      <section className={`filter-area ${filterActive ? 'active' : ''}`} data-testid="filter-area">
+        <div className="area-header">
+          <span className="area-icon">📋</span>
+          <span className="area-title">Filter</span>
+          {filterActive && filterStats && (
+            <span className="area-status">ACTIVE — {filterStats}</span>
+          )}
         </div>
-        {/* F4/R2 + D2: warn when the filter dropped rows/tables (visible even when collapsed) */}
+        {/* F4/R2 + D2: warn when the filter dropped rows/tables */}
         {(filterWarning || filterIgnoredRows > 0) && (
           <div className="filter-warning">
             <span className="fw-icon">⚠️</span>
@@ -203,35 +200,40 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
             </div>
           </div>
         )}
-        {filterExpanded && (
-          <div className="ifb-body">
-            <p className="ifb-hint">
-              Upload CSVs to limit which tables/fields appear in autocomplete.
-              If your project has hundreds of tables, this makes search much faster.
-            </p>
-            <label className="filter-file-label">
-              Script→Table CSV (SCRIPT_NAME, TABLE_NAME)
-              <input type="file" accept=".csv,.txt" ref={stRef} />
-            </label>
-            <label className="filter-file-label">
-              Table→Column CSV (SYSTEM, TABLE_NAME, COL_NAME, COL_COMMENT)
-              <input type="file" accept=".csv,.txt" ref={tcRef} />
-            </label>
-            <div className="ifb-actions">
-              <button className="btn btn-primary btn-sm" onClick={handleUploadFilter}
-                disabled={uploadingFilter}>
-                {uploadingFilter ? 'Applying...' : 'Apply Filter'}
+        <div className="filter-area-body">
+          <p className="filter-hint">
+            Upload CSVs to limit which tables/fields appear in autocomplete.
+            If your project has hundreds of tables, this makes search much faster.
+          </p>
+          <label className="filter-file-label">
+            Script→Table CSV (SCRIPT_NAME, TABLE_NAME)
+            <input type="file" accept=".csv,.txt" ref={stRef} />
+          </label>
+          <label className="filter-file-label">
+            Table→Column CSV (SYSTEM, TABLE_NAME, COL_NAME, COL_COMMENT)
+            <input type="file" accept=".csv,.txt" ref={tcRef} />
+          </label>
+          <div className="filter-actions">
+            <button className="btn btn-primary btn-sm" onClick={handleUploadFilter}
+              disabled={uploadingFilter}>
+              {uploadingFilter ? 'Applying...' : 'Apply Filter'}
+            </button>
+            {filterActive && (
+              <button className="btn btn-outline btn-sm" onClick={handleClearFilter}>
+                Clear Filter
               </button>
-              {filterActive && (
-                <button className="btn btn-outline btn-sm" onClick={handleClearFilter}>
-                  Clear Filter
-                </button>
-              )}
-            </div>
-            {filterStats && <div className="filter-stats">{filterStats}</div>}
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      </section>
+
+      {/* ── SEARCH area — table/field + direction + search ── */}
+      <section className="search-area" data-testid="search-area">
+        <div className="area-header">
+          <span className="area-icon">🔍</span>
+          <span className="area-title">Search</span>
+        </div>
+        <div className="search-area-body">
 
       <div className="autocomplete-wrapper">
         <label>Table</label>
@@ -277,30 +279,37 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
         )}
       </div>
 
-      <div className="search-actions">
-        <button className="btn btn-primary" disabled={!canSearch || loading}
-          onClick={() => doSearch(table, field)}>
-          {loading ? 'Searching...' : 'Search'}
-        </button>
-        {table && field && (
-          <button className={`btn btn-sm ${isPinned(table, field) ? 'btn-active' : 'btn-outline'}`}
-            onClick={() => togglePin(table, field)}
-            title={isPinned(table, field) ? 'Unpin this search' : 'Pin this search for quick access'}>
-            {isPinned(table, field) ? '★' : '☆'}
-          </button>
-        )}
-        {/* R29: query direction — upstream (writing flow, default) / downstream (reading flow) */}
-        <button className={`btn btn-sm ${direction === 'upstream' ? 'btn-active' : 'btn-outline'}`}
-          onClick={() => setDirection('upstream')}
-          title="Upstream — show what writes this table.field (writing flow)">
-          ↑ Upstream
-        </button>
-        <button className={`btn btn-sm ${direction === 'downstream' ? 'btn-active' : 'btn-outline'}`}
-          onClick={() => setDirection('downstream')}
-          title="Downstream — show what reads this table.field (reading flow)">
-          ↓ Downstream
-        </button>
-      </div>
+          {/* R29: direction — under table/field and BEFORE Search so it
+              cannot be skipped; upstream (writing flow) is the default. */}
+          <div className="direction-group">
+            <span className="direction-label">Direction</span>
+            <button className={`btn btn-sm ${direction === 'upstream' ? 'btn-active' : 'btn-outline'}`}
+              onClick={() => setDirection('upstream')}
+              title="Upstream — show what writes this table.field (writing flow)">
+              ↑ Upstream
+            </button>
+            <button className={`btn btn-sm ${direction === 'downstream' ? 'btn-active' : 'btn-outline'}`}
+              onClick={() => setDirection('downstream')}
+              title="Downstream — show what reads this table.field (reading flow)">
+              ↓ Downstream
+            </button>
+          </div>
+
+          <div className="search-actions">
+            <button className="btn btn-primary" disabled={!canSearch || loading}
+              onClick={() => doSearch(table, field)}>
+              {loading ? 'Searching...' : 'Search'}
+            </button>
+            {table && field && (
+              <button className={`btn btn-sm ${isPinned(table, field) ? 'btn-active' : 'btn-outline'}`}
+                onClick={() => togglePin(table, field)}
+                title={isPinned(table, field) ? 'Unpin this search' : 'Pin this search for quick access'}>
+                {isPinned(table, field) ? '★' : '☆'}
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* Pinned searches quick access */}
       {pinnedSearches.length > 0 && (

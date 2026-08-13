@@ -3,6 +3,133 @@ import useCytoscapeGraph from '../hooks/useCytoscapeGraph';
 import DataFlowLegend from './DataFlowLegend';
 import { FIT_PADDING } from '../config/layout';
 import { countStructureEdges } from '../utils/structureEdges';
+import { L2_EDGE_CLASSES } from '../utils/graphStyles';
+
+/**
+ * R30/#222 — click-edge flow cone (L2 only).
+ *
+ * Clicking a value-flow edge u → v highlights its flow cone:
+ *   - before (amber)  = the value-flow edges UPSTREAM of u — "where the
+ *     data came from" (BFS backward from u over edges whose target is the
+ *     current node).
+ *   - after  (cyan)   = the value-flow edges DOWNSTREAM of v — "where the
+ *     data goes" (BFS forward from v over edges whose source is the node).
+ *   - pivot  (gold)   = the clicked edge itself.
+ *   - everything else = dimmed (focus mode).
+ *
+ * The cone is VALUE-FLOW only: structure edges (SCHEMA, ALIAS, SUBSET) are
+ * never part of the traversal and never part of the cone. ROW_FLOW (the
+ * new 17th edge type, row-level flow) is flow-class — included; unknown
+ * edge types are treated as flow defensively. The traversal runs on the
+ * current graph data (BFS over edges, respecting edge direction). The cone
+ * is a transient focus state — cleared on canvas click / next edge click;
+ * the existing edge-click → onEdgeClick (SQL highlight) behavior is kept.
+ */
+const STRUCTURE_EDGE_TYPES = new Set(['SCHEMA', 'ALIAS', 'SUBSET']);
+
+export function isValueFlowEdge(edgeData) {
+  if (!edgeData || typeof edgeData !== 'object') return false;
+  const t = edgeData.edge_type || edgeData.relationship;
+  if (!t) return true; // unknown type — treat as flow (defensive)
+  return !STRUCTURE_EDGE_TYPES.has(t);
+}
+
+export function computeFlowCone(graphData, clickedEdgeId) {
+  const result = { pivot: clickedEdgeId, before: [], after: [] };
+  if (!graphData || !Array.isArray(graphData.edges)) return result;
+
+  // Index the graph: edge-by-id + forward/backward adjacency restricted
+  // to value-flow edges (structure edges never carry the cone).
+  const byId = new Map();
+  const outgoing = new Map(); // nodeId -> [edgeId] (edge.source === nodeId)
+  const incoming = new Map(); // nodeId -> [edgeId] (edge.target === nodeId)
+  for (const e of graphData.edges) {
+    const d = e && e.data;
+    if (!d || typeof d.id === 'undefined') continue;
+    byId.set(d.id, e);
+    if (!isValueFlowEdge(d)) continue;
+    if (typeof d.source !== 'undefined') {
+      if (!outgoing.has(d.source)) outgoing.set(d.source, []);
+      outgoing.get(d.source).push(d.id);
+    }
+    if (typeof d.target !== 'undefined') {
+      if (!incoming.has(d.target)) incoming.set(d.target, []);
+      incoming.get(d.target).push(d.id);
+    }
+  }
+
+  const clicked = byId.get(clickedEdgeId);
+  if (!clicked || !clicked.data || !isValueFlowEdge(clicked.data)) return result;
+  const { source: u, target: v } = clicked.data;
+
+  // Upstream — BFS backward from the pivot's source u.
+  if (typeof u !== 'undefined') {
+    const found = new Set();
+    const visited = new Set([u]);
+    const queue = [u];
+    while (queue.length) {
+      const node = queue.shift();
+      for (const eid of incoming.get(node) || []) {
+        found.add(eid);
+        const e = byId.get(eid);
+        const s = e && e.data && e.data.source;
+        if (typeof s !== 'undefined' && !visited.has(s)) {
+          visited.add(s);
+          queue.push(s);
+        }
+      }
+    }
+    result.before = [...found];
+  }
+
+  // Downstream — BFS forward from the pivot's target v.
+  if (typeof v !== 'undefined') {
+    const found = new Set();
+    const visited = new Set([v]);
+    const queue = [v];
+    while (queue.length) {
+      const node = queue.shift();
+      for (const eid of outgoing.get(node) || []) {
+        found.add(eid);
+        const e = byId.get(eid);
+        const t = e && e.data && e.data.target;
+        if (typeof t !== 'undefined' && !visited.has(t)) {
+          visited.add(t);
+          queue.push(t);
+        }
+      }
+    }
+    result.after = [...found];
+  }
+
+  return result;
+}
+
+/** Apply the flow-cone focus classes to a cytoscape instance (L2). */
+export function applyFlowCone(cy, graphData, clickedEdgeId) {
+  if (!cy || (typeof cy.destroyed === 'function' && cy.destroyed())) return;
+  const cone = computeFlowCone(graphData, clickedEdgeId);
+  const before = new Set(cone.before);
+  const after = new Set(cone.after);
+  const edges = cy.edges();
+  if (!edges || typeof edges.removeClass !== 'function') return;
+  edges.removeClass(`${L2_EDGE_CLASSES.coneBefore} ${L2_EDGE_CLASSES.coneAfter} ${L2_EDGE_CLASSES.conePivot} ${L2_EDGE_CLASSES.coneDimmed}`);
+  edges.forEach(e => {
+    const id = typeof e.id === 'function' ? e.id() : e.id;
+    if (id === clickedEdgeId) e.addClass(L2_EDGE_CLASSES.conePivot);
+    else if (before.has(id)) e.addClass(L2_EDGE_CLASSES.coneBefore);
+    else if (after.has(id)) e.addClass(L2_EDGE_CLASSES.coneAfter);
+    else e.addClass(L2_EDGE_CLASSES.coneDimmed);
+  });
+}
+
+/** Clear the flow-cone focus classes (canvas click / graph reload). */
+export function clearFlowCone(cy) {
+  if (!cy || (typeof cy.destroyed === 'function' && cy.destroyed())) return;
+  const edges = cy.edges();
+  if (!edges || typeof edges.removeClass !== 'function') return;
+  edges.removeClass(`${L2_EDGE_CLASSES.coneBefore} ${L2_EDGE_CLASSES.coneAfter} ${L2_EDGE_CLASSES.conePivot} ${L2_EDGE_CLASSES.coneDimmed}`);
+}
 
 /**
  * L1/L2 Data Flow Graph — V4.1
@@ -28,10 +155,16 @@ export default function DataFlowGraph(props) {
     layoutMode: layoutMode || 'snake',
     showRoleBadges: true,
     onEdgeTap: (e) => {
+      const edgeData = e.target.data();
       // R25/§8.8: the per-edge payload (highlight_line / flow_kind /
       // reason) is the single source of truth — pass the full edge data
       // through; no range fields exist anymore.
-      onEdgeClick?.(e.target.data());
+      onEdgeClick?.(edgeData);
+      // R30/#222: L2 edge click highlights its flow cone (upstream amber,
+      // downstream cyan, pivot gold, rest dimmed). L1 is untouched.
+      if (level === 'L2') {
+        applyFlowCone(cyRef.current, graphData, edgeData.id);
+      }
     },
     onEdgeHover: (e) => {
       if (e.target.isEdge?.()) {
@@ -45,7 +178,11 @@ export default function DataFlowGraph(props) {
         });
       }
     },
-    onBgTap: () => onCanvasTap?.(),
+    onBgTap: () => {
+      onCanvasTap?.();
+      // R30/#222: canvas click clears the transient flow-cone focus state.
+      if (level === 'L2') clearFlowCone(cyRef.current);
+    },
 
     onDblTap: (e) => {
       if (level === 'L1' && e.target.data().type === 'script_node') {
