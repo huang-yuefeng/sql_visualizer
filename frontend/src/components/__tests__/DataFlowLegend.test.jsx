@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import DataFlowLegend from '../DataFlowLegend';
-import { L2_ROLE_COLORS, SEARCHED_FIELD_COLOR } from '../../utils/graphStyles';
+import { L2_ROLE_COLORS, SEARCHED_FIELD_COLOR, L2_TABLE_COLORS } from '../../utils/graphStyles';
 
 // Convert a #RRGGBB token to the rgb(r, g, b) form jsdom reports for
 // inline styles, so swatch assertions compare against L2_ROLE_COLORS.
@@ -22,7 +22,17 @@ describe('DataFlowLegend — L2 node-role legend (R28)', () => {
   it('renders the node roles when level is L2 (incl. the searched field)', () => {
     render(<DataFlowLegend level="L2" />);
     expect(screen.getByTestId('legend-l2-node-roles')).toBeInTheDocument();
+    // Group titles
+    expect(screen.getByText('L2 Node Types')).toBeInTheDocument();
     expect(screen.getByText('L2 Node Roles')).toBeInTheDocument();
+    expect(screen.getByText('Field Marker')).toBeInTheDocument();
+    // The five table-node type labels
+    expect(screen.getByText('Source table')).toBeInTheDocument();
+    expect(screen.getByText('Target table')).toBeInTheDocument();
+    expect(screen.getByText('With table')).toBeInTheDocument();
+    expect(screen.getByText('Anonymous table')).toBeInTheDocument();
+    expect(screen.getByText('Alias table')).toBeInTheDocument();
+    // Node-role labels
     expect(screen.getByText('Source node')).toBeInTheDocument();
     expect(screen.getByText('Target node')).toBeInTheDocument();
     expect(screen.getByText('Waypoint')).toBeInTheDocument();
@@ -38,8 +48,25 @@ describe('DataFlowLegend — L2 node-role legend (R28)', () => {
     expect(screen.queryByText('chain ✅')).not.toBeInTheDocument();
   });
 
-  it('swatch colors match L2_ROLE_COLORS (the L2_NODE_ROLE_STYLES palette)', () => {
+  it('swatch colors match L2_TABLE_COLORS and L2_ROLE_COLORS', () => {
     const { container } = render(<DataFlowLegend level="L2" />);
+
+    // Five table-node type swatches — background/border from L2_TABLE_COLORS,
+    // ALL rendered with a solid border (incl. With table and Alias table).
+    const typeChecks = [
+      ['Source table', L2_TABLE_COLORS.source],
+      ['Target table', L2_TABLE_COLORS.target],
+      ['With table', L2_TABLE_COLORS.withTable],
+      ['Anonymous table', L2_TABLE_COLORS.anonymous],
+      ['Alias table', L2_TABLE_COLORS.alias],
+    ];
+    typeChecks.forEach(([label, colors]) => {
+      const item = itemByLabel(container, label);
+      expect(item.querySelector('span:first-child').style.backgroundColor).toBe(rgbOf(colors.fill));
+      expect(item.querySelector('span:first-child').style.borderColor).toBe(rgbOf(colors.border));
+      expect(item.querySelector('span:first-child').style.borderStyle).toBe('solid');
+    });
+
     const source = itemByLabel(container, 'Source node');
     expect(source.querySelector('span:first-child').style.backgroundColor).toBe(rgbOf(L2_ROLE_COLORS.source.fill));
     expect(source.querySelector('span:first-child').style.borderColor).toBe(rgbOf(L2_ROLE_COLORS.source.border));
@@ -64,12 +91,18 @@ describe('DataFlowLegend — L2 node-role legend (R28)', () => {
     expect(searched.querySelector('span:first-child').style.borderRadius).toBe('50%');
   });
 
-  it('emphasizes source, target and searched-field labels (bold); waypoint stays plain', () => {
+  it('emphasizes the type labels, role highlights and the searched field (bold); waypoint stays plain', () => {
     const { container } = render(<DataFlowLegend level="L2" />);
+    // The five table-node type labels are bold.
+    ['Source table', 'Target table', 'With table', 'Anonymous table', 'Alias table'].forEach(label => {
+      expect(itemByLabel(container, label).querySelector('span:last-child').style.fontWeight).toBe('700');
+    });
+    // Source/Target node stay emphasized; waypoint stays plain.
     expect(itemByLabel(container, 'Source node').querySelector('span:last-child').style.fontWeight).toBe('700');
     expect(itemByLabel(container, 'Target node').querySelector('span:last-child').style.fontWeight).toBe('700');
-    expect(itemByLabel(container, 'Searched field').querySelector('span:last-child').style.fontWeight).toBe('700');
     expect(itemByLabel(container, 'Waypoint').querySelector('span:last-child').style.fontWeight).toBe('');
+    // Searched field is bold too.
+    expect(itemByLabel(container, 'Searched field').querySelector('span:last-child').style.fontWeight).toBe('700');
   });
 
   it('keeps the structure-edge note reachable inside the L2 legend (footnote)', () => {

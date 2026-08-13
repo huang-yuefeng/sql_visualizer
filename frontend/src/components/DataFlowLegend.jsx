@@ -1,5 +1,5 @@
 import React from 'react';
-import { L2_ROLE_COLORS, SEARCHED_FIELD_COLOR } from '../utils/graphStyles';
+import { L2_ROLE_COLORS, SEARCHED_FIELD_COLOR, L2_TABLE_COLORS, L2_TABLE_TYPE_NAMES } from '../utils/graphStyles';
 
 const L2_LEGEND = [
   { label: 'Table', color: '#4A90D9', shape: '■' },
@@ -66,6 +66,49 @@ const CATEGORY_LEGEND = [
 // palette the L2_NODE_ROLE_STYLES stylesheet uses, so the legend always
 // matches the graph. Edge kinds stay visible on the edges themselves +
 // the hover tooltip (R25 secondary surface).
+//
+// (R31, 2026-08-13): the L2 legend additionally lists the five table-node
+// TYPES — display names from L2_TABLE_TYPE_NAMES, swatches from
+// L2_TABLE_COLORS (the same palette the compound table styles use) — and
+// the searched-field marker moves under its own "Field Marker" title.
+const L2_NODE_TYPE_LEGEND = [
+  {
+    type: 'source_table',
+    color: L2_TABLE_COLORS.source.border,
+    fill: L2_TABLE_COLORS.source.fill,
+    strong: true,
+    desc: 'a physical DB table the script reads (FROM/JOIN source)',
+  },
+  {
+    type: 'output_table',
+    color: L2_TABLE_COLORS.target.border,
+    fill: L2_TABLE_COLORS.target.fill,
+    strong: true,
+    desc: 'flow destination / script output table',
+  },
+  {
+    type: 'cte_table',
+    color: L2_TABLE_COLORS.withTable.border,
+    fill: L2_TABLE_COLORS.withTable.fill,
+    strong: true,
+    desc: 'a WITH-clause CTE — named, reusable result set',
+  },
+  {
+    type: 'intermediate_table',
+    color: L2_TABLE_COLORS.anonymous.border,
+    fill: L2_TABLE_COLORS.anonymous.fill,
+    strong: true,
+    desc: 'an unnamed in-script result set (subquery output)',
+  },
+  {
+    type: 'alias_table',
+    color: L2_TABLE_COLORS.alias.border,
+    fill: L2_TABLE_COLORS.alias.fill,
+    strong: true,
+    desc: 'a derived-table alias (e.g. p1@65, SSALSFP@66)',
+  },
+];
+
 const L2_NODE_ROLE_LEGEND = [
   {
     role: 'source',
@@ -91,6 +134,9 @@ const L2_NODE_ROLE_LEGEND = [
     dashed: true,
     desc: 'intermediate tables on the flow path',
   },
+];
+
+const L2_FIELD_MARKER_LEGEND = [
   {
     role: 'searched',
     label: 'Searched field',
@@ -98,23 +144,40 @@ const L2_NODE_ROLE_LEGEND = [
     fill: SEARCHED_FIELD_COLOR,
     strong: true,
     circle: true, // fields render as ellipses — the swatch mirrors the shape
-    desc: 'the field you searched — gold on the source table and every alias/CTE/target node that carries it',
+    desc: 'field-level marker — the searched column, solid gold wherever it appears (source table and every alias/CTE/target copy that carries it)',
   },
 ];
 
 function L2NodeRoleLegend({ structureEdgesHidden, structureEdgeCount }) {
+  const swatch = item => ({
+    display: 'inline-block', width: 12, height: 12,
+    borderRadius: item.circle ? '50%' : 2,
+    flexShrink: 0, verticalAlign: 'middle',
+    background: item.fill,
+    border: `2px ${item.dashed ? 'dashed' : 'solid'} ${item.color}`,
+  });
   return (
     <div className="dataflow-legend" data-testid="legend-l2-node-roles">
+      <span className="legend-title">L2 Node Types</span>
+      {L2_NODE_TYPE_LEGEND.map(item => (
+        <span key={item.type} className="legend-item" title={item.desc}>
+          <span style={swatch(item)} />
+          <span style={item.strong ? { fontWeight: 700 } : undefined}>{L2_TABLE_TYPE_NAMES[item.type]}</span>
+        </span>
+      ))}
+
       <span className="legend-title">L2 Node Roles</span>
       {L2_NODE_ROLE_LEGEND.map(item => (
         <span key={item.role} className="legend-item" title={item.desc}>
-          <span style={{
-            display: 'inline-block', width: 12, height: 12,
-            borderRadius: item.circle ? '50%' : 2,
-            flexShrink: 0, verticalAlign: 'middle',
-            background: item.fill,
-            border: `2px ${item.dashed ? 'dashed' : 'solid'} ${item.color}`,
-          }} />
+          <span style={swatch(item)} />
+          <span style={item.strong ? { fontWeight: 700 } : undefined}>{item.label}</span>
+        </span>
+      ))}
+
+      <span className="legend-title">Field Marker</span>
+      {L2_FIELD_MARKER_LEGEND.map(item => (
+        <span key={item.role} className="legend-item" title={item.desc}>
+          <span style={swatch(item)} />
           <span style={item.strong ? { fontWeight: 700 } : undefined}>{item.label}</span>
         </span>
       ))}

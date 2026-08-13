@@ -314,6 +314,27 @@ export const MINI_LAYOUT_OPTIONS = {
   idealEdgeLength: () => 40,
 };
 
+// L2 table-node TYPE colors — color-only differentiation (2026-08-13):
+// every L2 table compound renders a solid rectangle; the HUE is the only
+// difference between the 5 types. Shared by the compound-type style rules
+// below AND the L2 node-type legend (DataFlowLegend.jsx).
+export const L2_TABLE_COLORS = {
+  source:      { border: '#5DADE2', fill: '#4A90D9' },   // physical read table
+  target:      { border: '#58D68D', fill: '#2ECC71' },   // flow destination / output
+  withTable:   { border: '#AF7AC5', fill: '#9B59B6' },   // CTE (WITH ... AS) — was green
+  anonymous:   { border: '#7a7a9a', fill: '#5a5a7a' },   // unnamed subquery result — neutral
+  alias:       { border: '#3BB9C9', fill: '#17A2B8' },   // derived-table alias — was orange
+};
+
+// Display-only: backend L2 node `type` -> legend label. The backend type
+// strings are NOT changed (naming is a frontend/display concern).
+export const L2_TABLE_TYPE_NAMES = {
+  source_table:       'Source table',
+  output_table:       'Target table',
+  cte_table:          'With table',
+  intermediate_table: 'Anonymous table',
+  alias_table:        'Alias table',
+};
 
 // ══════════════════════════════════════════════════════════════════
 // V3.2: Compound Table Nodes (parent) + Field Nodes (children)
@@ -368,10 +389,10 @@ export const COMPOUND_STYLES = [
       'shape': 'rectangle',
       'width': 'data(_tableWidth)',
       'height': 'data(_tableHeight)',
-      'background-color': '#4A90D9',
+      'background-color': L2_TABLE_COLORS.source.fill,
       'background-opacity': 0.5,
       'border-width': 3,
-      'border-color': '#5DADE2',
+      'border-color': L2_TABLE_COLORS.source.border,
       'border-style': 'solid',
       'label': 'data(label)',
       'font-size': 12,
@@ -389,10 +410,10 @@ export const COMPOUND_STYLES = [
       'shape': 'rectangle',
       'width': 'data(_tableWidth)',
       'height': 'data(_tableHeight)',
-      'background-color': '#5a5a7a',
+      'background-color': L2_TABLE_COLORS.anonymous.fill,
       'background-opacity': 0.35,
       'border-width': 2,
-      'border-color': '#999',
+      'border-color': L2_TABLE_COLORS.anonymous.border,
       'border-style': 'solid',
       'label': 'data(label)',
       'font-size': 12,
@@ -410,10 +431,10 @@ export const COMPOUND_STYLES = [
       'shape': 'rectangle',
       'width': 'data(_tableWidth)',
       'height': 'data(_tableHeight)',
-      'background-color': '#2ECC71',
+      'background-color': L2_TABLE_COLORS.target.fill,
       'background-opacity': 0.5,
       'border-width': 3,
-      'border-color': '#58D68D',
+      'border-color': L2_TABLE_COLORS.target.border,
       'border-style': 'solid',
       'label': 'data(label)',
       'font-size': 12,
@@ -424,21 +445,21 @@ export const COMPOUND_STYLES = [
       'text-halign': 'center',
     },
   },
-  // CTE table (L2 only)
+  // CTE table (L2 only) — solid purple (was green dashed)
   {
     selector: 'node[type="cte_table"]',
     style: {
       'shape': 'rectangle',
       'width': 'data(_tableWidth)',
       'height': 'data(_tableHeight)',
-      'background-color': '#5CB85C',
+      'background-color': L2_TABLE_COLORS.withTable.fill,
       'background-opacity': 0.35,
       'border-width': 2,
-      'border-style': 'dashed',
-      'border-color': '#82E0AA',
+      'border-style': 'solid',
+      'border-color': L2_TABLE_COLORS.withTable.border,
       'label': 'data(label)',
       'font-size': 12,
-      'color': '#A9DFBF',
+      'color': '#C39BD3',
       'text-outline-color': '#1a1a2e',
       'text-outline-width': 1,
       'text-valign': 'top',
@@ -467,21 +488,21 @@ export const COMPOUND_STYLES = [
     },
   },
 
-  // Alias table (orange, dashed border — L2 only)
+  // Alias table (cyan, solid border — L2 only)
   {
     selector: 'node[type="alias_table"]',
     style: {
       'shape': 'rectangle',
       'width': 'data(_tableWidth)',
       'height': 'data(_tableHeight)',
-      'background-color': '#F39C12',
+      'background-color': L2_TABLE_COLORS.alias.fill,
       'background-opacity': 0.35,
       'border-width': 2,
-      'border-color': '#E67E22',
-      'border-style': 'dashed',
+      'border-color': L2_TABLE_COLORS.alias.border,
+      'border-style': 'solid',
       'label': 'data(label)',
       'font-size': 12,
-      'color': '#FAD7A1',
+      'color': '#9ADBE8',
       'text-outline-color': '#1a1a2e',
       'text-outline-width': 1,
       'text-valign': 'top',
@@ -895,8 +916,11 @@ export const OPERATION_NODE_STYLES = [
 ];
 
 // R8: L2 Field detail node types (design §5.4)
+// NOTE (v3.3.157): the cte_table entry was REMOVED here — it overrode the
+// COMPOUND_STYLES rule (this array assembles AFTER it in the L2 stylesheet) with
+// the legacy green/dashed style. CTE tables now render per COMPOUND_STYLES:
+// solid purple rectangle (color-only differentiation).
 export const L2_DETAIL_STYLES = [
-  { selector: 'node[type="cte_table"]', style: { 'shape': 'round-rectangle', 'border-style': 'dashed', 'border-color': '#82E0AA', 'background-color': '#5CB85C', 'background-opacity': 0.25 } },
   { selector: 'node[type="subquery_output"]', style: { 'shape': 'round-rectangle', 'border-style': 'dotted', 'border-color': '#C4B4F0', 'background-color': '#AC92EC', 'background-opacity': 0.35, 'border-width': 2 } },
   { selector: 'node[type="virtual_table"]', style: { 'shape': 'rectangle', 'border-width': 2, 'border-color': '#58D68D', 'background-color': '#2ECC71', 'background-opacity': 0.35 } },
   { selector: 'node[type="expression"]', style: { 'shape': 'diamond', 'background-color': '#F0AD4E', 'width': 30, 'height': 30 } },
