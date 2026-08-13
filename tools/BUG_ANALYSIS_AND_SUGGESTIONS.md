@@ -4773,3 +4773,110 @@ round, not an issue-3 defect; the read leg itself renders.
 `TABLE_FLOW` is the **primary value-flow edge** (green, width 3, "table feeds output") — not a containment/rename/bridge edge. The frontend styles `edge[category="structure"]` (`graphStyles.js:607`) to light-blue, and there is **no** `edge[category="flow"]` rule to override it, so `TABLE_FLOW` inherits the structure color. The `structureEdges.js` toggle only hides SCHEMA (by edge_type), so the mislabeled `TABLE_FLOW` also evades the structure-toggle's intent.
 
 **Fix (part of R30, when staffed):** recategorize `TABLE_FLOW` out of `"structure"` into a value-flow category (e.g. `"flow"`); leave `SCHEMA/ALIAS/SUBSET` as `"structure"` and give them one uniform gray. See R30 (REQUIREMENTS.md) and J12-23 (SOLUTION_DESIGN.md). No source change made — documentation only.
+
+---
+
+# Code Review Findings — v3.3.153 (2026-08-13)
+
+> **Reviewer:** Codex (read-only, 4 parallel sub-agents) | **Scope:** R29 + R30 delta (`git diff c3c66f0..ec17cd7`)
+> **Re-checked 2026-08-13 against HEAD:** 1 High + 10 Medium + ~15 Low, line-checked. Static-analysis based (reviewer did not re-run the full suite). Consolidated into the work list below; **no source change made** — implementation awaits the user's command.
+
+## CR1 · R29 implemented but still documented as "pending / no source change" (High)
+
+> **Priority:** P1 | **Status:** Open | **Type:** Documentation
+
+**Symptom:** `wiki/REQUIREMENTS_TRACEABILITY.md` still marks R29.1–R29.6 and the derived R4.11–4.13 / R5.9 / R18.7 / R18.1.3 / R19.7 rows as 📝 "design, not implemented"; the summary counts "2 — R29 + R30" unimplemented; the R29/J12-22 header reads "implementation pending, no source change". But R29 source landed in v3.3.153 (`lineage.py`, `dataflow_service.py`, `l1_builder.py`, `l2_builder.py`, `routers/dataflow.py`, frontend).
+
+**Fix direction (doc only):** flip R29.1–R29.6 + derived rows to ✅ `v3.3.153`, update the summary to "1 — R30 (docs pending)", bump the traceability version.
+
+## CR2 · `direction` is never validated — invalid values silently become downstream (Medium)
+
+> **Priority:** P1 | **Status:** Open | **Type:** Defect
+
+**Symptom:** every consumer checks only `direction == "upstream"`; any other value (`"UPSTREAM"`, typo, empty) falls through to downstream. Router (`dataflow.py:148,189,263`) does not validate the POST body / query param.
+
+**Fix:** validate against an allowlist (`Literal["upstream","downstream"]` / `Query(pattern=...)`) at the router boundary → 400 on invalid; normalize once.
+
+## CR3 · No-flow search discards `matching_scripts`, breaking direction override (Medium)
+
+> **Priority:** P1 | **Status:** Open | **Type:** Defect
+
+**Symptom:** `_no_flow_result` (`dataflow_service.py:142-148,235-269`) returns `script_ids: []`/`script_count: 0` and drops the real `matching_scripts`. The persisted view has no scripts, so a later `GET /level1|/level2` with the opposite `direction` cannot re-project — exactly the views that need a direction switch most.
+
+**Fix:** pass `matching_scripts` through; persist `script_ids`/`script_count` while keeping the `match_mode="no_flow"` banner + empty directional graph.
+
+## CR4 · Field-search L1 drops `lineage_field_pairs` + field nodes (breaking schema, no version bump) (Medium)
+
+> **Priority:** P2 | **Status:** Open | **Type:** Data contract
+
+**Symptom:** pre-R29 field queries returned the table-level L1 incl. field children + `lineage_field_pairs`; the directional projection returns neither; `flow_empty`/`no_flow` are new states. Breaking response-shape change with no `format_version`/schema marker. (Note: "no field nodes in L1" is intended R29 design — the *unversioned shape change* is the concern.)
+
+**Fix:** keep `"lineage_field_pairs": []` present (+ optionally a schema marker); document the `no_flow` match mode; confirm all shipped clients consume the new shape.
+
+## CR5 · L1 defaults unmatched tables to `source_table` (Medium)
+
+> **Priority:** P2 | **Status:** Open | **Type:** Defect
+
+**Symptom:** `l1_builder.py:385-392` classifies tables from raw `input_tables`/`output_tables`; any name not matching a script IO slot is appended to `source_tables` — alias/canonical divergence mislabels an intermediate/output as source, corrupting the directional display.
+
+**Fix:** derive the role from closure/model edges (walk direction + PhysicalModel write legs) rather than defaulting to source.
+
+## CR6 · Frontend L2 fetch uses stale `parentViewIdRef` (Medium)
+
+> **Priority:** P2 | **Status:** Open | **Type:** Defect
+
+**Symptom:** `DataFlowApp.jsx:246-249` — `parentViewIdRef.current` is set only in `handleSearch`; `handleViewTreeClick` never updates it. After a view switch, `searchView = views.find(...)` + direction lookup resolve the last-searched view → wrong parent + wrong direction on a double-click.
+
+**Fix:** set `parentViewIdRef.current = viewId` in the L1 branch of `handleViewTreeClick`; clear on child navigation.
+
+## CR7 · Direction default contradicts the documented contract (Medium — needs user ruling)
+
+> **Priority:** P2 | **Status:** Open | **Type:** Data contract
+
+**Symptom:** docs say `default upstream` (SOLUTION_DESIGN/REQUIREMENTS), but the backend + client default to `downstream` (`dataflow_service.py:43,410`; `l1_builder.py:437`; `dataflow.py:189,263`; `client.js:90,110`). The UI (`FilterPanel.jsx:43`) compensates by always sending upstream, so the user-facing default is upstream — but a direct API caller or a missed frontend path gets downstream.
+
+**Fix (needs ruling):** (a) change backend/client defaults to `"upstream"` (with legacy-compat), or (b) document "UI default = upstream" vs "API default = downstream" explicitly + add a test asserting the UI always passes it.
+
+## CR8 · Stale ground-truth claims contradict the repaired ground truth (Medium — needs user ruling)
+
+> **Priority:** P2 | **Status:** Open | **Type:** Documentation
+
+**Symptom:** docs still say `rrcdm_job_log_exec_par.data_dt` is "upstream-only, empty downstream" and `lending_ref` chain is `acnw → lending_ref`; the repaired ground truth says the opposite (rrcdm downstream = the writer's-own-leg chain; `lending_ref` starts at `ods_ccb_cb_loan_acctloan.acctnbr`, per `A.acctnbr AS LENDING_REF`). The LENDING_REF doc mixes `acnw`/`acctnbr`.
+
+**Fix (needs ruling on the canonical value):** update bullets to the repaired 2026-08-12 behavior; use `acctnbr` consistently.
+
+## CR9 · Missing router/API-level tests for direction paths (Medium — test gap)
+
+> **Priority:** P2 | **Status:** Open | **Type:** Test gap
+
+**Symptom:** direction is exercised only at service level; no POST `/search` → `GET /level1|/level2` journey asserting direction echo/persistence, `match_mode="no_flow"`, or the upstream L2 "not in the writing flow…" message + role flip.
+
+**Fix:** add a router-level upstream journey + a `no_flow` case.
+
+## CR10 · Direction ground truth + L2 snapshot repinned from served closures (Medium — benchmark circularity)
+
+> **Priority:** P2 | **Status:** Open | **Type:** Benchmark weakness
+
+**Symptom:** several downstream L1 projections + jaccard rows were "repinned to the engine truth"/served closures; the 02_SUP_M snapshot regenerated (5/7 → 13/20). With floors at exactly 1.0000/1.0000, these now largely assert the engine matches its own output — the J12-21 class (silent over/under-admission) would be enshrined as correct. Related: J12-13 (fixture circular), J12-17 (benchmark blind spot).
+
+**Fix:** re-derive canonical rows from SQL/textual evidence where possible; keep a distinct independent assertion for repinned seeds; document the 13/20 rebaseline.
+
+## CR11 · Low-severity hardening + state-sync (consolidated)
+
+> **Priority:** P3 | **Status:** Open | **Type:** Hardening
+
+- `lineage.py:679` — `_stmt_of` does `_top.index("}")` on `CTE{…` without guarding `"}" in _top` → malformed context raises `ValueError` → 500 the L2 build. Guard before slicing.
+- `lineage.py:698-708` — upstream seed uses case-sensitive table-name equality while field-part logic lowercases → searched-table casing mismatch can miss seeds. Case-insensitive comparison.
+- `lineage.py:1068-1073` — selection round grows `_sel_stmts` but never sets `changed = True` → termination relies on a different progress signal. Mark `changed` when a new statement is recorded.
+- `lineage.py:548-584` — `compute_field_flow` docstring still claims downstream is "byte-identical" to pre-R29 (false since `c037885`). Update the docstring.
+- `dataflow_service.py:246` — `_no_flow_result` sets `l1_graph["target"] = "table.field"` (literal). Use `f"{table}.{field}"`.
+- `l1_builder.py:310` — scripts with missing model/graph are skipped without incrementing `failures` → "could not build" masquerades as "no flow". Count/log.
+- `l1_builder.py:461-462` — early `len(script_names) < 1` return stamps `flow_empty: True` unconditionally, contradicting the table-only "never flow empty" contract. `flow_empty: bool(field)`.
+- `l2_builder.py:1554-1558` — upstream `_attach_flow_roles` recomputes the closure already produced by the relevance filter (2–3 walks/L2). Compute once + pass through.
+- `l2_builder.py:1761-1763` — upstream `search_matched` uses `bool(graph_data.get("nodes"))` as a closure proxy. Retain/check the actual closure set.
+- `dataflow.py:263 vs :332` — `get_level1` echoes resolved `direction`, `get_level2` does not. Echo it in L2 or document why not.
+- `DataFlowApp.jsx:324-333` — `direction` not reset/synced on L1-view navigation → older views fall back to the last search direction. `setDirection(entry.direction || 'upstream')`.
+- `DataFlowApp.jsx:221,227` — `handleSearch` stores the client-supplied direction instead of the backend-echoed `result.direction`. Store `result.direction ?? direction`.
+- `FilterPanel.jsx:43,101-107,287-300` — `direction` is a second uncontrolled copy, not in history/pins. Lift state up; store per history/pin entry.
+- `test_l1_physical_model.py:429` — test named `..._downstream_empty_...` asserts `flow_empty is False` (opposite of name). Rename to `..._writer_own_leg_...`.
+- `SOLUTION_DESIGN.md:1488-1490` — still says L1 is "verified manually … no automated L1 check" despite new `test_r29_*` tests. Reword.
