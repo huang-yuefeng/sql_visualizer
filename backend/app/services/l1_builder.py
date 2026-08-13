@@ -300,6 +300,11 @@ def _build_l1_directional_field_flow(all_scripts: list[dict],
 
     participating = []          # script entries carrying the directional flow
     participating_tables = {}   # table name → PhysicalTable (first seen)
+    # CR5: per-name read/write role accumulation across ALL participating
+    # scripts (a table read in one script and written in another is an
+    # intermediate — the raw IO slots aggregate the same way).
+    read_role_tables = set()    # names read in some participating script
+    write_role_tables = set()   # names written (DML/merge) in some script
     failures = 0
     first_exc = None
 
@@ -326,6 +331,10 @@ def _build_l1_directional_field_flow(all_scripts: list[dict],
         participating.append(s)
         for tname, tbl in _owning_tables(m, closure).items():
             participating_tables.setdefault(tname, tbl)
+            if "read" in tbl.roles:
+                read_role_tables.add(tname)
+            if "write" in tbl.roles or "merge_target" in tbl.roles:
+                write_role_tables.add(tname)
 
     if not participating:
         if failures:
@@ -364,9 +373,10 @@ def _build_l1_directional_field_flow(all_scripts: list[dict],
         edges.append({"data": d})
 
     # ── Participating tables — classified by the participating scripts'
-    # read/write pattern (the projection's own edges; a table carrying
-    # the flow but listed as no script's input/output still projects —
-    # defaulting to source). ──
+    # read/write pattern (the projection's own edges). A table carrying
+    # the flow but listed as no script's input/output (name divergence)
+    # still projects — its role comes from the model's read/write legs
+    # (CR5), never a bare default to source. ──
     inputs_by_script = {}
     outputs_by_script = {}
     all_inputs = set()
@@ -386,11 +396,23 @@ def _build_l1_directional_field_flow(all_scripts: list[dict],
     intermediate_tables = sorted(all_inputs & all_outputs)
     output_tables = sorted(all_outputs - all_inputs)
     # Safety net: participating tables with no script IO slot (name
-    # divergence) still project — as source.
+    # divergence) still project — classified from the model's own
+    # read/write legs (the same per-script signal the raw IO slots derive
+    # from) instead of defaulting to source, so a write-only or
+    # intermediate table is never mislabeled as a source.
     for tname in sorted(participating_tables):
-        if tname not in all_inputs and tname not in all_outputs:
+        if tname in all_inputs or tname in all_outputs:
+            continue
+        writes = tname in write_role_tables
+        if tname in read_role_tables and writes:
+            intermediate_tables.append(tname)
+        elif writes:
+            output_tables.append(tname)
+        else:
             source_tables.append(tname)
     source_tables = sorted(set(source_tables))
+    intermediate_tables = sorted(set(intermediate_tables))
+    output_tables = sorted(set(output_tables))
 
     for tname in source_tables:
         add_node(f"tbl_{tname}", tname, "source_table", table_name=tname)
@@ -434,7 +456,7 @@ def _build_l1_directional_field_flow(all_scripts: list[dict],
 
 def _build_l1_graph(ws_id: str, script_names: list[str],
                     table: str, field: str,
-                    direction: str = "downstream") -> dict:
+                    direction: str = "upstream") -> dict:
     """Build Level 1 cross-script directional field-flow graph (R29).
 
     Field queries (field truthy): L1 is the queried field's data flow —

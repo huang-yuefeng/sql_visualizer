@@ -281,8 +281,13 @@ def test_l1_degraded_fallback_visible(monkeypatch):
         "s2.sql": "SELECT f FROM t;\n",
     })
     try:
+        # R29 (2026-08-13): the builder default direction is now "upstream"
+        # (writing flow); t.f is read by s2 but never written, so the
+        # degraded-fallback contract is exercised via the downstream
+        # (reading) projection.
         # normal path — stable contract: degraded: false
-        normal = _build_l1_graph(ws, ["s1.sql", "s2.sql"], "t", "f")
+        normal = _build_l1_graph(ws, ["s1.sql", "s2.sql"], "t", "f",
+                                 direction="downstream")
         assert normal.get("degraded") is False, normal
         assert normal.get("nodes"), "normal path must still produce nodes"
         assert normal.get("target") == "t.f", normal
@@ -298,7 +303,8 @@ def test_l1_degraded_fallback_visible(monkeypatch):
 
         monkeypatch.setattr(
             "app.services.multi_script_service.analyze_multiple_scripts", boom)
-        degraded = _build_l1_graph(ws, ["s1.sql", "s2.sql"], "t", "f")
+        degraded = _build_l1_graph(ws, ["s1.sql", "s2.sql"], "t", "f",
+                                   direction="downstream")
         assert degraded.get("degraded") is True, degraded
         assert degraded.get("nodes"), \
             "script-only fallback nodes must still be present"

@@ -1,7 +1,7 @@
-# Requirements Traceability Matrix — V3.3.104
+# Requirements Traceability Matrix — V3.3.153
 
 > Maps all requirements from REQUIREMENTS.md to implementation status.
-> Last updated: 2026-08-11 (R26–R28 added — user rulings 2026-08-11)
+> Last updated: 2026-08-13 (R29 implemented v3.3.153 — R29 rows + derived rows flipped 📝 → ✅)
 
 ## Legend
 - ✅ Implemented & verified
@@ -55,9 +55,9 @@
 | R4.8 | Fit/Zoom controls | ✅ | Fit button + keyboard shortcut F |
 | R4.9 | Export graph as PNG | ✅ | 📷 button |
 | R4.10 | Minimap toggle | ✅ | 🗺 button |
-| R4.11 | L1 = the queried field's data flow — same field-level semantic as L2 — at cross-script scale (scripts + tables between scripts, no fields) | 📝 | R29 (2026-08-12) — defined, implementation pending |
-| R4.12 | No table-level inclusion: scripts/tables that only read or write the queried TABLE are excluded | 📝 | R29 (2026-08-12) — e.g. SUP_M for a BNQXYE search |
-| R4.13 | Direction = query panel setting (upstream = writing, default / downstream = reading); L1 renders the flow in that direction; no L1 panel control | 📝 | R29 (2026-08-12) |
+| R4.11 | L1 = the queried field's data flow — same field-level semantic as L2 — at cross-script scale (scripts + tables between scripts, no fields) | ✅ | R29 (2026-08-12) — implemented v3.3.153 |
+| R4.12 | No table-level inclusion: scripts/tables that only read or write the queried TABLE are excluded | ✅ | R29 (2026-08-12) — v3.3.153 — e.g. SUP_M for a BNQXYE search |
+| R4.13 | Direction = query panel setting (upstream = writing, default / downstream = reading); L1 renders the flow in that direction; no L1 panel control | ✅ | R29 (2026-08-12) — v3.3.153 |
 
 ## R5 — L2 Graph: Table/Field-level Data Flow (from requirements_v2.md §4-5)
 | ID | Requirement | Status | Notes |
@@ -70,7 +70,7 @@
 | R5.6 | Click edge → highlight SQL segment | ✅ | Edge click sets sqlHighlightRange |
 | R5.7 | Target field node (gold highlight) | ✅ | is_target with gold border |
 | R5.8 | CTE table nodes (dashed green) | ✅ | cte_table style |
-| R5.9 | L2 follows the query direction automatically — zoom-in of L1's directional flow, no separate control | 📝 | R29 (2026-08-12) |
+| R5.9 | L2 follows the query direction automatically — zoom-in of L1's directional flow, no separate control | ✅ | R29 (2026-08-12) — v3.3.153 |
 
 ## R6 — SQL Panel & Export (from requirements_v2.md §6)
 | ID | Requirement | Status | Notes |
@@ -174,14 +174,14 @@
 | R18.4 | lineage_mode in create_search | ✅ | Default True |
 | R18.5 | original_id bridge (L1 ↔ analysis) | ✅ | Bug 19 fixed v3.3.103 |
 | R18.6 | table_schemas on cache hit/miss | ✅ | Bug 20 fixed v3.3.103 |
-| R18.7 | L1 filter = the SAME strict field-level walker as L2 (not the table-level production BFS) | 📝 | R29 (2026-08-12) — supersedes R18's L1 semantics |
+| R18.7 | L1 filter = the SAME strict field-level walker as L2 (not the table-level production BFS) | ✅ | R29 (2026-08-12) — v3.3.153 — supersedes R18's L1 semantics |
 
 ### R18.1 — Empty Table Cleanup
 | ID | Requirement | Status | Notes |
 |----|------------|--------|-------|
 | R18.1.1 | Remove tables with 0 field children | ✅ | v3.3.105 — primary + fallback paths |
 | R18.1.2 | Keep termination marker table | ✅ | v3.3.105 — terminal table + edge preserved |
-| R18.1.3 | L1 terminal-marker rules superseded — the flow terminates at the last table carrying the queried field; no marker table | 📝 | R29 (2026-08-12) — L1 side only; L2 unchanged |
+| R18.1.3 | L1 terminal-marker rules superseded — the flow terminates at the last table carrying the queried field; no marker table | ✅ | R29 (2026-08-12) — v3.3.153 — L1 side only; L2 unchanged |
 
 ## R19 — L2 Flow Topology: one source, flow targets, every edge on a path (user ruling 2026-08-11)
 | ID | Requirement | Status | Notes |
@@ -192,7 +192,7 @@
 | R19.4 | Structure/containment edges (SCHEMA) are NOT flow — exempt from the path property, rendered visually distinct, their reason explains containment (owner→member by design) | ✅ 2026-08-11 | by-design exemption, never forced onto a flow path; **display toggle implemented (frontend, v3.3.150)** — hidden by default in the flow view, payload + benchmark unchanged (`structureEdges.js` + `useCytoscapeGraph` `structure-hidden` class, legend note + edge-count reflect it) |
 | R19.5 | Full-view (no search) table roles: net-flow classification — a table is a source when flow out dominates (out-edges > in-edges over FLOW edges only, self-loops excluded), a target when flow in dominates; multiple of each; balanced tables = waypoints | ✅ 2026-08-11 | implemented (lineage.py `classify_flow_roles` + l2_builder `flow_role` on physical table compounds, v3.3.150). ⚠ example repaired with evidence: sup is NOT balanced in the real full view — **5 in** (write leg TABLE_FLOW + 2 COMPUTED + REF data_dt→sup + FILTER data_dt→sup) / **3 out** (read-leg TABLE_FLOW + REF sup→p2@199 + JOIN) → **target**. Waypoints are realized by balanced tables (a@132, b@133, c@137, p1@198, p3@118, p3@204, p5@151, p6@155). Rule unchanged (user wording); flow = every edge type except ALIAS/SCHEMA/SUBSET (TABLE_FLOW counts — read legs and L2 write legs are TABLE_FLOW; the `category` field is NOT consulted: L2 chain edges carry category=structure yet are flow) |
 | R19.6 | No inverse edges in the flow view: (a) structure/containment edges hidden by default (display toggle; payload + benchmark unchanged); (b) synthetic output VTs un-merged by statement (output@L160 / output@L211) so write/read leg pairs never render as inverse — R22 one-node-per-table narrowed to PHYSICAL tables | ✅ 2026-08-11 | (a) the R19.4 toggle (frontend, default off); (b) probe-verified already true — the served L2 graph carries TWO distinct output VTs (`l2_tbl_7b217fb63a` TOP0@L160, `l2_tbl_236587aa4c` TOP1@L211), R22's label-keyed merge never merges per-context VTs; no code change needed for (b) |
-| R19.7 | Source/target anchoring follows the query direction (user ruling 2026-08-12, R29): downstream → the queried field is the flow SOURCE (R19.1 unchanged); upstream → the queried field is the flow TARGET — the flow converges on it, sources = the fields writing it | 📝 | R29 (2026-08-12) — defined; L2 flow-reason roles flip with the query direction |
+| R19.7 | Source/target anchoring follows the query direction (user ruling 2026-08-12, R29): downstream → the queried field is the flow SOURCE (R19.1 unchanged); upstream → the queried field is the flow TARGET — the flow converges on it, sources = the fields writing it | ✅ | R29 (2026-08-12) — v3.3.153 — L2 flow-reason roles flip with the query direction |
 
 ## R20 — Path-Scoped Flow Reason (user ruling 2026-08-11)
 | ID | Requirement | Status | Notes |
@@ -231,12 +231,12 @@
 ## R29 — L1 field-level data flow + upstream/downstream query direction (requirement change 2026-08-12)
 | ID | Requirement | Status | Notes |
 |----|------------|--------|-------|
-| R29.1 | L1 shows the queried field's data flow — same field-level semantic as L2 — at cross-script scale: scripts + tables between scripts, no fields | 📝 | R29 (2026-08-12) — defined; no source change |
-| R29.2 | Data flow = fields writing the queried field (upstream) + fields reading it (downstream) — BOTH directions are transitive chains (user ruling 2026-08-12): upstream back to the start, downstream down to the end | 📝 | R29 (2026-08-12) |
-| R29.3 | No table-level inclusion: scripts/tables that only read or write the queried TABLE are excluded | 📝 | R29 (2026-08-12) — e.g. SUP_M for a BNQXYE search |
-| R29.4 | Direction is a QUERY PANEL setting — upstream (writing, default) / downstream (reading); no L1 panel control | 📝 | R29 (2026-08-12) |
-| R29.5 | L2 follows the query direction automatically (zoom-in of L1) | 📝 | R29 (2026-08-12) |
-| R29.6 | L2 flow-reason source/target anchoring follows the direction (user ruling 2026-08-12): downstream → seed = SOURCE (R19.1 unchanged); upstream → seed = TARGET (sources = the fields writing it) | 📝 | R29 (2026-08-12) — mirrors R19.7 |
+| R29.1 | L1 shows the queried field's data flow — same field-level semantic as L2 — at cross-script scale: scripts + tables between scripts, no fields | ✅ | R29 (2026-08-12) — implemented v3.3.153 |
+| R29.2 | Data flow = fields writing the queried field (upstream) + fields reading it (downstream) — BOTH directions are transitive chains (user ruling 2026-08-12): upstream back to the start, downstream down to the end | ✅ | R29 (2026-08-12) — v3.3.153 |
+| R29.3 | No table-level inclusion: scripts/tables that only read or write the queried TABLE are excluded | ✅ | R29 (2026-08-12) — v3.3.153 — e.g. SUP_M for a BNQXYE search |
+| R29.4 | Direction is a QUERY PANEL setting — upstream (writing, default) / downstream (reading); no L1 panel control | ✅ | R29 (2026-08-12) — v3.3.153 |
+| R29.5 | L2 follows the query direction automatically (zoom-in of L1) | ✅ | R29 (2026-08-12) — v3.3.153 |
+| R29.6 | L2 flow-reason source/target anchoring follows the direction (user ruling 2026-08-12): downstream → seed = SOURCE (R19.1 unchanged); upstream → seed = TARGET (sources = the fields writing it) | ✅ | R29 (2026-08-12) — v3.3.153 — mirrors R19.7 |
 
 ## R30 — L2 edge flow-direction display: mid-arrow + structure/flow color split + click-edge flow cone (requirement change, 2026-08-13)
 | ID | Requirement | Status | Notes |
@@ -251,8 +251,8 @@
 | Metric | Count |
 |--------|-------|
 | ✅ Implemented | 114 (all) — 83 through R16 + 17 for R17–R20 + 14 for R26–R28 (count corrected to the actual row total, 2026-08-11) |
-| 📝 Design, not implemented | 2 — R29 (L1 field-level flow + query direction) + R30 (L2 edge flow-direction display, 2026-08-13) |
-| Version | 3.3.150 |
+| 📝 Design, not implemented | 1 — R30 (docs pending) |
+| Version | 3.3.153 |
 
 ## Key Fixes since V3.2.1
 | Fix | Description |

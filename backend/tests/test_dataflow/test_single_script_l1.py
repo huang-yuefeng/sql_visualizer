@@ -111,8 +111,13 @@ class TestSingleScriptSearchL1:
         reads/writes edges — no field nodes (the old bare script node and
         the superseded lineage_field_pairs shape are gone)."""
         from app.services.l1_builder import _build_l1_graph
+        # R29 (2026-08-13): the builder's default direction is now
+        # "upstream" (writing flow); lending_ref is read by this script
+        # (never written), so the R24 full-pipeline intent needs the
+        # downstream (reading) projection.
         l1 = _build_l1_graph(single_script_ws, [SCRIPT_NAME],
-                             TARGET_TABLE, TARGET_FIELD)
+                             TARGET_TABLE, TARGET_FIELD,
+                             direction="downstream")
         assert _script_node_labels(l1) == [SCRIPT_NAME], l1
         assert l1["edges"], "single-script L1 must have script↔table edges"
         assert l1.get("flow_empty") is False, l1
@@ -132,9 +137,15 @@ class TestSingleScriptLevel1Endpoint:
 
     def test_level1_script_node_present(self, workspace_client, single_script_ws):
         from app.routers.dataflow import search_dataflow, get_level1
+        # R29 (2026-08-13): the router default direction is now "upstream";
+        # the seed is read-only in this single script, so run the downstream
+        # (reading) projection to match the search-time L1 built via the
+        # workspace_client.search helper.
         sr = asyncio.run(search_dataflow(
-            single_script_ws, {"table": TARGET_TABLE, "field": TARGET_FIELD}))
-        l1 = asyncio.run(get_level1(single_script_ws, sr["view_id"]))
+            single_script_ws, {"table": TARGET_TABLE, "field": TARGET_FIELD,
+                               "direction": "downstream"}))
+        l1 = asyncio.run(get_level1(single_script_ws, sr["view_id"],
+                                    direction="downstream"))
         assert _script_node_ids(l1["l1_graph"]), l1
         # Same node set as the search response (same builder + same filter)
         search_ids = {n.get("data", n).get("id")

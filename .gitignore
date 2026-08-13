@@ -40,5 +40,8 @@ backend/app/static.bak.*/
 # target-machine deploy log (target_deploy.sh)
 target_deploy.log
 
+# e2e test scratch (never commit — user ruling)
+tools/e2e_test/ocr_lines_tmp.js
+
 # Build/image artifacts (N7 hygiene — keep out of git)
 *.tar.gz

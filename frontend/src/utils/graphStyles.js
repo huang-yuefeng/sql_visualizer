@@ -602,6 +602,21 @@ export const CATEGORY_EDGE_STYLES = [
       'control-point-weights': [0.3, 0.7],
     },
   },
+  // Value flow (TABLE_FLOW) — the primary "table feeds output" edge.
+  // J12-23/R30: recategorized out of "structure" into "flow" (backend
+  // CATEGORY_MAP); renders value-flow green instead of inheriting the
+  // light-blue structure color. SCHEMA/ALIAS/SUBSET stay "structure".
+  {
+    selector: 'edge[category="flow"]',
+    style: {
+      'width': 3,
+      'line-style': 'solid',
+      'line-color': '#2ECC71',
+      'target-arrow-color': '#2ECC71',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 1.0,
+    },
+  },
   // Structure (SCHEMA, ALIAS, SUBSET)
   {
     selector: 'edge[category="structure"]',
@@ -613,6 +628,17 @@ export const CATEGORY_EDGE_STYLES = [
       'target-arrow-shape': 'triangle',
       'arrow-scale': 0.9,
       'opacity': 1.0,
+    },
+  },
+  // J12-19 (render-only): field→own-table edges live INSIDE the table box
+  // (fields sit at table.pos + frozen offset; the box paints an opaque
+  // background, and Cytoscape draws edges below nodes by default). Raising
+  // their z-index draws them above the box so they are visible + clickable.
+  // The class is applied render-only in useCytoscapeGraph — payload untouched.
+  {
+    selector: 'edge.field-to-own-parent',
+    style: {
+      'z-index': 1,
     },
   },
   // Edge click → highlight (gold)

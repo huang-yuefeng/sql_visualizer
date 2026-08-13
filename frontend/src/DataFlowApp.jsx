@@ -304,7 +304,10 @@ export default function DataFlowApp() {
     if (!entry) return;
 
     if (isL2 && entry.type === 'script') {
-      // Navigate to L2
+      // Navigate to L2 — the L2 fetch is driven by entry.parent_view_id,
+      // so a stale parentViewIdRef (left pointing at the last-searched
+      // view) must not survive into a later L1 double-click (CR6).
+      parentViewIdRef.current = null;
       try {
         const parentView = views.find(v => v.view_id === entry.parent_view_id);
         const result = await api.getLevel2Graph(wsId, entry.parent_view_id, entry.script_name, true, parentView?.direction || direction);
@@ -320,7 +323,10 @@ export default function DataFlowApp() {
         setError(e.message);
       }
     } else {
-      // Navigate to L1
+      // Navigate to L1 — this view becomes the context for a subsequent
+      // L2 open (double-click): keep parentViewIdRef in sync so handleOpenL2
+      // resolves the right parent view + direction (CR6).
+      parentViewIdRef.current = viewId;
       setL1Graph(entry.l1_graph_cache || { nodes: [], edges: [] });
       setGraphLevel('L1');
       setL2Graph(null);

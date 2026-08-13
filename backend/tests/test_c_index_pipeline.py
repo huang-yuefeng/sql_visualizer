@@ -434,8 +434,24 @@ class TestC5StarExpansion:
             fi2 = json.loads((cache_dir / "field_index.json").read_text())
             assert fi2["order_id"]["scripts"] == ["q.sql"], fi2["order_id"]
             from app.services.dataflow_service import create_search
-            sr = asyncio.run(create_search(ws, "orders", "order_id", ti, fi2))
-            assert sr["match_mode"] == "exact", sr
+            # R29 (2026-08-13): create_search's default direction is now
+            # "upstream" (writing flow); orders.order_id is read-only here
+            # (SELECT * reads it, nobody writes it from another field), so
+            # the C-5 search-visibility check uses the downstream
+            # (reading) projection. The star stays a `*` expression at the
+            # GRAPH level (C-5 star expansion is index-level only), so no
+            # orders.order_id variable exists for the directional
+            # field-flow walker to expand — the L1 closure is empty and
+            # the search reports the R29 "no_flow" state (field IS in the
+            # scripts, but this direction's closure is empty). The C-5
+            # contract — a search for orders.order_id FINDS the script —
+            # is carried by script_ids (the star-expanded field_index says
+            # q.sql reads order_id), which is exactly the pre-C-5 silent
+            # vanish this test pins.
+            sr = asyncio.run(create_search(ws, "orders", "order_id", ti, fi2,
+                                           direction="downstream"))
+            assert sr["match_mode"] == "no_flow", sr
+            assert sr["l1_graph"]["nodes"] == [], sr["l1_graph"]
             assert "q.sql" in sr["script_ids"], sr
         finally:
             delete_workspace(ws)

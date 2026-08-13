@@ -1079,6 +1079,24 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
         from the graph."""
         return stmt_trunk.get(_stmt_of(e), intermediate_id)
 
+    # J12-18: rerouted edges must carry the trunk's own target label/line.
+    # The carried _tgt_label/_tgt_line are stamped ONCE at _carry_edge_info
+    # from the RAW DML target (the write table); re-targeting onto the ⟐
+    # output VT leaves them stale, so the payload's own segment (built
+    # from the carried labels) names the DML table while the drawn edge
+    # ends at the output VT. _tgt_output (set in _attach_flow_payload)
+    # marks the rerouted case.
+    l2id_to_tn = {tn["id"]: tn for tn in table_nodes.values()}
+
+    def _retarget_to_trunk(e: dict, trunk_id: str) -> None:
+        """Re-point e onto its statement's ⟐ output trunk and refresh the
+        carried target label/line to the trunk's own (J12-18)."""
+        e["target"] = trunk_id
+        _tn = l2id_to_tn.get(trunk_id)
+        if _tn is not None:
+            e["_tgt_label"] = _tn.get("table_name") or _tn.get("label", "")
+            e["_tgt_line"] = _safe_int(_tn.get("line_start"))
+
     # Collect DML target tables and DML source→target pairs
     # Bug 46: Populate from full_graph.edges (unfiltered), not new_edges.
     # filter_relevant() removes DML edges whose source columns are not in
@@ -1152,7 +1170,7 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
                 # duplicates the routed write leg trunk→target; its flow
                 # is already represented). Drop the redundant duplicate.
                 continue
-            e["target"] = _trunk_for(e)
+            _retarget_to_trunk(e, _trunk_for(e))
             e["id"] = f"l2e_{hashlib.md5(f'{e['source']}{e['target']}{e['edge_type']}'.encode()).hexdigest()[:12]}"
             new_dml_edges.append(e)
             continue
@@ -1178,7 +1196,7 @@ def _simplify_dml_edges(new_edges: list, full_graph: dict, id_map: dict,
             if src in target_field_ids and src != intermediate_id:
                 value_edge = dict(e)
                 value_edge["id"] = f"{e['id']}_value"
-                value_edge["target"] = _trunk_for(e)
+                _retarget_to_trunk(value_edge, _trunk_for(e))
                 value_edge["edge_type"] = "TABLE_FLOW"
                 value_edge["label"] = "TABLE_FLOW"
                 value_edge["_dml_origin"] = True

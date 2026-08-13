@@ -86,8 +86,9 @@ export async function uploadFilterConfig(wsId, scriptTableFile, tableColFile) {
 }
 
 // R29: direction — 'upstream' (writing flow) or 'downstream' (reading flow).
-// The frontend ALWAYS sends it explicitly; the API default is downstream.
-export async function searchDataFlow(wsId, table, field, direction = 'downstream') {
+// The frontend ALWAYS sends it explicitly; the client default is upstream
+// (the documented writing-flow contract — CR7 ruling 2026-08-13).
+export async function searchDataFlow(wsId, table, field, direction = 'upstream') {
   const res = await fetch(`/api/workspace/${wsId}/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -107,7 +108,7 @@ export async function deleteView(wsId, viewId) {
   return res.json();
 }
 
-export async function getLevel2Graph(wsId, viewId, script, filter = true, direction = 'downstream') {
+export async function getLevel2Graph(wsId, viewId, script, filter = true, direction = 'upstream') {
   const params = new URLSearchParams({ script, filter: String(filter), direction });
   const res = await fetch(bust(`/api/workspace/${wsId}/views/${viewId}/level2?${params}`));
   if (!res.ok) throw new Error(await errorDetail(res));

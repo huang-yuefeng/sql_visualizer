@@ -2,6 +2,8 @@
 
 > **Seed:** `rrcdm_job_log_exec_par.data_dt` | **Workspace:** `samples/sql_sample_v1/` (3 scripts) | **Date:** 2026-08-12 | **Status:** DEFINED (R29) — §2.2/§3.2 REPAIRED 2026-08-12 with probe evidence (repin round: the downstream projection is the writer's own leg, NOT empty — see §3.2)
 >
+> **CR10 re-derivation status (2026-08-13):** the §3.2 writer's-own-leg closures (RDP1-3 / RDS1-3 / RDD1-3) were REPINNED FROM THE SERVED CLOSURES (probe-pinned, "byte-identical to HEAD") — circular per the CR10 ruling. The independent re-derivation (backend/tests/test_independent_r29_ground_truth.py) re-verifies the closures against the SQL SOURCE TEXT: each script's INSERT INTO TABLE rrcdm_job_log_exec_par(... data_dt ...) target line (PL@253, SUP_M@211, DL@549) and literal write column (`'…' AS data_dt`, PL@254, SUP_M@213, DL@550) are SQL-verifiable, and no script READS the table (the writer's-own-leg shape is SQL-derived). The write-chain rows (data_dt→output, output→rrcdm) are SQL-verifiable; the output-VT membership SCHEMA rows (URP2/URS2/RDP2/RDS2/RDD2) are flagged `pending` in jaccard_canonical.py (Phase-4c rendering convention — must be re-derived before they count as independent ground truth).
+>
 > **Shape purpose:** the queried field has WRITERS but NO READERS in the workspace — exercises the **upstream-only** writing chain and the **writer's-own-leg downstream** projection.
 
 ## 1. Workspace facts (verified 2026-08-12)

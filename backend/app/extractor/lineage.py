@@ -447,6 +447,29 @@ def _is_containment(ed) -> bool:
     return bool(getattr(ed, "containment", False))
 
 
+def _is_spurious_ref_copy(ed, src_node) -> bool:
+    """Phase-3 REFERENCE edge whose SOURCE is a subquery output column.
+
+    A Virtual-Table output column (source_tables[0] starting with '⟐') is
+    the RESULT of a subquery — its value flows OUT to the parent query,
+    never INTO same-level sibling reads. The last-writer-wins
+    `full_col_index` name match wires such an output column as the "source"
+    of a same-named read in a DIFFERENT table (lending_ref@22 →
+    lending_ref@13/@26/@50), producing the CR10 LFS6/LFS7 self-loops. The
+    edge stays in the graph so the walker can bridge the subquery
+    structure, but is NOT emitted as a flow edge. All other REFERENCE
+    edges (real-table same-name reads, renamed copies, CONCAT/join-key
+    operands into expressions) are unaffected.
+    """
+    d = ed.get("data", ed) if isinstance(ed, dict) else ed
+    if d.get("relationship") != "REF":
+        return False
+    if (d.get("operation") or "").upper() != "REFERENCE":
+        return False
+    st = (src_node or {}).get("source_tables") or []
+    return bool(st) and str(st[0]).startswith("⟐")
+
+
 def _occ_field_part(o) -> str:
     """Last dotted segment of an occurrence's label — the field name
     proper (mirror of the retired display-side _field_part)."""
@@ -547,10 +570,12 @@ def compute_field_flow(graph_data, target_table, target_field,
 
     R29 (2026-08-12) `direction` — the QUERY direction, per the formal
     definition (wiki/DATAFLOW_FORMAL_DEFINITION.md §Field-Level Data
-    Flow). Default "downstream" = the current behavior EXACTLY (the
-    effect-scope walk above — the Jaccard gate pins byte-identity).
-    "upstream" = the TRANSITIVE WRITING chain of the field — where the
-    field's value comes from — with the upstream rule set:
+    Flow). Default "downstream" = the effect-scope closure walk above
+    (W1-W6 + identity admissions + the R29 row-level continuation rounds
+    — the closure is no longer byte-identical to the pre-R29 walk since
+    the R29 walker landed, c037885). "upstream" = the TRANSITIVE
+    WRITING chain of the field — where the field's value comes from —
+    with the upstream rule set:
 
       U1 seeds = the field's WRITE instances only — the DML write
          targets (occurrences that are the targets of the field's write
@@ -677,7 +702,7 @@ def compute_field_flow(graph_data, target_table, target_field,
         _top = ((_o or {}).get("context") or "").split("/", 1)[0]
         if _top.startswith("TOP"):
             return _top
-        if _top.startswith("CTE{"):
+        if _top.startswith("CTE{") and "}" in _top:
             _cvid = _cte_occurrence(pm, _top[4:_top.index("}")], occ)
             if _cvid is not None:
                 return _cte_top.get(_cvid)
@@ -702,7 +727,11 @@ def compute_field_flow(graph_data, target_table, target_field,
             if (E.operation or "").upper() == "WRITE_READ":
                 continue
             tgt_tbl = pm.tables.get(E.target[0]) if E.target[0] else None
-            if tgt_tbl is None or tgt_tbl.name != target_table:
+            # CR11: case-insensitive — field-part logic lowercases, so the
+            # table-name comparison must too (a searched-table casing
+            # mismatch otherwise misses the write-target seeds).
+            if (tgt_tbl is None
+                    or tgt_tbl.name.lower() != target_table.lower()):
                 continue
             if target_field.lower() in _dml_write_leg.get(E.target_id, ()):
                 seeds.add(E.target_id)
@@ -887,7 +916,24 @@ def compute_field_flow(graph_data, target_table, target_field,
                     nb_st = (nb_o or {}).get("source_tables") or []
                     admit = bool(nb_st) and nb_st[0] == target_table
                 elif et in ("FILTER", "JOIN"):
-                    admit = _seed_zone(nid) or _seed_zone(nb)
+                    # W4 (J12-20, option b, 2026-08-13): a FILTER/JOIN edge
+                    # admits only when the SEARCHED field itself is an
+                    # endpoint — the bare seed-zone test was too broad: it
+                    # admitted every co-filter SIBLING of the same WHERE
+                    # clause (e.g. charge_department next to the data_dt
+                    # filter on bdm_acc_loan_info), which is NOT on the
+                    # searched field's flow path (J12-21 field-usage
+                    # criterion). The searched field's own filter/join is
+                    # the row-selection that renders its REF edge.
+                    admit = False
+                    if _seed_zone(nid) or _seed_zone(nb):
+                        for _ep in (nid, nb):
+                            _eo = occ(_ep)
+                            if (_eo is not None
+                                    and _occ_field_part(_eo).lower()
+                                    == target_field.lower()):
+                                admit = True
+                                break
                     if not admit:
                         # R29 continuation: a row-selection whose
                         # endpoint column was WRITTEN in the effect
@@ -1069,8 +1115,9 @@ def compute_field_flow(graph_data, target_table, target_field,
                 for _ep in (_E.source_id, _E.target_id):
                     _eo = occ(_ep)
                     _st = _stmt_of(_eo)
-                    if _st:
+                    if _st and _st not in _sel_stmts:
                         _sel_stmts.add(_st)
+                        changed = True
 
         # ── identity-admission round (owner-holders, physical tables,
         # CTE containers — existing rules, model-sourced) ──
@@ -1142,10 +1189,37 @@ def compute_field_flow(graph_data, target_table, target_field,
                     continue
                 o = occ(nid)
                 ident = _occ_identity(o) if o is not None else ""
-                if ident and ident == (o or {}).get("name") and ident in chain:
-                    visited.add(nid)
-                    changed = True
-                    _register(nid)
+                if not (ident and ident == (o or {}).get("name")
+                        and ident in chain):
+                    continue
+                # J12-21: scope-gate the bare-instance admission (mirror
+                # of the W6b test above) — admit only when this instance's
+                # context is an ancestor-or-equal of a VISITED field var
+                # carrying the target field part. Without the gate, a
+                # same-table read inside an unrelated CTE/subquery cascades
+                # the whole branch into the closure (Digitallending
+                # ODS_CUPD_CLD_ACCTMASTER_NEW.BNQXYE admitted temp_kmbh_gl/
+                # temp_kmbh_ie's t@62/t@82 and the CTE-internal ODS@p1
+                # instances). The intended peer-statement reader (SUP_M
+                # bdm_acc_loan_info_sup@223, ctx=TOP1) still passes — the
+                # visited data_dt vars carry the same TOP1 context.
+                sctx = (o or {}).get("context") or ""
+                scoped = False
+                for fv in node_map.values():
+                    if (fv.get("variable_type") in FIELD_LIKE
+                            and fv.get("id") in visited
+                            and _occ_field_part(
+                                occ(fv.get("id"))) == target_field):
+                        fctx = fv.get("context") or ""
+                        if (fctx == sctx
+                                or fctx.startswith(sctx.rstrip("/") + "/")):
+                            scoped = True
+                            break
+                if not scoped:
+                    continue
+                visited.add(nid)
+                changed = True
+                _register(nid)
     # D1: the fixpoint is capped at 100 rounds (monotone — should never
     # fire); when it does, the closure may be incomplete — surface it in
     # the log instead of silently returning a partial closure.
@@ -1183,11 +1257,15 @@ def filter_by_field_flow(graph_data, target_table, target_field,
                                  direction=direction)
     nodes = graph_data.get("nodes", []) or []
     edges = graph_data.get("edges", []) or []
+    node_map = {n.get("data", n).get("id"): n.get("data", n) for n in nodes}
     filtered_nodes = [n for n in nodes if n.get("data", n).get("id") in closure]
     filtered_edges = [e for e in edges
                       if (e.get("data", e).get("source") in closure and
                           e.get("data", e).get("target") in closure and
-                          not _is_containment(e.get("data", e)))]
+                          not _is_containment(e.get("data", e)) and
+                          not _is_spurious_ref_copy(
+                              e.get("data", e),
+                              node_map.get(e.get("data", e).get("source"))))]
     return {
         **{k: v for k, v in graph_data.items() if k not in ("nodes", "edges")},
         "nodes": filtered_nodes,
@@ -1221,9 +1299,9 @@ def filter_by_field_flow(graph_data, target_table, target_field,
 # to TABLE_FLOW (stamped category="write") — they count as flow-in to the
 # target, as they must. Everything else (REF/TRANSFORM/COMPUTED/
 # AGGREGATE/WINDOW/FILTER/JOIN/INDIRECT/CORRELATED/DML/SET_OP/SUBQUERY)
-# is flow. The `category` field is deliberately NOT consulted: the L2
-# TABLE_FLOW chain edges carry category="structure" yet ARE flow, so the
-# edge type is the single discriminator.
+# is flow. The `category` field is deliberately NOT consulted: TABLE_FLOW
+# is flow by edge type regardless of its visual category (J12-23 moved it
+# out of "structure" into "flow" — the edge type stays the discriminator).
 NON_FLOW_EDGE_TYPES = {"ALIAS", "SCHEMA", "SUBSET"}
 # DML write keywords — extraction-time attribution (dependency_graph
 # Phase 1c: MERGE_TARGET vars, and TABLE vars whose defined_in names one).

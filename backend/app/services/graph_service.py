@@ -90,7 +90,12 @@ CATEGORY_MAP = {
     "FILTER": "filter", "JOIN": "filter", "INDIRECT": "filter", "CORRELATED": "filter",
     "SET_OP": "combine", "SUBQUERY": "combine",
     "DML": "write",
-    "SCHEMA": "structure", "ALIAS": "structure", "SUBSET": "structure", "TABLE_FLOW": "structure",
+    # J12-23: TABLE_FLOW is the primary value-flow edge ("table feeds
+    # output", green width 3) — NOT a containment/rename/bridge edge. It
+    # moved out of "structure" into a value-flow category so it no longer
+    # renders in the structure color; SCHEMA/ALIAS/SUBSET stay "structure".
+    "SCHEMA": "structure", "ALIAS": "structure", "SUBSET": "structure",
+    "TABLE_FLOW": "flow",
 }
 
 def get_edge_style(edge_type: str) -> dict:
