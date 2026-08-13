@@ -219,3 +219,23 @@ swatch colors + solid borders (138 frontend tests pass). The stale green/dashed
 `cte_table` override was also removed from `L2_DETAIL_STYLES` so the purple/solid
 With-table actually renders in L2. Display-only — backend type strings, caches,
 snapshots, and the Jaccard benchmark are unchanged.
+
+**Superseded 2026-08-13 (v3.3.158):** the 3-group legend (L2 Node Types / L2 Node
+Roles / Field Marker) described above was superseded — the **L2 Node Roles** and
+**Field Marker** groups were removed in v3.3.158 by user decision; the legend now
+shows only the 5 table node types. See the next amendment.
+
+---
+
+### Amendment (2026-08-13) — L2 legend: only the 5 table node types
+
+§4 L2 legend amended (display only): the legend now shows ONLY the 5 L2 table node
+types. The **"L2 Node Roles"** group (Source node / Target node / Waypoint, R28)
+and the **"Field Marker"** group (Searched field) were **removed** from the legend
+by user decision on 2026-08-13. The legend shows exactly the 5 table-node types
+with their display names + colors (Source table / Target table / With table /
+Anonymous table / Alias table). Rationale: user ruling 2026-08-13 — the legend
+should show only the 5 types; role badges on the nodes and the gold searched-field
+styling are **unchanged** (only the legend entries were removed).
+
+**Status: implemented 2026-08-13 (v3.3.158).**

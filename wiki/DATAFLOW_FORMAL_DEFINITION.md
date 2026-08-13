@@ -182,6 +182,20 @@ removed (it assembled after `COMPOUND_STYLES` and would have won the cascade).
 `DataFlowLegend.jsx` + `DataFlowLegend.test.jsx` regrouped by level. Display-only:
 L2 node `type` strings, caches, snapshots, benchmark unchanged; L1 untouched.
 
+> **Superseded 2026-08-13 (v3.3.158):** the 3-group legend (L2 Node Types / L2 Node
+> Roles / Field Marker) described above was superseded — the **L2 Node Roles** and
+> **Field Marker** groups were removed in v3.3.158 by user decision; the legend now
+> shows only the 5 table node types. See the next section.
+
+### L2 Legend — only the 5 table node types (2026-08-13, v3.3.158)
+
+The L2 legend renders only the 5 table-node types (display names + colors from
+`L2_TABLE_COLORS`). The **"L2 Node Roles"** group (Source / Target / Waypoint,
+R28) and the **"Field Marker"** searched-field group were **removed** from the
+legend by user ruling (2026-08-13). Node role badges on the graph and the gold
+`#FFD700` searched-field node styling are **unchanged** — only the legend entries
+were removed. Files: `frontend/src/components/DataFlowLegend.jsx` (+ test).
+
 ## Cycles
 
 Cycles CAN exist in the data flow:
