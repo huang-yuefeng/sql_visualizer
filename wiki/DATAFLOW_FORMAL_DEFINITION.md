@@ -369,6 +369,20 @@ Example: querying `ODS_CUPD_CLD_ACCTMASTER_NEW.BNQXYE` (referenced once, in the 
 
 Display note: the physical table merges to one node (R22), but per-context aliases/CTEs/subqueries do **not** merge — those are the nodes an unscoped table-identity admission would leak in. This is the field-level analogue of the L1 "no table-level expansion" rule.
 
+### Writer's Own Leg (standard downstream case, 2026-08-13)
+
+**A field that is written but never read still has a downstream projection** — "no readers" is not "empty". Downstream = all FIELD_LIKE occurrences of Y, and the write site itself is a FIELD_LIKE occurrence of Y, so it is always in the downstream flow.
+
+In this case the downstream projection is the **writer's own leg** — the writing statement's own 3-node chain, produced by no reader:
+
+```
+write column Y ──(SCHEMA)──▶ statement output ──(TABLE_FLOW)──▶ DML target table
+```
+
+The writing statement's FROM inputs stay out (different field instance). Upstream in the same case terminates at the literal (no producing field to back-trace).
+
+This is a **standard case, not an edge case** — it arises for every written-only sink/log/audit table. Canonical example: `rrcdm_job_log_exec_par.data_dt` (written from a literal `'$(load_date)'` by all three scripts, read by none); its L2 downstream is the writer's own leg, non-empty.
+
 ### Edge-Type Rules
 
 Each of the 16 edge types has a specific rule. Direction: **↑** = upstream (backward from Y — "where does Y come from?"), **↓** = downstream (forward from Y — "where does Y go?").
