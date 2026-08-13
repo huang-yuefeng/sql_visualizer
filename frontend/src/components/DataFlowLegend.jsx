@@ -1,5 +1,5 @@
 import React from 'react';
-import { L2_ROLE_COLORS, SEARCHED_FIELD_COLOR, L2_TABLE_COLORS, L2_TABLE_TYPE_NAMES } from '../utils/graphStyles';
+import { L2_TABLE_COLORS, L2_TABLE_TYPE_NAMES } from '../utils/graphStyles';
 
 const L2_LEGEND = [
   { label: 'Table', color: '#4A90D9', shape: '■' },
@@ -60,17 +60,14 @@ const CATEGORY_LEGEND = [
 // R28 (2026-08-11): the L2 legend is a NODE legend — the edge legend is
 // gone because R25 rule 5 already labels EVERY edge at its midpoint with
 // its flow kind in category color (the old legend only duplicated the
-// graph). The node roles, by contrast, were only tiny S/T/W badges —
-// never explained. Source and target are the emphasized entries; the
-// swatch colors are L2_ROLE_COLORS from graphStyles.js — the SAME
-// palette the L2_NODE_ROLE_STYLES stylesheet uses, so the legend always
-// matches the graph. Edge kinds stay visible on the edges themselves +
-// the hover tooltip (R25 secondary surface).
+// graph).
 //
-// (R31, 2026-08-13): the L2 legend additionally lists the five table-node
-// TYPES — display names from L2_TABLE_TYPE_NAMES, swatches from
-// L2_TABLE_COLORS (the same palette the compound table styles use) — and
-// the searched-field marker moves under its own "Field Marker" title.
+// (2026-08-13): the L2 legend lists the five table-node TYPES — display
+// names from L2_TABLE_TYPE_NAMES, swatches from L2_TABLE_COLORS (the same
+// palette the compound table styles use). The L2 node-role entries
+// (Source node / Target node / Waypoint) and the "Field Marker"
+// searched-field entry were REMOVED by user decision so the legend shows
+// only the 5 table types.
 const L2_NODE_TYPE_LEGEND = [
   {
     type: 'source_table',
@@ -109,46 +106,7 @@ const L2_NODE_TYPE_LEGEND = [
   },
 ];
 
-const L2_NODE_ROLE_LEGEND = [
-  {
-    role: 'source',
-    label: 'Source node',
-    color: L2_ROLE_COLORS.source.border,
-    fill: L2_ROLE_COLORS.source.fill,
-    strong: true,
-    desc: "the searched table — the flow's start",
-  },
-  {
-    role: 'target',
-    label: 'Target node',
-    color: L2_ROLE_COLORS.target.border,
-    fill: L2_ROLE_COLORS.target.fill,
-    strong: true,
-    desc: 'flow destinations / output tables',
-  },
-  {
-    role: 'waypoint',
-    label: 'Waypoint',
-    color: L2_ROLE_COLORS.waypoint.border,
-    fill: L2_ROLE_COLORS.waypoint.fill,
-    dashed: true,
-    desc: 'intermediate tables on the flow path',
-  },
-];
-
-const L2_FIELD_MARKER_LEGEND = [
-  {
-    role: 'searched',
-    label: 'Searched field',
-    color: SEARCHED_FIELD_COLOR,
-    fill: SEARCHED_FIELD_COLOR,
-    strong: true,
-    circle: true, // fields render as ellipses — the swatch mirrors the shape
-    desc: 'field-level marker — the searched column, solid gold wherever it appears (source table and every alias/CTE/target copy that carries it)',
-  },
-];
-
-function L2NodeRoleLegend({ structureEdgesHidden, structureEdgeCount }) {
+function L2NodeTypeLegend({ structureEdgesHidden, structureEdgeCount }) {
   const swatch = item => ({
     display: 'inline-block', width: 12, height: 12,
     borderRadius: item.circle ? '50%' : 2,
@@ -157,28 +115,12 @@ function L2NodeRoleLegend({ structureEdgesHidden, structureEdgeCount }) {
     border: `2px ${item.dashed ? 'dashed' : 'solid'} ${item.color}`,
   });
   return (
-    <div className="dataflow-legend" data-testid="legend-l2-node-roles">
+    <div className="dataflow-legend" data-testid="legend-l2-node-types">
       <span className="legend-title">L2 Node Types</span>
       {L2_NODE_TYPE_LEGEND.map(item => (
         <span key={item.type} className="legend-item" title={item.desc}>
           <span style={swatch(item)} />
           <span style={item.strong ? { fontWeight: 700 } : undefined}>{L2_TABLE_TYPE_NAMES[item.type]}</span>
-        </span>
-      ))}
-
-      <span className="legend-title">L2 Node Roles</span>
-      {L2_NODE_ROLE_LEGEND.map(item => (
-        <span key={item.role} className="legend-item" title={item.desc}>
-          <span style={swatch(item)} />
-          <span style={item.strong ? { fontWeight: 700 } : undefined}>{item.label}</span>
-        </span>
-      ))}
-
-      <span className="legend-title">Field Marker</span>
-      {L2_FIELD_MARKER_LEGEND.map(item => (
-        <span key={item.role} className="legend-item" title={item.desc}>
-          <span style={swatch(item)} />
-          <span style={item.strong ? { fontWeight: 700 } : undefined}>{item.label}</span>
         </span>
       ))}
       {/* R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow —
@@ -198,7 +140,7 @@ export default function DataFlowLegend({ level, structureEdgesHidden, structureE
   if (level === 'L1') {
     items = L1_LEGEND;
   } else if (level === 'L2') {
-    return <L2NodeRoleLegend structureEdgesHidden={structureEdgesHidden} structureEdgeCount={structureEdgeCount} />;
+    return <L2NodeTypeLegend structureEdgesHidden={structureEdgesHidden} structureEdgeCount={structureEdgeCount} />;
   } else if (level === 'categories') {
     items = CATEGORY_LEGEND;
     title = '7 Edge Categories';
