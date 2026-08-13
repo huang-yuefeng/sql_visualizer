@@ -1437,3 +1437,36 @@ Today L1 filters by the legacy **table-level** lineage (`compute_field_lineage` 
 - [ ] **Two-directional verification (user ruling 2026-08-12) — downstream and upstream are verified separately, each against its own ground truth:** the DOWNSTREAM flow is verified against the existing gate ground truth (its flow targets are consumers — e.g. the bdm seed reaches sup@160 and rrcdm@211); the gate harness pins `direction=downstream`, L2 payload byte-identity holds there (Jaccard gate + full backend suite unchanged; L1 is not part of the gate)
 - [ ] The UPSTREAM flow is verified against the upstream ground truth built 2026-08-12 (before coding), four seeds in `tools/GROUND_TRUTH_*.md` — `bdm_acc_loan_info.data_dt` (both; upstream literal-terminated), `rrcdm_job_log_exec_par.data_dt` (upstream-only, empty downstream), `ods_hie_ipacmsp.iiapty` (downstream-only, empty upstream), `bdm_acc_loan_info.lending_ref` (both; real producing chain acnw → lending_ref) — each with L1 projections (including the EMPTY directions: L1 renders a clear "no flow in this direction" state, not an error) and per-script L2 directional flows
 
+## R30 — L2 edge flow-direction display: mid-arrow + structure/flow color split + click-edge flow cone (requirement change, 2026-08-13)
+
+> **Priority:** P2 | **Date:** 2026-08-13 | **Status:** DEFINED — implementation pending (no source change)
+
+**Description:** L2 makes each edge's data-flow direction readable at a glance, and lets a click on any value-flow edge reveal the full flow cone through it — **without animation**. Three pieces: (1) value-flow edges get a **mid-point direction arrow**; (2) structure edges get a **uniform gray** distinct from value-flow colors; (3) clicking a value-flow edge highlights its **before/after flow cone** in two colors.
+
+### Problem
+
+Edge direction today is a triangle arrow at the **end** of the line, where it is often covered by the node label. The 16 edge types mix **value flow** and **structure** under one color system — and `TABLE_FLOW` ("table feeds output", the primary value-flow edge) is miscategorized `"structure"` in `graph_service.CATEGORY_MAP`, so it renders light-blue like a containment edge. There is no way to trace "where does this edge's data come from / go to" without reading the whole graph.
+
+### Requirement
+
+1. **Two edge classes, two color systems.** Value flow (`TABLE_FLOW, DML, TRANSFORM, COMPUTED, AGGREGATE, WINDOW, REF, FILTER, JOIN, SET_OP, SUBQUERY, CORRELATED, INDIRECT`) keeps its per-type color; structure (`SCHEMA, ALIAS, SUBSET`) gets one uniform gray. `TABLE_FLOW` is re-categorized out of `"structure"` (it is value flow).
+2. **Mid-point direction arrow.** Value-flow edges render their arrow at the line **midpoint** (native `mid-target-arrow-shape`), oriented `source → target` (the value-flow direction) — not at the line end (covered by the node label). Structure edges carry no mid-arrow.
+3. **Click-edge flow cone (two colors).** Clicking a value-flow edge `u → v` highlights its cone, anchored to the edge's own flow direction (independent of the query's upstream/downstream switch):
+   - **before** (amber `#F5A623`) = value-flow edges upstream of `u` (what flows in);
+   - **after** (cyan `#22D3EE`) = value-flow edges downstream of `v` (what flows out);
+   - the clicked edge itself is the **pivot** (gold, `edge-selected`);
+   - non-cone edges are dimmed (focus mode).
+4. **Value-flow only.** Structure edges are never part of the cone, never highlighted.
+5. **No animation.** The highlight is static (a one-shot class toggle) — no `requestAnimationFrame` loop, no moving particles.
+6. **L2 only.** The cone + mid-arrow are L2-only; L1 keeps its static arrows.
+
+### Acceptance criteria
+
+- [ ] `TABLE_FLOW` edges render in their value-flow (green) color, not the structure gray/blue
+- [ ] Structure edges (SCHEMA/ALIAS/SUBSET) render one uniform gray, distinct from every value-flow color
+- [ ] A value-flow edge's direction arrow sits at the line midpoint, oriented source → target, visible even when the target node's label is large
+- [ ] Clicking a value-flow edge highlights its before/after cone in amber/cyan with the edge as a gold pivot; non-cone edges dim; clicking empty space or another edge clears it
+- [ ] Clicking a structure edge does NOT produce a flow cone
+- [ ] The before/after cone is direction-correct in both query directions (downstream and upstream views)
+- [ ] No animation loop runs (static highlight only)
+

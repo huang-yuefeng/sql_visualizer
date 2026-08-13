@@ -1497,3 +1497,68 @@ carries a field of the queried field's flow.
     clear "no flow in this direction" state, not an error) and the per-script L2
     directional flows (e.g. data_dt upstream L2: literal-terminated write chains;
     SUP_M upstream L2: empty).
+
+---
+
+# J12-23 — L2 edge flow-direction display: mid-arrow + structure/flow split + click-edge flow cone (requirement change 2026-08-13)
+
+> **Date:** 2026-08-13 | **Status:** DEFINED (R30) — implementation pending, no source change
+
+## 1. The requirement (user's words, formalized)
+
+- L2 makes each edge's data-flow direction readable at a glance, and a click on a
+  value-flow edge reveals the full flow cone through it — **static highlight, no
+  animation** (a one-shot class toggle, no rAF loop).
+- **Two edge classes, two color systems**: value flow keeps its per-type color;
+  structure (`SCHEMA, ALIAS, SUBSET`) gets one uniform gray. `TABLE_FLOW` is
+  value-flow, not structure.
+- **Mid-point arrow**: value-flow edges show their direction arrow at the line
+  midpoint (native `mid-target-arrow-shape`), oriented `source → target` — the
+  direction value flows — instead of at the line end (covered by node labels).
+- **Click-edge flow cone (two colors)**: clicking a value-flow edge `u → v`
+  highlights, anchored to the edge's own flow direction (independent of the query's
+  upstream/downstream switch):
+  - **before** (amber `#F5A623`) = value-flow edges upstream of `u` (what flows in);
+  - **after** (cyan `#22D3EE`) = value-flow edges downstream of `v` (what flows out);
+  - the clicked edge = the **pivot** (gold, `edge-selected`);
+  - non-cone edges dimmed (focus mode).
+- **Value-flow only**: structure edges are never highlighted, never part of the cone.
+- **L2 only**: L1 keeps its static arrows.
+
+## 2. Why the current behavior differs (verified 2026-08-13)
+
+- Edge direction is a triangle at the line **end** (`target-arrow-shape`), often
+  covered by the (multi-line) node label.
+- `graph_service.CATEGORY_MAP` maps four types to `"structure"` — including
+  `TABLE_FLOW` ("table feeds output", the primary value-flow edge) — so `TABLE_FLOW`
+  renders light-blue (`graphStyles.js` `edge[category="structure"]`) instead of its
+  green value-flow color. There is no `edge[category="flow"]` rule to override it.
+- There is no click-to-trace: clicking an edge only highlights the SQL line
+  (`onEdgeTap` → `onEdgeClick`), never the flow.
+
+## 3. Design deltas (implementation, when staffed)
+
+- **`graph_service.CATEGORY_MAP`**: recategorize `TABLE_FLOW` out of `"structure"`
+  into a value-flow category (e.g. `"flow"`); keep `SCHEMA/ALIAS/SUBSET` as
+  `"structure"`.
+- **`graphStyles.js`**: (1) a gray structure rule (`edge[category="structure"]` → one
+  uniform muted color, e.g. `#7F8C8D`, thin, no mid-arrow); (2) value-flow edges
+  switch `target-arrow-shape` → `mid-target-arrow-shape` with
+  `mid-target-arrow-color: data(color)`; (3) a `flow-before` / `flow-after` /
+  `flow-dimmed` class set (amber `#F5A623` / cyan `#22D3EE` / low opacity).
+- **`useCytoscapeGraph` / `DataFlowGraph`**: extend `onEdgeTap` — on a value-flow
+  edge click, BFS the rendered `cy.edges()` (value-flow whitelist) upstream of the
+  edge's source (`before`) and downstream of its target (`after`), add the classes,
+  dim the rest. Background tap / another edge click clears. No rAF loop.
+- **Unchanged**: L1, the Jaccard gate (L2 payload is untouched — highlight is a
+  client-side class, no edge/node data change), the structure toggle (R19.4).
+
+## 4. Verification targets
+
+- `TABLE_FLOW` edges render green (value-flow), not light-blue/gray.
+- Structure edges render one uniform gray, distinct from all 13 value-flow colors.
+- Value-flow mid-arrow points `source → target` at the line midpoint, visible under a
+  large node label.
+- Click a mid-chain edge: amber cone upstream, cyan cone downstream, gold pivot,
+  non-cone dimmed; click a structure edge: no cone; click empty space: cleared.
+- Correct in both query directions (downstream/upstream views).

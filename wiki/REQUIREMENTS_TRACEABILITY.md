@@ -238,11 +238,20 @@
 | R29.5 | L2 follows the query direction automatically (zoom-in of L1) | 📝 | R29 (2026-08-12) |
 | R29.6 | L2 flow-reason source/target anchoring follows the direction (user ruling 2026-08-12): downstream → seed = SOURCE (R19.1 unchanged); upstream → seed = TARGET (sources = the fields writing it) | 📝 | R29 (2026-08-12) — mirrors R19.7 |
 
+## R30 — L2 edge flow-direction display: mid-arrow + structure/flow color split + click-edge flow cone (requirement change, 2026-08-13)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R30.1 | Two edge classes, two color systems: value flow keeps per-type color; structure (SCHEMA/ALIAS/SUBSET) gets one uniform gray; `TABLE_FLOW` re-categorized out of "structure" (value flow) | 📝 | R30 (2026-08-13) — see bug list J12-23 |
+| R30.2 | Mid-point direction arrow on value-flow edges (native `mid-target-arrow-shape`), oriented source → target — not the line end (covered by node labels); structure edges carry no arrow | 📝 | R30 (2026-08-13) |
+| R30.3 | Click-edge flow cone (two colors), anchored to the edge's own flow direction: before (amber #F5A623) = upstream of the edge; after (cyan #22D3EE) = downstream of it; the edge is the gold pivot; non-cone edges dim | 📝 | R30 (2026-08-13) |
+| R30.4 | Value-flow only: structure edges are never part of the cone, never highlighted | 📝 | R30 (2026-08-13) |
+| R30.5 | No animation (static one-shot class toggle); L2 only — L1 keeps its static arrows | 📝 | R30 (2026-08-13) |
+
 ## Summary
 | Metric | Count |
 |--------|-------|
 | ✅ Implemented | 114 (all) — 83 through R16 + 17 for R17–R20 + 14 for R26–R28 (count corrected to the actual row total, 2026-08-11) |
-| 📝 Design, not implemented | 1 — R29 (L1 field-level flow + query direction, 2026-08-12) |
+| 📝 Design, not implemented | 2 — R29 (L1 field-level flow + query direction) + R30 (L2 edge flow-direction display, 2026-08-13) |
 | Version | 3.3.150 |
 
 ## Key Fixes since V3.2.1
