@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import DataFlowGraph from '../DataFlowGraph';
 
 // The cytoscape instance is canvas-based — not testable in jsdom. The
@@ -91,9 +91,8 @@ describe('DataFlowGraph — R25/§8.8 edge interactions', () => {
 });
 
 // ── R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow ─────
-// The display toggle (default OFF = hidden) lives in the L2 toolbar next
-// to the legend; the hook gets the option, the toggle badge and the
-// legend note carry the structure-edge count.
+// Structure edges are ALWAYS hidden (the display toggle was removed as
+// seldom-used). The legend note still carries the structure-edge count.
 const withSchema = {
   nodes: graphData.nodes,
   edges: [
@@ -102,48 +101,25 @@ const withSchema = {
   ],
 };
 
-describe('DataFlowGraph — R19.4/R19.6a structure-edge toggle', () => {
-  it('renders the Structure toggle for L2 and reports clicks', () => {
-    const onToggle = vi.fn();
-    render(<DataFlowGraph graphData={graphData} level="L2"
-      showStructureEdges={false} onToggleStructureEdges={onToggle} />);
-    const btn = screen.getByRole('button', { name: /Structure off/ });
-    fireEvent.click(btn);
-    expect(onToggle).toHaveBeenCalledTimes(1);
+describe('DataFlowGraph — R19.4/R19.6a structure edges (always hidden)', () => {
+  it('does not render a Structure toggle for L2 (removed)', () => {
+    render(<DataFlowGraph graphData={withSchema} level="L2" />);
+    expect(screen.queryByRole('button', { name: /Structure/ })).not.toBeInTheDocument();
   });
 
-  it('passes showStructureEdges into the cytoscape hook options', () => {
-    render(<DataFlowGraph graphData={graphData} level="L2"
-      showStructureEdges={true} onToggleStructureEdges={vi.fn()} />);
-    expect(lastHookOptions().showStructureEdges).toBe(true);
-    render(<DataFlowGraph graphData={graphData} level="L2"
-      showStructureEdges={false} onToggleStructureEdges={vi.fn()} />);
-    expect(lastHookOptions().showStructureEdges).toBe(false);
-  });
-
-  it('shows the structure-edge count in the toggle badge', () => {
-    render(<DataFlowGraph graphData={withSchema} level="L2"
-      showStructureEdges={false} onToggleStructureEdges={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /Structure off \(1\)/ })).toBeInTheDocument();
-  });
-
-  it('does not render the Structure toggle for L1', () => {
+  it('does not render a Structure toggle for L1', () => {
     render(<DataFlowGraph graphData={graphData} level="L1" />);
     expect(screen.queryByRole('button', { name: /Structure/ })).not.toBeInTheDocument();
   });
 
-  it('legend note appears only while structure edges are hidden', () => {
-    const { rerender } = render(<DataFlowGraph graphData={withSchema} level="L2"
-      showStructureEdges={false} onToggleStructureEdges={vi.fn()} />);
+  it('legend note appears when the graph has structure edges (always hidden)', () => {
+    render(<DataFlowGraph graphData={withSchema} level="L2" />);
     expect(screen.getByTestId('legend-structure-note')).toBeInTheDocument();
     expect(screen.getByTestId('legend-structure-note').textContent).toContain('(1)');
-    rerender(<DataFlowGraph graphData={withSchema} level="L2"
-      showStructureEdges={true} onToggleStructureEdges={vi.fn()} />);
-    expect(screen.queryByTestId('legend-structure-note')).not.toBeInTheDocument();
   });
 
   it('no legend note when the graph has no structure edges', () => {
-    render(<DataFlowGraph graphData={graphData} level="L2" showStructureEdges={false} />);
+    render(<DataFlowGraph graphData={graphData} level="L2" />);
     expect(screen.queryByTestId('legend-structure-note')).not.toBeInTheDocument();
   });
 });
