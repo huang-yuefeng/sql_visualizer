@@ -57,9 +57,24 @@ def test_get_strategy_unknown_name_falls_back_to_single_line():
     assert get_strategy("") is STRATEGIES["single_line"]
 
 
-def test_flow_kinds_are_the_canonical_7():
+def test_flow_kinds_are_the_canonical_8():
+    """#226 — ROW_FLOW is the 8th canonical flow kind ("row flow"), the
+    row-selection bridge kind (nested VT → continuation container)."""
     assert FLOW_KINDS == ("chain", "field flow", "read", "write",
-                          "filter", "structure", "bridge")
+                          "filter", "structure", "bridge", "row flow")
+
+
+def test_row_flow_kind_anchor_and_role():
+    """ROW_FLOW edges are 'row flow', anchored at the nested VT's creation
+    line (the subquery that does the row-selection the bridge carries), with
+    the 'row selection' path role."""
+    e = _edge(edge_type="ROW_FLOW", _src_line=62, _tgt_line=82)
+    assert _flow_kind(e) == "row flow"
+    payload = _single_line_payload(e)
+    assert payload["highlight_line"] == 62
+    assert payload["flow_kind"] == "row flow"
+    assert "row selection" in payload["reason"]
+    assert payload["reason"].startswith("row flow (row selection)")
 
 
 def test_single_line_payload_read_edge_anchors_target_line():

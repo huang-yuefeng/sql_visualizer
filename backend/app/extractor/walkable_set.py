@@ -2,7 +2,7 @@
 the value-flow walkers follow (code-review 2026-08-06 item 4, RC-1
 hardening).
 
-The system classifies the 16 edge types in several places; this module
+The system classifies the 17 edge types in several places; this module
 is the walkability classification of the STRICT L2 walker
 (lineage.compute_field_flow), extracted to one importable place:
 
@@ -53,7 +53,7 @@ Invariant: this module imports nothing and is importable by every layer
 
 from __future__ import annotations
 
-# ── Walkability classes (partition of the 16 edge types) ────────────────
+# ── Walkability classes (partition of the 17 edge types) ────────────────
 
 # Followed both directions by the strict walker. (This is the former
 # literal FIELD_LAND in lineage.py, before the contract extraction.)
@@ -70,9 +70,14 @@ CONDITIONAL = frozenset({
 # Never entered the lineage closure.
 NEVER_WALKED = frozenset({
     "SCHEMA", "SUBQUERY", "SET_OP", "CORRELATED", "INDIRECT", "SUBSET",
+    # ROW_FLOW (2026-08-13, #226): the R29 row-selection BRIDGE — the
+    # walker itself emits it AFTER the closure fixpoint (an output edge,
+    # never a walk input): the strict value-flow walker must never follow
+    # it (it carries row-selection, not value). It is the 17th edge type.
+    "ROW_FLOW",
 })
 
-# All 16 edge types of the canonical taxonomy (lineage.EDGE_SEMANTICS,
+# All 17 edge types of the canonical taxonomy (lineage.EDGE_SEMANTICS,
 # graph_service.EDGE_TYPE_ORDER). Any edge type produced by the
 # extractor/builders must be a member (pinned on the flagship sample).
 ALL_EDGE_TYPES = FIELD_WALKABLE | CONDITIONAL | NEVER_WALKED
@@ -90,5 +95,5 @@ BRIDGE_EMIT_TYPES = frozenset({
 assert not (FIELD_WALKABLE & CONDITIONAL)
 assert not (FIELD_WALKABLE & NEVER_WALKED)
 assert not (CONDITIONAL & NEVER_WALKED)
-assert len(ALL_EDGE_TYPES) == 16, ALL_EDGE_TYPES
+assert len(ALL_EDGE_TYPES) == 17, ALL_EDGE_TYPES
 assert BRIDGE_EMIT_TYPES <= ALL_EDGE_TYPES

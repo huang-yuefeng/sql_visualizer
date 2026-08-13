@@ -39,8 +39,10 @@ FIELD_LIKE_TYPES = frozenset({
 })
 
 # ── The canonical flow-kind set (§8.8.1, ruled 2026-08-10) ──────────────
+# ROW_FLOW (2026-08-13, #226): "row flow" — the row-selection bridge the
+# user sees in the tooltip/legend/edge reason ("row-level flow").
 FLOW_KINDS = ("chain", "field flow", "read", "write", "filter",
-              "structure", "bridge")
+              "structure", "bridge", "row flow")
 
 # Synthetic-source VTs (rule 4 — the ⟐ nodes have no script presence of
 # their own; their anchor is the VT creation line, carried on _src_line).
@@ -68,6 +70,10 @@ def _flow_kind(e: dict) -> str:
         return "read" if op == "READ" else "bridge"
     if et == "INDIRECT":
         return "filter"
+    if et == "ROW_FLOW":
+        # #226 — the row-selection bridge (nested VT → continuation
+        # container): a distinct kind from value flow.
+        return "row flow"
     if et == "REF":
         if op == "READ":
             return "read"
@@ -124,6 +130,10 @@ def _anchor_line(e: dict, kind: str) -> int:
         # INDIRECT (correlated) — endpoint-decided: the field's token sits
         # at an endpoint (rule 14 of §8.7).
         return src_line if e.get("_src_field_like") else tgt_line
+    if kind == "row flow":
+        # #226 — the nested subquery VT's creation line (the subquery
+        # that does the row-selection the bridge carries).
+        return src_line
     return src_line                # rule 1 — field-flow appearance line
 
 
@@ -172,6 +182,10 @@ def _path_role(e: dict) -> str:
         return "compute step"
     if et in ("SET_OP", "SUBQUERY"):
         return "combine step"
+    if et == "ROW_FLOW":
+        # #226 — the row-selection bridge (nested VT → continuation
+        # container).
+        return "row selection"
     if et == "TABLE_FLOW":
         svt = e.get("_src_vt")
         tvt = e.get("_tgt_vt")

@@ -5,7 +5,7 @@ Pins app/extractor/walkable_set.py to the STRICT walker's effective
 behavior, so a change on either side fails here instead of drifting:
 
   1. Synthetic per-type probes: a seed field adjacent to a probe node
-     via ONE edge of each of the 16 types admits the probe node iff the
+     via ONE edge of each of the 17 types admits the probe node iff the
      contract classifies the type FIELD_WALKABLE or CONDITIONAL. The
      canonical probe shape satisfies every CONDITIONAL rule (ALIAS via
      source_tables match, FILTER/JOIN via the seed zone, DML forward,
@@ -38,10 +38,10 @@ SAMPLES = Path(__file__).resolve().parent.parent.parent / "samples"
 TARGET_TABLE = "t"
 TARGET_FIELD = "f"
 
-ALL16 = [
+ALL17 = [
     "TABLE_FLOW", "ALIAS", "REF", "AGGREGATE", "TRANSFORM", "WINDOW",
     "COMPUTED", "SCHEMA", "INDIRECT", "FILTER", "JOIN", "CORRELATED",
-    "DML", "SET_OP", "SUBQUERY", "SUBSET",
+    "DML", "SET_OP", "SUBQUERY", "SUBSET", "ROW_FLOW",
 ]
 
 
@@ -70,7 +70,7 @@ def _admitted(edge_type):
 
 
 def test_contract_partition_and_bridge_palette():
-    assert ws.ALL_EDGE_TYPES == frozenset(ALL16)
+    assert ws.ALL_EDGE_TYPES == frozenset(ALL17)
     assert not (ws.FIELD_WALKABLE & ws.CONDITIONAL)
     assert not (ws.FIELD_WALKABLE & ws.NEVER_WALKED)
     assert not (ws.CONDITIONAL & ws.NEVER_WALKED)
@@ -85,7 +85,7 @@ def test_contract_partition_and_bridge_palette():
 
 
 def test_contract_matches_walker_behavior_per_type():
-    for et in ALL16:
+    for et in ALL17:
         admitted = _admitted(et)
         contract_walkable = (et in ws.FIELD_WALKABLE or et in ws.CONDITIONAL)
         assert admitted == contract_walkable, (

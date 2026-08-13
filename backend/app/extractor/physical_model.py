@@ -63,11 +63,11 @@ COMPUTED_TYPES = frozenset({
     "expression", "aggregate", "window", "case", "transform", "literal",
 })
 
-# The 16 edge types (mirror of graph_service.EDGE_TYPE_STYLE).
+# The 17 edge types (mirror of graph_service.EDGE_TYPE_STYLE).
 EDGE_TYPES = frozenset({
     "TABLE_FLOW", "ALIAS", "REF", "AGGREGATE", "TRANSFORM", "WINDOW",
     "COMPUTED", "SCHEMA", "INDIRECT", "FILTER", "JOIN", "CORRELATED",
-    "DML", "SET_OP", "SUBQUERY", "SUBSET",
+    "DML", "SET_OP", "SUBQUERY", "SUBSET", "ROW_FLOW",
 })
 
 

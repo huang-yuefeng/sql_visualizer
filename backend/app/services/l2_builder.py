@@ -435,7 +435,17 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             # field-parent matching and the query-output routing pins rely
             # on the exact "⟐ output" sentinel, so only the label is
             # sanitized.
-            display_label = label[2:] if label.startswith("⟐ ") else label
+            # #223 (2026-08-13): a subquery-output VT (`⟐ X`, X ≠ "output")
+            # renders as `output(X)` so it reads as "the output of the
+            # subquery X" — clearly distinct from the derived-table alias X
+            # of the same name (the `⟐ t` vs `t` confusion). Top-level
+            # `⟐ output` keeps `output` (never a user alias; redundant).
+            if label.startswith("⟐ "):
+                _base = label[2:]
+                display_label = (_base if _base == "output"
+                                 else f"output({_base})")
+            else:
+                display_label = label
 
             if is_alias:
                 # C3 (v3.3.140): alias node identity is (label, line) — the
