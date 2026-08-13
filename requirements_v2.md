@@ -106,7 +106,22 @@ alias `X` — indistinguishable from the derived-table alias `X` of the same nam
 
 ---
 
-### Amendment (2026-08-13) — DIAGNOSED DEFECT: L2 renders disconnected "continuation" tables
+### Amendment (2026-08-13) — L2 legend: the gold "searched field" entry
+
+§4 amended (legend clarity): the L2 node-role legend (R28) documents the table
+roles (Source / Target / Waypoint) but not the **gold searched-field** nodes — the
+searched field renders solid gold (`#FFD700`, `node[type="field"][is_target]`) on
+the source table AND on every alias/CTE/target node that carries it, yet nothing
+explained the color.
+
+- Add a **"Searched field"** entry to the L2 legend: gold fill + gold border, a
+  **circle** swatch (fields render as ellipses), bold like Source/Target.
+- Color single-sourced as `SEARCHED_FIELD_COLOR` in `graphStyles.js`, referenced by
+  BOTH the `is_target` style rule and the legend swatch — the legend always matches
+  the graph.
+- Display-only change; no extractor/benchmark impact.
+
+**Status: implemented 2026-08-13 (v3.3.156).**
 
 §4 diagnosed (NOT a build task — a confirmed defect in the current output). When the
 searched field is a **JOIN KEY** (its value is consumed by the join and never becomes an
