@@ -817,6 +817,12 @@ R is the transitive closure of queried field Y, computed by applying 16 edge-typ
 
 `compute_field_lineage` in `lineage.py` is the single source of truth for lineage computation. Both L1 and L2 must use it. L1 must NOT use name-based filtering as a substitute.
 
+### Table Identity vs Field Flow (J12-21, 2026-08-13)
+
+**Same-table identity is not lineage** — the field-level analogue of "name matching is not lineage." A node enters R only if it is on the queried field Y's **flow path** (it produces, consumes, or carries Y); referencing the same physical table as Y is **necessary but not sufficient**.
+
+A bare table instance `T@L` inside an unrelated CTE/subquery is admitted only when its scope is on Y's flow path. If it reads `T.other_col` while Y is `T.target_col`, it is out of R even though it is the same table. Physical tables merge to one node (R22); per-context aliases/CTEs/subqueries do **not** — those are the nodes that would otherwise leak in (the "unrelated same-table fields are hidden" row governs *columns*; this governs *table instances/aliases/CTEs/subqueries* in a different scope).
+
 ### Example 1: Same-script fields
 
 `INSERT INTO stg_customers SELECT c.customer_id, c.full_name, c.segment FROM crm_customers c WHERE c.region='NA'`
