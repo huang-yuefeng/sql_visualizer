@@ -1656,3 +1656,33 @@ into distinct groups so no level is presented as a peer of another.
   `virtual_table`/`subquery_output`/etc. rules are dead in L2 output — no
   collision with the new Target green); full frontend suite 138/138 pass;
   `npm run build` clean.
+
+# v3.3.158 — L2 legend: only the 5 table node types (frontend, display-only)
+
+> **Date:** 2026-08-13 | **Version:** 3.3.158 (released) | **Status:** IMPLEMENTED —
+> merged; build + tests green; v3.3.158 deployed
+
+## 1. The change
+
+The L2 legend now shows only the 5 table-node types. Removed from the legend: the
+**"L2 Node Roles"** group (Source node / Target node / Waypoint) and the **"Field
+Marker"** searched-field group (user decision 2026-08-13). Node role badges on the
+graph and the searched-field gold `#FFD700` node styling **remain** — only the
+legend entries were removed. Display-only; no backend/benchmark impact.
+
+## 2. Files
+
+- `frontend/src/components/DataFlowLegend.jsx` — legend shows only the 5 L2
+  table-node types (display names + colors from `L2_TABLE_COLORS`).
+- `frontend/src/components/__tests__/DataFlowLegend.test.jsx` — updated to cover
+  the 5-type-only legend.
+- Docs: `requirements_v2.md`, `wiki/DATAFLOW_FORMAL_DEFINITION.md` (superseded
+  notes added to the v3.3.157 entries).
+
+## 3. Verification
+
+- Full frontend suite passes (node-role and Field Marker legend entries no longer
+  rendered; the 5 table-type swatches + labels intact).
+- `npm run build` clean.
+- Deployed as v3.3.158; display-only — backend type strings, caches, snapshots,
+  and the Jaccard benchmark unchanged.
