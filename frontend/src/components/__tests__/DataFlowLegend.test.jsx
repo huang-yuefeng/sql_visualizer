@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import DataFlowLegend from '../DataFlowLegend';
-import { L2_ROLE_COLORS } from '../../utils/graphStyles';
+import { L2_ROLE_COLORS, SEARCHED_FIELD_COLOR } from '../../utils/graphStyles';
 
 // Convert a #RRGGBB token to the rgb(r, g, b) form jsdom reports for
 // inline styles, so swatch assertions compare against L2_ROLE_COLORS.
@@ -19,13 +19,14 @@ function itemByLabel(container, label) {
 // the flow-kind EDGE legend (R25 rule 5 already labels every edge at its
 // midpoint with its flow kind; the old legend only duplicated the graph).
 describe('DataFlowLegend — L2 node-role legend (R28)', () => {
-  it('renders the three node roles when level is L2', () => {
+  it('renders the node roles when level is L2 (incl. the searched field)', () => {
     render(<DataFlowLegend level="L2" />);
     expect(screen.getByTestId('legend-l2-node-roles')).toBeInTheDocument();
     expect(screen.getByText('L2 Node Roles')).toBeInTheDocument();
     expect(screen.getByText('Source node')).toBeInTheDocument();
     expect(screen.getByText('Target node')).toBeInTheDocument();
     expect(screen.getByText('Waypoint')).toBeInTheDocument();
+    expect(screen.getByText('Searched field')).toBeInTheDocument();
   });
 
   it('no longer renders the flow-kind EDGE legend on L2', () => {
@@ -52,12 +53,22 @@ describe('DataFlowLegend — L2 node-role legend (R28)', () => {
     expect(waypoint.querySelector('span:first-child').style.borderColor).toBe(rgbOf(L2_ROLE_COLORS.waypoint.border));
     // Waypoints render a dashed border — the L2 node style is dashed too.
     expect(waypoint.querySelector('span:first-child').style.borderStyle).toBe('dashed');
+
+    // The searched field swatch is solid gold (matching
+    // node[type="field"][is_target]) and rendered as a circle (fields are
+    // ellipses in the graph).
+    const searched = itemByLabel(container, 'Searched field');
+    expect(searched.querySelector('span:first-child').style.backgroundColor).toBe(rgbOf(SEARCHED_FIELD_COLOR));
+    expect(searched.querySelector('span:first-child').style.borderColor).toBe(rgbOf(SEARCHED_FIELD_COLOR));
+    expect(searched.querySelector('span:first-child').style.borderStyle).toBe('solid');
+    expect(searched.querySelector('span:first-child').style.borderRadius).toBe('50%');
   });
 
-  it('emphasizes source and target labels (bold); waypoint stays plain', () => {
+  it('emphasizes source, target and searched-field labels (bold); waypoint stays plain', () => {
     const { container } = render(<DataFlowLegend level="L2" />);
     expect(itemByLabel(container, 'Source node').querySelector('span:last-child').style.fontWeight).toBe('700');
     expect(itemByLabel(container, 'Target node').querySelector('span:last-child').style.fontWeight).toBe('700');
+    expect(itemByLabel(container, 'Searched field').querySelector('span:last-child').style.fontWeight).toBe('700');
     expect(itemByLabel(container, 'Waypoint').querySelector('span:last-child').style.fontWeight).toBe('');
   });
 
