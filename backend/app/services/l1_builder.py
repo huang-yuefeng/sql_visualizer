@@ -12,6 +12,7 @@ import traceback
 from app.services.workspace_service import get_workspace_dir
 from app.extractor.lineage import compute_field_lineage, compute_field_flow, PRODUCTION_EDGES
 from app.extractor.physical_model import build_physical_model
+from app.extractor.variable_extractor_v2 import EXTRACTOR_VERSION
 from app.services.logger import _push
 
 _log = logging.getLogger("sql_visualizer.dataflow")
@@ -492,6 +493,35 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             script_data.append((name, sql))
 
     try:
+        # ── Analysis cache map (shared by Pass A and Pass B) ──
+        # Built ONCE from the workspace's analysis_*.json files. Both Pass A
+        # (the all_scripts entries) and Pass B (the physical models) resolve
+        # per-script analysis through `_lookup_analysis`, so a cache hit
+        # serves the SAME analysis dict to both passes — the graph and the
+        # model can never diverge (fresh-vs-cached L1 byte-identity).
+        cache_dir = scripts_dir.parent / "cache"
+        analysis_cache_map = {}  # script_name → analysis dict
+        if cache_dir.exists():
+            for af_path in sorted(cache_dir.glob("analysis_*.json")):
+                try:
+                    adata = json.loads(af_path.read_text())
+                    sname = adata.get("script_name", "")
+                    if sname:
+                        analysis_cache_map[sname] = adata
+                except Exception as exc:
+                    _log.warning("L1: failed to read analysis cache %s: %s",
+                                 af_path.name, exc)
+
+        def _lookup_analysis(sname: str) -> dict | None:
+            """Cache lookup: exact script_name first, then suffix match
+            (workspace-dir-prefixed names)."""
+            analysis = analysis_cache_map.get(sname)
+            if not analysis:
+                for cache_name, cache_data in analysis_cache_map.items():
+                    if cache_name.endswith("/" + sname) or cache_name == sname:
+                        return cache_data
+            return analysis
+
         if len(script_data) < 2:
             # R24: single-script workspace — analyze the one script inline
             # (analyze_multiple_scripts refuses <2 scripts) and feed the SAME
@@ -526,9 +556,23 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                 "_model": build_physical_model(result, script_name=name),
             }]
         else:
-            from app.services.multi_script_service import analyze_multiple_scripts
-            result = analyze_multiple_scripts(script_data)
-            all_scripts = result.get("scripts", [])
+            from app.services.multi_script_service import _build_script_entry
+            from app.extractor.adapter import run_full_analysis
+            # Pass A (>=2 scripts): build the all_scripts entries from the
+            # analysis cache when present (version-guarded — mirror of
+            # dataflow_service.get_level2_graph), falling back to the full
+            # extraction pipeline ONLY on a cache miss. Both paths go
+            # through the SAME `_build_script_entry` so the entry shape is
+            # byte-identical (cache-hit L1 == fresh-extraction L1).
+            all_scripts = []
+            for name, sql in script_data:
+                analysis = _lookup_analysis(name)
+                if (analysis is not None
+                        and analysis.get("extractor_version") == EXTRACTOR_VERSION):
+                    all_scripts.append(_build_script_entry(name, sql, analysis))
+                else:
+                    all_scripts.append(_build_script_entry(
+                        name, sql, run_full_analysis(sql, name)))
 
         # ── J12-10 stage 4: per-script physical models ──
         # The physical model IS the extraction-time truth L1 projects from
@@ -544,28 +588,9 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
         # the model's Pass 3 cannot read, so graph-backed models lose every
         # edge (fresh-vs-cached L1 divergence). Analysis is the extraction
         # truth; the graph is a display projection.
-        cache_dir = scripts_dir.parent / "cache"
-        analysis_cache_map = {}  # script_name → analysis dict
-        if cache_dir.exists():
-            for af_path in sorted(cache_dir.glob("analysis_*.json")):
-                try:
-                    adata = json.loads(af_path.read_text())
-                    sname = adata.get("script_name", "")
-                    if sname:
-                        analysis_cache_map[sname] = adata
-                except Exception as exc:
-                    _log.warning("L1: failed to read analysis cache %s: %s",
-                                 af_path.name, exc)
-
-        def _lookup_analysis(sname: str) -> dict | None:
-            """Cache lookup: exact script_name first, then suffix match
-            (workspace-dir-prefixed names)."""
-            analysis = analysis_cache_map.get(sname)
-            if not analysis:
-                for cache_name, cache_data in analysis_cache_map.items():
-                    if cache_name.endswith("/" + sname) or cache_name == sname:
-                        return cache_data
-            return analysis
+        # (cache_dir / analysis_cache_map / _lookup_analysis are defined
+        # above, shared with Pass A — a cache hit serves the SAME analysis
+        # dict to both passes.)
 
         model_by_script = {}  # script_name → PhysicalModel
         sql_by_name = {n: sql for n, sql in script_data}

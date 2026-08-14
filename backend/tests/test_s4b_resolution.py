@@ -301,8 +301,12 @@ def test_l1_degraded_fallback_visible(monkeypatch):
         def boom(*args, **kwargs):
             raise RuntimeError("simulated L1 failure")
 
+        # L1 Pass A (>=2 scripts) builds entries via the cache-aware path:
+        # a fresh (unindexed) workspace misses the analysis cache and falls
+        # back to run_full_analysis per script — force a failure there to
+        # exercise the M4-B degraded fallback.
         monkeypatch.setattr(
-            "app.services.multi_script_service.analyze_multiple_scripts", boom)
+            "app.extractor.adapter.run_full_analysis", boom)
         degraded = _build_l1_graph(ws, ["s1.sql", "s2.sql"], "t", "f",
                                    direction="downstream")
         assert degraded.get("degraded") is True, degraded

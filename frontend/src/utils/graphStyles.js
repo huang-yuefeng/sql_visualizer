@@ -1019,18 +1019,18 @@ export const L2_NODE_ROLE_STYLES = [
 // stylesheet selectors (here) and the class application (DataFlowGraph).
 export const L2_EDGE_CLASSES = {
   uniform: 'l2-uniform',
-  coneBefore: 'flow-cone-before',   // amber #F5A623 — upstream of the pivot
-  coneAfter: 'flow-cone-after',     // cyan   #22D3EE — downstream of the pivot
-  conePivot: 'flow-cone-pivot',     // gold — the clicked edge itself
+  coneBefore: 'flow-cone-before',   // green #2ECC71 — upstream of the pivot
+  coneAfter: 'flow-cone-after',     // blue  #2196F3 — downstream of the pivot
+  conePivot: 'flow-cone-pivot',     // red   #FF3B30 — the clicked edge itself
   coneDimmed: 'flow-cone-dimmed',   // focus mode — everything outside the cone
 };
 
 export const L2_UNIFORM_EDGE_COLOR = '#7F8C8D';
 
 export const L2_FLOW_CONE_COLORS = {
-  before: '#F5A623',
-  after: '#22D3EE',
-  pivot: '#FFD700',
+  before: '#2ECC71',
+  after: '#2196F3',
+  pivot: '#FF3B30',
 };
 
 export const L2_UNIFORM_EDGE_STYLES = [

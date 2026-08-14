@@ -6,6 +6,7 @@ Script nodes are circles. Table nodes are rectangles. Edges connect
 table nodes across scripts showing data lineage.
 """
 
+import hashlib
 from collections import defaultdict
 from app.extractor.adapter import run_full_analysis
 from app.services.graph_service import build_graph_data
@@ -64,6 +65,39 @@ def _classify_tables(variables: list[dict]) -> tuple[set[str], set[str]]:
     return input_tables, output_tables
 
 
+def _build_script_entry(name: str, sql: str, result: dict) -> dict:
+    """Build ONE all_scripts entry from an extraction result.
+
+    Shared by `analyze_multiple_scripts` (fresh extraction) and the L1
+    Pass-A cache path (a cached analysis dict) so the two can never
+    diverge — the L1 output with cache hits must be byte-identical to
+    the L1 output with fresh extraction (benchmark-gated codebase).
+
+    Entry shape (must match the historical `analyze_multiple_scripts`
+    construction exactly): script_id (md5(name+sql)[:12] when the result
+    lacks one), script_name, total_variables, total_dependencies,
+    input_tables/output_tables (via `_classify_tables`), graph (via
+    `build_graph_data`), _all_vars (name + source_tables per variable).
+    """
+    if "script_id" not in result:
+        result["script_id"] = hashlib.md5((name + sql).encode()).hexdigest()[:12]
+    variables = result.get("variables", [])
+    graph_data = build_graph_data(result)
+    input_tables, output_tables = _classify_tables(variables)
+    return {
+        "script_id": result["script_id"],
+        "script_name": name,
+        "total_variables": result.get("total_variables", 0),
+        "total_dependencies": result.get("total_dependencies", 0),
+        "input_tables": sorted(input_tables),
+        "output_tables": sorted(output_tables),
+        "graph": graph_data,
+        "_all_vars": [{"name": v.get("name", ""),
+                       "source_tables": v.get("source_tables", [])}
+                      for v in variables],
+    }
+
+
 def analyze_multiple_scripts(
     scripts: list[tuple[str, str]]  # [(script_name, sql_text), ...]
 ) -> dict:
@@ -75,24 +109,7 @@ def analyze_multiple_scripts(
     results = []
     for name, sql in scripts:
         result = run_full_analysis(sql, name)
-        if "script_id" not in result:
-            import hashlib
-            result["script_id"] = hashlib.md5((name + sql).encode()).hexdigest()[:12]
-        variables = result.get("variables", [])
-        graph_data = build_graph_data(result)
-        input_tables, output_tables = _classify_tables(variables)
-
-        results.append({
-            "script_id": result["script_id"],
-            "script_name": name,
-            "total_variables": result["total_variables"],
-            "total_dependencies": result["total_dependencies"],
-            "input_tables": sorted(input_tables),
-            "output_tables": sorted(output_tables),
-            "graph": graph_data,
-            "_all_vars": [{"name": v["name"], "source_tables": v.get("source_tables", [])}
-                          for v in variables],
-        })
+        results.append(_build_script_entry(name, sql, result))
 
     # ── Build meta-graph: scripts only, direct edges ────────────────
     meta_nodes = []

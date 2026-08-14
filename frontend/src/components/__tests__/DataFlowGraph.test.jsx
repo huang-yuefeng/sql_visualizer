@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import DataFlowGraph, {
   computeFlowCone, applyFlowCone, clearFlowCone, isValueFlowEdge,
 } from '../DataFlowGraph';
 import { decorateLabelWithLine } from '../../utils/labelDecoration';
+import { L2_FLOW_CONE_COLORS } from '../../utils/graphStyles';
 
 // The cytoscape instance is canvas-based — not testable in jsdom. The
 // hook is the graph lifecycle; capture the options the component hands
@@ -67,29 +68,6 @@ describe('DataFlowGraph — R25/§8.8 edge interactions', () => {
     const options = lastHookOptions();
     options.onBgTap();
     expect(onCanvasTap).toHaveBeenCalledTimes(1);
-  });
-
-  it('hover tooltip shows edge type + flow kind + anchor line + reason preview', () => {
-    const { container } = render(<DataFlowGraph graphData={graphData} level="L2" />);
-    const options = lastHookOptions();
-    act(() => {
-      options.onEdgeHover({ target: { isEdge: () => true, data: () => edgeData } });
-    });
-    const tooltip = container.querySelector('.edge-tooltip');
-    expect(tooltip).not.toBeNull();
-    expect(tooltip.textContent).toContain('TABLE_FLOW');
-    expect(tooltip.textContent).toContain('kind: chain');
-    expect(tooltip.textContent).toContain('anchor: L43');
-    expect(tooltip.textContent).toContain('bdm_acc_loan_info.data_dt@L18');
-  });
-
-  it('hovering a non-edge leaves the tooltip empty', () => {
-    render(<DataFlowGraph graphData={graphData} level="L2" />);
-    const options = lastHookOptions();
-    act(() => {
-      options.onEdgeHover({ target: { isEdge: () => false, data: () => ({}) } });
-    });
-    expect(screen.queryByText(/kind:/)).not.toBeInTheDocument();
   });
 });
 
@@ -235,7 +213,7 @@ function makeFakeCy(edgeDatas) {
 }
 
 describe('applyFlowCone / clearFlowCone — focus classes on the cy instance', () => {
-  it('tags pivot gold, before amber, after cyan, and dims the rest', () => {
+  it('tags pivot red, before green, after blue, and dims the rest', () => {
     const cy = makeFakeCy(coneGraph.edges.map(e => e.data));
     applyFlowCone(cy, coneGraph, 'e2');
     const byId = {};
@@ -276,6 +254,18 @@ describe('applyFlowCone / clearFlowCone — focus classes on the cy instance', (
     expect(() => applyFlowCone(null, coneGraph, 'e2')).not.toThrow();
     expect(() => clearFlowCone(null)).not.toThrow();
     expect(() => applyFlowCone({ destroyed: () => true }, coneGraph, 'e2')).not.toThrow();
+  });
+});
+
+// ── R30/#222: cone color contract (RGB primaries) ────────────────────
+// L2_FLOW_CONE_COLORS is the single source of truth driving the cone
+// style selectors (graphStyles.js). Guard against regressions to the
+// old amber/cyan/gold scheme.
+describe('L2_FLOW_CONE_COLORS — R30 RGB primaries', () => {
+  it('uses green (before), blue (after), red (pivot)', () => {
+    expect(L2_FLOW_CONE_COLORS.before).toBe('#2ECC71');
+    expect(L2_FLOW_CONE_COLORS.after).toBe('#2196F3');
+    expect(L2_FLOW_CONE_COLORS.pivot).toBe('#FF3B30');
   });
 });
 

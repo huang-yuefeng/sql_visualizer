@@ -30,6 +30,7 @@ WORKFLOW_DIR = Path(__file__).resolve().parent.parent.parent / "samples" / "mult
 
 STEP1 = "step1_load_orders.sql"
 STEP2 = "step2_enrich_customers.sql"
+STEP3 = "step3_join_orders_customers.sql"
 
 CSV1 = "SCRIPT_NAME,TABLE_NAME\n"
 CSV2 = "SYSTEM,TABLE_NAME,COL_NAME,COL_COMMENT\n"
@@ -157,7 +158,13 @@ class TestTwoFileIntersection:
         assert _filtered_tables(indexed_ws) == set()
         assert _filtered_fields(indexed_ws) == set()
 
-    def test_tc10_script_scope_still_from_file1(self, indexed_ws):
+    def test_tc10_script_scope_from_table_col(self, indexed_ws):
+        """User ruling (2026-08-14): the table-column CSV (File 2) is the
+        single source of truth for SCRIPT scope. With both files uploaded,
+        allowed_scripts = ⋃ table_index[t]["scripts"] over File 2's tables
+        (raw_orders → {step1}, stg_customers → {step2, step3}) = {step1,
+        step2, step3} — File 1's {step1, step2} is IGNORED for scope, so
+        step3 (which joins the file-2 table stg_customers) IS in scope."""
         r = _upload(indexed_ws,
                     script_table_csv=CSV1
                     + f"{STEP1},raw_orders\n"
@@ -165,14 +172,38 @@ class TestTwoFileIntersection:
                     table_col_csv=CSV2
                     + "ETL,raw_orders,order_id,Order identifier\n"
                     + "ETL,stg_customers,customer_id,Staging customer id\n")
-        file1_scripts = {STEP1, STEP2}
+        file2_scope = {STEP1, STEP2, STEP3}
         fdata = _filtered(indexed_ws)
+        scoped_scripts = set()
         for fname, finfo in fdata["field_index"].items():
             for s in finfo.get("scripts", []):
-                assert s in file1_scripts, f"{fname} script {s} outside file-1 scope"
+                scoped_scripts.add(s)
+                assert s in file2_scope, f"{fname} script {s} outside file-2 scope"
         for tname, tinfo in fdata["table_index"].items():
             for s in tinfo.get("scripts", []):
-                assert s in file1_scripts, f"{tname} script {s} outside file-1 scope"
+                scoped_scripts.add(s)
+                assert s in file2_scope, f"{tname} script {s} outside file-2 scope"
+        assert STEP3 in scoped_scripts, \
+            "step3 joins stg_customers (a file-2 table) — must be in script scope"
+
+    def test_tc11_file2_only_script_scope_is_table_union(self, indexed_ws):
+        """User ruling: uploading ONLY File 2 must scope scripts to the
+        union of its tables' scripts (was: allowed_scripts = None → every
+        script referencing the field). File-2-only stg_customers →
+        {step2, step3} — step1 (raw_orders) is NOT in scope."""
+        r = _upload(indexed_ws, table_col_csv=CSV2
+                    + "ETL,stg_customers,customer_id,Staging customer id\n")
+        assert r["filtered"] is True
+        fdata = _filtered(indexed_ws)
+        scoped_scripts = set()
+        for fname, finfo in fdata["field_index"].items():
+            scoped_scripts.update(finfo.get("scripts", []))
+        for tname, tinfo in fdata["table_index"].items():
+            scoped_scripts.update(tinfo.get("scripts", []))
+        assert scoped_scripts and scoped_scripts <= {STEP2, STEP3}, scoped_scripts
+        # customer_id is indexed for step1 too — but step1 is out of scope
+        assert "customer_id" in _filtered_fields(indexed_ws)
+        assert "order_id" not in _filtered_fields(indexed_ws)
 
 
 class TestFilterEdgeCases:

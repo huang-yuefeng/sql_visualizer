@@ -16,6 +16,25 @@ IMAGE_DIR="docker_image"
 IMAGE_FILE="$IMAGE_DIR/gps-sql-visualizer.tar.gz"
 IMAGE_NAME="gps-sql-visualizer"
 CONTAINER_NAME="gps-sql"
+
+# Port mapping — the container always listens on CONTAINER_PORT (uvicorn),
+# published on HOST_PORT. Default 8000 (dev machine 192.168.0.66); override
+# per machine without editing the script, e.g. the remote server is limited
+# to host port 8010 → `HOST_PORT=8010 ./target_deploy.sh`.
+
+# Informational usage hint — when run directly with no input at all (no
+# positional args AND no HOST_PORT env override), print the correct
+# invocations. Purely informational: the deploy continues with the default.
+# (Checked BEFORE the HOST_PORT default assignment below so we can tell
+# whether the user explicitly set HOST_PORT vs. it being unset.)
+if [ "$#" -eq 0 ] && [ -z "${HOST_PORT+x}" ]; then
+    log "Usage: ./target_deploy.sh                        # default host port 8000"
+    log "       HOST_PORT=8010 ./target_deploy.sh         # publish on host port 8010"
+    log "       (informational: deploying with default HOST_PORT=8000)"
+fi
+
+CONTAINER_PORT="8000"
+HOST_PORT="${HOST_PORT:-8000}"
 ROLLBACK_TAG="previous"
 
 ROLLBACK_NEEDED=false
@@ -33,7 +52,7 @@ rollback() {
         docker rmi "${IMAGE_NAME}:${ROLLBACK_TAG}" 2>/dev/null || true
 
         docker run -d --pull=never \
-            -p 0.0.0.0:8000:8000 \
+            -p 0.0.0.0:${HOST_PORT}:${CONTAINER_PORT} \
             --name "$CONTAINER_NAME" \
             --restart unless-stopped \
             "${IMAGE_NAME}:latest"
@@ -143,7 +162,7 @@ fi
 # ── 5. Start container ──────────────────────────────────────────────
 log "=== Start container ==="
 docker run -d --pull=never \
-    -p 0.0.0.0:8000:8000 \
+    -p 0.0.0.0:${HOST_PORT}:${CONTAINER_PORT} \
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \
     "${IMAGE_NAME}:latest" || rollback
@@ -162,7 +181,7 @@ i=0
 while [ "$i" -lt 30 ]; do
     i=$((i+1))
     sleep 2
-    HEALTH_JSON=$(curl -sf http://127.0.0.1:8000/api/health 2>/dev/null || true)
+    HEALTH_JSON=$(curl -sf http://127.0.0.1:${HOST_PORT}/api/health 2>/dev/null || true)
     if [ -n "$HEALTH_JSON" ]; then
         HEALTH_VER=$(echo "$HEALTH_JSON" | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
         log "  ${GREEN}Ready${NC} ($HEALTH_JSON)"
@@ -187,9 +206,9 @@ docker rmi "${IMAGE_NAME}:${ROLLBACK_TAG}" 2>/dev/null || true
 # ── 9. Show summary ─────────────────────────────────────────────────
 echo ""
 log "  ${GREEN}=== Deployed Successfully ===${NC}"
-log "  Access:  http://${SERVER_IP}:8000"
-log "  Health:  curl http://${SERVER_IP}:8000/api/health"
+log "  Access:  http://${SERVER_IP}:${HOST_PORT}"
+log "  Health:  curl http://${SERVER_IP}:${HOST_PORT}/api/health"
 log "  Logs:    docker logs $CONTAINER_NAME"
 log "  Version: v${REPO_VERSION}"
 echo ""
-log "  If unreachable from other machines, check firewall allows TCP port 8000."
+log "  If unreachable from other machines, check firewall allows TCP port ${HOST_PORT}."
