@@ -4888,3 +4888,147 @@ round, not an issue-3 defect; the read leg itself renders.
 - `FilterPanel.jsx:43,101-107,287-300` — `direction` is a second uncontrolled copy, not in history/pins. Lift state up; store per history/pin entry.
 - `test_l1_physical_model.py:429` — test named `..._downstream_empty_...` asserts `flow_empty is False` (opposite of name). Rename to `..._writer_own_leg_...`.
 - `SOLUTION_DESIGN.md:1488-1490` — still says L1 is "verified manually … no automated L1 check" despite new `test_r29_*` tests. Reword.
+
+## ISSUE-1 · Search-after-filter performance — every search re-extracts every matched script (2026-08-14, analysis-only, design agreed)
+
+> **Priority:** P1 | **Status:** ✅ implemented (v3.3.159) — cache-aware Pass A + table-column-only script scope | **Type:** Performance
+
+**Symptom.** After the script→table and table→column filters are applied, searching a field is slow.
+
+**Answer to "filtered or full scripts?":** the search **matches on the filtered index** —
+`_load_index` prefers `filtered_index.json`, `create_search` intersects
+`field_scripts ∩ table_scripts` from it, and `_build_l1_graph` reads only the matched
+scripts off disk. So with a script→table CSV uploaded, the search runs on the FILTERED
+scripts — not the full workspace. **Gap:** when ONLY the table→column CSV is uploaded (no
+script→table), `allowed_scripts` stays `None` → the filtered field/table indexes keep FULL
+script lists → matching returns every script referencing the field ≈ "search on full
+scripts". Script scope is derived only from File 1 (R19).
+
+**Root cause of the slowness (independent of the filter):** `_build_l1_graph`'s Pass A
+(`analyze_multiple_scripts` → `run_full_analysis`, `multi_script_service.py:77`) re-runs
+the FULL pipeline per matched script on EVERY search — sqlglot parse →
+`extract_variables_from_sql` → `build_dependency_graph` → `map_variables_to_lines` →
+`build_graph_data` — with no cache check. The extraction result is ALREADY on disk as
+`analysis_{cache_key}.json`, written at index time (`folder_index_service.py:421-434`,
+key = md5(EXTRACTOR_VERSION + "|" + name + sql_text)). The L2 path already reads that same
+file (`dataflow_service.py:530-543`, re-extract only on miss); Pass B in the same L1
+function already reads it for the physical model (`l1_builder.py:547-585`) — Pass A
+ignores it. Each script is therefore fully parsed at index AND once per search
+("parsed at least twice"; actually N+1 with N searches).
+
+**Measured (BDM_ACC_LOAN_INFO_Digitallending.sql, 563 lines):**
+- `run_full_analysis` ≈ 197 ms/script; extraction alone ≈ 166 ms (84%); graph build ≈ 14 ms.
+- Cache-hit rebuild (JSON load + `build_graph_data`) ≈ 16 ms/script → ≈ **12× speedup**.
+- A search matching N scripts costs ≈ N × 200 ms/request today.
+
+**Agreed design (user confirmed the reuse principle — a script is analyzed once, at index, and every search reuses it; FINAL SCOPE 2026-08-14):**
+1. **Make Pass A cache-aware.** For each matched script, load `analysis_{cache_key}.json`
+   and rebuild `graph_data` + `_classify_tables` from it; `run_full_analysis` only on a
+   cache miss. The cache is **script-keyed**, so it is reusable from index AND across all
+   searches regardless of filter/field (the filter only selects which scripts are analyzed,
+   never how each is analyzed). Safe: the key includes the script text and EXTRACTOR_VERSION,
+   so edited scripts and engine upgrades re-extract automatically.
+2. **Script scope = the table-column filter ONLY (user ruling, 2026-08-14).** Focus on the
+   tables listed in the table-column CSV; the script scope is derived from exactly those
+   tables: `allowed_scripts = ∪ table_index[t]["scripts"]` for every t in the table-column
+   filter's table list. **The script-table filter (File 1) is IGNORED for scope** — this is
+   the single source of truth, whether or not File 1 is uploaded. This closes the
+   File-2-only gap AND removes the File-1 dependence.
+3. **DEFERRED (not in this release).** Cache the final L1 graph per (field, direction,
+   script-set). Parts 1+2 already remove the dominant cost; the final-graph cache adds
+   invalidation surface (filters change the script-set; re-index changes script text) for
+   a small marginal win. Revisit later.
+
+**Files (for the implementer):** `multi_script_service.py:77` (or the `l1_builder.py`
+Pass A call site) — thread the analysis-cache lookup in; `filter_service.py` — table-column-
+only script scope derivation (`allowed_scripts = ∪ table_index[t]["scripts"]` over the
+table-column filter's tables; ignore File 1). Precedent already in the codebase:
+`dataflow_service.py:530-543`.
+
+**Implemented (v3.3.159):** `multi_script_service.py` adds `_build_script_entry(name, sql,
+result)` (single entry factory shared by fresh + cache paths); `l1_builder.py` hoists the
+`cache_dir`/`analysis_cache_map`/`_lookup_analysis` construction to the top of the try so
+Pass A and Pass B share one lookup (cache hit → same analysis dict feeds the graph AND the
+physical model — they can never diverge), and Pass A (≥2 scripts) resolves each script's
+analysis via `_lookup_analysis` guarded by `extractor_version == EXTRACTOR_VERSION`, falling
+back to `run_full_analysis` only on miss; `filter_service.py` derives
+`allowed_scripts = ∪ table_index[t]["scripts"]` over the File-2 tables when File 2 is present
+(File 1 ignored for scope; File-1-only and no-File-2 behavior preserved). New tests:
+`tests/test_l1_cache_aware.py` (cache-hit run patches `run_full_analysis` to raise and asserts
+`cached == fresh` byte-identity; cache-miss falls back); `test_filter_config.py::test_tc10`
+rewritten to the ruling + new `test_tc11`; `test_s4b_resolution.py` M4-B test mocks
+`app.extractor.adapter.run_full_analysis`. Verified: full suite 858 passed / 5 skipped, Jaccard
+gate 16 passed (all floors 1.0), byte-identity `cached == fresh`.
+
+---
+
+## ISSUE-2 · L2 edge-hover tooltip: remove the black info popup (2026-08-14, display-only — IMPLEMENTED v3.3.159)
+
+**Request (user, 2026-08-14):** remove the black popup text box that appears when hovering
+the mouse over an L2 edge. It (a) hides the table node underneath it and (b) shows
+information that is "a little trivial" (edge type, flow kind, anchor line, reason preview).
+
+**Scope / footprint (identified, NOT changed):**
+- The tooltip is ONE shared feature across L1 and L2 — removing it removes the popup on
+  both levels (it is not L2-specific).
+- `frontend/src/components/DataFlowGraph.jsx`:
+  - `const [edgeHover, setEdgeHover] = useState(null);` (line 146) — `useState` import
+    (line 1) becomes unused after removal.
+  - `onEdgeHover` handler (lines 169-180) — builds `edgeHover` from the edge data
+    (`edge_type` / `flow_kind` / `highlight_line` / `reason` / `color`).
+  - `onHoverLeave: () => setEdgeHover(null)` (line 200).
+  - The `.edge-tooltip` div (lines 301-317) — absolute, bottom-center, `rgba(0,0,0,0.9)`
+    background, `border: 2px solid <edge color>`, shows type / kind / anchor L<n> / reason.
+- `frontend/src/hooks/useCytoscapeGraph.js:214` — `if (o.onEdgeHover) cy.on('mouseover', 'edge', e => o.onEdgeHover(e));` — dead once DataFlowGraph stops passing `onEdgeHover`.
+- `frontend/src/components/__tests__/DataFlowGraph.test.jsx:72-93` — two tests assert the
+  tooltip (edge type + flow kind + anchor line + reason preview; non-edge → empty); remove
+  with the feature. (Verify `act`/`screen`/`edgeData` are still used elsewhere before
+  pruning imports.)
+- `.edge-tooltip` has NO dedicated CSS rule — styling is inline on the div.
+  `.bundled-edge-tooltip` (`styles/app.css:843`) is a SEPARATE legacy class — leave it.
+
+**What is NOT affected (stays):**
+- The L2 edge-**click** behavior — the flow-cone highlight (R30/#222, in `onEdgeTap`) and
+  the edge→SQL highlight — is a separate handler and is unchanged.
+- The L1 hover cursor (`onHoverEnter`, lines 193-199) is separate — stays.
+
+**Fix (for the implementer, when commanded):** delete the `edgeHover` state, the
+`onEdgeHover` handler, `onHoverLeave`, and the `.edge-tooltip` div from DataFlowGraph.jsx;
+remove the dead `onEdgeHover` binding in useCytoscapeGraph.js; drop the two tooltip tests;
+trim the `useState` import. Re-run the frontend test suite.
+
+**Status: ✅ implemented (v3.3.159).** `edgeHover` state, `onEdgeHover`, `onHoverLeave` and
+the `.edge-tooltip` div removed from DataFlowGraph.jsx; the dead `onEdgeHover` (and
+`onHoverLeave`, no caller) bindings removed from useCytoscapeGraph.js; the two tooltip
+tests deleted; `useState` import trimmed. Frontend suite green (138 tests).
+
+---
+
+## ISSUE-3 · `target_deploy.sh` — usage/parameter hint when run with no input (2026-08-14, display-only — IMPLEMENTED v3.3.159)
+
+**Request (user, 2026-08-14):** when a user runs `./target_deploy.sh` directly with **no
+input parameter**, the script should **print a log informing the user of the right
+parameter** (usage hint) before doing anything else.
+
+**Current behavior.** The script takes no positional arguments at all — the only input is
+the `HOST_PORT` environment variable (`HOST_PORT="${HOST_PORT:-8000}"`, line 25; used at
+lines 43, 153, 172, 197, 198, 202). So `./target_deploy.sh` with no env override silently
+proceeds with the default host port 8000 and never tells the user there are other options.
+
+**Planned behavior (for the implementer, when commanded):**
+- At the top of the script (after the port comment block / before the version guard), detect
+  "no input parameter" — `$# -eq 0` **and** `HOST_PORT` not explicitly set — and log a short
+  usage hint via the existing `log()` helper, e.g.:
+  ```
+  log "  Usage: ./target_deploy.sh                    # default host port 8000"
+  log "         HOST_PORT=8010 ./target_deploy.sh     # publish on host port 8010"
+  ```
+- The hint is informational only — the deploy continues normally (defaults are valid on the
+  dev machine). No new positional parameters are introduced; `HOST_PORT` env override remains
+  the single input mechanism.
+- No internet-connecting command is involved (offline rule 2026-08-12 unchanged).
+
+**Status: ✅ implemented (v3.3.159).** When run with no positional args and no `HOST_PORT`
+env override, `target_deploy.sh` logs a short usage hint (default port 8000 /
+`HOST_PORT=8010` example) before continuing with the default. Purely informational — the
+deploy proceeds normally. No internet-connecting command added (offline rule intact).

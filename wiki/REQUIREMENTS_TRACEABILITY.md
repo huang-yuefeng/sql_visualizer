@@ -243,7 +243,7 @@
 |----|------------|--------|-------|
 | R30.1 | Two edge classes, two color systems: value flow keeps per-type color; structure (SCHEMA/ALIAS/SUBSET) gets one uniform gray; `TABLE_FLOW` re-categorized out of "structure" (value flow) | 📝 | R30 (2026-08-13) — see bug list J12-23 |
 | R30.2 | Mid-point direction arrow on value-flow edges (native `mid-target-arrow-shape`), oriented source → target — not the line end (covered by node labels); structure edges carry no arrow | 📝 | R30 (2026-08-13) |
-| R30.3 | Click-edge flow cone (two colors), anchored to the edge's own flow direction: before (amber #F5A623) = upstream of the edge; after (cyan #22D3EE) = downstream of it; the edge is the gold pivot; non-cone edges dim | 📝 | R30 (2026-08-13) |
+| R30.3 | Click-edge flow cone (two colors), anchored to the edge's own flow direction: before (green #2ECC71) = upstream of the edge; after (blue #2196F3) = downstream of it; the edge is the red #FF3B30 pivot; non-cone edges dim | 📝 | R30 (2026-08-13) — cone recolored to RGB primaries v3.3.159 |
 | R30.4 | Value-flow only: structure edges are never part of the cone, never highlighted | 📝 | R30 (2026-08-13) |
 | R30.5 | No animation (static one-shot class toggle); L2 only — L1 keeps its static arrows | 📝 | R30 (2026-08-13) |
 

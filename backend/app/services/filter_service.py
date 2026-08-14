@@ -275,6 +275,28 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
     ti = json.loads(ti_path.read_text()) if ti_path.exists() else {}
     fi = json.loads(fi_path.read_text()) if fi_path.exists() else {}
 
+    # ── User ruling (2026-08-14): the table-column CSV (File 2) is the
+    # single source of truth for SCRIPT scope ──
+    # allowed_scripts = ⋃ table_index[t]["scripts"] for every table `t`
+    # listed in the table-column filter (File 2), and File 1 is IGNORED
+    # for script scope (whether or not it is uploaded). This closes the
+    # gap where uploading only File 2 left allowed_scripts = None → the
+    # search ran over EVERY script referencing the field. When NO
+    # table-column filter is uploaded, the File-1-derived scope (or None)
+    # is preserved unchanged.
+    if file2_present:
+        _ti_lower = {t.lower(): t for t in ti}
+        _scope_scripts = set()
+        for _t in table_col_tables:
+            _idx_key = _ti_lower.get(_t)
+            if _idx_key:
+                _scope_scripts.update(ti[_idx_key].get("scripts", []))
+        allowed_scripts = _scope_scripts
+        diag_lines.append(("profile", ("│ File 2 is the script-scope source of truth: "
+                                       "%d script(s) across %d table(s)"
+                                       % (len(allowed_scripts),
+                                          len(table_col_tables))).ljust(79)+"│"))
+
     # Filter table_index
     filtered_ti = {}
     for tname, tdata in ti.items():

@@ -455,7 +455,7 @@ All sample DDL and queries are in [`samples/financial/`](samples/financial/).
 | `build.sh` | Dev machine | Build Docker image, run 138-sample API test suite, export to `/mnt/data/work/gps-sql-visualizer.tar.gz` |
 | `deploy.sh` | Dev machine | Build frontend (`npm run build`), copy dist to `backend/app/static/` for local development |
 | `release.sh "msg"` | Dev machine | Full release pipeline — build, test, split image into <50MB pieces, git add pieces, commit all, push |
-| `target_deploy.sh` | Target server | Deployment — `git pull`, reassemble image from pieces, stop/rm old container, `docker rmi` old image, `docker load` new image, start container |
+| `target_deploy.sh` | Target server | Deployment — reassemble image from pieces, stop/rm old container, `docker rmi` old image, `docker load` new image, start container. Publish port via `HOST_PORT` env (default `8000`, e.g. `HOST_PORT=8010` for a server limited to port 8010) |
 
 ### Release workflow
 
@@ -463,8 +463,11 @@ All sample DDL and queries are in [`samples/financial/`](samples/financial/).
 # On dev machine — build, split, commit, push
 ./release.sh "fix: corrected EXISTS keyword classification"
 
-# On target machine — pull, reassemble, deploy
+# On target machine — reassemble, deploy (default host port 8000)
 ./target_deploy.sh
+
+# On a server limited to a different host port (e.g. 8010), override the publish port:
+HOST_PORT=8010 ./target_deploy.sh
 ```
 
 ## License

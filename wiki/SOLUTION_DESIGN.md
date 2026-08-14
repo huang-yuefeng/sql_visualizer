@@ -1534,7 +1534,8 @@ carries a field of the queried field's flow.
 
 # J12-23 — L2 edge flow-direction display: mid-arrow + structure/flow split + click-edge flow cone (requirement change 2026-08-13)
 
-> **Date:** 2026-08-13 | **Status:** DEFINED (R30) — implementation pending, no source change
+> **Date:** 2026-08-13 | **Status:** IMPLEMENTED — mid-arrow + structure/flow split + flow cone
+> shipped across v3.3.15x; cone recolored to RGB primaries in v3.3.159
 
 ## 1. The requirement (user's words, formalized)
 
@@ -1550,9 +1551,9 @@ carries a field of the queried field's flow.
 - **Click-edge flow cone (two colors)**: clicking a value-flow edge `u → v`
   highlights, anchored to the edge's own flow direction (independent of the query's
   upstream/downstream switch):
-  - **before** (amber `#F5A623`) = value-flow edges upstream of `u` (what flows in);
-  - **after** (cyan `#22D3EE`) = value-flow edges downstream of `v` (what flows out);
-  - the clicked edge = the **pivot** (gold, `edge-selected`);
+  - **before** (green `#2ECC71`) = value-flow edges upstream of `u` (what flows in);
+  - **after** (blue `#2196F3`) = value-flow edges downstream of `v` (what flows out);
+  - the clicked edge = the **pivot** (red `#FF3B30`, `edge-selected`);
   - non-cone edges dimmed (focus mode).
 - **Value-flow only**: structure edges are never highlighted, never part of the cone.
 - **L2 only**: L1 keeps its static arrows.
@@ -1577,7 +1578,7 @@ carries a field of the queried field's flow.
   uniform muted color, e.g. `#7F8C8D`, thin, no mid-arrow); (2) value-flow edges
   switch `target-arrow-shape` → `mid-target-arrow-shape` with
   `mid-target-arrow-color: data(color)`; (3) a `flow-before` / `flow-after` /
-  `flow-dimmed` class set (amber `#F5A623` / cyan `#22D3EE` / low opacity).
+  `flow-dimmed` class set (green `#2ECC71` / blue `#2196F3` / low opacity).
 - **`useCytoscapeGraph` / `DataFlowGraph`**: extend `onEdgeTap` — on a value-flow
   edge click, BFS the rendered `cy.edges()` (value-flow whitelist) upstream of the
   edge's source (`before`) and downstream of its target (`after`), add the classes,
@@ -1591,7 +1592,7 @@ carries a field of the queried field's flow.
 - Structure edges render one uniform gray, distinct from all 13 value-flow colors.
 - Value-flow mid-arrow points `source → target` at the line midpoint, visible under a
   large node label.
-- Click a mid-chain edge: amber cone upstream, cyan cone downstream, gold pivot,
+- Click a mid-chain edge: green cone upstream, blue cone downstream, red pivot,
   non-cone dimmed; click a structure edge: no cone; click empty space: cleared.
 - Correct in both query directions (downstream/upstream views).
 
@@ -1686,3 +1687,103 @@ legend entries were removed. Display-only; no backend/benchmark impact.
 - `npm run build` clean.
 - Deployed as v3.3.158; display-only — backend type strings, caches, snapshots,
   and the Jaccard benchmark unchanged.
+
+---
+
+# v3.3.159 — L1 search cache reuse: the search-after-filter performance design (2026-08-14, IMPLEMENTED v3.3.159)
+
+## 1. The problem
+
+After the script→table / table→column filters are applied, searching a field is slow.
+
+- Search **matching** already runs on the **filtered index** (`_load_index` prefers
+  `filtered_index.json`; `create_search` intersects `field_scripts ∩ table_scripts` from
+  it; `_build_l1_graph` reads only the matched scripts off disk). With the script→table
+  CSV uploaded, the search processes only the filtered scripts — the slowness is not a
+  full-workspace scan.
+- Gap: uploading only the table→column CSV leaves `allowed_scripts = None`, so matching
+  returns every script referencing the field — effectively full-script search. Script
+  scope is derived only from File 1 (R19).
+
+## 2. Root cause
+
+`_build_l1_graph`'s Pass A (`analyze_multiple_scripts` → `run_full_analysis`,
+`multi_script_service.py:77`) re-runs the **full extraction pipeline per matched script on
+every search** — sqlglot parse + variable extraction + dependency graph + line mapping +
+graph build — with no cache check. The index already wrote the identical result to
+`analysis_{cache_key}.json` (`folder_index_service.py:421-434`), which the L2 path reads
+(`dataflow_service.py:530-543`, re-extract only on miss) and which Pass B of the same L1
+function already reads for the physical model (`l1_builder.py:547-585`). So each script is
+fully parsed at index AND once per search (N+1 parses).
+
+Measured (563-line script): `run_full_analysis` ≈ 197 ms/script, of which extraction ≈ 166
+ms (84%) and graph build ≈ 14 ms; a cache-hit rebuild (JSON load + `build_graph_data`)
+≈ 16 ms/script → ≈ **12× speedup**. A search matching N scripts costs ≈ N × 200 ms/request.
+
+## 3. The design (FINAL SCOPE 2026-08-14 — user ruling)
+
+1. **Pass A is cache-aware.** For each matched script, load `analysis_{cache_key}.json`
+   (key = md5(EXTRACTOR_VERSION + "|" + script_name + sql_text)) and rebuild the L1 data
+   (`graph_data`, input/output tables, physical model) from it; `run_full_analysis` only on
+   a miss. The cache is **script-keyed** — shared by the index and every search,
+   filter-independent reuse. Safe: the key covers the script text and the extractor
+   version, so edits / engine upgrades re-extract automatically. The existing
+   `analysis_cache_map` / `_lookup_analysis` in `_build_l1_graph` is the seed of this
+   lookup.
+2. **Script scope = the table-column filter ONLY.** The search focuses on the tables
+   listed in the table-column CSV; derive `allowed_scripts = ⋃ table_index[t]["scripts"]`
+   for every t in the table-column filter's table list. **The script-table filter (File 1)
+   is ignored for scope** — the table-column filter is the single source of truth whether
+   or not File 1 is uploaded. This closes the File-2-only gap and removes the File-1
+   dependence.
+3. **DEFERRED (not in this release).** A per-(field, direction, script-set) cache of the
+   finished L1 graph. Parts 1+2 already remove the dominant cost; the final-graph cache
+   adds invalidation surface (filters change the script-set; re-index changes script text)
+   for a small marginal win. Revisit later.
+
+## 4. Files (implementer)
+
+- `multi_script_service.py:77` / `l1_builder.py` Pass A call site — thread the
+  analysis-cache lookup in.
+- `filter_service.py` — table-column-only script scope derivation
+  (`allowed_scripts = ⋃ table_index[t]["scripts"]` over the table-column filter's tables;
+  ignore File 1).
+- Precedent already in the codebase: `dataflow_service.py:530-543` (L2 reads the same
+  cache file).
+
+## 5. Verification
+
+**IMPLEMENTED (v3.3.159).** `tests/test_l1_cache_aware.py` asserts a cache-hit L1 run
+patches `run_full_analysis` to raise (proving no re-extract) and `cached == fresh`
+(full-dict byte identity); the cache-miss (unindexed) path falls back to
+`run_full_analysis` and stays non-degraded. Full suite 858 passed / 5 skipped; Jaccard gate
+16 passed (all floors 1.0).
+
+---
+
+# L2 edge-hover tooltip removal — the black info popup (2026-08-14, display-only — IMPLEMENTED v3.3.159)
+
+## Problem
+Hovering the mouse over an L2 edge shows a black popup (`.edge-tooltip`) at the bottom of
+the graph. It (a) hides the table node underneath it and (b) shows information the user
+finds trivial. The same popup exists in L1 — it is one shared feature.
+
+## The change
+Remove the edge-hover tooltip entirely. Everything else is unchanged: the L2 edge-**click**
+behavior (flow-cone highlight, R30/#222) and the edge→SQL highlight, and the L1 hover
+cursor are separate handlers that stay.
+
+## Files
+- `frontend/src/components/DataFlowGraph.jsx` — remove the `edgeHover` state (line 146),
+  the `onEdgeHover` handler (169-180), `onHoverLeave` (200), and the `.edge-tooltip` div
+  (301-317); drop the now-unused `useState` import (line 1).
+- `frontend/src/hooks/useCytoscapeGraph.js` — remove the dead `onEdgeHover` binding
+  (line 214).
+- `frontend/src/components/__tests__/DataFlowGraph.test.jsx` — delete the two tooltip
+  tests (72-93); keep the rest.
+
+## Verification
+**IMPLEMENTED (v3.3.159).** Frontend suite passes (the two tooltip tests removed, no
+regressions); hovering an edge in L2 shows no popup; L1/L2 edge-click flow cone + SQL
+highlight unchanged; the dead `onHoverLeave` binding in useCytoscapeGraph.js was also
+removed (no caller passes it).

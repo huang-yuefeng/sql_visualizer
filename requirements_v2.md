@@ -54,17 +54,16 @@ toolbar drops a seldom-used toggle.
 §4 amended: clicking a **value-flow** edge `u → v` in the L2 graph highlights its
 **flow cone** in two colors, anchored to the edge's own `source → target` direction:
 
-- **Before** (amber `#F5A623`) — the value-flow edges **upstream** of `u` (the flow
+- **Before** (green `#2ECC71`) — the value-flow edges **upstream** of `u` (the flow
   entering the clicked edge: "where the data came from").
-- **After** (cyan `#22D3EE`) — the value-flow edges **downstream** of `v` (the flow
+- **After** (blue `#2196F3`) — the value-flow edges **downstream** of `v` (the flow
   the clicked edge feeds: "where the data goes").
-- The clicked edge itself is the **pivot** (gold).
+- The clicked edge itself is the **pivot** (red `#FF3B30`, `edge-selected`).
 - Non-cone edges are dimmed (focus mode); structure edges are never part of the cone.
 
-**Status: NOT yet implemented.** The two colors (`#F5A623` / `#22D3EE`) and the
-upstream/downstream traversal are not in the source — edge click currently only
-highlights the single clicked edge (gold) and drives the SQL highlight. Full spec:
-`wiki/DATAFLOW_FORMAL_DEFINITION.md` §"Click-edge flow cone" (R30).
+**Status: implemented (v3.3.159).** The two colors (`#2ECC71` / `#2196F3`) live in
+`frontend/src/utils/graphStyles.js` (`L2_FLOW_CONE_COLORS`); the pivot uses `#FF3B30`.
+Full spec: `wiki/DATAFLOW_FORMAL_DEFINITION.md` §"Click-edge flow cone" (R30).
 
 ---
 
@@ -239,3 +238,64 @@ should show only the 5 types; role badges on the nodes and the gold searched-fie
 styling are **unchanged** (only the legend entries were removed).
 
 **Status: implemented 2026-08-13 (v3.3.158).**
+
+---
+
+### Amendment (2026-08-14) — search performance after filtering: reuse the index extraction cache
+
+§2/§3 amended (performance requirement): after the script→table and table→column filters
+are applied, searching a field must **reuse the extraction already done at index time** —
+it must not re-extract the matched scripts from scratch on every search.
+
+**Current behavior.** The search already **matches on the filtered index** (`_load_index`
+prefers `filtered_index.json`; `create_search` intersects field/table script sets from it;
+`_build_l1_graph` reads only the matched scripts). So with the script→table CSV uploaded,
+the search processes only the filtered scripts, not the full workspace. But the L1 build
+then re-runs the **full extraction pipeline per matched script on every search**
+(`analyze_multiple_scripts` → `run_full_analysis`: sqlglot parse + variable extraction +
+dependency graph + line map + graph build), even though the index already wrote the
+identical result to `analysis_{cache_key}.json` (key = md5(EXTRACTOR_VERSION + "|" +
+script_name + sql_text)). Each script is fully parsed at index **and** once per search
+(N+1 parses). Measured ≈ 197 ms/script (84% = extraction); a search matching N scripts
+costs ≈ N × 200 ms/request. **Gap:** uploading only the table→column CSV (no script→table)
+leaves the script scope unconstrained (`allowed_scripts = None`), so the search then
+processes all scripts referencing the field — "search on full scripts".
+
+**Required behavior (agreed design, 2026-08-14; FINAL SCOPE):**
+- **Reuse the index-time extraction cache at search time.** For each matched script, load
+  `analysis_{cache_key}.json` and rebuild the L1 data from it; re-run extraction only on a
+  cache miss. The cache is **script-keyed** — reusable from index and across every search,
+  independent of the filter (the filter selects which scripts are analyzed, never how each
+  is analyzed). Safe: the key includes the script text and EXTRACTOR_VERSION, so edited
+  scripts and engine upgrades re-extract automatically.
+- **Script scope = the table-column filter ONLY (user ruling, 2026-08-14).** The search
+  focuses on the tables listed in the table-column CSV; the script scope is derived from
+  exactly those tables (`allowed_scripts = ⋃ table_index[t]["scripts"]` for every t in the
+  table-column filter's table list). **The script-table filter (File 1) is ignored for
+  scope** — the table-column filter is the single source of truth whether or not File 1 is
+  uploaded. This closes the File-2-only gap and removes the File-1 dependence.
+- **Final-L1-graph cache: DEFERRED** (not in this release) — parts 1+2 already remove the
+  dominant cost; the extra invalidation surface is not worth the marginal win now.
+
+**Status: ✅ implemented (v3.3.159).** Pass A is cache-aware (`_lookup_analysis` +
+`extractor_version` guard, mirror of `dataflow_service.py:530-543`; single-script inline path
+unchanged); script scope derives from the table-column filter ONLY when File 2 is present
+(`allowed_scripts = ⋃ table_index[t]["scripts"]`, File 1 ignored). New
+`tests/test_l1_cache_aware.py` asserts `cached == fresh` byte-identity (with `run_full_analysis`
+patched to raise — proving no re-extract on a hit). Full suite 858 passed / 5 skipped; Jaccard
+gate 16 passed (all floors 1.0).
+
+---
+
+### Amendment (2026-08-14) — remove the L2 edge-hover tooltip
+
+§4 amended (display only): remove the black popup text box that appears when hovering the
+mouse over an edge in the graph. It hides the table node underneath it and shows
+information that is trivial (edge type, flow kind, anchor line, reason preview).
+
+The tooltip is ONE shared feature for L1 and L2 — the `edgeHover` state + `.edge-tooltip`
+div in `DataFlowGraph.jsx`, bound for every level in `useCytoscapeGraph.js` — so removing
+it removes the same popup on both levels. The L2 edge-**click** behavior (flow-cone
+highlight + edge→SQL highlight) is a separate handler and is unchanged.
+
+**Status: recorded 2026-08-14; NOT yet implemented** (per "wait for my command to code").

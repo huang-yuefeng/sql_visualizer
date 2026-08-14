@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useMemo } from 'react';
 import useCytoscapeGraph from '../hooks/useCytoscapeGraph';
 import DataFlowLegend from './DataFlowLegend';
 import { FIT_PADDING } from '../config/layout';
@@ -9,12 +9,12 @@ import { L2_EDGE_CLASSES } from '../utils/graphStyles';
  * R30/#222 — click-edge flow cone (L2 only).
  *
  * Clicking a value-flow edge u → v highlights its flow cone:
- *   - before (amber)  = the value-flow edges UPSTREAM of u — "where the
+ *   - before (green)  = the value-flow edges UPSTREAM of u — "where the
  *     data came from" (BFS backward from u over edges whose target is the
  *     current node).
- *   - after  (cyan)   = the value-flow edges DOWNSTREAM of v — "where the
+ *   - after  (blue)   = the value-flow edges DOWNSTREAM of v — "where the
  *     data goes" (BFS forward from v over edges whose source is the node).
- *   - pivot  (gold)   = the clicked edge itself.
+ *   - pivot  (red)    = the clicked edge itself.
  *   - everything else = dimmed (focus mode).
  *
  * The cone is VALUE-FLOW only: structure edges (SCHEMA, ALIAS, SUBSET) are
@@ -143,7 +143,6 @@ export default function DataFlowGraph(props) {
   } = props;
 
   const containerRef = useRef(null);
-  const [edgeHover, setEdgeHover] = useState(null);
 
   // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — the
   // client-side count feeds the toggle badge + the legend note; the
@@ -160,22 +159,10 @@ export default function DataFlowGraph(props) {
       // reason) is the single source of truth — pass the full edge data
       // through; no range fields exist anymore.
       onEdgeClick?.(edgeData);
-      // R30/#222: L2 edge click highlights its flow cone (upstream amber,
-      // downstream cyan, pivot gold, rest dimmed). L1 is untouched.
+      // R30/#222: L2 edge click highlights its flow cone (upstream green,
+      // downstream blue, pivot red, rest dimmed). L1 is untouched.
       if (level === 'L2') {
         applyFlowCone(cyRef.current, graphData, edgeData.id);
-      }
-    },
-    onEdgeHover: (e) => {
-      if (e.target.isEdge?.()) {
-        const d = e.target.data();
-        setEdgeHover({
-          type: d.edge_type || 'edge',
-          kind: d.flow_kind || null,
-          line: (Number.isInteger(d.highlight_line) && d.highlight_line >= 1) ? d.highlight_line : null,
-          reason: d.reason || '',
-          color: d.color || '#5DADE2'
-        });
       }
     },
     onBgTap: () => {
@@ -197,7 +184,6 @@ export default function DataFlowGraph(props) {
           e.target.style('cursor', 'pointer');
       }
     },
-    onHoverLeave: () => setEdgeHover(null),
   });
 
   // Keyboard 'f' → fit
@@ -298,23 +284,6 @@ export default function DataFlowGraph(props) {
       </div>
       <div ref={containerRef} className="graph-canvas"
         style={{ width: '100%', height: 'calc(100% - 80px)' }} />
-      {edgeHover && (
-        <div className="edge-tooltip" style={{
-          position: 'absolute', bottom: 60, left: '50%', transform: 'translateX(-50%)',
-          background: 'rgba(0,0,0,0.9)', border: `2px solid ${edgeHover.color}`,
-          borderRadius: 6, padding: '6px 14px', zIndex: 10, color: '#fff',
-          fontSize: '0.8rem', pointerEvents: 'none', maxWidth: 420
-        }}>
-          <span style={{ color: edgeHover.color, fontWeight: 'bold' }}>{edgeHover.type}</span>
-          {edgeHover.kind && <span style={{ color: '#fff', marginLeft: 8 }}>kind: {edgeHover.kind}</span>}
-          {edgeHover.line && <span style={{ color: '#aaa', marginLeft: 8 }}>anchor: L{edgeHover.line}</span>}
-          {edgeHover.reason && (
-            <div style={{ color: '#aaa', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {edgeHover.reason}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -244,11 +244,11 @@ Clicking a value-flow edge `u → v` highlights its flow cone in two colors, anc
 to the edge's own `source → target` direction (independent of the query's
 upstream/downstream switch):
 
-- **Before** (amber `#F5A623`) = the value-flow edges **upstream** of `u` — the flow
+- **Before** (green `#2ECC71`) = the value-flow edges **upstream** of `u` — the flow
   that enters the clicked edge ("where the data came from").
-- **After** (cyan `#22D3EE`) = the value-flow edges **downstream** of `v` — the flow
+- **After** (blue `#2196F3`) = the value-flow edges **downstream** of `v` — the flow
   the clicked edge feeds ("where the data goes").
-- The clicked edge itself is the **pivot** (gold, `edge-selected`).
+- The clicked edge itself is the **pivot** (red `#FF3B30`, `edge-selected`).
 - Non-cone edges are dimmed (focus mode).
 
 The cone is **value-flow only** — structure edges are never part of it. The
