@@ -46,7 +46,7 @@ for i in $(seq 1 20); do
     echo -n "."
 done
 
-curl -sf http://127.0.0.1:8000/api/health && echo ""
+curl -sf --noproxy '*' http://127.0.0.1:8000/api/health && echo ""
 
 # Run pytest in container
 echo "=== Pytest (container) ==="
