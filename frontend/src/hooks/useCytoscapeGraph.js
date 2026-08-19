@@ -25,6 +25,7 @@ import { stripFieldParents, computeFieldRelPos, positionTableFields } from '../u
 import { TABLE_SELECTOR } from '../config/layout';
 import { runSnakeLayout } from '../utils/snakeLayout';
 import { decorateLabelWithLine } from '../utils/labelDecoration';
+import { applyFlowVisibility } from '../utils/flowVisibility';
 
 const TABLE_SEL = TABLE_SELECTOR;
 
@@ -67,8 +68,13 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
   const optsRef = useRef(options);
   optsRef.current = options;
   const fieldRelRef = useRef(null);
+  // L2 flow toggle: the layout must run ONCE on the FULL graph (all nodes
+  // visible) and only THEN hide non-flow elements. This ref gates the
+  // standalone flow effect so it never hides before the initial
+  // cy.ready→layout+fit has finished (see cy.ready + the effect below).
+  const layoutDoneRef = useRef(false);
 
-  const { level, layoutMode } = options;
+  const { level, layoutMode, flowOnly, flowNodeIds, flowEdgeIds } = options;
 
   useEffect(() => {
     if (!containerRef.current || !graphData) return;
@@ -216,6 +222,9 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     if (o.onBgTap) cy.on('tap', e => { if (e.target === cy) o.onBgTap(e); });
 
     cyRef.current = cy;
+    // Fresh graph: layout+fit must run on the FULL graph before the flow
+    // filter hides anything (see layoutDoneRef docstring above).
+    layoutDoneRef.current = false;
     // Devtools-only debug handles (nothing in the app reads them). Gated
     // on DEV so the globals never exist in production; both are cleared
     // on unmount so they can't outlive the cytoscape instance.
@@ -225,12 +234,21 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     }
 
     // ── Initial layout ──────────────────────────────────────────
+    // Layout runs ONCE on the FULL graph (every node visible). Only after
+    // it completes does the flow filter hide the non-closure elements — the
+    // viewport fit (applyLayout's deferred cy.fit) therefore always sees
+    // the full graph, so both View 1 and View 2 fit inside it.
     cy.ready(() => {
       fieldRelRef.current = computeFieldRelPos(cy);
       if (layoutMode === 'pipeline') {
-        pipelineLayout(cy);
+        pipelineLayout(cy).then(() => {
+          applyFlowVisibility(cy, optsRef.current);
+          layoutDoneRef.current = true;
+        });
       } else {
         runSnakeLayout(cy);
+        applyFlowVisibility(cy, optsRef.current);
+        layoutDoneRef.current = true;
       }
     });
 
@@ -248,6 +266,18 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     };
   }, [graphData, containerRef]);
 
+  // ── L2 flow toggle (View 1 flow-only / View 2 full) ──────────────
+  // Applies .hide()/.show() — NEVER a layout, so positions stay identical
+  // across toggles. Gated on layoutDoneRef: on a fresh graph the initial
+  // cy.ready→layout+fit runs first (the fit must see the FULL graph), and
+  // cy.ready applies the initial visibility itself.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || cy.destroyed()) return;
+    if (!layoutDoneRef.current) return; // initial layout not done yet
+    applyFlowVisibility(cy, { flowOnly, flowNodeIds, flowEdgeIds });
+  }, [flowOnly, flowNodeIds, flowEdgeIds]);
+
   const fit = useCallback((p = undefined) => {
     if (cyRef.current && !cyRef.current.destroyed()) {
       cyRef.current.fit(undefined, p !== undefined ? p : 50);
@@ -259,9 +289,10 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     if (!cy || cy.destroyed()) return;
     fieldRelRef.current = computeFieldRelPos(cy);
     if (mode === "pipeline") {
-      pipelineLayout(cy);
+      pipelineLayout(cy).then(() => applyFlowVisibility(cy, optsRef.current));
     } else {
       runSnakeLayout(cy);
+      applyFlowVisibility(cy, optsRef.current);
     }
   }, []);
 

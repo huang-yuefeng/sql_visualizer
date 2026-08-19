@@ -389,6 +389,15 @@ body { background: var(--bg-app); color: var(--ink-900); }
   background: var(--success); color: var(--on-success); padding: 2px 8px;
   border-radius: 3px; font-size: 0.7rem; font-weight: bold;
 }
+/* L2 flow toggle (View 1 flow-only / View 2 full) — toolbar checkbox,
+   styled like the small toolbar buttons. */
+.flow-only-toggle {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.7rem; color: var(--ink-600); cursor: pointer;
+  padding: 2px 8px; border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg-surface); user-select: none; white-space: nowrap;
+}
+.flow-only-toggle input { margin: 0; cursor: pointer; }
 .graph-canvas { background: var(--bg-app); }
 .dataflow-legend {
   display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 4px 8px;

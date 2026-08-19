@@ -135,3 +135,46 @@ describe('FilterPanel — two-area layout + direction', () => {
     expect(within(searchArea).getByRole('button', { name: /Downstream/ })).toBeInTheDocument();
   });
 });
+
+describe('FilterPanel — typo-tolerant autocomplete (Fix B)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  function mountTypo() {
+    return render(
+      <FilterPanel
+        wsId="ws1"
+        tableIndex={{
+          east5_stzfxxb: { fields: ['east5_stzfxxb', 'stzfje'] },
+        }}
+        fieldIndex={{
+          east5_stzfxxb: { tables: ['east5_stzfxxb'], scripts: ['s'] },
+          stzfje: { tables: ['east5_stzfxxb'], scripts: ['s'] },
+        }}
+        onSearch={() => {}}
+        loading={false}
+      />
+    );
+  }
+
+  it('surfaces the one-char-off field name in the popup', () => {
+    mountTypo();
+    const fieldInput = screen.getByPlaceholderText(/Type field name/);
+    fireEvent.change(fieldInput, { target: { value: 'EAST5_SSTZFXXB' } });
+    fireEvent.focus(fieldInput);
+    // query has an extra S — the real field east5_stzfxxb is suggested via
+    // the Levenshtein<=1 fallback, not substring (which returns nothing).
+    expect(screen.getByText('east5_stzfxxb')).toBeInTheDocument();
+  });
+
+  it('keeps plain substring suggestions (no fallback when >=2 hits)', () => {
+    mountTypo();
+    const fieldInput = screen.getByPlaceholderText(/Type field name/);
+    fireEvent.change(fieldInput, { target: { value: 'stzf' } });
+    fireEvent.focus(fieldInput);
+    expect(screen.getByText('east5_stzfxxb')).toBeInTheDocument();
+    expect(screen.getByText('stzfje')).toBeInTheDocument();
+  });
+});

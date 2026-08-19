@@ -21,6 +21,48 @@ SCHEMA_EXTENSIONS = {".ddl", ".schema"}
 # it is detected via its MaterializedProperty (see classify_sql_text).
 _SCHEMA_CREATE_KINDS = {"TABLE", "VIEW"}
 
+# case1 (Fix A): SELECT-output aliases of NON-column expressions (CASE, NVL/
+# TO_CHAR/SUBSTR/getdate, literals, aggregates, windows, generic computed
+# expressions) are typed non-COLUMN by the extractor's
+# _classify_aliased_expression and previously never entered field_index — so
+# bank-ETL target columns written `INSERT INTO tgt SELECT <expr> AS col` were
+# invisible to autocomplete. These ARE indexable fields when the variable is a
+# genuine statement OUTPUT alias: `is_output` True (excludes CTE bodies) and a
+# top-level statement context (excludes subquery-interior / JOIN / EXISTS
+# scopes — those carry /subq, /exists, :join markers).
+_OUTPUT_ALIAS_TYPES = frozenset({
+    "case", "transform", "literal", "aggregate", "window", "expression",
+})
+
+
+def _is_top_statement_context(context: str) -> bool:
+    """True when ``context`` is a top-level statement output scope.
+
+    Top-level statements are scoped ``TOP{n}`` (or ``TOP{n}/union{i}`` for a
+    set-op branch of a top-level statement). Subquery-interior scopes always
+    append a marker (``/subq…``, ``/exists…``, ``:join…``) and are excluded —
+    their output aliases are not workspace-wide fields.
+    """
+    if not context or not context.startswith("TOP"):
+        return False
+    if "/subq" in context or "/exists" in context or ":join" in context:
+        return False
+    return True
+
+
+def _is_plain_field_name(field_name: str) -> bool:
+    """True when ``field_name`` looks like a real column name.
+
+    Fix A guard: unaliased expression projections auto-name to sanitized SQL
+    fragments (``CASE_WHEN_a.fkfs='A'_…``, ``COUNT*``, ``'01'``) — never
+    indexable field names. Require an identifier-shaped token (dots allowed
+    for qualified aliases).
+    """
+    if not field_name:
+        return False
+    return all(ch.isalnum() or ch in "_.$#" for ch in field_name) \
+        and (field_name[0].isalpha() or field_name[0] == "_")
+
 
 def classify_sql_file(filepath: Path, parsed=None) -> str:
     """Classify a SQL file as "schema" (DDL-only) or "script" (pipeline).
@@ -520,9 +562,23 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                     alias_to_physical[v.get("name", "")] = v.get("source_tables", [None])[0]
                 if v.get("variable_type") == "cte":
                     cte_names.add(v.get("name", ""))
+            # Fix A (case1): map each DML dependency's source var → the target
+            # TABLE var's name, so INSERT/UPDATE/MERGE SELECT-output aliases
+            # are attributed to the WRITE target (east5_stzfxxb) rather than
+            # the source table.
+            var_by_id = {v2.get("id"): v2 for v2 in variables}
+            dml_target_by_src_id = {}
+            for dep in result.get("dependencies", []):
+                if dep.get("relationship") != "DML":
+                    continue
+                sid = dep.get("source_id")
+                tgt = var_by_id.get(dep.get("target_id"))
+                if sid and tgt and tgt.get("variable_type") in ("table", "merge_target"):
+                    dml_target_by_src_id[sid] = tgt.get("name", "")
             for v in variables:
                 vt = v.get("variable_type", "")
                 name = v.get("name", "")
+                context = v.get("context", "")
 
                 if vt == "table":
                     table_index.setdefault(name, {"fields": set(), "scripts": set()})
@@ -545,6 +601,35 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
                     field_index[field_name]["scripts"].add(rel_path)
                     # Bug 49: also register the physical table (alias → canonical),
                     # so autocomplete surfaces crm_customers.customer_id, not just c.customer_id
+                    if table_name:
+                        physical = alias_to_physical.get(table_name, table_name)
+                        for tname in {table_name, physical}:
+                            field_index[field_name]["tables"].add(tname)
+                            table_index.setdefault(tname, {"fields": set(), "scripts": set()})
+                            table_index[tname]["fields"].add(field_name)
+
+                elif vt in _OUTPUT_ALIAS_TYPES and v.get("is_output") \
+                        and _is_top_statement_context(context):
+                    # Fix A (case1): SELECT-output aliases of non-column
+                    # expressions are indexable fields too — a bank-ETL target
+                    # column written `INSERT INTO tgt SELECT <expr> AS col` is
+                    # the very field the user searches for. Attributed to the
+                    # DML target table when this alias feeds a write; else the
+                    # alias's own source_tables[0] (plain SELECT); else no
+                    # table (output columns of a bare SELECT belong to no
+                    # named table). Name guard: unaliased expression
+                    # projections auto-name to SQL fragments — never indexed.
+                    field_name = name.split(".", 1)[-1] if "." in name else name
+                    if not _is_plain_field_name(field_name):
+                        continue
+                    table_name = dml_target_by_src_id.get(v.get("id", ""), "")
+                    if not table_name:
+                        for _st in v.get("source_tables", []):
+                            if _st and not _st.startswith("⟐") and _st not in cte_names:
+                                table_name = _st
+                                break
+                    field_index.setdefault(field_name, {"tables": set(), "scripts": set()})
+                    field_index[field_name]["scripts"].add(rel_path)
                     if table_name:
                         physical = alias_to_physical.get(table_name, table_name)
                         for tname in {table_name, physical}:
@@ -1336,13 +1421,65 @@ def _push_resolution_report(ws_id: str, stats: dict, orphan_fields: dict,
         _push(ws_id, "profile", line)
 
 
+def _levenshtein_le1(a: str, b: str) -> bool:
+    """True when the edit distance between ``a`` and ``b`` is <= 1.
+
+    Fast path: lengths must differ by at most 1 (each edit changes length by
+    at most 1), then a bounded DP bails as soon as every row cell exceeds 1.
+    """
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) > len(b):
+        a, b = b, a
+    prev = list(range(len(a) + 1))
+    for j, cb in enumerate(b, 1):
+        cur = [j]
+        row_min = j
+        for i, ca in enumerate(a, 1):
+            cost = 0 if ca == cb else 1
+            val = min(prev[i] + 1, cur[-1] + 1, prev[i - 1] + cost)
+            cur.append(val)
+            if val < row_min:
+                row_min = val
+        if row_min > 1:
+            return False
+        prev = cur
+    return prev[-1] <= 1
+
+
 def autocomplete(index: dict, type_: str, query: str) -> list[str]:
-    """Return matching names from the index (case-insensitive substring, max 20)."""
+    """Return matching names from the index (max 20).
+
+    Primary matcher: case-insensitive substring. When that returns <2 results
+    (0 hits — likely a typo — or a single mid-substring hit), a typo-tolerant
+    fallback is added: Levenshtein-distance-<=1 keys, ranked exact > prefix >
+    distance-1 (substring hits ride the top). This makes a query with one
+    extra/missing/wrong character (case1: ``EAST5_SSTZFXXB`` typed against the
+    real ``east5_stzfxxb``) still surface the intended name.
+    """
     if not query:
         return sorted(index.keys())[:20]
     q = query.lower()
-    matches = [k for k in index if q in k.lower()]
-    return sorted(matches)[:20]
+    sub = sorted(k for k in index if q in k.lower())
+    if len(sub) >= 2:
+        return sub[:20]
+    exact = sorted(k for k in index if k.lower() == q)
+    prefix = sorted(k for k in index if k.lower().startswith(q))
+    dist1 = sorted(
+        k for k in index
+        if k.lower() not in {e.lower() for e in exact}
+        and k.lower() not in {p.lower() for p in prefix}
+        and _levenshtein_le1(k.lower(), q))
+    ranked: list[str] = []
+    seen: set[str] = set()
+    for k in sub + exact + prefix + dist1:
+        kl = k.lower()
+        if kl not in seen:
+            seen.add(kl)
+            ranked.append(k)
+    return ranked[:20]
 
 
 def tables_for_field(index: dict, field: str) -> list[str]:
