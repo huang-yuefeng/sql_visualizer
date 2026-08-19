@@ -1,6 +1,6 @@
 # User Identity & Workspace Collaboration — Local Accounts (no email)
 
-> Design note — revised 2026-08-19 (4th revision). Email is **dropped** (no usable
+> Design note — revised 2026-08-19 (5th revision). Email is **dropped** (no usable
 > mail path on the target network). Replaced with **local accounts (`@hsbc.com` usernames) + IP
 > audit + in-app notifications + per-workspace activity log + a per-user "my workspaces" index**.
 > **All decisions locked — design settled, awaiting the go-command to implement. No code changed.**
@@ -15,7 +15,8 @@ per-operation **username + IP** recording, a per-user workspace index on login, 
 
 Make the SQL Data Flow Visualizer a multi-user service where:
 
-1. Users log in with their HSBC-postfix email **`user_name@hsbc.com`** (format enforced, validated
+1. **A login entrance page gates every page of the service** — no page is reachable before login.
+   Users log in with their HSBC-postfix email **`user_name@hsbc.com`** (format enforced, validated
    as `*@hsbc.com`) plus a **password** created on first login. The email string is an identifier
    only — **no mail is ever sent**.
 2. Every operation on a workspace is **recorded with the actor's name and IP**, so "who modified
@@ -68,7 +69,9 @@ the workspace's **search state** stays shared and current-state-only.
 | — | One L1 + multiple L2 | Keep. One search = one L1; the L2s the user opened are retained. |
 | Q2 | Last-search state | **Shared**, workspace-wide. Resume = current workspace state, never personal history. Last-writer (closes last) wins. |
 | Q3 | Access model | **Open by workspace id** — any logged-in user who knows the id can open and edit; creator is only alerted (in-app). (Known simple, slight risk, accepted for now.) |
-| Q4 | Multiple L2 + layout save | Only the L2 views the user actually **opened** are retained. **Autosave on each drag-end.** Save **node x/y only**; zoom/pan ignored. |
+| Q4 | Layout save | **L1 and L2 node x/y are both autosaved** on each drag-end. Only the L2 views the user actually **opened** are retained. Save **node x/y only**; zoom/pan ignored. |
+| — | Multiple tabs | A user may have several workspaces open in different tabs. Visits are tracked **per (user, workspace)**, not per session; logout/expiry flushes **all** open visits (one memo each). |
+| — | Login gate | **Login entrance page before any page** — the whole service is behind it; only the health endpoint stays public. |
 | Q5 | Concurrent users | **Last-write-wins** + a lightweight **version-stamp notice** ("state changed by X — refreshed"). No locking. |
 | Q6 | Accounts | **Persisted local accounts** (self-registered `@hsbc.com` + password). Stable identity is what makes the inbox, the per-user index, and "creator" meaningful. |
 | Q7 | Notifications | **In-app, keep all records.** One memo per workspace-close. **No script contents** — script names, search table/field names, ws_id, time. Enough to understand what happened. |
@@ -97,14 +100,17 @@ the workspace's **search state** stays shared and current-state-only.
   user record (`last_login_ip`), and included in the visit's audit entries.
 - Successful login creates a **session**; identity is an `HttpOnly` cookie.
 
-### 5.2 Sessions
+### 5.2 Sessions & open visits
 
 - Server-side sessions keyed by an opaque token in an `HttpOnly` cookie (not readable by JS),
-  holding `{username, ip, ws_id open, opened_at, last_active}`.
-- **Idle timeout 30 min** — activity extends it; on expiry the session is destroyed and the open
-  workspace's visit is flushed (memo + maybe alert). A long-running search that completes extends
-  the session (it counts as activity).
-- Explicit **logout** button ends the session immediately (same flush).
+  holding `{username, ip, last_active}`.
+- **Open-visits registry (per user, per workspace):** `username → {ws_id → {opened_at,
+  last_active}}`. A user may have several workspaces open at once (multiple tabs); each is an
+  independent visit.
+- **Idle timeout 30 min** — activity extends it; on expiry the session is destroyed and **all**
+  open visits flush (one memo per workspace + creator alerts where applicable). A long-running
+  search that completes extends the session (it counts as activity).
+- Explicit **logout** button ends the session immediately (same flush of all open visits).
 - Session store is in-memory (lost on container restart — **accepted**, noted in §10).
 
 ### 5.3 Workspace state (shared, durable)
@@ -114,16 +120,16 @@ the workspace's **search state** stays shared and current-state-only.
   - `created_at`
   - a monotonically increasing **`state_version`** (bumped on every state write — drives the
     concurrent-editing notice)
-  - the **last search state**: exactly one L1 (the search) + the list of **opened L2 views**, each
-    with its **persisted node x/y layout**
+  - the **last search state**: exactly one L1 (the search) + the list of **opened L2 views** —
+    **both the L1 and each opened L2 carry persisted node x/y layouts**
 - **Last search is shared and current-state-only.** A new search by anyone replaces the stored one.
   Resume by ws_id shows the current state, not history. Last-writer-wins on every write (no locking).
 - **Concurrent-editing notice:** when the frontend loads/receives state whose `state_version` is
   newer than what it last loaded, it shows "state changed by X at HH:MM — refreshed" and re-renders.
-- **Layout persistence:** the frontend reports node x/y on each drag-end (debounced autosave);
-  backend stores per-view `{node_id: [x,y]}`. On resume, positions are re-applied instead of
-  recomputed; **positions for node ids that no longer exist are skipped, not errors**. Zoom/pan
-  intentionally not saved.
+- **Layout persistence (L1 + L2):** the frontend reports node x/y on each drag-end (debounced
+  autosave) for the **current L1 and for each opened L2**; backend stores per-view
+  `{node_id: [x,y]}`. On resume, positions are re-applied instead of recomputed; **positions for
+  node ids that no longer exist are skipped, not errors**. Zoom/pan intentionally not saved.
 - The existing `views.json` (search views) stays; `meta.json` adds creator + layout positions +
   opened-L2 registry.
 
@@ -134,7 +140,8 @@ the workspace's **search state** stays shared and current-state-only.
 layout saved, visit end, workspace deleted. This is the durable, IP-audited "who modified this"
 record, readable by any opener.
 
-**Visit model:** a *visit* is a user's time on ONE workspace. It ends on the first of:
+**Visit model:** a *visit* is a user's time on ONE workspace; a user may hold several open visits
+at once (one per tab). A visit ends on the first of:
 1. explicit **Close workspace** action,
 2. **logout**,
 3. **session idle expiry**.
@@ -184,7 +191,8 @@ read, created_at}`. Title keeps the mailbox-searchable format —
 | `notifications.json` (new) | `username → [notification records]` (kept forever) | Durable |
 | `workspaces/{ws_id}/meta.json` (new) | `creator_username`, `created_at`, `state_version`, last-search ref, opened-L2 list with `{script, node_positions}` | Durable, per workspace |
 | `workspaces/{ws_id}/activity.json` (new) | append-only `{username, ip, ts, action, detail}` | Durable, per workspace |
-| `sessions` (in-memory) | token → `{username, ip, ws_id open, opened_at, last_active}` | TTL 30 min / on logout |
+| `sessions` (in-memory) | token → `{username, ip, last_active}` | TTL 30 min / on logout |
+| `open_visits` (in-memory) | `username → {ws_id → {opened_at, last_active}}` | Flushed on visit end (close/logout/expiry) |
 | existing `views.json` | search views (unchanged) | Durable |
 
 **Concurrency:** `activity.json` / `notifications.json` / `users.json` are written by multiple
@@ -212,13 +220,15 @@ record is interleaved or lost.
 - Workspace **create** records `creator_username` in `meta.json` and adds to the creator's index
   (409 if over quota).
 
-Existing endpoints become auth-gated (session cookie required); health endpoint stays public.
+**All endpoints are behind the login entrance** (session cookie required) — no page or API is
+reachable before login; only the health endpoint stays public.
 
 ## 8. Frontend additions
 
-- **Login page**: `user_name@hsbc.com` + password (server-validates the `@hsbc.com` format;
-  unknown usernames self-register). **Forgot password** link → re-register flow (explicit confirm
-  that the old inbox/index will be replaced).
+- **Login entrance page — the front door before any page**: `user_name@hsbc.com` + password
+  (server-validates the `@hsbc.com` format; unknown usernames self-register). **Forgot password**
+  link → re-register flow (explicit confirm that the old inbox/index will be replaced). Every page
+  redirects here when not logged in.
 - **My workspaces dashboard** on login: the user's workspace list (role, last-opened, **quota meter
   `{count}/{cap}`**). Per row: **Open**, **Remove from my list** (everyone), **Delete workspace**
   (creator-only, confirmation dialog). The **workspace-id resume box** opens any workspace by id.
@@ -257,3 +267,7 @@ Existing endpoints become auth-gated (session cookie required); health endpoint 
     unaffected).
 11. ~~Concurrent editing~~ → **last-write-wins + version-stamp notice** ("state changed by X — refreshed").
 12. ~~"My workspaces" membership~~ → **created + visited**.
+13. ~~L1 layout~~ → **saved too** — positions autosaved for the current L1 *and* each opened L2.
+14. ~~Multiple tabs~~ → **per-(user, workspace) open-visits registry**; all open visits flush on
+    logout/expiry (one memo each).
+15. ~~Login gate~~ → **login entrance page before any page**; only the health endpoint stays public.
