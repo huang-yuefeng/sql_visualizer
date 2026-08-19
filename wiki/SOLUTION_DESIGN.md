@@ -1787,3 +1787,77 @@ cursor are separate handlers that stay.
 regressions); hovering an edge in L2 shows no popup; L1/L2 edge-click flow cone + SQL
 highlight unchanged; the dead `onHoverLeave` binding in useCytoscapeGraph.js was also
 removed (no caller passes it).
+
+---
+
+# Multi-user identity & workspace collaboration — local accounts + IP audit + layout resume (2026-08-19, design settled — awaiting go)
+
+> Full decision log: `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`. This section records the
+> **solution architecture**. No code changed.
+
+## 1. The problem it solves
+The service is single-user today (no auth). New requirement: multi-user sharing of **workspaces**
+by id, with identity, an audit trail, and **layout persistence** so manual L1/L2 layout work
+survives resume. Email was the original vehicle for login + memos but is **unusable** on the target
+network (no mail path, verified) — everything moved **in-app**: local accounts, an in-app
+notification inbox, and a per-workspace activity log.
+
+## 2. Entities & stores
+| Entity | Store | Fields |
+|--------|-------|--------|
+| User account | `data/users.json` | `username` (`*@hsbc.com`, enforced), `salt`, `password_hash` (PBKDF2), `created_at`, `last_login_ip`, `workspaces:[{ws_id, role, first_opened, last_opened}]` |
+| Notification inbox | `data/notifications/{username}.json` (one file per user, kept forever) | `{id, kind: memo|alert, title, body, read, created_at}` |
+| Workspace | `WORKSPACE_ROOT/{ws_id}/` | existing scripts + `cache/views.json` |
+| Workspace meta | `…/{ws_id}/meta.json` | `creator_username`, `created_at`, `state_version`, last-search (L1) + opened L2 views with per-view `{node_id:[x,y]}` layouts |
+| Activity log | `…/{ws_id}/activity.json` (append-only) | `{username, ip, ts, action, detail}` |
+| Session (in-memory) | `sessions` | token → `{username, ip, last_active}`; 30-min idle TTL |
+| Open visits (in-memory) | `open_visits` | `username → {ws_id → {opened_at, last_active}}` (multi-tab) |
+
+## 3. Auth / session / visit flow
+- **Login entrance page gates every page** (all endpoints except health). Login = `*@hsbc.com` +
+  password; unknown username **self-registers**; `HttpOnly` cookie session; client IP recorded.
+- **Password recovery = re-register** (replaces the account's inbox + index; workspaces untouched).
+- A **visit** = one user on one workspace; ends on **close / logout / 30-min idle expiry**. Several
+  visits may be open at once (tabs). On visit end → memo to the visitor + (if visitor ≠ creator)
+  alert to the creator, written to the in-app inboxes.
+
+## 4. Shared workspace state + layout
+- Shared, **current-state-only**: one L1 (last search) + opened L2s; **last-writer-wins**; a
+  monotonic `state_version` drives the "state changed by X — refreshed" notice. No personal history.
+- **Layout autosave (L1 + L2)**: frontend PUTs node x/y **≤1/s** + a **final PUT on close**;
+  backend stores **current positions only** per view (file never grows). Resume reapplies positions,
+  skipping ids that no longer exist.
+
+## 5. Activity log + notifications
+- Every workspace op → `activity.json` `{username, ip, ts, action, detail}` (the "who modified
+  this" audit, readable by any opener).
+- Notifications per user; title `[SQL Data Flow Visualizer] Workspace {ws_id} · {time}`; **pull**
+  model (unread badge + inbox on next login).
+
+## 6. Quota / removal / delete
+- Quota: `MAX_WORKSPACES_PER_USER` (default 10) on the per-user index; at the cap, opening a new
+  workspace requires removing one first.
+- **Remove from my list** = any user, index only, never the server copy.
+- **Physical delete = creator only**; removes the workspace dir + the entry from every user's index.
+
+## 7. Concurrency & load
+- Single uvicorn worker (verified `backend/start.py`). Same-file races **accepted** (low
+  concurrency) but writes stay **atomic** (temp + rename) so a file never corrupts.
+- **One global heavy-op gate**: debugger search + `/analyze` + `/analyze_multi` run one at a time;
+  a new one during a run → HTTP 409 "system busy — please wait".
+
+## 8. API surface (additions)
+`/api/auth/{register,login,logout}`, `/api/auth/me`, `/api/workspaces` (index + cap),
+`/api/workspace/{id}/{close,activity,resume}`, `DELETE /api/workspace/{id}` (creator),
+`DELETE /api/workspaces/{id}` (own history), `/api/workspace/{id}/views/{vid}/layout` (PUT ≤1/s),
+`/api/notifications` + `/notifications/{id}/read`. All behind login; health stays public.
+
+## 9. Frontend (additions)
+Login entrance page (self-register + re-register), **My workspaces dashboard** (quota meter,
+Remove-from-list, creator Delete), workspace-id resume box, history panel, notification bell,
+"state changed by X" toast, "system busy" message, close-workspace control, opened-L2 strip,
+layout autosave (≤1/s + final on close).
+
+## 10. Migration (rollout)
+Remove pre-feature workspaces (no creator, no backup) → create `data/` → ship login page together
+with endpoint gating (one release, never an unreachable app). Verify existing e2e fixtures first.

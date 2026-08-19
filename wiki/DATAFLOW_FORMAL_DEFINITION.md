@@ -802,3 +802,76 @@ Both L1 and L2 must use the **same strict field-flow walker** (`compute_field_fl
 ### Backward Compatibility
 
 When no specific field is queried (table-only search), or when `lineage_mode` is off, the full table-level graph is shown — behavior unchanged from the current definition. The upstream/downstream query direction applies only to field queries (R29, 2026-08-12).
+
+## Multi-User & Workspace Model (2026-08-19, design settled — awaiting go)
+
+Full decision log: `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`. This section formally defines the
+multi-user collaboration entities and their invariants. No code changed.
+
+### User Account
+A durable local identity.
+- `username`: string, MUST match `^[A-Za-z0-9._%+-]+@hsbc\.com$` — an **identifier only**; no mail
+  is ever sent.
+- `password_hash`, `salt`: PBKDF2-HMAC; minimum password length **6**.
+- `created_at`, `last_login_ip`.
+- `workspaces`: index entries `{ws_id, role ∈ {creator, participant}, first_opened, last_opened}`.
+- Invariant: `|workspaces| ≤ MAX_WORKSPACES_PER_USER` (default **10**). At the cap, adding a
+  workspace (create or id-open not already indexed) is rejected (HTTP 409).
+- Recovery: **re-register** replaces the account record (inbox + index reset); workspaces
+  themselves are unaffected.
+
+### Session
+`token → {username, ip, last_active}`; identity carried by an `HttpOnly` cookie.
+- Invariant: idle time **> 30 min** ⇒ session destroyed and all open visits flushed.
+- Every authenticated API call extends `last_active`; a completed long-running search also extends it.
+- Store is in-memory; lost on container restart (**accepted**).
+
+### Open Visit
+`(username, ws_id) → {opened_at, last_active}`. A user may hold several visits at once (multiple
+tabs). A visit ends on the first of:
+1. explicit **Close workspace**,
+2. **logout**,
+3. **session idle expiry**.
+
+### Workspace (collaboration view)
+`ws_id` → `meta.json`:
+- `creator_username` — fixed at creation (immutable).
+- `created_at`.
+- `state_version` — **monotonic**, bumped on every state write.
+- last-search state: exactly **one L1** + the list of **opened L2 views**, each with persisted
+  `{node_id: [x, y]}` positions (L1 and each opened L2).
+- Shared, current-state-only; **last-writer-wins**; resume-by-id shows the current state, never a
+  personal history.
+
+### Activity Event
+`{username, ip, ts, action, detail}`, appended to `activity.json` (append-only). Actions include:
+visit start, search performed, L2 opened, layout saved, visit end, workspace deleted. This is the
+IP-audited "who modified this" record, readable by any opener.
+
+### Notification
+`{id, kind ∈ {memo, alert}, title, body, read, created_at}`, in
+`notifications/{username}.json` (one file per user). Title = 
+`[SQL Data Flow Visualizer] Workspace {ws_id} · {YYYY-MM-DD HH:MM}`. Records are **kept forever**.
+Pull model: seen on next login (unread badge + inbox).
+
+### Access & Deletion Rules
+- **Open-by-id**: any logged-in user with a valid `ws_id` may open and edit; the creator is alerted
+  in-app afterwards.
+- **Remove-from-own-history** (any user): removes the entry from *that user's index only* — never
+  the server copy, never another user's index.
+- **Physical delete** (creator only): removes `WORKSPACE_ROOT/{ws_id}` (scripts, `meta.json`,
+  `activity.json`, `views.json`) and the entry from **every** user's index. Non-creators have no
+  physical-delete path.
+
+### Heavy-Operation Gate
+One **global** gate over the debugger **search** and `/analyze` + `/analyze_multi`. At most one
+CPU-heavy operation runs at a time; a new one while one is running is refused with HTTP 409
+"system busy — please wait" (no parallel heavy CPU load).
+
+### Invariants
+- `creator_username` is immutable after creation.
+- `state_version` strictly increases on every state write.
+- Layout files hold **current positions only** (never history); the activity log holds history only.
+- All file writes are atomic (write-temp + rename); a concurrent same-file race may drop the losing
+  update (**accepted**, low concurrency) but can never corrupt a file.
+- Username uniqueness is per `users.json`; **no mail is ever sent**.
