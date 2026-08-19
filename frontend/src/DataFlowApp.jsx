@@ -10,8 +10,8 @@ import LogPanel from './components/LogPanel';
 import ResolutionReport from './components/ResolutionReport';
 import * as api from './api/client';
 import pickAutoEdge from './utils/pickAutoEdge';
-import { countStructureEdges } from './utils/structureEdges';
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { resolveFlowOnly } from './utils/flowVisibility';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useResizable } from './utils/useResizable';
 import './styles/resizable.css';
 
@@ -36,10 +36,12 @@ export default function DataFlowApp() {
   const [l2Graph, setL2Graph] = useState(null);
   const [sqlText, setSqlText] = useState('');
   const [currentScriptName, setCurrentScriptName] = useState('');
-  const [l2Filtered, setL2Filtered] = useState(true);
   const [selectedEdge, setSelectedEdge] = useState(null);
-  const [l2FullGraph, setL2FullGraph] = useState(null);
   const [l2Result, setL2Result] = useState(null);
+  // L2 flow toggle (View 1 flow-only / View 2 full): true = flow-only
+  // (default on a matched search), false = full, null = disabled (no
+  // search seed or the search did not match — always show the full graph).
+  const [flowOnly, setFlowOnly] = useState(null);
   // L2 not-in-flow: the view's search field is not referenced in this
   // script — backend returns the FULL unfiltered script graph plus
   // search_matched:false + a message. Absence of search_matched = matched.
@@ -104,6 +106,10 @@ export default function DataFlowApp() {
   const applyL2Result = useCallback((result) => {
     setL2Graph(result.graph);
     setL2Result(result);
+    // L2 flow toggle: default to flow-only (View 1) whenever the response
+    // carries the field-flow closure (matched search); null (disabled) when
+    // there is no search seed or the search did not match.
+    setFlowOnly(resolveFlowOnly(result));
     // R25: every L2 entry path lands on a fresh graph — no stale edge
     // selection (and no reason-panel content) from a previous script.
     // R11-1: instead of leaving the reason panel stuck at "Click an edge
@@ -133,8 +139,8 @@ export default function DataFlowApp() {
         setTableIndex({}); setFieldIndex({}); setIndexed(false);
         setViews([]); setActiveViewId(null); setL1Graph(null);
         setL2Graph(null); setL2Result(null); setSqlText(''); setError(null);
-        setActiveL1Table(null); setCurrentScriptName(''); setL2Filtered(true);
-        setL2FullGraph(null); setResolutionStats(null); setOrphanFieldSamples(null);
+        setActiveL1Table(null); setCurrentScriptName(''); setFlowOnly(null);
+        setResolutionStats(null); setOrphanFieldSamples(null);
         setSchemaCandidates(null); setSchemaEvidence(null);
         setSelectedEdge(null);
         setShowLog(true);
@@ -247,8 +253,6 @@ export default function DataFlowApp() {
       setSqlText(result.sql_text || '');
       setCurrentScriptName(scriptName);
       setGraphLevel('L2');
-      setL2Filtered(true);
-      setL2FullGraph(null);
 
       // Add child entry to view tree AND persist to backend
       const childId = `${viewIdForApi}_${scriptId}`;
@@ -311,8 +315,6 @@ export default function DataFlowApp() {
         setSqlText(result.sql_text || '');
         setCurrentScriptName(entry.script_name);
         setGraphLevel('L2');
-        setL2Filtered(true);
-        setL2FullGraph(null);
         setShowLog(true);
         setActiveL1Table(null);
       } catch (e) {
@@ -358,51 +360,6 @@ export default function DataFlowApp() {
     setActiveL1Table(null);
   }, []);
 
-  // ── Toggle L2 relevance filter ─────────────────────────────────
-  const handleToggleFilter = useCallback(async () => {
-    if (!wsId || !activeViewId) return;
-    // Derive the parent view ID: if activeViewId is a child, use its parent.
-    // Child IDs have format "parentId_scriptId".
-    let parentId = activeViewId;
-    const parentView = views.find(v => v.view_id === activeViewId);
-    if (!parentView) {
-      // activeViewId is a child — find its parent entry
-      for (const v of views) {
-        const child = (v.children || []).find(c => c.view_id === activeViewId);
-        if (child) { parentId = child.parent_view_id || v.view_id; break; }
-      }
-    }
-    // R29: L2 requests carry the parent search view's direction
-    const searchView = views.find(v => v.view_id === parentId);
-    if (l2Filtered) {
-      // Switching to "Show All": fetch unfiltered graph
-      if (l2FullGraph) {
-        // Cache the full unfiltered RESPONSE (not just the graph) so this
-        // path routes through applyL2Result like the fetch path — edge
-        // selection, not-in-flow banner and parse-error state can never
-        // go stale from a previous view/script.
-        applyL2Result(l2FullGraph);
-        setL2Filtered(false);
-      } else {
-        try {
-          // R29: L2 requests carry the parent search view's direction
-          const result = await api.getLevel2Graph(wsId, parentId, currentScriptName, false, searchView?.direction || direction);
-          setL2FullGraph(result);
-          applyL2Result(result);
-          setL2Filtered(false);
-        } catch (e) { setError(e.message); }
-      }
-    } else {
-      // Switching back to filtered
-      try {
-        const result = await api.getLevel2Graph(wsId, parentId, currentScriptName, true, searchView?.direction || direction);
-        applyL2Result(result);
-        setL2Filtered(true);
-      } catch (e) { setError(e.message); }
-    }
-  }, [wsId, activeViewId, currentScriptName, l2Filtered, l2FullGraph, views, direction]);
-
-
   // ── Edge click → SQL highlight + reason panel (R25/§8.8) ───────────
   // The per-edge payload (highlight_line / flow_kind / reason) is the
   // single source of truth: the SQL panel lights exactly the anchor
@@ -420,14 +377,6 @@ export default function DataFlowApp() {
   // Single anchor line for the SQL panel — derived from the selection.
   const sqlHighlightLine = (selectedEdge && Number.isInteger(selectedEdge.highlight_line)
     && selectedEdge.highlight_line >= 1) ? selectedEdge.highlight_line : null;
-
-  // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow and are
-  // always hidden — subtract them so the Show All badge never claims edges
-  // that aren't rendered (counts come from the SAME response graph that
-  // is displayed — filtered vs full — so the arithmetic is exact).
-  const currentL2Graph = l2Filtered ? l2Graph : (l2FullGraph ? l2FullGraph.graph : null);
-  const structureEdgeCount = useMemo(() => countStructureEdges(currentL2Graph), [currentL2Graph]);
-  const visibleEdgeCount = Math.max(0, (l2Result?.total_edges || 0) - structureEdgeCount);
 
   // ── Clear edge selection ────────────────────────────────────────────
   // ── Delete view ───────────────────────────────────────────────────
@@ -618,10 +567,6 @@ export default function DataFlowApp() {
             breadcrumb={breadcrumb}
             onOpenL2={handleOpenL2}
             onToggleLayout={(mode) => { if (mode) { setLayoutMode(mode); } else { setLayoutMode(m => m === 'snake' ? 'pipeline' : 'snake'); }}}
-            onToggleFilter={handleToggleFilter}
-            l2Filtered={l2Filtered}
-            l2TotalNodes={l2Result?.total_nodes || 0}
-            l2FilteredNodes={l2Result?.filtered_nodes || 0}
             onTableClick={handleTableClick}
             activeTable={activeL1Table}
             onClearTableFilter={handleClearTableFilter}
@@ -661,13 +606,6 @@ export default function DataFlowApp() {
         <div className="panel-inline-l2" style={{ width: l2PanelWidth, height: '100%' }}>
           <div className="inline-l2-header">
             <h3>📄 {currentScriptName?.split('/').pop() || 'Script'} — Level 2 Detail</h3>
-            <div className="inline-l2-actions">
-              {l2Result && (
-                <button className="btn btn-outline btn-sm" onClick={handleToggleFilter}>
-                  {l2Filtered ? `Show All (${l2Result.total_nodes || 0} nodes, ${visibleEdgeCount} edges)` : 'Show Relevant Only'}
-                </button>
-              )}
-            </div>
           </div>
           <div className="inline-l2-graph">
             {/* A3: statement-level parse errors from the level2 response —
@@ -691,13 +629,17 @@ export default function DataFlowApp() {
               </div>
             )}
             <DataFlowGraph
-              graphData={l2Filtered ? l2Graph : l2FullGraph.graph}
+              graphData={(l2Result && l2Result.full_graph) || l2Graph}
               level="L2"
               layoutMode={layoutMode}
               breadcrumb={[]}
               onEdgeClick={handleEdgeClick}
               onCanvasTap={clearEdgeSelection}
               selectedEdgeId={selectedEdge?.id}
+              flowNodeIds={l2Result?.flow_node_ids}
+              flowEdgeIds={l2Result?.flow_edge_ids}
+              flowOnly={flowOnly}
+              onFlowOnlyChange={setFlowOnly}
             />
           </div>
           {/* Resize handle: L2 graph | SQL panel */}

@@ -640,6 +640,55 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
                     f"{table}.{field} — the field is not queried in this script. "
                     "Showing the full script graph."
                 )
+        else:
+            # New L2 flow toggle (View 1 / View 2): when a search seed was
+            # provided AND the relevance filter ran AND the seed matched
+            # (not_in_flow is False), `graph` above IS the field-flow closure
+            # (filter_by_field_flow output — payload unchanged). Expose the
+            # closure ids + the FULL graph so the frontend can toggle
+            # flow-only ↔ full client-side (cytoscape .hide()/.show(), never
+            # a re-fetch, never a re-layout).
+            #
+            # The full build is byte-identical to an explicit
+            # filter_relevant_nodes=False request (same _build_l2_graph path
+            # the old "Show All" button fetched). Closure-only elements are
+            # defensively merged in: some closure edges exist ONLY in the
+            # closure build (e.g. the field's DML write legs — the full
+            # build's combine/dedup collapses them onto another field's
+            # same-key edge), and View 2 must still render them.
+            flow_matched = bool(table and field) and filter_relevant_nodes
+            if flow_matched:
+                response["flow_node_ids"] = [
+                    n["data"]["id"] for n in l2_result.get("nodes", [])
+                    if n.get("data", {}).get("id")
+                ]
+                response["flow_edge_ids"] = [
+                    e["data"]["id"] for e in l2_result.get("edges", [])
+                    if e.get("data", {}).get("id")
+                ]
+                full_l2 = _build_l2_graph(ws_id, script_name, sql_text,
+                                          table, field, False, direction)
+                if not full_l2.get("error"):
+                    full_nodes = full_l2.get("nodes", [])
+                    full_edges = full_l2.get("edges", [])
+                    full_node_ids = {
+                        n["data"]["id"] for n in full_nodes
+                        if n.get("data", {}).get("id")
+                    }
+                    full_edge_ids = {
+                        e["data"]["id"] for e in full_edges
+                        if e.get("data", {}).get("id")
+                    }
+                    response["full_graph"] = {
+                        "nodes": full_nodes + [
+                            n for n in l2_result.get("nodes", [])
+                            if n.get("data", {}).get("id") not in full_node_ids
+                        ],
+                        "edges": full_edges + [
+                            e for e in l2_result.get("edges", [])
+                            if e.get("data", {}).get("id") not in full_edge_ids
+                        ],
+                    }
         return response
 
     # Fallback: return raw graph with edge count

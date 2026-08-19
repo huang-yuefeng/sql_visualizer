@@ -138,8 +138,13 @@ export function clearFlowCone(cy) {
 export default function DataFlowGraph(props) {
   const {
     graphData, level, layoutMode, onOpenL2,
-    onToggleFilter, l2Filtered, onEdgeClick, onToggleLayout, selectedEdgeId,
-    onCanvasTap
+    onEdgeClick, onToggleLayout, selectedEdgeId,
+    onCanvasTap,
+    // L2 flow toggle (View 1 flow-only / View 2 full): flowNodeIds /
+    // flowEdgeIds are the target-field flow closure from the L2 response;
+    // flowOnly is the current toggle state (null = disabled, always full);
+    // onFlowOnlyChange notifies the parent.
+    flowNodeIds, flowEdgeIds, flowOnly, onFlowOnlyChange,
   } = props;
 
   const containerRef = useRef(null);
@@ -153,6 +158,11 @@ export default function DataFlowGraph(props) {
     level: level || 'L1',
     layoutMode: layoutMode || 'snake',
     showRoleBadges: true,
+    // L2 flow toggle — the hook builds the FULL graph and hides/shows the
+    // closure client-side (never a re-fetch, never a re-layout).
+    flowNodeIds,
+    flowEdgeIds,
+    flowOnly,
     onEdgeTap: (e) => {
       const edgeData = e.target.data();
       // R25/§8.8: the per-edge payload (highlight_line / flow_kind /
@@ -260,11 +270,18 @@ export default function DataFlowGraph(props) {
             </button>
           </>
         )}
-        {level === 'L2' && onToggleFilter && (
-          <button className={`btn btn-sm ${l2Filtered ? 'btn-outline' : 'btn-active'}`}
-            onClick={onToggleFilter}>
-            {l2Filtered ? 'Show All' : 'Show Relevant'}
-          </button>
+        {level === 'L2' && flowOnly !== null && onFlowOnlyChange && (
+          <label
+            className="flow-only-toggle"
+            title="仅目标字段流向: show only the nodes/edges carrying the searched field (View 1); off = the full script graph (View 2). Positions never change."
+          >
+            <input
+              type="checkbox"
+              checked={flowOnly === true}
+              onChange={(e) => onFlowOnlyChange(e.target.checked)}
+            />
+            仅目标字段流向
+          </label>
         )}
       </div>
       <DataFlowLegend

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import DataFlowGraph, {
   computeFlowCone, applyFlowCone, clearFlowCone, isValueFlowEdge,
 } from '../DataFlowGraph';
@@ -8,13 +8,17 @@ import { L2_FLOW_CONE_COLORS } from '../../utils/graphStyles';
 
 // The cytoscape instance is canvas-based — not testable in jsdom. The
 // hook is the graph lifecycle; capture the options the component hands
-// it and drive the callbacks directly.
-const { hookMock } = vi.hoisted(() => ({ hookMock: vi.fn() }));
+// it and drive the callbacks directly. relayoutMock is shared so tests
+// can assert the toggle never triggers a layout.
+const { hookMock, relayoutMock } = vi.hoisted(() => ({
+  hookMock: vi.fn(),
+  relayoutMock: vi.fn(),
+}));
 
 vi.mock('../../hooks/useCytoscapeGraph', () => ({
   default: (...args) => {
     hookMock(...args);
-    return { cyRef: { current: null }, fit: vi.fn(), relayout: vi.fn() };
+    return { cyRef: { current: null }, fit: vi.fn(), relayout: relayoutMock };
   },
 }));
 
@@ -41,6 +45,7 @@ function lastHookOptions() {
 describe('DataFlowGraph — R25/§8.8 edge interactions', () => {
   beforeEach(() => {
     hookMock.mockClear();
+    relayoutMock.mockClear();
     // jsdom has no ResizeObserver; the component uses it for auto-fit
     global.ResizeObserver = class {
       observe() {}
@@ -287,5 +292,64 @@ describe('DataFlowGraph — VT output(X) display label decoration', () => {
   it('is idempotent across repeats for the new label format', () => {
     const once = decorateLabelWithLine('output(t)', 62);
     expect(decorateLabelWithLine(once, 62)).toBe(once);
+  });
+});
+
+// ── L2 flow toggle (View 1 flow-only / View 2 full) ──────────────────
+describe('DataFlowGraph — L2 flow-only toggle', () => {
+  const flowProps = {
+    flowNodeIds: ['n1', 'n2'],
+    flowEdgeIds: ['e1'],
+    flowOnly: true,
+    onFlowOnlyChange: vi.fn(),
+  };
+
+  it('passes the flow closure ids + toggle state into the cytoscape hook', () => {
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} />);
+    const options = lastHookOptions();
+    expect(options.flowNodeIds).toEqual(['n1', 'n2']);
+    expect(options.flowEdgeIds).toEqual(['e1']);
+    expect(options.flowOnly).toBe(true);
+  });
+
+  it('renders the toggle and defaults to checked (flow-only ON) on a matched result', () => {
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} />);
+    const cb = screen.getByRole('checkbox');
+    expect(cb).toBeInTheDocument();
+    expect(cb).toBeChecked();
+  });
+
+  it('does not render the toggle when flowOnly is null (no seed / not matched)', () => {
+    render(<DataFlowGraph graphData={graphData} level="L2" flowOnly={null} onFlowOnlyChange={vi.fn()} />);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('does not render the toggle for L1', () => {
+    render(<DataFlowGraph graphData={graphData} level="L1" {...flowProps} />);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('unchecking calls onFlowOnlyChange(false) and does NOT call relayout', () => {
+    const onChange = vi.fn();
+    render(<DataFlowGraph graphData={graphData} level="L2" layoutMode="snake"
+      {...flowProps} onFlowOnlyChange={onChange} />);
+    // the layoutMode effect fires relayout once on mount — clear it so the
+    // assertion below isolates the toggle click
+    relayoutMock.mockClear();
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(false);
+    // the toggle is client-side .hide()/.show() — never a layout
+    expect(relayoutMock).not.toHaveBeenCalled();
+  });
+
+  it('checking (turning flow-only back ON) calls onFlowOnlyChange(true) without relayout', () => {
+    const onChange = vi.fn();
+    render(<DataFlowGraph graphData={graphData} level="L2" layoutMode="snake"
+      {...flowProps} flowOnly={false} onFlowOnlyChange={onChange} />);
+    relayoutMock.mockClear();
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(onChange).toHaveBeenCalledWith(true);
+    expect(relayoutMock).not.toHaveBeenCalled();
   });
 });

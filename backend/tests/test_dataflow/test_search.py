@@ -2,6 +2,7 @@
 import asyncio
 import io
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -351,4 +352,127 @@ class TestLevel1Endpoint:
             "R29 supersedes lineage_field_pairs for field queries"
         assert l1["l1_graph"].get("flow_empty") in (True, False), \
             "the directional marker must always be present"
+        workspace_client.delete(ws_id)
+
+
+class TestL2FlowClosure:
+    """L2 flow toggle (View 1 flow-only / View 2 full).
+
+    When a search seed matched, the level2 response carries:
+      - flow_node_ids / flow_edge_ids — the field-flow closure (= the
+        `graph` payload ids; the response graph IS the closure),
+      - full_graph — the FULL script graph (byte-identical to an explicit
+        filter_relevant_nodes=False build, plus any closure-only elements
+        merged in defensively — DML write legs can exist only in the
+        closure, never emitted by the full build).
+    The frontend builds cytoscape from full_graph and .hide()/.show() the
+    closure client-side — never a re-fetch, never a re-layout.
+
+    The fields are OMITTED when there is no search seed or the search did
+    not match (search_matched:false / filter off).
+    """
+
+    def test_matched_search_exposes_flow_closure_and_full_graph(self, workspace_client, d1_zip):
+        ws_id = workspace_client.create(d1_zip)
+        workspace_client.index(ws_id)
+        sr = workspace_client.search(ws_id, "orders", "amount")
+        from app.services.dataflow_service import get_level2_graph
+        result = get_level2_graph(ws_id, sr["view_id"], "step2_report.sql",
+                                  "orders", "amount", direction="downstream")
+        assert "search_matched" not in result  # matched contract
+        assert "flow_node_ids" in result, result
+        assert "flow_edge_ids" in result, result
+        # The closure ids ARE the `graph` payload ids (the response graph
+        # is the closure — unchanged payload, ids exposed as new fields).
+        assert result["flow_node_ids"] == [n["data"]["id"] for n in result["graph"]["nodes"]]
+        assert result["flow_edge_ids"] == [e["data"]["id"] for e in result["graph"]["edges"]]
+        fg = result["full_graph"]
+        fg_node_ids = {n["data"]["id"] for n in fg["nodes"]}
+        fg_edge_ids = {e["data"]["id"] for e in fg["edges"]}
+        # View 1 is renderable from full_graph by hiding (closure ⊆ full).
+        assert set(result["flow_node_ids"]) <= fg_node_ids
+        assert set(result["flow_edge_ids"]) <= fg_edge_ids
+        # The closure is strictly smaller than the full graph on d1.
+        assert set(result["flow_node_ids"]) < fg_node_ids
+        assert set(result["flow_edge_ids"]) < fg_edge_ids
+        # View 2 (full_graph) equals the standard filter=False build here —
+        # d1's closure is a pure subset, so the defensive merge is a no-op.
+        full = get_level2_graph(ws_id, sr["view_id"], "step2_report.sql",
+                                "orders", "amount", filter_relevant_nodes=False,
+                                direction="downstream")
+        assert fg_node_ids == {n["data"]["id"] for n in full["graph"]["nodes"]}
+        assert fg_edge_ids == {e["data"]["id"] for e in full["graph"]["edges"]}
+        workspace_client.delete(ws_id)
+
+    def test_flow_closure_real_sample_merge_guarantee(self, workspace_client):
+        """Real-sample contract (BDM_ACC_LOAN_INFO_RFN.sql, ACCT_CLOSE_DT):
+        the closure is a subset of full_graph (View 1 renders by hiding) and
+        full_graph is a SUPERSET of the standard filter=False build (View 2
+        == old "Show All" plus the merged closure-only DML write legs — the
+        defensive merge is load-bearing, not just defensive)."""
+        sample = Path("/app/samples/sql_sample_v1/BDM_ACC_LOAN_INFO_RFN.sql")
+        if not sample.exists():
+            pytest.skip("BDM sample not mounted in this environment")
+        sql = sample.read_text()
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("BDM_ACC_LOAN_INFO_RFN.sql", sql)
+        ws_id = workspace_client.create(buf.getvalue())
+        from app.services.dataflow_service import get_level2_graph
+        result = get_level2_graph(ws_id, "v", "BDM_ACC_LOAN_INFO_RFN.sql",
+                                  "bdm_acc_loan_info", "ACCT_CLOSE_DT",
+                                  True, "downstream")
+        assert "error" not in result
+        assert "flow_node_ids" in result and "flow_edge_ids" in result
+        assert result["flow_node_ids"] == [n["data"]["id"] for n in result["graph"]["nodes"]]
+        assert result["flow_edge_ids"] == [e["data"]["id"] for e in result["graph"]["edges"]]
+        fg = result["full_graph"]
+        fg_node_ids = {n["data"]["id"] for n in fg["nodes"]}
+        fg_edge_ids = {e["data"]["id"] for e in fg["edges"]}
+        assert set(result["flow_node_ids"]) <= fg_node_ids
+        assert set(result["flow_edge_ids"]) <= fg_edge_ids
+        # View 2 fidelity: full_graph ⊇ the standard full build.
+        full = get_level2_graph(ws_id, "v", "BDM_ACC_LOAN_INFO_RFN.sql",
+                                "bdm_acc_loan_info", "ACCT_CLOSE_DT",
+                                False, "downstream")
+        assert {n["data"]["id"] for n in full["graph"]["nodes"]} <= fg_node_ids
+        assert {e["data"]["id"] for e in full["graph"]["edges"]} <= fg_edge_ids
+        workspace_client.delete(ws_id)
+
+    def test_not_in_flow_omits_flow_fields(self, workspace_client, d1_zip, monkeypatch):
+        ws_id = workspace_client.create(d1_zip)
+        workspace_client.index(ws_id)
+        sr = workspace_client.search(ws_id, "orders", "amount")
+        import app.services.dataflow_service as dfs
+        TestL2NotInFlow._wrap_search_matched(monkeypatch, dfs)
+        result = dfs.get_level2_graph(ws_id, sr["view_id"], "step2_report.sql",
+                                      "orders", "ghost", direction="downstream")
+        assert result.get("search_matched") is False
+        assert "flow_node_ids" not in result, result
+        assert "flow_edge_ids" not in result, result
+        assert "full_graph" not in result, result
+        workspace_client.delete(ws_id)
+
+    def test_filter_off_omits_flow_fields(self, workspace_client, d1_zip):
+        ws_id = workspace_client.create(d1_zip)
+        workspace_client.index(ws_id)
+        sr = workspace_client.search(ws_id, "orders", "amount")
+        from app.services.dataflow_service import get_level2_graph
+        result = get_level2_graph(ws_id, sr["view_id"], "step2_report.sql",
+                                  "orders", "amount", filter_relevant_nodes=False,
+                                  direction="downstream")
+        assert "flow_node_ids" not in result, result
+        assert "flow_edge_ids" not in result, result
+        assert "full_graph" not in result, result
+        workspace_client.delete(ws_id)
+
+    def test_no_search_seed_omits_flow_fields(self, workspace_client, d1_zip):
+        ws_id = workspace_client.create(d1_zip)
+        workspace_client.index(ws_id)
+        from app.services.dataflow_service import get_level2_graph
+        result = get_level2_graph(ws_id, "v", "step2_report.sql", "", "",
+                                  True, "downstream")
+        assert "flow_node_ids" not in result, result
+        assert "flow_edge_ids" not in result, result
+        assert "full_graph" not in result, result
         workspace_client.delete(ws_id)

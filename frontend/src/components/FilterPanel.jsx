@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import * as api from '../api/client';
+import { filterNames } from '../utils/nameFilter';
 
 // Consistent color palette for table names (16 colors)
 const TABLE_COLORS = [
@@ -49,16 +50,12 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
 
   // Autocomplete: table
   useEffect(() => {
-    if (!table) { setTableSuggestions(tableNames.slice(0, 20)); return; }
-    const q = table.toLowerCase();
-    setTableSuggestions(tableNames.filter(n => n.toLowerCase().includes(q)).slice(0, 20));
+    setTableSuggestions(filterNames(tableNames, table));
   }, [table, tableIndex]);
 
   // Autocomplete: field
   useEffect(() => {
-    if (!field) { setFieldSuggestions(fieldNames.slice(0, 20)); return; }
-    const q = field.toLowerCase();
-    setFieldSuggestions(fieldNames.filter(n => n.toLowerCase().includes(q)).slice(0, 20));
+    setFieldSuggestions(filterNames(fieldNames, field));
   }, [field, fieldIndex]);
 
   // Click-away: close autocomplete dropdowns when clicking outside
@@ -75,20 +72,17 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
 
   // Filter field options by selected table
   const getFieldOptions = () => {
-    const filterFn = (f) => !field || f.toLowerCase().includes(field.toLowerCase());
     if (table && tableIndex[table]) {
-      const tableFields = (tableIndex[table].fields || []).filter(filterFn);
+      const tableFields = filterNames(tableIndex[table].fields || [], field);
       if (tableFields.length > 0) return tableFields;
     }
-    return fieldNames.filter(filterFn).slice(0, 20);
+    return filterNames(fieldNames, field);
   };
 
   // Filter table options by selected field
   const getTableOptions = () => {
     if (!field || !fieldIndex[field]) return tableSuggestions;
-    const filtered = (fieldIndex[field].tables || []).filter(t =>
-      !table || t.toLowerCase().includes(table.toLowerCase())
-    );
+    const filtered = filterNames(fieldIndex[field].tables || [], table);
     // Bug 49: fall back to full suggestions when the field has no indexed tables
     // (e.g. field only seen under an alias) — otherwise the dropdown is empty
     return filtered.length > 0 ? filtered : tableSuggestions;
