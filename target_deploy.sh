@@ -181,7 +181,7 @@ i=0
 while [ "$i" -lt 30 ]; do
     i=$((i+1))
     sleep 2
-    HEALTH_JSON=$(curl -sf http://127.0.0.1:${HOST_PORT}/api/health 2>/dev/null || true)
+    HEALTH_JSON=$(curl -sf --noproxy '*' http://127.0.0.1:${HOST_PORT}/api/health 2>/dev/null || true)
     if [ -n "$HEALTH_JSON" ]; then
         HEALTH_VER=$(echo "$HEALTH_JSON" | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
         log "  ${GREEN}Ready${NC} ($HEALTH_JSON)"
@@ -207,7 +207,7 @@ docker rmi "${IMAGE_NAME}:${ROLLBACK_TAG}" 2>/dev/null || true
 echo ""
 log "  ${GREEN}=== Deployed Successfully ===${NC}"
 log "  Access:  http://${SERVER_IP}:${HOST_PORT}"
-log "  Health:  curl http://${SERVER_IP}:${HOST_PORT}/api/health"
+log "  Health:  curl --noproxy '*' http://${SERVER_IP}:${HOST_PORT}/api/health"
 log "  Logs:    docker logs $CONTAINER_NAME"
 log "  Version: v${REPO_VERSION}"
 echo ""
