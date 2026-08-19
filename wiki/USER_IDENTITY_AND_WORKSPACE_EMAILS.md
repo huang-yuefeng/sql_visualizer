@@ -1,9 +1,9 @@
 # User Identity & Workspace Collaboration — Local Accounts (no email)
 
-> Design note — revised 2026-08-19 (2nd revision, user-confirmed). Email is **dropped** (no usable
+> Design note — revised 2026-08-19 (3rd revision). Email is **dropped** (no usable
 > mail path on the target network). Replaced with **local accounts (`@hsbc.com` usernames) + IP
 > audit + in-app notifications + per-workspace activity log + a per-user "my workspaces" index**.
-> No code changed.
+> **All decisions locked — design settled, awaiting the go-command to implement. No code changed.**
 
 **Change vs the 2026-08-14 email design:** every email function maps to an in-app equivalent —
 OTP login → local accounts; memo/creator-alert emails → notification inboxes; mailbox-searchable
@@ -202,14 +202,12 @@ Existing endpoints become auth-gated (session cookie required).
 - **IP audit** makes every workspace modification attributable (name + IP + time).
 - HttpOnly session cookie; 30-min idle expiry.
 
-## 10. Open items / to confirm
+## 10. Decisions locked (2026-08-19, all confirmed)
 
-1. **IP source**: direct client IP (`request.client.host`) — target is a direct container port
-   mapping, so this should be correct. If the service is ever put behind nginx/a proxy, switch to
-   `X-Forwarded-For` (trusted proxy only). Default: client IP.
-2. **Old-workspace removal**: user confirmed **remove**. Recommend a one-time backup copy (tar of
-   `WORKSPACE_ROOT`) before deletion — harmless, keeps data recoverable.
-3. **Password policy**: minimum length (recommend ≥ 6) — minor, default to that unless overridden.
+1. ~~IP source~~ → **client IP** (`request.client.host`), recorded to know who is using the service;
+   switch to `X-Forwarded-For` only if a trusted proxy is ever introduced.
+2. ~~Old-workspace removal~~ → **remove directly**, no backup.
+3. ~~Password policy~~ → **minimum length ≥ 6**.
 4. ~~Session store lost on restart~~ → **accepted**.
 5. ~~Notification retention~~ → **keep all**.
 6. ~~Username format~~ → **`user_name@hsbc.com`**, enforced.
