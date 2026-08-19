@@ -1,6 +1,6 @@
 # User Identity & Workspace Collaboration — Local Accounts (no email)
 
-> Design note — revised 2026-08-19 (5th revision). Email is **dropped** (no usable
+> Design note — revised 2026-08-19 (6th revision). Email is **dropped** (no usable
 > mail path on the target network). Replaced with **local accounts (`@hsbc.com` usernames) + IP
 > audit + in-app notifications + per-workspace activity log + a per-user "my workspaces" index**.
 > **All decisions locked — design settled, awaiting the go-command to implement. No code changed.**
@@ -74,8 +74,11 @@ the workspace's **search state** stays shared and current-state-only.
 | — | Login gate | **Login entrance page before any page** — the whole service is behind it; only the health endpoint stays public. |
 | Q5 | Concurrent users | **Last-write-wins** + a lightweight **version-stamp notice** ("state changed by X — refreshed"). No locking. |
 | Q6 | Accounts | **Persisted local accounts** (self-registered `@hsbc.com` + password). Stable identity is what makes the inbox, the per-user index, and "creator" meaningful. |
-| Q7 | Notifications | **In-app, keep all records.** One memo per workspace-close. **No script contents** — script names, search table/field names, ws_id, time. Enough to understand what happened. |
+| Q7 | Notifications | **In-app, keep all records, one file per user** (`notifications/{username}.json`). One memo per workspace-close. **No script contents** — script names, search table/field names, ws_id, time. Enough to understand what happened. |
 | Q8 | Idle timeout | **30 minutes**. Memo added on workspace close / session expiry / logout. |
+| — | Concurrent writes | **Accepted**: losing the rarer concurrent update is OK (low simultaneous-user count). Files are still written atomically (temp + rename) so a race **never corrupts a file** — it only drops the losing writer's update. |
+| — | Layout write cadence | Frontend writes layout **at most once per second**; a **final write on workspace close**. The layout file keeps **only current state** (per-view `{node_id:[x,y]}`), never history — its size does not grow. |
+| — | Heavy CPU load | **One heavy analysis at a time.** While a search/analysis is running, a new one is **refused with "system busy — please wait"** instead of starting in parallel and blocking the server. |
 | — | IP audit | **Every workspace operation recorded as {username, ip, ts, action, detail}** — "who modified this" is always answerable. |
 | — | Workspace delete | **Creator-only physical delete** (removes the workspace from the server and from everyone's index). **Everyone** can **remove a workspace from their own history** (their index only — never the server copy). |
 | — | Quota | Each user may **keep at most `MAX_WORKSPACES_PER_USER`** workspaces in their "my workspaces" list (default **10**, single config constant). At the cap, opening a new workspace (create or id-open) requires removing one from the list first. |
@@ -126,10 +129,12 @@ the workspace's **search state** stays shared and current-state-only.
   Resume by ws_id shows the current state, not history. Last-writer-wins on every write (no locking).
 - **Concurrent-editing notice:** when the frontend loads/receives state whose `state_version` is
   newer than what it last loaded, it shows "state changed by X at HH:MM — refreshed" and re-renders.
-- **Layout persistence (L1 + L2):** the frontend reports node x/y on each drag-end (debounced
-  autosave) for the **current L1 and for each opened L2**; backend stores per-view
-  `{node_id: [x,y]}`. On resume, positions are re-applied instead of recomputed; **positions for
-  node ids that no longer exist are skipped, not errors**. Zoom/pan intentionally not saved.
+- **Layout persistence (L1 + L2):** the frontend reports node x/y **at most once per second** while
+  dragging, plus a **final write on workspace close**, for the **current L1 and for each opened
+  L2**; backend stores per-view `{node_id: [x,y]}` as **current state only** (replaced on each
+  save, never appended — file size does not grow). On resume, positions are re-applied instead of
+  recomputed; **positions for node ids that no longer exist are skipped, not errors**. Zoom/pan
+  intentionally not saved. (History of layout *actions* lives in the activity log, not the layout file.)
 - The existing `views.json` (search views) stays; `meta.json` adds creator + layout positions +
   opened-L2 registry.
 
@@ -154,10 +159,10 @@ On visit end, **notifications are created** (in-app, not emailed):
 
 A user visiting N workspaces in one session gets N memos.
 
-**Notification record** (`notifications.json`, per username): `{id, kind: memo|alert, title, body,
-read, created_at}`. Title keeps the mailbox-searchable format —
+**Notification record** — **one file per user** (`notifications/{username}.json`), list of
+`{id, kind: memo|alert, title, body, read, created_at}`. Title keeps the mailbox-searchable format —
 `[SQL Data Flow Visualizer] Workspace {ws_id} · {YYYY-MM-DD HH:MM}`. **All records are kept**
-(user-confirmed). Timestamps use server local time.
+(user-confirmed); a write touches only the owning user's file. Timestamps use server local time.
 
 **Pull, not push:** the user sees these on next login (unread badge + inbox panel).
 
@@ -188,16 +193,23 @@ read, created_at}`. Title keeps the mailbox-searchable format —
 | Store | Contents | Lifecycle |
 |-------|----------|-----------|
 | `users.json` (new) | `username → {salt, password_hash, created_at, last_login_ip, workspaces: [{ws_id, role, first_opened, last_opened}]}` | Durable; index entries removed on Remove-from-list or on workspace delete |
-| `notifications.json` (new) | `username → [notification records]` (kept forever) | Durable |
+| `notifications/{username}.json` (new) | `[notification records]`, kept forever — one file per user | Durable |
 | `workspaces/{ws_id}/meta.json` (new) | `creator_username`, `created_at`, `state_version`, last-search ref, opened-L2 list with `{script, node_positions}` | Durable, per workspace |
 | `workspaces/{ws_id}/activity.json` (new) | append-only `{username, ip, ts, action, detail}` | Durable, per workspace |
 | `sessions` (in-memory) | token → `{username, ip, last_active}` | TTL 30 min / on logout |
 | `open_visits` (in-memory) | `username → {ws_id → {opened_at, last_active}}` | Flushed on visit end (close/logout/expiry) |
 | existing `views.json` | search views (unchanged) | Durable |
 
-**Concurrency:** `activity.json` / `notifications.json` / `users.json` are written by multiple
-users concurrently — use atomic/locked appends and atomic rewrite (write-temp + rename) so no
-record is interleaved or lost.
+**Concurrency (accepted-loss):** `users.json` / `notifications/{username}.json` / `meta.json` /
+`activity.json` can be written by two users at the same instant. The losing writer's update may be
+dropped — **accepted** (low simultaneous-user count, single uvicorn worker). Every write is still
+atomic (**write-temp + rename**) so a race never corrupts a file; it only drops the last writer's
+change. `activity.json` is append-only (no read-modify-write).
+
+**Heavy-operation gate (single):** CPU-heavy searches/analyses are run **one at a time**. While one
+is in progress, a new one is refused with **HTTP 409 "system busy — please wait"** instead of
+starting in parallel and blocking the server. (Single worker already serializes; this turns the
+queue into a clear user message.)
 
 **Migration at rollout:** pre-feature workspaces (no `creator_username`) are **removed directly**
 (user-confirmed, no backup). Verify existing e2e/test fixtures are not affected before running.
@@ -213,8 +225,10 @@ record is interleaved or lost.
 - `DELETE /api/workspace/{ws_id}` → **creator-only physical delete** (removes from all indexes)
 - `DELETE /api/workspaces/{ws_id}` → **remove from own history only** (index), no server change
 - `GET  /api/workspace/{ws_id}/activity` → **read the workspace's history** (name + IP + ts + action)
-- `POST /api/workspace/{ws_id}/search` (existing) → also records layout savepoints per opened L2
-- `PUT  /api/workspace/{ws_id}/views/{view_id}/layout` → autosave node positions
+- `POST /api/workspace/{ws_id}/search` (existing) → also records layout savepoints per opened L2;
+  returns **409 "system busy — please wait"** if another heavy analysis is running
+- `PUT  /api/workspace/{ws_id}/views/{view_id}/layout` → autosave node positions (frontend sends
+  **≤1/s**; **current-state only**, overwrites the view's positions)
 - `GET  /api/workspace/{ws_id}/resume` → full current state (L1 + opened L2 + positions + state_version)
 - `GET  /api/notifications` → current user's inbox; `POST /api/notifications/{id}/read`
 - Workspace **create** records `creator_username` in `meta.json` and adds to the creator's index
@@ -235,11 +249,14 @@ reachable before login; only the health endpoint stays public.
 - **History panel** for a workspace: the activity log (who, when, which IP, what action).
 - **"State changed by X — refreshed" toast** when the loaded workspace's `state_version` is newer
   than what the user has on screen.
+- **"System busy — please wait" message** when a search is refused while another heavy analysis is
+  running (409); the button re-enables when the gate frees.
 - **Notification bell**: unread badge; inbox listing memos/alerts (title, ws_id, time, read/unread).
 - **Close workspace** control (explicit visit-end trigger).
 - **Opened-L2 strip** under the L1 navigation panel: previously-opened L2s (with saved layouts) —
   click to switch; opening an un-saved L2 recomputes fresh and becomes savable.
-- **Layout autosave**: on drag-end, debounced (~1 s) PUT of node x/y; silent failure handling.
+- **Layout autosave**: PUT node x/y **at most once per second** while dragging, plus a **final PUT
+  on workspace close**; silent failure handling.
 
 ## 9. Security notes
 
@@ -271,3 +288,10 @@ reachable before login; only the health endpoint stays public.
 14. ~~Multiple tabs~~ → **per-(user, workspace) open-visits registry**; all open visits flush on
     logout/expiry (one memo each).
 15. ~~Login gate~~ → **login entrance page before any page**; only the health endpoint stays public.
+16. ~~Concurrent write loss~~ → **accepted** (low simultaneous users, single worker); files still
+    written atomically (temp + rename) so a race never corrupts a file.
+17. ~~Notifications storage~~ → **one file per user** `notifications/{username}.json`.
+18. ~~Layout write cadence~~ → **≤1/s from the frontend + final write on workspace close**; layout
+    file keeps **current state only** (never grows).
+19. ~~Heavy CPU load~~ → **single heavy-analysis gate** — while one runs, a new one is refused with
+    "system busy — please wait" (HTTP 409) instead of blocking the server in parallel.
