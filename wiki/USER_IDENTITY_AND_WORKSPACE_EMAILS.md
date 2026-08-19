@@ -104,6 +104,15 @@ Existing endpoints become auth-gated (session cookie required).
 - **Awaiting from user:** SMTP host + port, SSL/STARTTLS, auth credentials, from-address, and confirmation the container can reach the SMTP host over the managed network.
 - Constraint: **only the internal `@hsbc.com` mail path**; nothing may touch the open internet (standing offline rule).
 
+### 7.1 Machine check (2026-08-14) — no "simulate-as-a-person" path exists today
+
+There is **no pre-configured mail path** to reuse: no `mail`/`mailx`/`msmtp`/`sendmail`/`postfix`/`mutt` binaries, no `/etc/mail.rc`, `/etc/msmtprc`, `~/.mailrc`, `~/.msmtprc`, `/etc/postfix/main.cf`, no listening SMTP ports (25/465/587/2525). So the backend cannot "send as a person" with zero settings — a message must be handed to a mail server, and none is configured here.
+
+**Available paths (pick one):**
+1. **(Needed) SMTP settings from the user's own mail account** — server + port, SSL/STARTTLS, login credentials, from-address. The backend then is just another client of the same internal server the user's mail app uses, and can reach any `@hsbc.com` address. This is the normal approach on a managed network.
+2. **Relay configured by admin** — the target host gets postfix/msmtp pointed at the internal relay; the backend then calls the local mailer and holds **no** credentials in code. (Cleanest for "no auth in our config", but needs an admin step.)
+3. **Test fallback until email is live** — OTP shown in the API response / server log so login works for demos without a live mail path.
+
 ## 8. Open items / to verify on the target machine
 
 1. **SMTP connection details** (the blocker above) — user to provide.
