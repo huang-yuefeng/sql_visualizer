@@ -78,7 +78,7 @@ the workspace's **search state** stays shared and current-state-only.
 | Q8 | Idle timeout | **30 minutes**. Memo added on workspace close / session expiry / logout. |
 | — | Concurrent writes | **Accepted**: losing the rarer concurrent update is OK (low simultaneous-user count). Files are still written atomically (temp + rename) so a race **never corrupts a file** — it only drops the losing writer's update. |
 | — | Layout write cadence | Frontend writes layout **at most once per second**; a **final write on workspace close**. The layout file keeps **only current state** (per-view `{node_id:[x,y]}`), never history — its size does not grow. |
-| — | Heavy CPU load | **One heavy analysis at a time.** While a search/analysis is running, a new one is **refused with "system busy — please wait"** instead of starting in parallel and blocking the server. |
+| — | Heavy CPU load | **One global heavy-op gate** covering the debugger **search** and the analysis API (`/analyze`, `/analyze_multi`). While any one is running, a new one is **refused with "system busy — please wait"** instead of starting in parallel and blocking the server. |
 | — | IP audit | **Every workspace operation recorded as {username, ip, ts, action, detail}** — "who modified this" is always answerable. |
 | — | Workspace delete | **Creator-only physical delete** (removes the workspace from the server and from everyone's index). **Everyone** can **remove a workspace from their own history** (their index only — never the server copy). |
 | — | Quota | Each user may **keep at most `MAX_WORKSPACES_PER_USER`** workspaces in their "my workspaces" list (default **10**, single config constant). At the cap, opening a new workspace (create or id-open) requires removing one from the list first. |
@@ -206,10 +206,11 @@ dropped — **accepted** (low simultaneous-user count, single uvicorn worker). E
 atomic (**write-temp + rename**) so a race never corrupts a file; it only drops the last writer's
 change. `activity.json` is append-only (no read-modify-write).
 
-**Heavy-operation gate (single):** CPU-heavy searches/analyses are run **one at a time**. While one
-is in progress, a new one is refused with **HTTP 409 "system busy — please wait"** instead of
-starting in parallel and blocking the server. (Single worker already serializes; this turns the
-queue into a clear user message.)
+**Heavy-operation gate (single, global):** all CPU-heavy operations — the debugger **search** and
+the analysis API (`/analyze`, `/analyze_multi`) — share **one gate** and run **one at a time**.
+While one is in progress, a new one is refused with **HTTP 409 "system busy — please wait"**
+instead of starting in parallel and blocking the server. (Single worker already serializes; this
+turns the queue into a clear user message.)
 
 **Migration at rollout:** pre-feature workspaces (no `creator_username`) are **removed directly**
 (user-confirmed, no backup). Verify existing e2e/test fixtures are not affected before running.
@@ -226,7 +227,9 @@ queue into a clear user message.)
 - `DELETE /api/workspaces/{ws_id}` → **remove from own history only** (index), no server change
 - `GET  /api/workspace/{ws_id}/activity` → **read the workspace's history** (name + IP + ts + action)
 - `POST /api/workspace/{ws_id}/search` (existing) → also records layout savepoints per opened L2;
-  returns **409 "system busy — please wait"** if another heavy analysis is running
+  returns **409 "system busy — please wait"** if another heavy op is running
+- `POST /api/analyze` / `POST /api/analyze_multi` (existing) → under the **same global heavy-op
+  gate** (409 "system busy" while another heavy op runs)
 - `PUT  /api/workspace/{ws_id}/views/{view_id}/layout` → autosave node positions (frontend sends
   **≤1/s**; **current-state only**, overwrites the view's positions)
 - `GET  /api/workspace/{ws_id}/resume` → full current state (L1 + opened L2 + positions + state_version)
@@ -293,5 +296,5 @@ reachable before login; only the health endpoint stays public.
 17. ~~Notifications storage~~ → **one file per user** `notifications/{username}.json`.
 18. ~~Layout write cadence~~ → **≤1/s from the frontend + final write on workspace close**; layout
     file keeps **current state only** (never grows).
-19. ~~Heavy CPU load~~ → **single heavy-analysis gate** — while one runs, a new one is refused with
-    "system busy — please wait" (HTTP 409) instead of blocking the server in parallel.
+19. ~~Heavy CPU load~~ → **one global heavy-op gate** (debugger search + `/analyze` + `/analyze_multi`)
+    — while one runs, a new one is refused with "system busy — please wait" (HTTP 409).

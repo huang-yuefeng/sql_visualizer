@@ -247,11 +247,28 @@
 | R30.4 | Value-flow only: structure edges are never part of the cone, never highlighted | 📝 | R30 (2026-08-13) |
 | R30.5 | No animation (static one-shot class toggle); L2 only — L1 keeps its static arrows | 📝 | R30 (2026-08-13) |
 
+## R31 — Multi-user identity & workspace collaboration (2026-08-19, design settled — awaiting go)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R31.1 | **Login entrance page gates every page** of the service; username MUST be `*@hsbc.com` + password (min 6); unknown usernames **self-register** on first login; username is an identifier only — **no mail is ever sent** | 📝 | R31 (2026-08-19) — design note `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`; email dropped (no mail path) |
+| R31.2 | **IP audit**: client IP recorded at login and with **every** workspace operation as `{username, ip, ts, action, detail}` — "who modified this" is always answerable | 📝 | R31 (2026-08-19) |
+| R31.3 | **Share by workspace id**: any logged-in user who knows the id can open/edit; `creator_username` fixed at creation; creator is **alerted in-app** when someone else works on the workspace | 📝 | R31 (2026-08-19) |
+| R31.4 | **Shared current state, last-writer-wins**: one L1 (the last search) + the opened L2s; resume-by-id shows the current state, never personal history; monotonically increasing `state_version` drives a "state changed by X — refreshed" notice | 📝 | R31 (2026-08-19) |
+| R31.5 | **Layout persistence (L1 + L2)**: node x/y autosaved **≤1/s** plus a **final write on workspace close**; layout file is **current-state only** (never grows); positions restored on resume, stale ids skipped | 📝 | R31 (2026-08-19) |
+| R31.6 | **"My workspaces" per-user index** (membership = created + visited) with quota `MAX_WORKSPACES_PER_USER` (default 10); at the cap, opening a new workspace requires removing one from the list first | 📝 | R31 (2026-08-19) |
+| R31.7 | **Remove-from-own-history** (any user, index only, never the server copy) vs **physical delete** (creator only — removes the workspace and every user's index entry) | 📝 | R31 (2026-08-19) |
+| R31.8 | **Workspace history readable by any opener**: per-workspace activity log (who, when, IP, what) | 📝 | R31 (2026-08-19) |
+| R31.9 | **In-app notifications, one file per user** (`notifications/{username}.json`, kept forever): memo on visit end (close/logout/30-min idle); creator alert if visitor ≠ creator; title `[SQL Data Flow Visualizer] Workspace {ws_id} · {time}` | 📝 | R31 (2026-08-19) |
+| R31.10 | **Multiple tabs**: visits tracked per (user, workspace); logout/expiry flushes all open visits (one memo each) | 📝 | R31 (2026-08-19) |
+| R31.11 | **Password recovery = re-register** (replaces the old account's inbox + index; workspaces unaffected) | 📝 | R31 (2026-08-19) |
+| R31.12 | **One global heavy-op gate** (debugger search + `/analyze` + `/analyze_multi`): while one runs, a new one returns HTTP 409 "system busy — please wait" | 📝 | R31 (2026-08-19) |
+| R31.13 | **Migration**: pre-feature workspaces (no creator) removed directly at rollout; concurrent same-file write loss **accepted** (low concurrency) with atomic temp+rename so files never corrupt | 📝 | R31 (2026-08-19) |
+
 ## Summary
 | Metric | Count |
 |--------|-------|
 | ✅ Implemented | 114 (all) — 83 through R16 + 17 for R17–R20 + 14 for R26–R28 (count corrected to the actual row total, 2026-08-11) |
-| 📝 Design, not implemented | 1 — R30 (docs pending) |
+| 📝 Design, not implemented | 2 — R30 (docs pending), R31 (multi-user — design settled, awaiting go) |
 | Version | 3.3.153 |
 
 ## Key Fixes since V3.2.1
