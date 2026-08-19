@@ -103,3 +103,42 @@ def test_l1_cache_miss_falls_back_to_extraction(multi_workflow_ws, monkeypatch):
     assert l1.get("nodes"), "fresh L1 must produce nodes"
     assert len(calls) >= len(names), \
         "cache miss must fall back to run_full_analysis per script"
+
+
+def test_l1_rejects_stale_analysis_after_edit(multi_workflow_ws, monkeypatch):
+    """C-H1 regression (2026-08-19 review): an edited script must never be
+    served the stale analysis left in the cache dir — same script_name +
+    extractor_version, different sql_text. The old reader keyed by
+    script_name with a version-only guard and would accept it; the fix (exact
+    sql-keyed read + sql_text equality, shared by Pass A and Pass B) must
+    reject the stale hit and fall back to fresh extraction."""
+    from app.services.workspace_service import get_workspace_dir
+
+    names = _script_names()
+    index_scripts(multi_workflow_ws, names)  # writes analysis_<key>.json
+
+    # Simulate an edit: different sql_text, SAME script_name, NO re-index
+    # (re-indexing writes a fresh-key file; an edit leaves the old one
+    # behind — the exact stale state the bug serves).
+    edited_name = names[0]
+    sp = get_workspace_dir(multi_workflow_ws) / "scripts" / edited_name
+    original_sql = sp.read_text(encoding="utf-8", errors="replace")
+    edited_sql = "-- C-H1 edit marker\n" + original_sql
+    assert edited_sql != original_sql
+    sp.write_text(edited_sql, encoding="utf-8")
+
+    from app.extractor import adapter as adapter_mod
+    calls = []
+    real = adapter_mod.run_full_analysis
+
+    def _counting(*args, **kwargs):
+        calls.append(args[1] if len(args) > 1 else kwargs.get("script_name"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(adapter_mod, "run_full_analysis", _counting)
+
+    l1 = _build_l1_graph(multi_workflow_ws, names, TARGET_TABLE, TARGET_FIELD)
+    assert l1.get("degraded") is False
+    assert l1.get("nodes"), "edited workspace must still produce L1 nodes"
+    assert edited_name in calls, \
+        "edited script's stale analysis cache must be rejected → fresh extraction"

@@ -512,15 +512,46 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                     _log.warning("L1: failed to read analysis cache %s: %s",
                                  af_path.name, exc)
 
-        def _lookup_analysis(sname: str) -> dict | None:
-            """Cache lookup: exact script_name first, then suffix match
-            (workspace-dir-prefixed names)."""
+        def _analysis_current(adata: dict, sql: str) -> bool:
+            """C-H1 (2026-08-19 review): a cache entry is usable only when it
+            was produced by the current extractor FOR the current on-disk SQL
+            text. The old reader checked extractor_version alone and matched
+            by script_name, so an edited-then-reindexed script could be served
+            the stale analysis left behind under the OLD key (same version,
+            different SQL) — wrong lineage."""
+            return (adata.get("extractor_version") == EXTRACTOR_VERSION
+                    and adata.get("sql_text") == sql)
+
+        def _lookup_analysis(sname: str, sql: str) -> dict | None:
+            """Cache lookup: exact sql-keyed read first, then suffix match
+            (workspace-dir-prefixed names). A hit is accepted only when both
+            extractor_version AND sql_text match the current script — a stale
+            analysis (edited script, old key file still on disk) is rejected
+            so L1 never serves lineage for SQL that is no longer there. The
+            exact key mirrors folder_index_service's write side and the
+            dataflow_service/l2_builder read side."""
+            cache_key = hashlib.md5(
+                (EXTRACTOR_VERSION + "|" + sname + sql)
+                .encode()).hexdigest()[:12]
+            exact_path = cache_dir / f"analysis_{cache_key}.json"
+            if exact_path.exists():
+                try:
+                    adata = json.loads(exact_path.read_text())
+                except Exception as exc:
+                    _log.warning("L1: failed to read analysis cache %s: %s",
+                                 exact_path.name, exc)
+                    adata = None
+                if adata is not None and _analysis_current(adata, sql):
+                    return adata
             analysis = analysis_cache_map.get(sname)
             if not analysis:
                 for cache_name, cache_data in analysis_cache_map.items():
                     if cache_name.endswith("/" + sname) or cache_name == sname:
-                        return cache_data
-            return analysis
+                        analysis = cache_data
+                        break
+            if analysis is not None and _analysis_current(analysis, sql):
+                return analysis
+            return None
 
         if len(script_data) < 2:
             # R24: single-script workspace — analyze the one script inline
@@ -566,9 +597,10 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             # byte-identical (cache-hit L1 == fresh-extraction L1).
             all_scripts = []
             for name, sql in script_data:
-                analysis = _lookup_analysis(name)
-                if (analysis is not None
-                        and analysis.get("extractor_version") == EXTRACTOR_VERSION):
+                # C-H1/C-M1: the version+sql guard lives inside
+                # _lookup_analysis — shared by Pass A and Pass B.
+                analysis = _lookup_analysis(name, sql)
+                if analysis is not None:
                     all_scripts.append(_build_script_entry(name, sql, analysis))
                 else:
                     all_scripts.append(_build_script_entry(
@@ -598,7 +630,9 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             sname = s.get("script_name", "")
             model = s.get("_model")
             if model is None:
-                analysis = _lookup_analysis(sname)
+                # C-M1: Pass B now shares the same version+sql guard as Pass A
+                # (it previously accepted any analysis by name alone).
+                analysis = _lookup_analysis(sname, sql_by_name.get(sname, ""))
                 if analysis is None and sname in sql_by_name:
                     # Fresh workspace (no analysis cache on disk): run the
                     # inline pipeline — the SAME deterministic extraction
