@@ -353,3 +353,30 @@ describe('DataFlowGraph — L2 flow-only toggle', () => {
     expect(relayoutMock).not.toHaveBeenCalled();
   });
 });
+
+// ── C-L2: edge-hover tooltip removed (negative regression) ────────────
+// The edge-hover tooltip UI was removed from DataFlowGraph in a prior
+// release. These tests pin the removal so a future re-add fails: no
+// .edge-tooltip element renders (cytoscape is canvas-based and mocked,
+// so the assertion is a negative DOM check), the cytoscape hook receives
+// no onHoverLeave/onEdgeHover wiring, and onHoverEnter survives — it is
+// the L1 cursor helper, NOT a tooltip, and must stay.
+describe('DataFlowGraph — edge-hover tooltip removed (C-L2)', () => {
+  it('does not render any .edge-tooltip element at L2', () => {
+    render(<DataFlowGraph graphData={graphData} level="L2" />);
+    expect(document.querySelector('.edge-tooltip')).toBeNull();
+  });
+
+  it('passes no onHoverLeave / onEdgeHover into the cytoscape hook', () => {
+    render(<DataFlowGraph graphData={graphData} level="L2" />);
+    const options = lastHookOptions();
+    expect(options.onHoverLeave).toBeUndefined();
+    expect(options.onEdgeHover).toBeUndefined();
+  });
+
+  it('still passes onHoverEnter (L1 cursor helper, not a tooltip)', () => {
+    render(<DataFlowGraph graphData={graphData} level="L2" />);
+    const options = lastHookOptions();
+    expect(options.onHoverEnter).toBeDefined();
+  });
+});
