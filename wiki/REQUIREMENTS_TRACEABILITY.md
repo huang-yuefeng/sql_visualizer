@@ -1,7 +1,7 @@
-# Requirements Traceability Matrix — V3.3.153
+# Requirements Traceability Matrix — V3.3.160
 
 > Maps all requirements from REQUIREMENTS.md to implementation status.
-> Last updated: 2026-08-13 (R29 implemented v3.3.153 — R29 rows + derived rows flipped 📝 → ✅)
+> Last updated: 2026-08-20 (R30 implemented v3.3.157/158 — #222 + recolor #239; v3.3.159/160 amendments added; R31 design settled — awaiting go)
 
 ## Legend
 - ✅ Implemented & verified
@@ -49,7 +49,7 @@
 | R4.2 | Data flow edges between scripts (directed) | ✅ | table_script edges |
 | R4.3 | Click script node → open L2 graph for that script | ✅ | Double-click handler → handleOpenL2 |
 | R4.4 | Directional arrows on all edges | ✅ | target-arrow-shape: triangle on all edge styles |
-| R4.5 | Tooltips on edge hover showing type + description | ✅ | Edge tooltip popup for both L1 and L2 |
+| R4.5 | Tooltips on edge hover showing type + description | ✅ | Edge tooltip popup for L1; L2 edge-hover tooltip REMOVED v3.3.159 (#240) — see R30.7 |
 | R4.6 | Operation badges on script nodes showing roles | ✅ | Roles (REF/JOIN/FILTER etc.) appended to node label |
 | R4.7 | Source/Intermediate/Output table coloring | ✅ | Table nodes colored by role in legend |
 | R4.8 | Fit/Zoom controls | ✅ | Fit button + keyboard shortcut F |
@@ -223,7 +223,7 @@
 |----|------------|--------|-------|
 | R28.1 | L2 legend = node roles: Source node (the searched table — the flow's start), Target node (flow destinations / output tables), Waypoint (intermediate tables on the flow path); source and target the emphasized entries | ✅ 2026-08-11 | `DataFlowLegend.jsx` L2 branch renders `L2NodeRoleLegend` (Source node / Target node / Waypoint, emphasized source+target); `FlowKindLegend` + `FLOW_KIND_GROUPS` deleted (no references remain outside tests) |
 | R28.2 | Distinct visible node styles for source/target/waypoint in L2 — renderer reads the payload (`flow_role` "source"\|"target"\|"waypoint" on table compounds (full view), `flow_source`/`flow_target` booleans (filtered view), `is_target` on seed-copy nodes), never guesses | ✅ 2026-08-11 | new `L2_ROLE_COLORS` + `L2_NODE_ROLE_STYLES` in `frontend/src/utils/graphStyles.js` — source #5DADE2, target #58D68D, waypoint #7a7a9a; styles appended LAST so they win selector ties |
-| R28.3 | The L2 edge legend is removed; edge flow-kind midpoint labels (R25 rule 5) and the hover tooltip (edge type, counts — R25 secondary surface) remain | ✅ 2026-08-11 | L2 edge legend gone; midpoint labels + tooltip untouched |
+| R28.3 | The L2 edge legend is removed; edge flow-kind midpoint labels (R25 rule 5) remain — the hover tooltip (edge type, counts — R25 secondary surface) was REMOVED | ✅ 2026-08-11 | L2 edge legend gone; midpoint labels remain; hover tooltip REMOVED v3.3.159 (#240) — see R30.7 |
 | R28.4 | L1 legend unchanged; the SCHEMA-structure note (hidden-edge count, structure toggle) stays reachable | ✅ 2026-08-11 | L1 legend unchanged; structure note kept as a footnote under the L2 node legend |
 | R28.5 | Node styling and legend colors use the existing token palette (`config/layout.js` / app.css) — no new color system | ✅ 2026-08-11 | `L2_ROLE_COLORS` reuses palette tokens |
 | R28.T | Vitest coverage — node-legend entries render (source/target/waypoint); L2 no longer renders FlowKindLegend; L1 legend unchanged | ✅ 2026-08-11 | `components/__tests__/DataFlowLegend.test.jsx` — 7 tests, all green |
@@ -239,15 +239,26 @@
 | R29.6 | L2 flow-reason source/target anchoring follows the direction (user ruling 2026-08-12): downstream → seed = SOURCE (R19.1 unchanged); upstream → seed = TARGET (sources = the fields writing it) | ✅ | R29 (2026-08-12) — v3.3.153 — mirrors R19.7 |
 
 ## R30 — L2 edge flow-direction display: mid-arrow + structure/flow color split + click-edge flow cone (requirement change, 2026-08-13)
+
+> ✅ Code complete (v3.3.157/158 — #222 + recolor #239); the formal R30 rows in requirements_v2 §R30 (docs) are a separate pending doc item.
+
 | ID | Requirement | Status | Notes |
 |----|------------|--------|-------|
-| R30.1 | Two edge classes, two color systems: value flow keeps per-type color; structure (SCHEMA/ALIAS/SUBSET) gets one uniform gray; `TABLE_FLOW` re-categorized out of "structure" (value flow) | 📝 | R30 (2026-08-13) — see bug list J12-23 |
-| R30.2 | Mid-point direction arrow on value-flow edges (native `mid-target-arrow-shape`), oriented source → target — not the line end (covered by node labels); structure edges carry no arrow | 📝 | R30 (2026-08-13) |
-| R30.3 | Click-edge flow cone (two colors), anchored to the edge's own flow direction: before (green #2ECC71) = upstream of the edge; after (blue #2196F3) = downstream of it; the edge is the red #FF3B30 pivot; non-cone edges dim | 📝 | R30 (2026-08-13) — cone recolored to RGB primaries v3.3.159 |
-| R30.4 | Value-flow only: structure edges are never part of the cone, never highlighted | 📝 | R30 (2026-08-13) |
-| R30.5 | No animation (static one-shot class toggle); L2 only — L1 keeps its static arrows | 📝 | R30 (2026-08-13) |
+| R30.1 | Two edge classes, two color systems: value flow keeps per-type color; structure (SCHEMA/ALIAS/SUBSET) gets one uniform gray; `TABLE_FLOW` re-categorized out of "structure" (value flow) | ✅ | R30 (2026-08-13) — implemented v3.3.157 (#224/#225 L2 uniform edge style) |
+| R30.2 | Mid-point direction arrow on value-flow edges (native `mid-target-arrow-shape`), oriented source → target — not the line end (covered by node labels); structure edges carry no arrow | ✅ | R30 (2026-08-13) — implemented v3.3.157 (#224/#225 mid-point arrow) |
+| R30.3 | Click-edge flow cone (two colors), anchored to the edge's own flow direction: before (green #2ECC71) = upstream of the edge; after (blue #2196F3) = downstream of it; the edge is the red #FF3B30 pivot; non-cone edges dim | ✅ | R30 (2026-08-13) — implemented v3.3.157/158 (#222 click-edge flow cone, pivot class `flow-cone-pivot`; recolor #239) |
+| R30.4 | Value-flow only: structure edges are never part of the cone, never highlighted | ✅ | R30 (2026-08-13) — implemented v3.3.157 (#222) |
+| R30.5 | No animation (static one-shot class toggle); L2 only — L1 keeps its static arrows | ✅ | R30 (2026-08-13) — implemented v3.3.157 (#222) |
+| R30.6 | Search-after-filter extraction-cache reuse | ✅ | #242 — v3.3.159 — repeated searches after a filter change reuse the extraction cache |
+| R30.7 | L2 edge-hover tooltip REMOVED | ✅ | #240 — v3.3.159 (commit a77dfdd) — L2 edge hover tooltip (edge type, counts) removed |
+| R30.8 | L2 two-view target-field toggle | ✅ | #247 — v3.3.160 — target-field highlight toggle between two open L2 views |
+| R30.9 | Case1 autocomplete EAST5_SSTZFXXB fix | ✅ | #245 — v3.3.160 — Case1 table autocomplete fixed for EAST5_SSTZFXXB |
+| R30.10 | C-H1 L1 cache staleness guard | ✅ | #248 — v3.3.160 — L1 cache staleness guard added |
 
 ## R31 — Multi-user identity & workspace collaboration (2026-08-19, design settled — awaiting go)
+
+> Design note `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`; CODE_REVIEW_2026-08-19 Part A flags High-severity design flaws (A-H1..A-H4) that must be resolved before implementation.
+
 | ID | Requirement | Status | Notes |
 |----|------------|--------|-------|
 | R31.1 | **Login entrance page gates every page** of the service; username MUST be `*@hsbc.com` + password (min 6); unknown usernames **self-register** on first login; username is an identifier only — **no mail is ever sent** | 📝 | R31 (2026-08-19) — design note `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`; email dropped (no mail path) |
@@ -267,9 +278,9 @@
 ## Summary
 | Metric | Count |
 |--------|-------|
-| ✅ Implemented | 114 (all) — 83 through R16 + 17 for R17–R20 + 14 for R26–R28 (count corrected to the actual row total, 2026-08-11) |
-| 📝 Design, not implemented | 2 — R30 (docs pending), R31 (multi-user — design settled, awaiting go) |
-| Version | 3.3.153 |
+| ✅ Implemented | 139 (all) — 87 R1–R16 + 20 R17–R20 + 16 R26–R28 + 6 R29 + 5 R30 + 5 v3.3.159/160 amendments |
+| 📝 Design, not implemented | 1 — R31 (multi-user — design settled, awaiting go). R30 is now ✅ code-complete; the formal R30 rows in requirements_v2 §R30 (docs) are a separate pending doc item, not counted here |
+| Version | 3.3.160 |
 
 ## Key Fixes since V3.2.1
 | Fix | Description |

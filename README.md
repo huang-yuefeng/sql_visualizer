@@ -31,7 +31,7 @@ Built for the **GPS (Global Payments System)** financial domain, this tool takes
 | Feature | Description |
 |---|---|
 | **Variable Extraction** | Parses SQL via `sqlglot` (MySQL dialect) and extracts every named reference — table columns, CTE aliases, computed expressions, window function outputs, CASE branches, and more |
-| **Type Classification** | Each variable is tagged with one of **12 types** (`database_table`, `cte_column`, `window_result`, `aggregate`, `case_result`, …) |
+| **Type Classification** | Each variable is tagged with one of **15 types** (`table`, `view`, `cte`, `subquery`, `virtual_table`, `column`, `cte_column`, `merge_target`, `union_branch`, `aggregate`, `window`, `case`, `transform`, `expression`, `literal`) |
 | **Dependency Graph** | Builds directed edges between variables based on column references, tracking data flow through CTE chains, aggregations, and transformations |
 | **Line Number Mapping** | Maps each variable back to its origin in the source SQL for easy auditing |
 | **Interactive Visualization** | A Cytoscape.js graph with node shapes/colors keyed to variable type, hover highlighting, click-to-inspect, and search/filter |
@@ -206,7 +206,7 @@ sql_understanding/
 │   ├── tests/
 │   │   ├── conftest.py                  # Shared fixtures
 │   │   ├── test_variable_extractor.py   # 17 tests — variable extraction + classification
-│   │   ├── test_dependency_graph.py     # 6 tests — dependency edges + integration
+│   │   ├── test_dependency_graph.py     # 9 tests — dependency edges + integration
 │   │   └── test_data/                   # 6 minimal SQL fixtures
 │   └── analysis_cache/                  # File-based result cache
 │
@@ -401,14 +401,15 @@ tests/test_variable_extractor.py  — 17 tests
   ├── TestFunctionResultExtraction   (1 test)  — COALESCE, CAST, JSON_EXTRACT
   ├── TestMergeExtraction            (1 test)  — MERGE INTO
   ├── TestUnionExtraction            (1 test)  — UNION ALL with CTEs
-  └── TestIntegration                (5 tests) — all 5 GPS financial samples
+  └── TestVariableExtractorIntegration (5 tests) — all 5 GPS financial samples
 
-tests/test_dependency_graph.py — 6 tests
-  ├── TestSimpleDependencies  (2 tests) — basic edges, no self-loops
-  ├── TestCTEDependencies     (2 tests) — CTE chain edges, valid IDs
-  └── TestDependencyIntegration (2 tests) — fin_query1 + fin_query4 E2E
+tests/test_dependency_graph.py — 9 tests
+  ├── TestSimpleDependencies       (2 tests) — basic edges, no self-loops
+  ├── TestCTEDependencies          (2 tests) — CTE chain edges, valid IDs
+  ├── TestDependencyIntegration    (2 tests) — fin_query1 + fin_query4 E2E
+  └── TestOneCCrossStatementGates  (3 tests) — E1/E2 cross-statement order + CTE-scope guards
 
-23 tests passed ✅
+870 passed / 5 skipped ✅
 ```
 
 ## Configuration

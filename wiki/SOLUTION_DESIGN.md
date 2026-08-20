@@ -1517,9 +1517,11 @@ carries a field of the queried field's flow.
   are verified SEPARATELY, each against its own ground truth:
   - **Downstream** = the existing Jaccard gate (its ground truth is the downstream
     flow — flow targets are consumers); the gate harness pins `direction=downstream`;
-    L2 payload byte-identity + full backend suite green (L1 is not gated — it is
-    verified **manually** against the ground truth docs at implementation time,
-    user decision 2026-08-12; no automated L1 check).
+    L2 payload byte-identity + full backend suite green. **L1 is not part of that
+    byte-identity pin, but it is covered by automated tests** — dedicated L1 files exist
+    (`test_independent_r29_ground_truth.py`, `test_l1_cache_aware.py`,
+    `test_l1_l2_integration.py`, `test_l1_physical_model.py`) alongside the Jaccard gate;
+    the original manual-only L1 check (user decision 2026-08-12) is superseded.
   - **Upstream** = new ground truth built 2026-08-12 (before coding), four seeds in
     `tools/GROUND_TRUTH_*.md`: `bdm_acc_loan_info.data_dt` (both; upstream
     literal-terminated), `rrcdm_job_log_exec_par.data_dt` (upstream literal-terminated; downstream = writer's own leg,
@@ -1723,19 +1725,19 @@ ms (84%) and graph build ≈ 14 ms; a cache-hit rebuild (JSON load + `build_grap
 ## 3. The design (FINAL SCOPE 2026-08-14 — user ruling)
 
 1. **Pass A is cache-aware.** For each matched script, load `analysis_{cache_key}.json`
-   (key = md5(EXTRACTOR_VERSION + "|" + script_name + sql_text)) and rebuild the L1 data
+   (key = md5(EXTRACTOR_VERSION + "|" + rel_path + sql_text)[:12]) and rebuild the L1 data
    (`graph_data`, input/output tables, physical model) from it; `run_full_analysis` only on
    a miss. The cache is **script-keyed** — shared by the index and every search,
    filter-independent reuse. Safe: the key covers the script text and the extractor
    version, so edits / engine upgrades re-extract automatically. The existing
    `analysis_cache_map` / `_lookup_analysis` in `_build_l1_graph` is the seed of this
    lookup.
-2. **Script scope = the table-column filter ONLY.** The search focuses on the tables
-   listed in the table-column CSV; derive `allowed_scripts = ⋃ table_index[t]["scripts"]`
-   for every t in the table-column filter's table list. **The script-table filter (File 1)
-   is ignored for scope** — the table-column filter is the single source of truth whether
-   or not File 1 is uploaded. This closes the File-2-only gap and removes the File-1
-   dependence.
+2. **Script scope = the table-column filter (File 2) is the sole scope source ONLY when
+   present.** With File 2 uploaded, the search focuses on the tables listed in the
+   table-column CSV; derive `allowed_scripts = ⋃ table_index[t]["scripts"]` for every t in
+   the table-column filter's table list — File 2 is the single source of truth for script
+   scope and File 1 is ignored. When File 2 is ABSENT, the File-1-derived scope (or None)
+   is preserved unchanged (`filter_service.py:285-286`). This closes the File-2-only gap.
 3. **DEFERRED (not in this release).** A per-(field, direction, script-set) cache of the
    finished L1 graph. Parts 1+2 already remove the dominant cost; the final-graph cache
    adds invalidation surface (filters change the script-set; re-index changes script text)
@@ -1747,7 +1749,7 @@ ms (84%) and graph build ≈ 14 ms; a cache-hit rebuild (JSON load + `build_grap
   analysis-cache lookup in.
 - `filter_service.py` — table-column-only script scope derivation
   (`allowed_scripts = ⋃ table_index[t]["scripts"]` over the table-column filter's tables;
-  ignore File 1).
+  File 1 ignored for scope only when File 2 is present).
 - Precedent already in the codebase: `dataflow_service.py:530-543` (L2 reads the same
   cache file).
 
@@ -1807,8 +1809,8 @@ notification inbox, and a per-workspace activity log.
 |--------|-------|--------|
 | User account | `data/users.json` | `username` (`*@hsbc.com`, enforced), `salt`, `password_hash` (PBKDF2), `created_at`, `last_login_ip`, `workspaces:[{ws_id, role, first_opened, last_opened}]` |
 | Notification inbox | `data/notifications/{username}.json` (one file per user, kept forever) | `{id, kind: memo|alert, title, body, read, created_at}` |
-| Workspace | `WORKSPACE_ROOT/{ws_id}/` | existing scripts + `cache/views.json` |
-| Workspace meta | `…/{ws_id}/meta.json` | `creator_username`, `created_at`, `state_version`, last-search (L1) + opened L2 views with per-view `{node_id:[x,y]}` layouts |
+| Workspace | `WORKSPACE_ROOT/{ws_id}/` | existing scripts + `cache/views.json` (search/filter result **payloads**) |
+| Workspace meta | `…/{ws_id}/meta.json` | `creator_username`, `created_at`, `state_version`, last-search **ref** (exactly one L1) + opened-L2 registry with per-view `{node_id:[x,y]}` positions — lightweight state only; the payloads stay in `cache/views.json` |
 | Activity log | `…/{ws_id}/activity.json` (append-only) | `{username, ip, ts, action, detail}` |
 | Session (in-memory) | `sessions` | token → `{username, ip, last_active}`; 30-min idle TTL |
 | Open visits (in-memory) | `open_visits` | `username → {ws_id → {opened_at, last_active}}` (multi-tab) |
@@ -1847,10 +1849,13 @@ notification inbox, and a per-workspace activity log.
   a new one during a run → HTTP 409 "system busy — please wait".
 
 ## 8. API surface (additions)
-`/api/auth/{register,login,logout}`, `/api/auth/me`, `/api/workspaces` (index + cap),
-`/api/workspace/{id}/{close,activity,resume}`, `DELETE /api/workspace/{id}` (creator),
-`DELETE /api/workspaces/{id}` (own history), `/api/workspace/{id}/views/{vid}/layout` (PUT ≤1/s),
-`/api/notifications` + `/notifications/{id}/read`. All behind login; health stays public.
+`POST /api/workspace` (create), `/api/auth/{register,login,logout}`, `/api/auth/me`,
+`/api/workspaces` (index + cap), `/api/workspace/{id}/{close,activity,resume}`,
+`DELETE /api/workspace/{id}` (creator), `DELETE /api/workspaces/{id}` (own history),
+`/api/workspace/{id}/views/{vid}/layout` (PUT ≤1/s), `/api/notifications` +
+`/notifications/{id}/read`. All behind login; health stays public. The existing
+`POST /api/workspace/{id}/search` runs under the one global heavy-op gate together with
+`/analyze` + `/analyze_multi` (HTTP 409 "system busy — please wait").
 
 ## 9. Frontend (additions)
 Login entrance page (self-register + re-register), **My workspaces dashboard** (quota meter,

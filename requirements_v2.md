@@ -58,10 +58,10 @@ toolbar drops a seldom-used toggle.
   entering the clicked edge: "where the data came from").
 - **After** (blue `#2196F3`) — the value-flow edges **downstream** of `v` (the flow
   the clicked edge feeds: "where the data goes").
-- The clicked edge itself is the **pivot** (red `#FF3B30`, `edge-selected`).
+- The clicked edge itself is the **pivot** (red `#FF3B30`, class `flow-cone-pivot`).
 - Non-cone edges are dimmed (focus mode); structure edges are never part of the cone.
 
-**Status: implemented (v3.3.159).** The two colors (`#2ECC71` / `#2196F3`) live in
+**Status: implemented (tasks #222 + recolor #239; recolor v3.3.157/158).** The two colors (`#2ECC71` / `#2196F3`) live in
 `frontend/src/utils/graphStyles.js` (`L2_FLOW_CONE_COLORS`); the pivot uses `#FF3B30`.
 Full spec: `wiki/DATAFLOW_FORMAL_DEFINITION.md` §"Click-edge flow cone" (R30).
 
@@ -83,7 +83,7 @@ alias `X` — indistinguishable from the derived-table alias `X` of the same nam
 - Display-only change (the B5 label sanitization in `l2_builder.py`); no extractor
   or benchmark impact.
 
-**Status: NOT yet implemented** (recorded only, per "do not start build source code").
+**Status: ✅ implemented (v3.3.155, task #223).**
 
 ---
 
@@ -98,10 +98,11 @@ alias `X` — indistinguishable from the derived-table alias `X` of the same nam
 2. **Mid-point arrow.** Move the direction arrow from the target **end** of the edge
    to the **middle** of the edge (native `mid-target-arrow-shape`), oriented
    `source → target`. This is R30's "mid-point direction arrows" (wiki §145,
-   §165-170) — currently NOT implemented (the code still uses
-   `target-arrow-shape: triangle`, an end arrow, in `graphStyles.js`).
+   §165-170).
 
-**Status: NOT yet implemented** (recorded only, per "do not start build source code").
+**Status: ✅ implemented (tasks #224/#225).** All L2 edges render with ONE uniform line
+style (single color/width/line-style, no per-edge-type color, no edge text label); the
+direction arrow is the native `mid-target-arrow-shape` in `frontend/src/utils/graphStyles.js`.
 
 ---
 
@@ -156,8 +157,10 @@ L2 renders only field-value edges, so the gap is exposed. This violates the docu
 Add a 17th edge type **`ROW_FLOW`** ("row-level flow") so the L2 graph shows the searched
 field's **row-selection effect** as an explicit, *named* edge instead of orphaned islands.
 
-- **Name**: `ROW_FLOW` — the user sees "row-level flow" in the tooltip / legend / edge
-  reason, so it reads as a different kind of flow from value flow.
+- **Name**: `ROW_FLOW` — the user sees "row-level flow" via the edge reason, so it
+  reads as a different kind of flow from value flow. (The edge-hover tooltip that
+  once showed this is REMOVED in v3.3.159 — see the "remove the L2 edge-hover
+  tooltip" amendment below.)
 - **Semantics**: propagates the searched field's **row-selection** (its WHERE/JOIN usage)
   into the downstream statement's rows, where the field's **value** does NOT flow. Distinct
   from `TABLE_FLOW` (table-to-table *value* flow) and from the value-copy types
@@ -173,7 +176,7 @@ field's **row-selection effect** as an explicit, *named* edge instead of orphane
 - **Walker**: `compute_field_flow`'s R29 continuation rounds now emit the `ROW_FLOW` edges
   between the admitted continuation nodes instead of leaving them unconnected.
 
-**Status: NOT yet implemented** (recorded only, per "do not start build source code").
+**Status: ✅ implemented (v3.3.155, task #226).**
 
 ---
 
@@ -268,12 +271,14 @@ processes all scripts referencing the field — "search on full scripts".
   independent of the filter (the filter selects which scripts are analyzed, never how each
   is analyzed). Safe: the key includes the script text and EXTRACTOR_VERSION, so edited
   scripts and engine upgrades re-extract automatically.
-- **Script scope = the table-column filter ONLY (user ruling, 2026-08-14).** The search
-  focuses on the tables listed in the table-column CSV; the script scope is derived from
-  exactly those tables (`allowed_scripts = ⋃ table_index[t]["scripts"]` for every t in the
-  table-column filter's table list). **The script-table filter (File 1) is ignored for
-  scope** — the table-column filter is the single source of truth whether or not File 1 is
-  uploaded. This closes the File-2-only gap and removes the File-1 dependence.
+- **Script scope = the table-column filter when File 2 is present (user ruling,
+  2026-08-14).** The search focuses on the tables listed in the table-column CSV; when
+  File 2 is uploaded the script scope is derived from exactly those tables
+  (`allowed_scripts = ⋃ table_index[t]["scripts"]` for every t in the table-column
+  filter's table list), and the script-table filter (File 1) is ignored for scope. When
+  File 2 is ABSENT, the File-1-only scope (or unconstrained, if neither file is
+  uploaded) is preserved unchanged (`filter_service.py`). This closes the File-2-only
+  gap and removes the File-1 dependence when File 2 is present.
 - **Final-L1-graph cache: DEFERRED** (not in this release) — parts 1+2 already remove the
   dominant cost; the extra invalidation surface is not worth the marginal win now.
 
@@ -281,7 +286,7 @@ processes all scripts referencing the field — "search on full scripts".
 `extractor_version` guard, mirror of `dataflow_service.py:530-543`; single-script inline path
 unchanged); script scope derives from the table-column filter ONLY when File 2 is present
 (`allowed_scripts = ⋃ table_index[t]["scripts"]`, File 1 ignored). New
-`tests/test_l1_cache_aware.py` asserts `cached == fresh` byte-identity (with `run_full_analysis`
+`backend/tests/test_l1_cache_aware.py` asserts `cached == fresh` byte-identity (with `run_full_analysis`
 patched to raise — proving no re-extract on a hit). Full suite 858 passed / 5 skipped; Jaccard
 gate 16 passed (all floors 1.0).
 
@@ -298,4 +303,16 @@ div in `DataFlowGraph.jsx`, bound for every level in `useCytoscapeGraph.js` — 
 it removes the same popup on both levels. The L2 edge-**click** behavior (flow-cone
 highlight + edge→SQL highlight) is a separate handler and is unchanged.
 
-**Status: recorded 2026-08-14; NOT yet implemented** (per "wait for my command to code").
+**Status: ✅ implemented (v3.3.159, task #240, commit a77dfdd).** The `edgeHover` state
+and the `.edge-tooltip` div were removed from `frontend/src/components/DataFlowGraph.jsx`,
+and the `onEdgeHover`/`onHoverLeave` handlers were removed from
+`frontend/src/hooks/useCytoscapeGraph.js`. The popup no longer appears on either L1 or L2;
+the L2 edge-click flow-cone highlight is a separate handler and is unchanged.
+
+---
+
+### Amendment (2026-08-19) — R31 multi-user / login (DESIGN ONLY, awaiting go)
+
+**R31 (multi-user / login): design-settled 2026-08-19 — NOT yet implemented.**
+Traceable in `wiki/REQUIREMENTS_TRACEABILITY.md`; the design note is
+`wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`. Implementation awaits go.

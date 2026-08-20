@@ -228,8 +228,8 @@ reveals its **flow cone** in two colors — a static highlight, no animation.
 | **Structure** | `SCHEMA, ALIAS, SUBSET` | one uniform gray (`#7F8C8D`); no arrow; never highlighted |
 
 `TABLE_FLOW` ("table feeds output") is a **value-flow** edge — not a structure edge.
-(Defect: `graph_service.CATEGORY_MAP` currently maps `TABLE_FLOW` to `"structure"`,
-rendering it as structure — see the bug list, J12-23.)
+`graph_service.CATEGORY_MAP` maps `TABLE_FLOW` to `"flow"` (J12-23/R30), so it renders
+with the value-flow treatment, not the structure gray.
 
 ### Mid-point arrow
 
@@ -248,7 +248,7 @@ upstream/downstream switch):
   that enters the clicked edge ("where the data came from").
 - **After** (blue `#2196F3`) = the value-flow edges **downstream** of `v` — the flow
   the clicked edge feeds ("where the data goes").
-- The clicked edge itself is the **pivot** (red `#FF3B30`, `edge-selected`).
+- The clicked edge itself is the **pivot** (red `#FF3B30`, class `flow-cone-pivot`).
 - Non-cone edges are dimmed (focus mode).
 
 The cone is **value-flow only** — structure edges are never part of it. The
@@ -808,10 +808,15 @@ When no specific field is queried (table-only search), or when `lineage_mode` is
 Full decision log: `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`. This section formally defines the
 multi-user collaboration entities and their invariants. No code changed.
 
+**Login gate:** a **login entrance page gates every page** of the service — no page or API is
+reachable before login; only the health endpoint stays public (R31, design-only).
+
 ### User Account
 A durable local identity.
-- `username`: string, MUST match `^[A-Za-z0-9._%+-]+@hsbc\.com$` — an **identifier only**; no mail
-  is ever sent.
+- `username`: string, MUST match the locked format **`*@hsbc.com`** (`user_name@hsbc.com`, validated
+  as `*@hsbc.com`) — an **identifier only**; no mail is ever sent. The exact character-set regex is
+  **not yet settled** — R31 is design-only (no code exists); the precise charset is TBD, awaiting the
+  go-command.
 - `password_hash`, `salt`: PBKDF2-HMAC; minimum password length **6**.
 - `created_at`, `last_login_ip`.
 - `workspaces`: index entries `{ws_id, role ∈ {creator, participant}, first_opened, last_opened}`.
@@ -834,14 +839,23 @@ tabs). A visit ends on the first of:
 3. **session idle expiry**.
 
 ### Workspace (collaboration view)
-`ws_id` → `meta.json`:
-- `creator_username` — fixed at creation (immutable).
-- `created_at`.
-- `state_version` — **monotonic**, bumped on every state write.
-- last-search state: exactly **one L1** + the list of **opened L2 views**, each with persisted
-  `{node_id: [x, y]}` positions (L1 and each opened L2).
-- Shared, current-state-only; **last-writer-wins**; resume-by-id shows the current state, never a
-  personal history.
+`ws_id` → `WORKSPACE_ROOT/{ws_id}/` holds the scripts plus two state files with a **state split**:
+- **`meta.json`** — the lightweight state **registry**:
+  - `creator_username` — fixed at creation (immutable).
+  - `created_at`.
+  - `state_version` — **monotonic**, bumped on every state write.
+  - the last-search **reference** (exactly **one L1**, the last search) + the **opened-L2 registry** —
+    each opened L2 view with its persisted `{node_id: [x, y]}` positions (the current L1's positions
+    too).
+  - Node x/y are autosaved **at most once per second** while dragging, with a **final write on
+    workspace close**; positions are **current-state only** (replaced on each save, never appended —
+    the file never grows). On resume, saved positions are re-applied; ids that no longer exist are
+    skipped, not errors. Zoom/pan is intentionally not saved.
+- **`cache/views.json`** — the search/filter result **payloads** (search views), unchanged. Payloads
+  stay here; `meta.json` holds only the registry above.
+
+Shared, current-state-only; **last-writer-wins**; resume-by-id shows the current state, never a
+personal history.
 
 ### Activity Event
 `{username, ip, ts, action, detail}`, appended to `activity.json` (append-only). Actions include:
