@@ -22,7 +22,7 @@ npm run dev
 ### 1. Update version (optional)
 
 ```bash
-echo "1.26.0" > VERSION
+echo "3.3.160" > VERSION
 ```
 
 ### 2. Build frontend (if changed)
@@ -51,7 +51,7 @@ Open `http://localhost:8000`
 
 ```bash
 curl http://localhost:8000/api/health
-# → {"status":"ok","version":"1.25.0"}
+# → {"status":"ok","version":"3.3.160"}
 ```
 
 ## File Layout (What Gets Copied Into Docker)

@@ -1,5 +1,14 @@
 # User Identity & Workspace Collaboration — Local Accounts (no email)
 
+## Status
+
+> **Design settled 2026-08-19 — implementation awaiting the go-command; NOT implemented in any
+> release (no code exists).** Traceability rows **R31.1–R31.13** live in
+> `wiki/REQUIREMENTS_TRACEABILITY.md`. `wiki/CODE_REVIEW_2026-08-19.md` (Part A, read-only) flags
+> High-severity design flaws that must be resolved before implementation: **A-H1** unauthenticated
+> account takeover via re-register; **A-H2** self-asserted identity; **A-H3** workspace deletion
+> destroys its own audit trail; **A-H4** enumerable workspace ids. Plus Medium findings **A-M1–A-M10**.
+
 > Design note — revised 2026-08-19 (6th revision). Email is **dropped** (no usable
 > mail path on the target network). Replaced with **local accounts (`@hsbc.com` usernames) + IP
 > audit + in-app notifications + per-workspace activity log + a per-user "my workspaces" index**.

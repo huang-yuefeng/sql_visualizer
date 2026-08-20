@@ -1,4 +1,4 @@
-# SQL Visualizer — Development Guide v3.2.15
+# SQL Visualizer — Development Guide v3.3.160
 
 ## Quick Start
 
@@ -51,7 +51,7 @@ cd tests/playwright && npx playwright test --reporter=list
 ```
 sql_visualizer/
 ├── fast_deploy.sh          ← One-click build + deploy
-├── VERSION                 ← Bump this to invalidate caches
+├── VERSION                 ← Bump for browser-cache bust (not graph caches — see Cache Invalidation)
 ├── frontend/src/
 │   ├── api/client.js       ← API calls (+ cache busting)
 │   ├── hooks/useCytoscapeGraph.js  ← Cytoscape graph logic
@@ -72,18 +72,13 @@ sql_visualizer/
 
 ## Cache Invalidation
 
-When you change the backend analysis logic, bump VERSION:
+There are three independent invalidation mechanisms — do not conflate them:
 
-```bash
-echo "3.2.16" > VERSION
-```
+1. **Browser cache** — bump `VERSION` (`echo "3.3.160" > VERSION`). Appends a new `?v=` query string to API requests and updates the `<meta name="version">` tag. This only busts the **browser** cache.
+2. **Graph caches** — the on-disk key prefix `GRAPH_CACHE_PREFIX` in `backend/app/services/cache_keys.py` (currently `graph_3_2_24`). Bump it **only** when the graph JSON format changes, **not** per release — a per-release bump would silently orphan every graph cache.
+3. **Analysis caches** — keyed by `md5(EXTRACTOR_VERSION, rel_path, sql_text)`. Bump `EXTRACTOR_VERSION` to invalidate stale analysis results automatically.
 
-This automatically:
-1. Invalidates all graph caches (`graph_3_2_16_*.json` vs old `graph_3_2_15_*.json`)
-2. Appends `?v=3.2.16` to all API requests (no browser cache)
-3. Updates the `<meta name="version">` tag
-
-No manual cache clearing needed.
+No manual cache clearing needed for normal releases.
 
 ---
 
@@ -115,7 +110,7 @@ npx playwright test --headed          # watch browser
 ```bash
 # Check version
 curl http://localhost:8000/api/health
-# → {"status":"ok","version":"3.2.15"}
+# → {"status":"ok","version":"3.3.160"}
 
 # Check if frontend dev server is running
 curl -s http://localhost:5173 | head -1

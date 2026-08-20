@@ -4847,9 +4847,9 @@ round, not an issue-3 defect; the read leg itself renders.
 
 **Symptom:** two stale claims — (A) `lending_ref` chain mislabeled `acnw → lending_ref`; (B) `rrcdm_job_log_exec_par.data_dt` "upstream-only, empty downstream".
 
-**Sub-issue A — RULED (2026-08-13), corrected:** the chain-start field is `acctnbr`, not `acnw`. SQL evidence: `A.acctnbr AS LENDING_REF` @101 with `FROM ods_ccb_cb_loan_acctloan A` @426. `acnw` is a field of `ODS_CUPD_CLD_ACCTMASTER_NEW` (the `temp_kmbh_gl`/`temp_kmbh_ie` CTE) — unrelated to the queried field. **Corrected (doc/comment-only, no behavior):** `tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md` (5 spots), `REQUIREMENTS.md:1444`, `wiki/SOLUTION_DESIGN.md:1524`, `backend/tests/test_jaccard_benchmark.py:205`, `backend/tests/jaccard_canonical.py:372/814/1338`.
+**Sub-issue A — RULED (2026-08-13), corrected:** the chain-start field is `acctnbr`, not `acnw`. SQL evidence: `A.acctnbr AS LENDING_REF` @101 with `FROM ods_ccb_cb_loan_acctloan A` @426. `acnw` is a field of `ODS_CUPD_CLD_ACCTMASTER_NEW` (the `temp_kmbh_gl`/`temp_kmbh_ie` CTE) — unrelated to the queried field. **Corrected (doc/comment-only, no behavior):** `tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md` (5 spots), `REQUIREMENTS.md:1444`, `wiki/SOLUTION_DESIGN.md:1529`, `backend/tests/test_jaccard_benchmark.py:205`, `backend/tests/jaccard_canonical.py:372/814/1338`.
 
-**Sub-issue B — RULED (2026-08-13):** the writer's own leg must be displayed in L2, and is a STANDARD case (a written-only field: no readers, but the write site is a FIELD_LIKE occurrence → non-empty downstream = write column → statement output → DML target). The code already serves this (byte-identity probe: closures identical to HEAD); only the docs were wrong. **Corrected (doc-only):** `REQUIREMENTS.md:1444`, `wiki/SOLUTION_DESIGN.md:1522`, plus a new "Writer's Own Leg" standard-case subsection in `wiki/DATAFLOW_FORMAL_DEFINITION.md`.
+**Sub-issue B — RULED (2026-08-13):** the writer's own leg must be displayed in L2, and is a STANDARD case (a written-only field: no readers, but the write site is a FIELD_LIKE occurrence → non-empty downstream = write column → statement output → DML target). The code already serves this (byte-identity probe: closures identical to HEAD); only the docs were wrong. **Corrected (doc-only):** `REQUIREMENTS.md:1444`, `wiki/SOLUTION_DESIGN.md:1527`, plus a new "Writer's Own Leg" standard-case subsection in `wiki/DATAFLOW_FORMAL_DEFINITION.md`.
 
 ## CR9 · Missing router/API-level tests for direction paths (Medium — test gap)
 
@@ -4887,7 +4887,7 @@ round, not an issue-3 defect; the read leg itself renders.
 - `DataFlowApp.jsx:221,227` — `handleSearch` stores the client-supplied direction instead of the backend-echoed `result.direction`. Store `result.direction ?? direction`.
 - `FilterPanel.jsx:43,101-107,287-300` — `direction` is a second uncontrolled copy, not in history/pins. Lift state up; store per history/pin entry.
 - `test_l1_physical_model.py:429` — test named `..._downstream_empty_...` asserts `flow_empty is False` (opposite of name). Rename to `..._writer_own_leg_...`.
-- `SOLUTION_DESIGN.md:1488-1490` — still says L1 is "verified manually … no automated L1 check" despite new `test_r29_*` tests. Reword.
+- `SOLUTION_DESIGN.md:1520-1524` — the L1 "verified manually … no automated L1 check" claim; **reworded (2026-08-20)** to point at the automated L1 test files (`test_independent_r29_ground_truth.py`, `test_l1_cache_aware.py`, `test_l1_l2_integration.py`, `test_l1_physical_model.py`) + the Jaccard gate.
 
 ## ISSUE-1 · Search-after-filter performance — every search re-extracts every matched script (2026-08-14, analysis-only, design agreed)
 
@@ -4910,7 +4910,7 @@ the FULL pipeline per matched script on EVERY search — sqlglot parse →
 `extract_variables_from_sql` → `build_dependency_graph` → `map_variables_to_lines` →
 `build_graph_data` — with no cache check. The extraction result is ALREADY on disk as
 `analysis_{cache_key}.json`, written at index time (`folder_index_service.py:421-434`,
-key = md5(EXTRACTOR_VERSION + "|" + name + sql_text)). The L2 path already reads that same
+key = md5(EXTRACTOR_VERSION + "|" + rel_path + sql_text)[:12]). The L2 path already reads that same
 file (`dataflow_service.py:530-543`, re-extract only on miss); Pass B in the same L1
 function already reads it for the physical model (`l1_builder.py:547-585`) — Pass A
 ignores it. Each script is therefore fully parsed at index AND once per search
@@ -4928,12 +4928,12 @@ ignores it. Each script is therefore fully parsed at index AND once per search
    searches regardless of filter/field (the filter only selects which scripts are analyzed,
    never how each is analyzed). Safe: the key includes the script text and EXTRACTOR_VERSION,
    so edited scripts and engine upgrades re-extract automatically.
-2. **Script scope = the table-column filter ONLY (user ruling, 2026-08-14).** Focus on the
-   tables listed in the table-column CSV; the script scope is derived from exactly those
-   tables: `allowed_scripts = ∪ table_index[t]["scripts"]` for every t in the table-column
-   filter's table list. **The script-table filter (File 1) is IGNORED for scope** — this is
-   the single source of truth, whether or not File 1 is uploaded. This closes the
-   File-2-only gap AND removes the File-1 dependence.
+2. **Script scope = the table-column filter (File 2) is the sole scope source ONLY when
+   present (user ruling, 2026-08-14).** With File 2 uploaded, the script scope is derived
+   from exactly those tables: `allowed_scripts = ∪ table_index[t]["scripts"]` for every t
+   in the table-column filter's table list — File 2 is the single source of truth for
+   scope and File 1 is ignored. When File 2 is ABSENT, the File-1-derived scope (or None)
+   is preserved unchanged (`filter_service.py:285-286`). This closes the File-2-only gap.
 3. **DEFERRED (not in this release).** Cache the final L1 graph per (field, direction,
    script-set). Parts 1+2 already remove the dominant cost; the final-graph cache adds
    invalidation surface (filters change the script-set; re-index changes script text) for
@@ -4942,7 +4942,7 @@ ignores it. Each script is therefore fully parsed at index AND once per search
 **Files (for the implementer):** `multi_script_service.py:77` (or the `l1_builder.py`
 Pass A call site) — thread the analysis-cache lookup in; `filter_service.py` — table-column-
 only script scope derivation (`allowed_scripts = ∪ table_index[t]["scripts"]` over the
-table-column filter's tables; ignore File 1). Precedent already in the codebase:
+table-column filter's tables; File 1 ignored for scope only when File 2 is present). Precedent already in the codebase:
 `dataflow_service.py:530-543`.
 
 **Implemented (v3.3.159):** `multi_script_service.py` adds `_build_script_entry(name, sql,
