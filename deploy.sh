@@ -29,6 +29,19 @@ if [ -d "$STATIC_DIR" ] && [ "$(ls -A "$STATIC_DIR" 2>/dev/null)" ]; then
   cp -r "$STATIC_DIR" "$BACKUP"
 fi
 
+# Stamp real VERSION into the built index.html (cache-busting ?v=)
+VERSION=$(cat ../VERSION 2>/dev/null | tr -d '[:space:]')
+if [ -z "$VERSION" ]; then
+    echo -e "${RED}❌ VERSION file missing or empty — aborting deploy${NC}" >&2
+    exit 1
+fi
+sed -i -E 's|(<meta name="version" content=")[^"]*(")|\1'"$VERSION"'\2|' dist/index.html
+if ! grep -q "name=\"version\" content=\"${VERSION}\"" dist/index.html; then
+    echo -e "${RED}❌ Failed to stamp v$VERSION into dist/index.html${NC}" >&2
+    exit 1
+fi
+echo -e "${GREEN}✅ Stamped v$VERSION into dist/index.html${NC}"
+
 echo -e "${YELLOW}📦 Deploying static files...${NC}"
 rm -rf "$STATIC_DIR"/*
 cp -r dist/* "$STATIC_DIR"/

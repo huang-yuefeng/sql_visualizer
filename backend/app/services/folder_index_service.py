@@ -135,16 +135,21 @@ def classify_sql_text(sql_text: str, parsed=None) -> str:
 
 
 def _collect_schema_files(ws_id: str,
-                          parsed_cache: dict | None = None) -> list[str]:
+                          parsed_cache: dict | None = None,
+                          tree: dict | None = None) -> list[str]:
     """A1: rel_paths of schema-classified files in the workspace tree.
 
     Feeds the index-time schema evidence pass (S4b needs DDL evidence even
     when the caller's script list excludes schema files — the auto-select
     path does). C-13(a): `parsed_cache` (when given) receives the per-file
     parse from scan_folder so index_scripts reuses it instead of
-    re-parsing every script for its A1 classification.
+    re-parsing every script for its A1 classification. #257: `tree` (when
+    given) is a pre-scanned scan_folder result — the router already
+    scanned for its script list, so passing the tree here avoids a second
+    scan_folder (and its double parse + two-scan TOCTOU) per index request.
     """
-    tree = scan_folder(ws_id, parsed_cache=parsed_cache)
+    if tree is None:
+        tree = scan_folder(ws_id, parsed_cache=parsed_cache)
     out = []
 
     def _walk(node):
@@ -331,15 +336,24 @@ def scan_folder(ws_id: str, parsed_cache: dict | None = None) -> dict:
     return _walk(scripts_dir)
 
 
-def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
+def index_scripts(ws_id: str, script_paths: list[str],
+                  tree: dict | None = None,
+                  parsed_cache: dict | None = None) -> dict:
     """Analyze selected scripts, build table_index and field_index.
-    
+
     For each script:
       1. Read SQL from workspace/scripts/{path}
       2. Call run_full_analysis()
       3. Extract table/column variables
       4. Build indexes
-    
+
+    #257: `tree` / `parsed_cache` are optional — a caller that already
+    scanned the workspace (the /index router) threads its scan_folder
+    result and its per-file parse cache in, so the schema-evidence
+    discovery does not scan_folder a second time (double parse + two-scan
+    TOCTOU). Direct callers pass neither and keep the scan-inside default;
+    semantics stay faithful to `script_paths` (no merge, no auto-complete).
+
     Returns: {table_index, field_index, script_count, precomputed_count,
               resolution_stats} — resolution_stats carries the R20 coverage
               numbers aggregated from per-script extraction + the S4b
@@ -382,7 +396,12 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     # C-13(a): one parse per script — scan_folder parses during the A1
     # discovery pass below and exports the per-file parse here; the loop
     # reuses it for A1 classification and the C-5 star pass (no new parse).
-    parsed_cache: dict = {}
+    # #257: the router may thread its pre-scanned tree AND this cache (it
+    # calls scan_folder(ws_id, parsed_cache=...) at the call site),
+    # collapsing the two scans into one; direct callers keep the
+    # empty-cache default.
+    if parsed_cache is None:
+        parsed_cache = {}
     parse_by_script: dict = {}  # rel_path -> sqlglot statements (C-5 pass)
 
     # ── A1: schema evidence pass (DDL-only files are NOT pipeline scripts) ──
@@ -396,7 +415,8 @@ def index_scripts(ws_id: str, script_paths: list[str]) -> dict:
     # discovery/analysis failures are surfaced in `errors`, never silent.
     schema_evidence_paths = set()
     try:
-        schema_evidence_paths = set(_collect_schema_files(ws_id, parsed_cache))
+        schema_evidence_paths = set(_collect_schema_files(
+            ws_id, parsed_cache, tree=tree))
     except Exception as e:
         errors.append({"script": "(schema discovery)", "error": str(e)})
     for _rel in sorted(schema_evidence_paths):

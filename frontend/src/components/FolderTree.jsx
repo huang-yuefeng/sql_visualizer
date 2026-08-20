@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function FolderTree({ tree, selected, onSelectionChange, indexed, stale, onReindex }) {
+export default function FolderTree({ tree, selected, onSelectionChange, indexed }) {
   if (!tree) return null;
 
   const toggle = (path) => {
@@ -30,15 +30,11 @@ export default function FolderTree({ tree, selected, onSelectionChange, indexed,
           </span>
         )}
       </h3>
-      {stale && <div className="stale-badge">Index stale - re-index</div>}
       <div className="tree-list">
         <TreeNode node={tree} selected={selected} onToggle={toggle} depth={0} />
       </div>
-      {indexed && !stale && (
+      {indexed && (
         <div className="index-status">Indexed {selected.length} scripts</div>
-      )}
-      {stale && (
-        <button className="btn btn-primary btn-sm" onClick={onReindex}>Re-index</button>
       )}
     </div>
   );
