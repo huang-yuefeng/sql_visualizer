@@ -24,7 +24,6 @@ export default function DataFlowApp() {
   const [fullTableIndex, setFullTableIndex] = useState({});
   const [fullFieldIndex, setFullFieldIndex] = useState({});
   const [indexed, setIndexed] = useState(false);
-  const [stale, setStale] = useState(false);
   const [views, setViews] = useState([]);
   const [activeViewId, setActiveViewId] = useState(null);
   const parentViewIdRef = useRef(null);
@@ -165,7 +164,6 @@ export default function DataFlowApp() {
       setSchemaCandidates(idxResult.schema_candidates_summary || null);
       setSchemaEvidence(idxResult.schema_evidence || null);
       setIndexed(true);
-      setStale(false);
       setProgress(null);
     } catch (e) {
       setError(e.message);
@@ -467,25 +465,10 @@ export default function DataFlowApp() {
           <FolderTree
             tree={fileTree} selected={selectedScripts}
             onSelectionChange={setSelectedScripts}
-            indexed={indexed} stale={stale}
-            onReindex={async () => {
-              setL1Graph(null); setL2Graph(null); setL2Result(null);
-              setL2NotInFlow(false); setL2NotInFlowMessage(null);
-              setL2ParseErrors([]);
-              setLoading(true);
-              try {
-                const idxResult = await api.indexWorkspace(wsId, selectedScripts);
-                setResolutionStats(idxResult.resolution_stats || null);
-                setOrphanFieldSamples(idxResult.orphan_field_samples || null);
-                setSchemaCandidates(idxResult.schema_candidates_summary || null);
-                setSchemaEvidence(idxResult.schema_evidence || null);
-                setStale(false); setIndexed(true);
-              } catch (e) { setError(e.message); }
-              setLoading(false);
-            }}
+            indexed={indexed}
           />
         )}
-        {indexed && !stale && (
+        {indexed && (
           <FilterPanel
             wsId={wsId}
             tableIndex={tableIndex} fieldIndex={fieldIndex}

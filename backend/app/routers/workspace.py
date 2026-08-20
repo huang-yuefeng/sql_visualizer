@@ -86,7 +86,16 @@ async def scan_workspace(ws_id: str):
 
 @router.post("/workspace/{ws_id}/index")
 def index_workspace(ws_id: str, body: dict):
-    """Index selected scripts. body: {scripts: ["path1.sql", ...]}
+    """Index the ENTIRE workspace — the index is ALWAYS the complete
+    workspace index, never a caller-supplied subset.
+
+    #257: the body's `scripts` list is IGNORED. A partial script list used
+    to overwrite cache/table_index.json with exactly that list (no merge),
+    silently destroying search coverage for every script left out (observed
+    live: bdm_acc_loan_info.ACCT_CLOSE_DT returned "not queried by any
+    script" after a partial index; a full re-index fixed it). The index is
+    rebuilt over EVERY pipeline SQL file on every call; uploading a folder
+    is the single index update.
 
     E4 (item 2): plain `def`, not `async def` — indexing runs the full
     extraction pipeline (parse + graph + schema inference + analysis-cache
@@ -97,13 +106,20 @@ def index_workspace(ws_id: str, body: dict):
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    scripts = body.get("scripts", [])
-    if not scripts:
-        # Auto-select all SQL files from scan
-        tree = scan_folder(ws_id)
-        scripts = _collect_sql_files(tree)
+    # #257: always rebuild from the on-disk tree — a subset `scripts` body
+    # must never shrink the index. _collect_sql_files excludes schema files
+    # (evidence-only); index_scripts discovers those itself. C-13(a)/#257:
+    # scan ONCE with a parsed_cache and thread both the tree and the cache
+    # into index_scripts — without it, index_scripts would scan_folder
+    # again (re-read + re-parse every .sql) a second time per request,
+    # doubling the scan cost and opening a two-scan TOCTOU on the on-disk
+    # tree (a script vanishing between the scans would silently lose
+    # coverage — the exact class #257 fixes).
+    parsed_cache = {}
+    tree = scan_folder(ws_id, parsed_cache=parsed_cache)
+    scripts = _collect_sql_files(tree)
 
-    result = index_scripts(ws_id, scripts)
+    result = index_scripts(ws_id, scripts, tree=tree, parsed_cache=parsed_cache)
     return result
 
 
