@@ -1,95 +1,47 @@
-# Code Review — v3.3.150 Wave 1+2 / round 12 (open issues only)
+# Code Review — J12-10 Physical Model / v3.3.152 (round 13, open issues only)
 
-> **Reviewed:** 2026-08-11 | **Version:** VERSION `3.3.150` | **Reviewed HEAD:** `acb2dcf` (agents also verified against `2963641`); **repo HEAD now `034eaa2`** — J12-10 physical-model stages (2/3/4) landed **after** this review snapshot, not covered here.
-> **Scope:** `git diff 3590bcc..acb2dcf` — 72 files, +6931/−1313: round-12 E-series (walker gaps 1–6, adapter N8/I4, E1 gates, Jaccard end-state, E4 security), R11-3 (mech payload, evidence panel, layout/a11y), Wave 1+2 (R19/R20 flow roles, path-scoped reasons, structure toggle).
-> **Reviewer:** Codex (read-only — no source modified) via 3 sub-agents: Faraday (engine core), Confucius (tests), Kant (security/frontend/docs).
-> Round-11 wiki replaced below: fixed items removed, only open/new issues kept.
+> **Reviewed:** 2026-08-12 | **Version:** VERSION `3.3.152` (3.3.151 never shipped; docs narrate "151") | **HEAD:** `a3723ff` (code) / `4b40457` (deploy shim); docker `COMMIT=5a96abf` = code, metadata-only on top — consistent.
+> **Scope:** `git diff acb2dcf..HEAD` — J12-10 physical-model migration (stages 1–4), LATERAL/VALUES/UNNEST, E5, J12-15/16/17, R26–R28, E4 leftovers. 61 files, +57k lines (mostly new tests + 2 design docs).
+> **Reviewer:** Codex (read-only — no source modified) via 3 sub-agents: Confucius (physical model + extractor core), Parfit (builders + frontend), Heisenberg (tests + docs).
+> Round-12 wiki replaced below.
 
-## Resolved (verified behaviorally)
+## Resolved (verified — all round-12 open items closed)
 
-- **N8 parse_errors** — FIXED: `adapter.py:143` `"parse_errors": [dict(e) …]`; runtime-verified (len=2 on broken SQL). — **KEPT 2026-08-11**: still at `adapter.py:143`; l2_builder reads it via `result.get("parse_errors", [])` (l2_builder.py:142 area).
-- **E1/E2 gates** — FIXED: `dependency_graph.py:273` (1c-direct `src.context != stmt` gate), `:218-221` (E2 line-order guard), `:237` (WRITE_READ targets reader var); tests + probe confirm no reversed edge. — **KEPT 2026-08-11**: gates intact at `dependency_graph.py:222-224` (E2 line-order), `:273-280` (E1 cross-statement), `:237` (WRITE_READ → reader instance, Issue-3 routing).
-- **I4 alias_of** — FIXED: `adapter.py:170`; 14 vars carry exact source-id (`p1 → f27daa…`). — **KEPT 2026-08-11**: `"alias_of": v.alias_of` still in `_var_to_dict` (`adapter.py:170-172`).
-- **E3a walker gaps 1–6** — FIXED & correct: UPDATE walker, Hive multi-insert arms, INSERT-target attribution, comma-join CTE guard, MERGE branches, PARTITION seed scoping; `test_walker_gaps_e3.py` **11/11**, synthetic probes confirm. — **KEPT 2026-08-11**: `test_walker_gaps_e3.py` rerun 11/11; Hive multi-insert machinery still present (`variable_extractor_v2.py:392,502-520`).
-- **R19/R20 flow topology** — IMPLEMENTED, backward-compatible (additive): flow roles = node fields (`flow_source/flow_target` filtered, `flow_role source|target|waypoint` full view via `classify_flow_roles lineage.py:918`); structure toggle is client-side CSS only (SCHEMA stays in payload); path-scoped reasons `"<kind> (<role>) — <upstream> ‖own‖ <downstream>"`; `mech` 100% coverage (14/14, 27/27). — **KEPT 2026-08-11**: `classify_flow_roles` now `lineage.py:882` (moved; flow_source_id/flow_targets became model-backed J12-10 stage 3); node fields stamped at `l2_builder.py:1673,1678,1687`, `mech` at `:1647`; `test_flow_roles` + `test_mech_payload` passed.
-- **Jaccard benchmark end-state** — floors **ratcheted to 1.0** (recall/precision pairs, all 1.0000); row 11 removed as degenerate (J12-1) → **zero unmatched rows**; run green (1 passed, shim for /app path). — **KEPT 2026-08-11**: rerun green — bdm/sup recall 1.0000 all features, precision ≥ 1.0000; `FLOORS` all 1.0000/1.0000 (`test_jaccard_benchmark.py:160-175`, re-pinned after Issues 2/3 landed).
-- **Round-11 #14 l1_l2_integration 5 failures** — FIXED: **14/14 passed** (pair-set assertions exact, `_compute_highlight_ranges` tests rewritten to per-edge `highlight_line`). — **KEPT 2026-08-11**: rerun 14/14 passed.
-- **E4 security** — FIXED: `workspace.py:189,207-210` type whitelist (400 on traversal), `resolve_script` containment (filter_service.py:47-61), `logger.py` stderr gating (`SQL_VIZ_LOG_STDERR`), cache `extractor_version` stamp + validation (`dataflow_service.py:372,435`), atomic cache writes + `_views_lock`; `test_security_negative.py` 10/10 in-process PASS (7 HTTP tests blocked by starlette/httpx/py3.14 env artifact, not logic). — **KEPT 2026-08-11**: whitelist `workspace.py:188-208`; containment now via `is_relative_to` (`filter_service.py:63-68`); gating `logger.py:12-19,40-45`; stamps `dataflow_service.py:377,404-405,433,462` + `_atomic_write_text` `:314-324,:446,:463` + `_views_lock` `:565`; `test_security_negative.py` passed in-process, full suite green.
-- **N10 doc lie / dead code** — FIXED: `_pick_scope_candidate` etc. truly gone; `cache_keys.py:49` `graph_3_2_21` with explanatory comment (v3.3.145 claim now true). — **KEPT 2026-08-11**: `_pick_scope_candidate`/`_scope_distance`/`_resolve_scope_parent`/`_find_labeled`/`_find_position_scoped` all still absent (only a docstring mention at `variable_extractor_v2.py:612`); cache narrative at `cache_keys.py:43-47`.
-- **C-5 case-sensitivity** — FIXED: `folder_index_service.py:760,770` lowercase star-exclusion set. — **KEPT 2026-08-11**: `_star_excluded_lower = {x.lower() ...}` at `folder_index_service.py:758-759`.
-- **R11-3 frontend** — FIXED: EdgeReasonPanel code-evidence block (mech.sentence/ref_line/use_lines, missing-data safe), pickAutoEdge + structureEdges utils (12 tests), app.css layout flex fix (`.panel-inline-l2` column, reason panel never clipped), show-all re-select via `applyL2Result`+`pickAutoEdge` (DataFlowApp.jsx:372-375), a11y `role="status" aria-live="polite"`, SqlPanel `scrollToLine`, reason-panel constant height + drag handle (Issue 1). Frontend tests 81/81. — **KEPT 2026-08-11**: EdgeReasonPanel mech block + a11y (`EdgeReasonPanel.jsx:40,62`), `scrollToLine` (`SqlPanel.jsx:59-65`), `applyL2Result`+`pickAutoEdge` (`DataFlowApp.jsx:106-113,370-379`), `pickAutoEdge.js`/`structureEdges.js` utils, app.css `.panel-inline-l2` column (`:773-779`); vitest rerun **122/122** (R26-R28 additions on top of the 81).
-- **sql_highlight_service guard** — FIXED (`resolve_script` None → 404-shaped error). — **KEPT 2026-08-11**: `sql_highlight_service.py:24-27` — `resolve_script` None / not-a-file → `{"error": ...}` (404-shaped), containment via shared resolver.
-- **Cache prefix** — `3_2_21` consistent with `test_c_index_pipeline` (prefix pin verified standalone). — **KEPT 2026-08-11 (value advanced)**: now `graph_3_2_23` (`cache_keys.py:79`, J12-10 stages 3+4 bumps narrated at `:49-77`), pinned by `test_c_index_pipeline.py:154`; consistency mechanism intact.
-
----
+- **D2 WRITE_READ field-blind** — FIXED (`lineage.py:672-700,733-790`, commit `24a7807`): field-aware DML gates (`_dml_write_leg` + `_stmt_field_parts` + TABLE_FLOW write-leg twins). Probe: `(sup,charge_department)`=6, `(sup,lending_ref)`=6, **no rrcdm@211 leak** (was 7/7 with leak); L2 filtered 5/7, 5/7 — rrcdm absent from both. Implemented walker-side (no `read_fields` carrier — documented choice).
+- **N11 unguarded int()** — FIXED: **0 bare `int(` remain in l2_builder**; all sites use `_safe_int` (`highlight_strategies.py:85`), swept in `ea15abf`.
+- **C-3 cross-run stale caches** — FIXED: analysis-cache key now `md5(extractor_version + rel_path + sql_text)` with legacy-file deletion (`folder_index_service.py:408-433`); cross-run revoke re-adds to `extractor_unresolved` (:717-721).
+- **Shared walkable-set contract (RC-1)** — FIXED: new `walkable_set.py` single source (`FIELD_WALKABLE`/`CONDITIONAL`/`NEVER_WALKED`/`BRIDGE_EMIT_TYPES`); `FIELD_LAND`/`NEVER` aliases; import-time partition asserts; `dependency_graph` emits only `BRIDGE_EMIT_TYPES`. Tests 13/13.
+- **J12-10 physical model** — implemented, pure, read-only projection (never patched, not serialized — rebuilt per load from analysis cache/graph data). Flagship: 32 tables / 158 fields / 781 edges / 253 occurrences / 0 unparented. Proxies deleted (`_build_id_map`, `_sync_alias_and_dml_fields`, `dml_pairs`, `merged_original_ids`).
+- **Stage-2 byte-identity** — VERIFIED: `test_l2_snapshot.py` 13/13 byte-equal vs committed snapshots, zero rebaseline at stage 2; later rebaselines documented (Appendix B).
+- **LATERAL/VALUES/UNNEST + E5** — verified via synthetic probes + `test_unnamed_constructs.py` 15/15, `test_virtual_node_lines.py` 5/5 (⟐ VT lines, E5 fallback).
+- **J12-15/16/17** — implemented + green (per-statement DML trunk, dedup `(parent_table_id,label)`, `⟐ insert` admit, id recompute on retarget).
+- **R26–R28 frontend** — mech payload REMOVED (intentional, see #1), node-role legend (Source/Target/Waypoint, `L2_ROLE_COLORS`), `labelDecoration @L{line}`; vitest **122/122**.
+- **Round-12 doc-staleness #8** — 3/3 fixed (Issue-1 header, sup=9 count, cache 3_2_20 narration).
+- **Test suite (targeted)** — **127 passed / 0 failed** across 12 files; equivalence 12/12, walkable+D2 13, l1_physical 8, l2_stage4 5, unnamed 15, jaccard 1 (floors ≥ 1.0), flow_roles 13, l1_l2 14, dedup 6, walker_gaps 11.
 
 ## Open issues
 
-### High
-
-1. **D2 — WRITE_READ still field-blind** (`lineage.py:721-734`). Forward DML admit remains unconditional (`admit = fwd or (…)`); the REF `read` flag (:132/:601) fixed the RC-1 sibling-flood, not D2. Probe: `rrcdm@211` **still in** closure(sup,charge_department)=7 and closure(sup,lending_ref)=7; L2 search `(sup,charge_department)` renders `rrcdm_job_log_exec_par` as a flow_target table with an hl=211 write edge, though stmt2 references neither field. Leak path: seed `p2.charge_department@203 →⟐output@160` (JOIN) → DML fwd → `sup@160` → Issue-3 identity admission `sup@223` → TABLE_FLOW (identity-in-chain) → `⟐output@211` → blind DML fwd → `rrcdm@211`. **Fix**: `read_fields` carrier on `VariableDependency` (or gate forward DML admit on the reader statement referencing `target_field`); never field-blind admit.
-
-    **STILL-OPEN 2026-08-11** — forward DML admit remains unconditional at `lineage.py:693-697` (`admit = fwd or (…)`); no `read_fields` carrier exists anywhere (`models/variable.py`, `dependency_graph.py` — grep empty); WRITE_READ still emitted without field gating (`dependency_graph.py:237`). Re-probed on `BDM_ACC_LOAN_INFO_SUP_M.sql` via the served `_build_l2_graph` path: the `rrcdm_job_log_exec_par` table node is STILL in the L2 closure for (sup, charge_department)=6, (sup, lending_ref)=6, (sup, data_dt)=7 nodes — stmt2 references none of those fields. Counts moved 7→6 (physical-model assembly + J12-15/16), leak mechanism unchanged.
-
-    **FIXED 2026-08-12** (commit 24a7807, "D2 field-aware DML admit") — `compute_field_flow` now gates DML forward admit on the target's write leg carrying the searched field (`_dml_write_leg` from the non-WRITE_READ DML-edge sources; PARTITION casing folded) and gates the WRITE_READ write→read link on the reader statement's field parts; TABLE_FLOW edges with a DML-keyword op (the write-leg twins) use the same write-leg rule — this closed the SECOND leak path the review had not isolated (the `sup@223 → rrcdm@211` identity-in-chain twin). Probed closures (served L2, sup seeds): 6/6/7 → 5/5/7 for charge_department/lending_ref (rrcdm out); data_dt 7 → 7 unchanged (canonical rows 16/17 preserved). Regression coverage: `tests/test_d2_field_aware_dml.py` (8 tests). Suite 809 passed / 5 skipped; benchmark gate bdm+sup floors 1.0000/1.0000. One snapshot rebaselined (filtered view only, 8→5 nodes / 10→7 edges; full view byte-identical) — documented in tools/PHYSICAL_MODEL_MIGRATION_MAP.md (D2 section, post-hoc entry).
-
-### Medium
-
-2. **N11 — `int()` unguarded in l2_builder (partial)**. `highlight_strategies.py:85` `_safe_int` + unit test — FIXED there; **l2_builder.py still has ~15 unguarded `int(... or 0)` sites**: :651-652 (the old :659-660 spot), :1244/:1248, :1309/:1320/:1333/:1339, :1397/:1404/:1407, :1487-1509, :1582-1593. A malformed cached `line_start="abc"` raises ValueError at L2 build. **Fix**: use `_safe_int` (import from highlight_strategies or extract to a shared util) at every remaining site.
-
-    **STILL-OPEN 2026-08-11** — `_safe_int` still exists only in `highlight_strategies.py:85`; `l2_builder.py` still carries ~25 unguarded `int(x or 0)` sites — the cited ones all remain (now at :436, :682-683, :1260-1261, :1264, :1325, :1336, :1349-1355, :1403, :1408, :1415-1418, :1435, :1498-1520, :1593-1604; line numbers shifted with the J12-10 assembly, count grew past the ~15 cited). l2_builder imports from highlight_strategies only `get_strategy, FIELD_LIKE_TYPES` (`l2_builder.py:28`) — `_safe_int` never imported.
-
-3. **C-3 — cross-run stale caches (carryover, untouched)**. `folder_index_service.py:687,694-698` — cross-run branch still never re-adds fields to `extractor_unresolved`; analysis cache key still `md5(rel_path+sql_text)` with no version discriminator (the +7 change was C-5, not C-3). **Fix**: add cross-run fields; include `extractor_version` in the analysis-cache key (graph cache already stamped).
-
-    **STILL-OPEN 2026-08-11** — cache key still `hashlib.md5((rel_path + sql_text).encode())` with no version discriminator (`folder_index_service.py:408`); cross-run revoke branch (`:693-698`) still never re-adds the field to `extractor_unresolved` (only the current-index branch does, `:687`). Consumers' load-time `extractor_version` check (`l2_builder.py:123-124`, `dataflow_service.py:404-405`) mitigates stale-cache SERVING but neither adds the cross-run fields nor discriminates the key — the issue's two asks are both unaddressed.
-4. **Shared walkable-set contract (RC-1 hardening) still absent** — `FIELD_LAND`/structural sets live only in `lineage.py`; `dependency_graph.py` still re-types independently; no cross-layer invariant test landed (Jaccard benchmark doesn't import a semantics constant). This is the class-level root of D2/E1/E2 recurrences. **Fix**: single-source walkable/structural edge-type constants + invariant test.
-
-    **STILL-OPEN 2026-08-11** — `FIELD_LAND`/`NEVER` still live only in `lineage.py:425,430`; `dependency_graph.py` imports no lineage constants (imports: `variable.py`, `variable_extractor_v2.py` only) and still re-types independently — `_bridge_typing` (`dependency_graph.py:760-793`) promotes Phase-7 SUBSET bridges to REF/READ, FILTER, JOIN, DML per its own rules. No cross-layer invariant test exists (no test file imports the semantics constant; `test_mech_payload`/`test_physical_model_equivalence` do not).
-
-### Low
-
-5. **`get_highlight` still async-on-event-loop** (`routers/dataflow.py:313`) — runs `build_graph_data`+`filter_relevant` on the loop; same class as the E4 freeze fix, not covered by it. **Fix**: plain `def` (threadpool).
-
-    **STILL-OPEN 2026-08-11** — still `async def get_highlight` at `routers/dataflow.py:313` calling `get_highlight_ranges` directly (`:328`), which runs `build_graph_data` + `filter_relevant` on the event loop (`sql_highlight_service.py:43-47`). `get_level2` was converted to plain `def` (`dataflow.py:266-275`, E4) — this route was not.
-6. **`get_script_path` string-prefix check** (`workspace_service.py:129-137`) — `str(target).startswith(str(scripts_dir.resolve()))`; a same-workspace sibling dir named `scripts_backup` passes; cannot escape the workspace root, pre-existing, low. **Fix**: `is_relative_to` like `resolve_script`.
-
-    **STILL-OPEN 2026-08-11** — `get_script_path` unchanged at `workspace_service.py:129-137`: still `str(target).startswith(str(scripts_dir.resolve()))` (`:134`). `is_relative_to` is used only in `resolve_script` (`filter_service.py:67`) and the zip-extraction check (`workspace_service.py:88`) has the same prefix pattern.
-7. **Untracked debug probes** — `backend/probe_alias.py`, `probe_alias2.py`, `probe_edges.py` (plus earlier `_probe213`/`_check33` etc.) still present. **Fix**: delete before commit.
-
-    **FIXED 2026-08-11** — `backend/probe_alias.py`, `probe_alias2.py`, `probe_edges.py` (and the older `_probe213`/`_check33` family) are gone; `backend/` root now holds only `start.py`. Caveat: the tree still carries NEW probe files — `backend/app/_e2e_probe.py`, `backend/app/_probe_issue23.py`, `backend/tests/_integration_probe.py`, `tools/probe_new_edges.py` — these are now git-tracked (committed deliberately), a fresh instance of the same class; deletion is a new housekeeping item (also flagged by #9).
-8. **Doc staleness (minor)** — `BUG_ANALYSIS:4330` Issue-1 header still "OPEN — awaiting user's fix pick" though the fix shipped (top summary :317 already says decided); `jaccard_canonical.py:6` docstring "sup = 10 nodes / 14 edges" vs `CANONICAL_NODES["sup"]` = 9 entries; `cache_keys` doc jumps 3_2_19 → 3_2_21 without narrating the 3_2_20 intermediate; `resizable.css:107-115` comment says SQL absorbs squeeze but the flex override makes the graph absorb it (harmless, comment mismatch). **Fix**: align the four spots.
-
-    **STILL-OPEN 2026-08-11 (partial — 2 of 4 spots fixed)** — (a) `BUG_ANALYSIS_AND_SUGGESTIONS.md:4330` — **FIXED**: header now reads "Issue 1 · L2 edge click → viewport refit (frontend, **FIXED 2026-08-11** — Wave 1D)". (b) `jaccard_canonical.py:10-11` docstring — **STILL-OPEN**: still says "sup = 10 nodes / 14 edges"; `CANONICAL_NODES["sup"]` = 9 (verified; J12-16 dedup-key change dropped one node — bdm 18 and sup 14 edges are correct, only the sup node count is stale). (c) `cache_keys.py:43` — **STILL-OPEN**: the R11-3 entry still jumps `3_2_19` (v3.3.145, `:37-41`) → `3_2_21` without narrating the `3_2_20` intermediate. (d) `resizable.css:107-115` — **FIXED**: the squeeze comment is deleted from resizable.css (only `flex-shrink` rules remain there); `app.css:779` carries the updated R11-3 narrative.
-9. **J12-10 physical-model stages (HEAD `034eaa2`) not reviewed** — 4 commits landed after this snapshot (proxies deleted, L1/L2 consume the physical model) with a modified BUG_ANALYSIS/GROUND_TRUTH doc + new probes in the tree; needs the next review pass.
-
-    **FIXED 2026-08-11 (review gap closed)** — the J12-10 stages 1–4 (commits `9d66229`→`32b6159`) plus E5/R26-R28 are now in HEAD (`631f388`) and covered: `test_physical_model_equivalence.py` + `test_l2_stage4.py` pin the model consumption (both pass), full backend suite rerun **797 passed / 5 skipped**, frontend vitest **122/122**, and this classification pass verified the stage-3 model-backed walker (`lineage.py:511-801`), stage-4 assembly (`l2_builder.py`), and the D2/N11/C-3/probe residuals above against the current source. Remaining carryover from this item: the new probe files (see #7 note) are still in the tree.
-
----
-
-## Test results (round-12 scope, /tmp venv py3.14)
-
-| File | Result |
-|---|---|
-| test_walker_gaps_e3 | **11/11** |
-| test_mech_payload / test_flow_roles | **7 + 13** |
-| test_dependency_graph / test_highlight_strategies | 9 + pass (39 total with flow_roles) |
-| test_l1_l2_integration | **14/14** (round-11 5 failures fixed) |
-| test_jaccard_benchmark | **1 passed**, recall 1.0 all features, zero unmatched rows (path shim) |
-| test_security_negative | 10/10 in-process PASS; 7 HTTP blocked by starlette/httpx/py3.14 env artifact; 1 hangs (`asyncio` threadpool stall, py3.14) |
-| test_c_index_pipeline | prefix pin verified standalone; suite hangs on py3.14 asyncio.to_thread (env) |
-| frontend (vitest) | 81/81 (incl. 12 pickAutoEdge/structureEdges + EdgeReasonPanel 26) |
-| highlight_strategies + b_series_l2 + l2_table_dedup + verification_samples | 43 passed |
+1. **R26.3 doc stale — `mech` REMOVED but TRACEABILITY says RETAINED** (Med, doc): `wiki/REQUIREMENTS_TRACEABILITY.md:201` marks R26.3 ✅ "DELIBERATELY RETAINED… still emit"; code/snapshots/tests removed it (no `_build_mechanism`, 0 `"mech"` in snapshots, `test_mech_payload.py` pins removal, cache 3_2_24). **Fix**: update the R26.3 row to "removed in integration turn (3_2_24)".
+2. **Backward-compat: `graph.edges[].data.mech` removed** (Med, by design but externally visible): the only dropped L2 key; shipped frontend no longer reads it; external consumers would break. **Fix**: document the removal in the API changelog; keep cache bump (done, 3_2_24).
+3. **Full-graph `/graph` content drift unpinned** (Low-Med): `alias_map` 14→9 keys (identity self-entries dropped), `table_fields` 36→30 (7 `⟐` VT keys dropped, `ods_hub_lsacmsp` added, ~22 value-diffs); shape unchanged but no snapshot gate covers `/graph` (only L2). **Fix**: add a `/graph` snapshot or pin the projection.
+4. **`cache_keys.py` docstring misses `2026-08-11.3`** (Low): extractor bumped `.1→.2→.3` (D3 round, `fe65446`); docstring stops at `.2`. **Fix**: add the `.3` entry.
+5. **`jaccard_canonical.py` dl-round docstring "CANONICAL_ROWS 55" vs module 56** (Low, off-by-one). **Fix**: 55 → 56.
+6. **`l1_builder.py:321-325` stale NOTE** (Low): claims graph-backed models "lose every edge" — contradicted by `physical_model.py:225-243` source/target normalization; conclusion (prefer analysis cache) still sound. **Fix**: update the comment.
+7. **`_classify_compound_nodes` dereferences `entity_of_id` unconditionally** (Low): `physical_model=None` default but docstring's defensive fallback only covers a per-var miss, not a None model — safe today (only caller passes a model). **Fix**: guard `None`.
+8. **S3 `_anchor_head_last` new behavior, thin direct coverage** (Low): identical statement/CTE body anchors on own occurrence; no dedicated unit test (only indirect via tpcds snapshots). **Fix**: add a unit test.
+9. **Housekeeping** (Low): `screenshots/` = 60 tracked PNGs, 21 MB, not gitignored (incl. 8 new `code2-*`); `tools/e2e_test/ocr_lines_tmp.js` untracked temp. **Fix**: `.gitignore` + `git rm --cached screenshots/`; delete temp.
+10. **`PHYSICAL_MODEL_STAGE2_CONTRACT.md` §8/§10.6 superseded but self-describes as live** (Low, doc): still says keep `sync_`/`dml_` proxies + `dml_pairs`; stages 3/4 deleted them (the migration map's EXECUTION sections say so, the contract doc itself doesn't). **Fix**: add a superseded-by-stages-3/4 banner.
+11. **Extractor suite not fully swept** (Info): full-suite run time-boxed ~13 min (large extractor suite, no failures before timeout); targeted suites all green. **Fix**: run the full suite on the container stack (py3.11/3.12) before release.
 
 ## Priority advice (no source modified)
 
-1. **D2 (#1)** — the only genuine correctness leak left; `read_fields` carrier + field-aware DML admit closes the rrcdm-in-every-closure objection and makes closures honest.
-2. **N11 (#2)** — mechanical: replace all `int(... or 0)` in l2_builder with the existing `_safe_int`.
-3. **C-3 (#3) + shared contract (#4)** — the two remaining architectural items; C-3 keeps the orphan report incomplete, #4 prevents recurrence of D2/E1/E2-class bugs.
-4. **E4 residuals (#5/#6)** — cheap hardening, same class as the shipped fixes.
-5. **Housekeeping (#7/#8)** — delete probes, align 4 doc spots.
-6. **Next pass (#9)** — review the J12-10 physical-model stages (HEAD `034eaa2`) and the new probes.
+1. **Docs accuracy first** (#1/#4/#5/#10): 4 one-line doc fixes — cheap, prevents wrong engineering decisions (esp. R26.3 mech claim).
+2. **Pin `/graph`** (#3): the only un-snapshotted surface with real content drift.
+3. **API changelog** (#2): announce the `mech` removal for external consumers.
+4. **Hardening** (#6/#7/#8): stale NOTE, None-model guard, S3 anchor test.
+5. **Housekeeping** (#9) + full-suite run on the image stack (#11).
 
 ## Verification method
 
-- 3 sub-agents in parallel (Faraday: engine core + closure re-probes on `git archive acb2dcf`; Confucius: all test suites, live runs; Kant: E4 security + R11-3 frontend + docs), plus main-thread git scoping. Runtime probes: closures, WRITE_READ direction, mech payload coverage, security vectors (traversal/whitelist/version-stamp/concurrency).
+- 3 sub-agents in parallel (Confucius: physical model + extractor + D2/C-3/N11/shared-contract re-checks with live probes; Parfit: builders byte-identity + frontend + vitest 122; Heisenberg: 12 test files run live + docs/VERSION/RELEASE verification). Runtime probes on `BDM_ACC_LOAN_INFO_SUP_M.sql` (253 vars / 781 deps; model 32/158/781/253/0) + `BDM_ACC_LOAN_INFO_PL.sql` + `_Digitallending.sql` regression sanity.
 - No source files modified.
