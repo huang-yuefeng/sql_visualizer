@@ -798,13 +798,19 @@ class TestR17BaseIndexDiagnostic:
 
 
 class TestF2DeleteWorkspaceValidation:
-    """F2: DELETE /workspace/{ws_id} validates ws_id before touching disk —
-    400 for a malformed id (path-traversal guard), 404 for a valid-format
-    but nonexistent workspace, and a real delete for an existing one."""
+    """F2: DELETE /me/workspaces/{ws_id} (R31/A-M1) validates ws_id before
+    touching disk — 400 for a malformed id (path-traversal guard), 404 for a
+    valid-format but nonexistent workspace, and a real delete for an
+    existing one."""
 
     def _delete(self, ws_id: str):
-        from app.routers.workspace import delete_workspace_endpoint
-        return asyncio.run(delete_workspace_endpoint(ws_id))
+        from app.routers.workspace import remove_from_my_history_endpoint
+
+        class _Req:
+            cookies = {}
+            client = None
+
+        return asyncio.run(remove_from_my_history_endpoint(_Req(), ws_id))
 
     def test_f2_invalid_ws_id_400(self):
         import fastapi
@@ -817,17 +823,21 @@ class TestF2DeleteWorkspaceValidation:
 
     def test_f2_valid_format_missing_404(self):
         import fastapi
+        # R31/A-H4: ws_id is full UUID4 hex (32 chars) — a 12-char id is now
+        # malformed (400); use a well-formed but nonexistent id for the 404.
         with pytest.raises(fastapi.HTTPException) as ei:
-            self._delete("0d4ae2cefe6a")
+            self._delete("0d4ae2cefe6a1234567890abcdef1234")
         assert ei.value.status_code == 404
 
     def test_f2_existing_workspace_deleted(self):
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("a.sql", "SELECT 1;\n")
-        ws_id = create_workspace(buf.getvalue())
+        # R31: only the CREATOR's remove physically deletes. Gate-off caller
+        # is "dev-user", so stamp it as creator to exercise the delete path.
+        ws_id = create_workspace(buf.getvalue(), creator_username="dev-user")
         ws_dir = get_workspace_dir(ws_id)
         assert ws_dir.exists()
         r = self._delete(ws_id)
-        assert r == {"deleted": True}, r
+        assert r["deleted"] is True, r
         assert not ws_dir.exists(), "workspace directory must be gone"

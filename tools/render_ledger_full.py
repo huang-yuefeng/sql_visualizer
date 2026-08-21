@@ -7,9 +7,10 @@ files. Self-contained, both themes, no external assets.
 import json
 import html
 import collections
+import os
 
 DATA = "/tmp/line_counts_full.json"
-OUT = "/home/huangyf/work/sql_visualizer/tools/source_ledger_full.html"
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "source_ledger_full.html")
 
 d = json.load(open(DATA))
 files = d["files"]
@@ -155,7 +156,7 @@ def fn_rows(rel, funcs):
         if "." in name:
             clsname, meth = name.rsplit(".", 1)
             disp = f'<span class="cls">{esc(clsname)}.</span>{esc(meth)}'
-        basename = rel.rsplit("/", 1)[1]
+        basename = rel.rsplit("/", 1)[-1]  # [-1] falls back to the whole path for root-level files
         rows.append(f'<li class="{cls}"><span class="fn">{disp}</span>'
                     f'<span class="fp">{esc(basename)}</span><span class="cnt">{c}</span></li>')
     return "".join(rows)
@@ -194,7 +195,6 @@ parts.append('<div class="wrap">')
 
 tot_files = sum(a["files"] for a in areas.values())
 tot_lines = sum(a["lines"] for a in areas.values())
-tot_funcs = sum(a["funcs"] for a in areas.values())
 src_areas = ["backend_app", "backend_tests", "frontend_src", "frontend_tests", "e2e_tests"]
 src_lines = sum(areas[a]["lines"] for a in src_areas)
 src_files = sum(areas[a]["files"] for a in src_areas)
@@ -209,7 +209,7 @@ parts.append('<p class="sub">Whole-project line counts. Every text file in the f
              '(frontend/dist, backend/app/static*, node_modules, wheels, images, archives, caches) are excluded.</p>')
 parts.append('<div class="totals">')
 parts.append(f'<div class="tcard"><div class="lab">All files</div><div class="val">{fmt(tot_lines)}<small> lines · {tot_files} files</small></div></div>')
-parts.append(f'<div class="tcard"><div class="lab">Source code</div><div class="val">{fmt(src_lines)}<small> lines · {src_files} files · {tot_funcs} functions</small></div></div>')
+parts.append(f'<div class="tcard"><div class="lab">Source code</div><div class="val">{fmt(src_lines)}<small> lines · {src_files} files · {src_funcs} functions</small></div></div>')
 parts.append(f'<div class="tcard"><div class="lab">Test data</div><div class="val">{fmt(areas["samples"]["lines"])}<small> lines · {areas["samples"]["files"]} sql/csv</small></div></div>')
 parts.append(f'<div class="tcard"><div class="lab">Tests + fixtures</div><div class="val">{fmt(areas["backend_tests"]["lines"])}<small> lines · {areas["backend_tests"]["files"]} files</small></div></div>')
 parts.append("</div>")
@@ -250,8 +250,8 @@ for a in AREA_ORDER:
 parts.append("<footer>Generated from the whole project folder via <code>tools/line_count_full.py</code> "
              "(exclusions: node_modules, .git, caches, frontend/dist, backend/app/static + static.bak.*, "
              "docker_image, test-results, binary files, archives). "
-             "Python functions via AST; JS/JSX via brace-aware scan. Counts = start→end line spans, "
-             "matching <code>wc -l</code> file totals. Gold dot = among the 30 largest functions.</footer>")
+             "Python functions via AST; JS/JSX via brace-aware scan. File totals = logical line "
+             "counts; function rows use 1-based start→end line spans. Gold dot = among the 30 largest functions.</footer>")
 parts.append("</div>")
 
 open(OUT, "w", encoding="utf-8").write("".join(parts))

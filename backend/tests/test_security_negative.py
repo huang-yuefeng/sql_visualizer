@@ -92,7 +92,7 @@ def secure_env(http_client):
     assert s.status_code == 200, s.text
     view_id = s.json()["view_id"]
     yield http_client, ws_id, view_id
-    http_client.delete(f"/api/workspace/{ws_id}")
+    http_client.delete(f"/api/me/workspaces/{ws_id}")
 
 
 @pytest.fixture

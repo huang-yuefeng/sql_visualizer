@@ -87,7 +87,8 @@ def journey_ws(http_client):
     payload = r.json()
     ws_id = payload["workspace_id"]
     yield http_client, ws_id, payload["file_tree"]
-    http_client.delete(f"/api/workspace/{ws_id}")
+    # R31/A-M1: the remove-from-my-history endpoint (creator → physical delete)
+    http_client.delete(f"/api/me/workspaces/{ws_id}")
 
 
 def test_full_http_journey(journey_ws):
@@ -107,7 +108,7 @@ def test_full_http_journey(journey_ws):
     client, ws_id, file_tree = journey_ws
 
     # ── Step 1: upload response shape ──────────────────────────────────
-    assert len(ws_id) == 12 and ws_id.isalnum(), ws_id
+    assert len(ws_id) == 32 and ws_id.isalnum(), ws_id  # R31/A-H4
     assert file_tree["type"] == "directory"
     sql_paths = _collect_sql_paths(file_tree)
     assert sql_paths == EXPECTED_SCRIPTS, sql_paths
@@ -228,8 +229,10 @@ def test_full_http_journey(journey_ws):
         assert d.get("reason"), d
 
     # ── Step 6: teardown — workspace really deleted ────────────────────
-    r = client.delete(f"/api/workspace/{ws_id}")
+    # R31/A-M1: role-dependent remove — the HTTP-created workspace belongs
+    # to dev-user (its creator), so this is a physical delete.
+    r = client.delete(f"/api/me/workspaces/{ws_id}")
     assert r.status_code == 200, r.text
-    assert r.json() == {"deleted": True}, r.text
+    assert r.json()["deleted"] is True, r.text
     r = client.get(f"/api/workspace/{ws_id}")
     assert r.status_code == 404, r.text

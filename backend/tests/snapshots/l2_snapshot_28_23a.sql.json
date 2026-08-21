@@ -1,0 +1,2672 @@
+{
+  "filtered": {
+    "edges": [
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 1,
+          "id": "l2e_3b78bddfd04e",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (CTE chain) \u2014 item_sk@L53 \u2192 date_dim@L7 \u2192 \u2016frequent_ss_items@L1 \u2192 \u27d0 output@L43\u2016",
+          "source": "l2_tbl_61ec23d97f",
+          "target": "l2_tbl_5aca1f6108",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 7,
+          "id": "l2e_eb6102e452bf",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (CTE chain) \u2014 item_sk@L53 \u2192 date_dim@L47 \u2192 \u2016date_dim@L7 \u2192 frequent_ss_items@L1\u2016",
+          "source": "l2_tbl_08ccde0b43",
+          "target": "l2_tbl_61ec23d97f",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 47,
+          "id": "l2e_96b82729434c",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 item_sk@L53 \u2192 \u2016date_dim@L47 \u2192 \u27d0 union0@L45\u2016",
+          "source": "l2_tbl_08ccde0b43",
+          "target": "l2_tbl_be034f2cc5",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 57,
+          "id": "l2e_e237bebb6a66",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 item_sk@L53 \u2192 date_dim@L47 \u2192 \u2016date_dim@L57 \u2192 \u27d0 union1@L55\u2016",
+          "source": "l2_tbl_08ccde0b43",
+          "target": "l2_tbl_5c5b863730",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 3,
+          "id": "l2e_0085573f6ef2",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016i_item_sk@L3 \u2192 item_sk@L3\u2016",
+          "source": "fld_d0e34c8562",
+          "target": "fld_63d41f1f8e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 3,
+          "id": "l2e_5469b6d15236",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016frequent_ss_items@L1 \u2192 item_sk@L3\u2016",
+          "source": "l2_tbl_61ec23d97f",
+          "target": "fld_63d41f1f8e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 53,
+          "id": "l2e_fe2c1795b972",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016item_sk@L53 \u2192 date_dim@L47\u2016",
+          "source": "fld_63d41f1f8e",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 1,
+          "id": "l2e_2374654e967f",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016i_item_sk@L3 \u2192 frequent_ss_items@L1\u2016",
+          "source": "fld_d0e34c8562",
+          "target": "l2_tbl_61ec23d97f",
+          "width": 1
+        }
+      }
+    ],
+    "filtered_nodes": 7,
+    "nodes": [
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "CTE{frequent_ss_items}",
+          "id": "l2_tbl_61ec23d97f",
+          "label": "frequent_ss_items",
+          "line_end": 42,
+          "line_start": 1,
+          "original_id": "a0e77d3a2c122415",
+          "table_name": "frequent_ss_items",
+          "type": "cte_table",
+          "variable_type": "cte"
+        }
+      },
+      {
+        "data": {
+          "context": "CTE{frequent_ss_items}",
+          "defined_in": "JOIN",
+          "id": "l2_tbl_08ccde0b43",
+          "label": "date_dim",
+          "line_end": 42,
+          "line_start": 7,
+          "original_id": "2d88501e04519e28",
+          "table_name": "date_dim",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "TOP0",
+          "id": "l2_tbl_5aca1f6108",
+          "label": "output",
+          "line_end": 64,
+          "line_start": 43,
+          "original_id": "e4381945dd8a9fdd",
+          "table_name": "\u27d0 output",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq/sq3/union0",
+          "defined_in": "TOP0/subq/sq3/union0",
+          "id": "l2_tbl_be034f2cc5",
+          "label": "output(union0)",
+          "line_end": 64,
+          "line_start": 45,
+          "original_id": "dbda4a588351df6a",
+          "table_name": "\u27d0 union0",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq/sq3/union1",
+          "defined_in": "TOP0/subq/sq3/union1",
+          "id": "l2_tbl_5c5b863730",
+          "label": "output(union1)",
+          "line_end": 64,
+          "line_start": 55,
+          "original_id": "53b2ea88f14e53bd",
+          "table_name": "\u27d0 union1",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_63d41f1f8e",
+          "is_target": true,
+          "label": "item_sk",
+          "orig_type": "column",
+          "original_id": "aeb07fb9ac11e2c9",
+          "parent": "l2_tbl_61ec23d97f",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "direct",
+          "id": "fld_d0e34c8562",
+          "is_target": false,
+          "label": "i_item_sk",
+          "orig_type": "column",
+          "original_id": "c5b88c33ec9c6e9e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      }
+    ],
+    "script_name": "23a.sql",
+    "search_matched": true,
+    "target": "frequent_ss_items.item_sk",
+    "total_edges": 8,
+    "total_nodes": 11
+  },
+  "full": {
+    "edges": [
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 1,
+          "id": "l2e_3b78bddfd04e",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (CTE chain) \u2014 \u2016frequent_ss_items@L1 \u2192 \u27d0 output@L43\u2016",
+          "source": "l2_tbl_61ec23d97f",
+          "target": "l2_tbl_5aca1f6108",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 6,
+          "id": "l2e_a31fb7349631",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (CTE chain) \u2014 \u2016store_sales@L6 \u2192 frequent_ss_items@L1\u2016",
+          "source": "l2_tbl_828021585f",
+          "target": "l2_tbl_61ec23d97f",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 7,
+          "id": "l2e_eb6102e452bf",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (CTE chain) \u2014 \u2016date_dim@L7 \u2192 frequent_ss_items@L1\u2016",
+          "source": "l2_tbl_08ccde0b43",
+          "target": "l2_tbl_61ec23d97f",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "combine",
+          "color": "#16A085",
+          "desc": "Subquery reference",
+          "edge_type": "SUBQUERY",
+          "flow_kind": "field flow",
+          "highlight_line": 8,
+          "id": "l2e_e0cdf1adbf29",
+          "label": "SUBQUERY",
+          "line_style": "dotted",
+          "reason": "field flow (combine step) \u2014 \u2016sq1@L8 \u2192 \u27d0 sq1@L8\u2016",
+          "source": "l2_tbl_977b6f7fa4",
+          "target": "l2_tbl_5ee04576f6",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 8,
+          "id": "l2e_a9c1b7e8f3d1",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016item@L8 \u2192 \u27d0 sq1@L8\u2016",
+          "source": "l2_tbl_e172856349",
+          "target": "l2_tbl_5ee04576f6",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 19,
+          "id": "l2e_f6a2fb27a707",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (CTE chain) \u2014 \u2016max_store_sales@L19 \u2192 \u27d0 output@L43\u2016",
+          "source": "l2_tbl_4b47f4a028",
+          "target": "l2_tbl_5aca1f6108",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "combine",
+          "color": "#16A085",
+          "desc": "Subquery reference",
+          "edge_type": "SUBQUERY",
+          "flow_kind": "field flow",
+          "highlight_line": 33,
+          "id": "l2e_9911e7615304",
+          "label": "SUBQUERY",
+          "line_style": "dotted",
+          "reason": "field flow (combine step) \u2014 \u2016sq2@L33 \u2192 \u27d0 sq2@L22\u2016",
+          "source": "l2_tbl_bf2dc4b865",
+          "target": "l2_tbl_fe56b785e9",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 24,
+          "id": "l2e_13c3ff9e1b52",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L24 \u2192 \u27d0 sq2@L22\u2016",
+          "source": "l2_tbl_828021585f",
+          "target": "l2_tbl_fe56b785e9",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 25,
+          "id": "l2e_0928c66f5672",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016customer@L25 \u2192 \u27d0 sq2@L22\u2016",
+          "source": "l2_tbl_1365237046",
+          "target": "l2_tbl_fe56b785e9",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 26,
+          "id": "l2e_cc772b34876a",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016date_dim@L26 \u2192 \u27d0 sq2@L22\u2016",
+          "source": "l2_tbl_08ccde0b43",
+          "target": "l2_tbl_fe56b785e9",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 34,
+          "id": "l2e_9f258c6e60ba",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (CTE chain) \u2014 \u2016best_ss_customer@L34 \u2192 \u27d0 output@L43\u2016",
+          "source": "l2_tbl_aee7251e58",
+          "target": "l2_tbl_5aca1f6108",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 37,
+          "id": "l2e_1c2ca8ac65be",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (CTE chain) \u2014 \u2016store_sales@L37 \u2192 best_ss_customer@L34\u2016",
+          "source": "l2_tbl_828021585f",
+          "target": "l2_tbl_aee7251e58",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 38,
+          "id": "l2e_6aceb78a2c10",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (CTE chain) \u2014 \u2016customer@L38 \u2192 best_ss_customer@L34\u2016",
+          "source": "l2_tbl_1365237046",
+          "target": "l2_tbl_aee7251e58",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 46,
+          "id": "l2e_85dbc4e28182",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016catalog_sales@L46 \u2192 \u27d0 union0@L45\u2016",
+          "source": "l2_tbl_9417bf458e",
+          "target": "l2_tbl_be034f2cc5",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 47,
+          "id": "l2e_96b82729434c",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016date_dim@L47 \u2192 \u27d0 union0@L45\u2016",
+          "source": "l2_tbl_08ccde0b43",
+          "target": "l2_tbl_be034f2cc5",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 56,
+          "id": "l2e_88d9e4ef4be2",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016web_sales@L56 \u2192 \u27d0 union1@L55\u2016",
+          "source": "l2_tbl_16136490ce",
+          "target": "l2_tbl_5c5b863730",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 57,
+          "id": "l2e_e237bebb6a66",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016date_dim@L57 \u2192 \u27d0 union1@L55\u2016",
+          "source": "l2_tbl_08ccde0b43",
+          "target": "l2_tbl_5c5b863730",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "compute",
+          "color": "#D35400",
+          "desc": "COALESCE/CAST/CONCAT",
+          "edge_type": "TRANSFORM",
+          "flow_kind": "field flow",
+          "highlight_line": 8,
+          "id": "l2e_b1a706cc584a",
+          "label": "TRANSFORM",
+          "line_style": "dashed",
+          "reason": "field flow (compute step) \u2014 \u2016i_item_desc@L8 \u2192 itemdesc@L8\u2016",
+          "source": "l2_tbl_e172856349",
+          "target": "l2_tbl_5ee04576f6",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 3,
+          "id": "l2e_0085573f6ef2",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016i_item_sk@L3 \u2192 item_sk@L3\u2016",
+          "source": "fld_d0e34c8562",
+          "target": "l2_tbl_61ec23d97f",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 4,
+          "id": "l2e_8f9cb3c3e583",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016d_date@L4 \u2192 solddate@L4\u2016",
+          "source": "fld_15cde7492f",
+          "target": "l2_tbl_61ec23d97f",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 64,
+          "id": "l2e_98c52bb6d49f",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016c_customer_sk@L64 \u2192 c_customer_sk@L22\u2016",
+          "source": "l2_tbl_aee7251e58",
+          "target": "l2_tbl_fe56b785e9",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 36,
+          "id": "l2e_77469fd5d71b",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_quantity@L36 \u2192 csales@L23\u2016",
+          "source": "fld_6fef1bef07",
+          "target": "l2_tbl_fe56b785e9",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 36,
+          "id": "l2e_df56021107b2",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_sales_price@L36 \u2192 csales@L23\u2016",
+          "source": "fld_28384a7f5d",
+          "target": "l2_tbl_fe56b785e9",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 20,
+          "id": "l2e_a70175da8073",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016csales@L20 \u2192 tpcds_cmax@L20\u2016",
+          "source": "l2_tbl_bf2dc4b865",
+          "target": "l2_tbl_4b47f4a028",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 64,
+          "id": "l2e_7b6794b5bb17",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016c_customer_sk@L64 \u2192 c_customer_sk@L35\u2016",
+          "source": "l2_tbl_aee7251e58",
+          "target": "fld_0bbdfdf3c3",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 36,
+          "id": "l2e_ed575d813a31",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_quantity@L36 \u2192 ssales@L36\u2016",
+          "source": "fld_6fef1bef07",
+          "target": "l2_tbl_aee7251e58",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 36,
+          "id": "l2e_39ced037f81c",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_sales_price@L36 \u2192 ssales@L36\u2016",
+          "source": "fld_28384a7f5d",
+          "target": "l2_tbl_aee7251e58",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "compute",
+          "color": "#D35400",
+          "desc": "COALESCE/CAST/CONCAT",
+          "edge_type": "TRANSFORM",
+          "flow_kind": "field flow",
+          "highlight_line": 45,
+          "id": "l2e_a9167fd90950",
+          "label": "TRANSFORM",
+          "line_style": "dashed",
+          "reason": "field flow (compute step) \u2014 \u2016cs_quantity@L45 \u2192 sales@L45\u2016",
+          "source": "fld_b6e6074bf1",
+          "target": "l2_tbl_be034f2cc5",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "compute",
+          "color": "#D35400",
+          "desc": "COALESCE/CAST/CONCAT",
+          "edge_type": "TRANSFORM",
+          "flow_kind": "field flow",
+          "highlight_line": 45,
+          "id": "l2e_b26e6c5a2011",
+          "label": "TRANSFORM",
+          "line_style": "dashed",
+          "reason": "field flow (compute step) \u2014 \u2016cs_list_price@L45 \u2192 sales@L45\u2016",
+          "source": "fld_5fa13153b7",
+          "target": "l2_tbl_be034f2cc5",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "compute",
+          "color": "#D35400",
+          "desc": "COALESCE/CAST/CONCAT",
+          "edge_type": "TRANSFORM",
+          "flow_kind": "field flow",
+          "highlight_line": 55,
+          "id": "l2e_4bcf3d22b518",
+          "label": "TRANSFORM",
+          "line_style": "dashed",
+          "reason": "field flow (compute step) \u2014 \u2016ws_list_price@L55 \u2192 sales@L55\u2016",
+          "source": "fld_3d45a3c698",
+          "target": "l2_tbl_5c5b863730",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "compute",
+          "color": "#D35400",
+          "desc": "COALESCE/CAST/CONCAT",
+          "edge_type": "TRANSFORM",
+          "flow_kind": "field flow",
+          "highlight_line": 55,
+          "id": "l2e_494440361181",
+          "label": "TRANSFORM",
+          "line_style": "dashed",
+          "reason": "field flow (compute step) \u2014 \u2016ws_quantity@L55 \u2192 sales@L55\u2016",
+          "source": "fld_182bc97595",
+          "target": "l2_tbl_5c5b863730",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 43,
+          "id": "l2e_26f1c14f9008",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016sales@L43 \u2192 SUMsales@L43\u2016",
+          "source": "l2_tbl_d0f9197ebc",
+          "target": "l2_tbl_61ec23d97f",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 8,
+          "id": "l2e_527213befef5",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016frequent_ss_items@L1 \u2192 \u27d0 sq1@L8\u2016",
+          "source": "l2_tbl_61ec23d97f",
+          "target": "l2_tbl_5ee04576f6",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 8,
+          "id": "l2e_3227141ee50d",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016frequent_ss_items@L1 \u2192 itemdesc@L8\u2016",
+          "source": "l2_tbl_61ec23d97f",
+          "target": "fld_b58c7dbf2f",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 8,
+          "id": "l2e_45172004f9bb",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016frequent_ss_items@L1 \u2192 *@L8\u2016",
+          "source": "l2_tbl_61ec23d97f",
+          "target": "fld_642ebd2f1c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 2,
+          "id": "l2e_c441f6560200",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016frequent_ss_items@L1 \u2192 itemdesc@L2\u2016",
+          "source": "l2_tbl_61ec23d97f",
+          "target": "fld_078cbd3180",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 3,
+          "id": "l2e_5469b6d15236",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016frequent_ss_items@L1 \u2192 item_sk@L3\u2016",
+          "source": "l2_tbl_61ec23d97f",
+          "target": "fld_63d41f1f8e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 4,
+          "id": "l2e_c5077a3edb50",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016frequent_ss_items@L1 \u2192 solddate@L4\u2016",
+          "source": "l2_tbl_61ec23d97f",
+          "target": "fld_cb3703611b",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 5,
+          "id": "l2e_0794f7d7f7ea",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016frequent_ss_items@L1 \u2192 cnt@L5\u2016",
+          "source": "l2_tbl_61ec23d97f",
+          "target": "fld_893e478e44",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 22,
+          "id": "l2e_a95edb154f14",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016max_store_sales@L19 \u2192 \u27d0 sq2@L22\u2016",
+          "source": "l2_tbl_4b47f4a028",
+          "target": "l2_tbl_fe56b785e9",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 22,
+          "id": "l2e_de3313be7627",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016max_store_sales@L19 \u2192 c_customer_sk@L22\u2016",
+          "source": "l2_tbl_4b47f4a028",
+          "target": "fld_8a4169d7e3",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 23,
+          "id": "l2e_f8647563b32c",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016max_store_sales@L19 \u2192 csales@L23\u2016",
+          "source": "l2_tbl_4b47f4a028",
+          "target": "fld_eb7ce7f4c1",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 20,
+          "id": "l2e_c8640ffd7a43",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016max_store_sales@L19 \u2192 tpcds_cmax@L20\u2016",
+          "source": "l2_tbl_4b47f4a028",
+          "target": "fld_ae951e0d1d",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 35,
+          "id": "l2e_368b544209c8",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016best_ss_customer@L34 \u2192 c_customer_sk@L35\u2016",
+          "source": "l2_tbl_aee7251e58",
+          "target": "fld_0bbdfdf3c3",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 36,
+          "id": "l2e_d47d5d5d383b",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016best_ss_customer@L34 \u2192 ssales@L36\u2016",
+          "source": "l2_tbl_aee7251e58",
+          "target": "fld_1fe2292e66",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 8,
+          "id": "l2e_ab5105498700",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 sq1@L8 \u2192 itemdesc@L8\u2016",
+          "source": "l2_tbl_5ee04576f6",
+          "target": "fld_b58c7dbf2f",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 8,
+          "id": "l2e_59762739c8dd",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 sq1@L8 \u2192 *@L8\u2016",
+          "source": "l2_tbl_5ee04576f6",
+          "target": "fld_642ebd2f1c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 22,
+          "id": "l2e_ae16f5b16124",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 sq2@L22 \u2192 c_customer_sk@L22\u2016",
+          "source": "l2_tbl_fe56b785e9",
+          "target": "fld_8a4169d7e3",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 23,
+          "id": "l2e_10727c8ba0c1",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 sq2@L22 \u2192 csales@L23\u2016",
+          "source": "l2_tbl_fe56b785e9",
+          "target": "fld_eb7ce7f4c1",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 43,
+          "id": "l2e_37359d6f46d3",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L43 \u2192 SUMsales@L43\u2016",
+          "source": "l2_tbl_5aca1f6108",
+          "target": "fld_34b6e0b0e6",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 45,
+          "id": "l2e_fc5272a78672",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 union0@L45 \u2192 sales@L45\u2016",
+          "source": "l2_tbl_be034f2cc5",
+          "target": "fld_39068c8940",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 55,
+          "id": "l2e_c6e71c64dc5e",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 union1@L55 \u2192 sales@L55\u2016",
+          "source": "l2_tbl_5c5b863730",
+          "target": "fld_4f89b5cee3",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#C0392B",
+          "desc": "HAVING\u2192SELECT match",
+          "edge_type": "INDIRECT",
+          "flow_kind": "filter",
+          "highlight_line": 23,
+          "id": "l2e_ddae6f38626c",
+          "label": "INDIRECT",
+          "line_style": "dot-dash",
+          "reason": "filter (filter step) \u2014 \u2016csales@L23 \u2192 csales@L20\u2016",
+          "source": "l2_tbl_fe56b785e9",
+          "target": "l2_tbl_bf2dc4b865",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#C0392B",
+          "desc": "HAVING\u2192SELECT match",
+          "edge_type": "INDIRECT",
+          "flow_kind": "filter",
+          "highlight_line": 45,
+          "id": "l2e_2354a923ef53",
+          "label": "INDIRECT",
+          "line_style": "dot-dash",
+          "reason": "filter (filter step) \u2014 \u2016sales@L45 \u2192 sales@L43\u2016",
+          "source": "l2_tbl_be034f2cc5",
+          "target": "l2_tbl_d0f9197ebc",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#7F8C8D",
+          "desc": "Disconnected bridge",
+          "edge_type": "SUBSET",
+          "flow_kind": "bridge",
+          "highlight_line": 56,
+          "id": "l2e_8c87a31f57a5",
+          "label": "SUBSET",
+          "line_style": "dotted",
+          "reason": "bridge \u2014 \u2016web_sales@L56 \u2192 \u27d0 output@L43\u2016",
+          "source": "l2_tbl_16136490ce",
+          "target": "l2_tbl_5aca1f6108",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 11,
+          "id": "l2e_60af20698bc7",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016d_year@L11 \u2192 date_dim@L7\u2016",
+          "source": "fld_794ee7502c",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 9,
+          "id": "l2e_1eec3a6a71ef",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016ss_sold_date_sk@L9 \u2192 date_dim@L7\u2016",
+          "source": "fld_7392eb2a5a",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 9,
+          "id": "l2e_c10efb418db1",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016d_date_sk@L9 \u2192 date_dim@L7\u2016",
+          "source": "fld_4b94ebd413",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 10,
+          "id": "l2e_c33293c3d5e7",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016ss_item_sk@L10 \u2192 date_dim@L7\u2016",
+          "source": "fld_963a8f1cc0",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 22,
+          "id": "l2e_9c35ff5fb406",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016ss_quantity@L23 \u2192 \u27d0 sq2@L22\u2016",
+          "source": "fld_290a23c9da",
+          "target": "l2_tbl_fe56b785e9",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 22,
+          "id": "l2e_8607e8d3b8fc",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016ss_sales_price@L23 \u2192 \u27d0 sq2@L22\u2016",
+          "source": "fld_ccda7138ec",
+          "target": "l2_tbl_fe56b785e9",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 29,
+          "id": "l2e_5fdfd0777723",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016d_year@L29 \u2192 date_dim@L26\u2016",
+          "source": "fld_1990a49cba",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 27,
+          "id": "l2e_5e84164609af",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016ss_customer_sk@L27 \u2192 date_dim@L26\u2016",
+          "source": "fld_ed78af1dfd",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 28,
+          "id": "l2e_cef89c4056ed",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016ss_sold_date_sk@L28 \u2192 date_dim@L26\u2016",
+          "source": "fld_43a0ea02cf",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 28,
+          "id": "l2e_7a7077066190",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016d_date_sk@L28 \u2192 date_dim@L26\u2016",
+          "source": "fld_6dbd9fcaf7",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 40,
+          "id": "l2e_3811bb2e2626",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016ss_customer_sk@L40 \u2192 customer@L38\u2016",
+          "source": "fld_5f2ca077be",
+          "target": "l2_tbl_1365237046",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 43,
+          "id": "l2e_d7f663922af1",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016sq3@L64 \u2192 \u27d0 output@L43\u2016",
+          "source": "l2_tbl_d0f9197ebc",
+          "target": "l2_tbl_5aca1f6108",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 64,
+          "id": "l2e_11c1cbc22131",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016union_result@L0 \u2192 sq3@L64\u2016",
+          "source": "l2_tbl_2347e555d7",
+          "target": "l2_tbl_d0f9197ebc",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 54,
+          "id": "l2e_bd1be4a13cc5",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016cs_bill_customer_sk@L54 \u2192 date_dim@L47\u2016",
+          "source": "fld_7ff321e666",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 54,
+          "id": "l2e_c4fcd2d2b9dd",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016c_customer_sk@L54 \u2192 date_dim@L47\u2016",
+          "source": "l2_tbl_aee7251e58",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 53,
+          "id": "l2e_3215c65823d8",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016cs_item_sk@L53 \u2192 date_dim@L47\u2016",
+          "source": "fld_fca43113cb",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 53,
+          "id": "l2e_fe2c1795b972",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016item_sk@L53 \u2192 date_dim@L47\u2016",
+          "source": "l2_tbl_61ec23d97f",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 52,
+          "id": "l2e_64c6608767ad",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016cs_sold_date_sk@L52 \u2192 date_dim@L47\u2016",
+          "source": "fld_f48a4b0089",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 52,
+          "id": "l2e_f5cdafef10d8",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016d_date_sk@L52 \u2192 date_dim@L47\u2016",
+          "source": "fld_5e2980f4f5",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 50,
+          "id": "l2e_2005ef212b90",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016d_year@L50 \u2192 date_dim@L47\u2016",
+          "source": "fld_cf88f45039",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 51,
+          "id": "l2e_4baea64a5dcd",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016d_moy@L51 \u2192 date_dim@L47\u2016",
+          "source": "fld_52b984c7f8",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 64,
+          "id": "l2e_6808c18489a5",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016ws_bill_customer_sk@L64 \u2192 date_dim@L57\u2016",
+          "source": "fld_3c0d9b52a4",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 63,
+          "id": "l2e_890119be6ec1",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016ws_item_sk@L63 \u2192 date_dim@L57\u2016",
+          "source": "fld_0e133d9137",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 62,
+          "id": "l2e_1f0fc8f0c7f1",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016ws_sold_date_sk@L62 \u2192 date_dim@L57\u2016",
+          "source": "fld_afb0bc04c5",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 62,
+          "id": "l2e_f78fc1eb7cb0",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016d_date_sk@L62 \u2192 date_dim@L57\u2016",
+          "source": "fld_1376d88941",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 60,
+          "id": "l2e_dddc2afe8016",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016d_year@L60 \u2192 date_dim@L57\u2016",
+          "source": "fld_877c180ef1",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 61,
+          "id": "l2e_b93fdd827fa5",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016d_moy@L61 \u2192 date_dim@L57\u2016",
+          "source": "fld_c53fee0f46",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 8,
+          "id": "l2e_484e7e880db0",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016sq1@L8 \u2192 \u27d0 sq1@L8\u2016",
+          "source": "l2_tbl_977b6f7fa4",
+          "target": "l2_tbl_5ee04576f6",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 8,
+          "id": "l2e_a88bde1838b7",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016item@L8 \u2192 sq1@L8\u2016",
+          "source": "l2_tbl_e172856349",
+          "target": "l2_tbl_977b6f7fa4",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 1,
+          "id": "l2e_d22fd888cdd1",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016itemdesc@L2 \u2192 frequent_ss_items@L1\u2016",
+          "source": "l2_tbl_977b6f7fa4",
+          "target": "l2_tbl_61ec23d97f",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 26,
+          "id": "l2e_1af26b9e1247",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016sq2@L33 \u2192 date_dim@L26\u2016",
+          "source": "l2_tbl_bf2dc4b865",
+          "target": "l2_tbl_08ccde0b43",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 42,
+          "id": "l2e_8a59a6be062c",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016tpcds_cmax@L42 \u2192 customer@L38\u2016",
+          "source": "l2_tbl_4b47f4a028",
+          "target": "l2_tbl_1365237046",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 45,
+          "id": "l2e_f81ad41754a7",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016cs_quantity@L45 \u2192 \u27d0 union0@L45\u2016",
+          "source": "fld_b6e6074bf1",
+          "target": "l2_tbl_be034f2cc5",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 45,
+          "id": "l2e_adc6b82777f6",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016cs_list_price@L45 \u2192 \u27d0 union0@L45\u2016",
+          "source": "fld_5fa13153b7",
+          "target": "l2_tbl_be034f2cc5",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 55,
+          "id": "l2e_92b4f32f2a0b",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016ws_quantity@L55 \u2192 \u27d0 union1@L55\u2016",
+          "source": "fld_182bc97595",
+          "target": "l2_tbl_5c5b863730",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 55,
+          "id": "l2e_8aecda9e8ca5",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016ws_list_price@L55 \u2192 \u27d0 union1@L55\u2016",
+          "source": "fld_3d45a3c698",
+          "target": "l2_tbl_5c5b863730",
+          "width": 1
+        }
+      }
+    ],
+    "filtered_nodes": 67,
+    "nodes": [
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "CTE{frequent_ss_items}",
+          "id": "l2_tbl_61ec23d97f",
+          "label": "frequent_ss_items",
+          "line_end": 42,
+          "line_start": 1,
+          "original_id": "a0e77d3a2c122415",
+          "table_name": "frequent_ss_items",
+          "type": "cte_table",
+          "variable_type": "cte"
+        }
+      },
+      {
+        "data": {
+          "context": "CTE{frequent_ss_items}",
+          "defined_in": "FROM",
+          "flow_role": "source",
+          "id": "l2_tbl_828021585f",
+          "label": "store_sales",
+          "line_end": 42,
+          "line_start": 6,
+          "original_id": "a15802dae89ee299",
+          "table_name": "store_sales",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "CTE{frequent_ss_items}",
+          "defined_in": "JOIN",
+          "flow_role": "target",
+          "id": "l2_tbl_08ccde0b43",
+          "label": "date_dim",
+          "line_end": 42,
+          "line_start": 7,
+          "original_id": "2d88501e04519e28",
+          "table_name": "date_dim",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "CTE{frequent_ss_items}:join:sq1",
+          "defined_in": "JOIN:CTE{frequent_ss_items}",
+          "id": "l2_tbl_977b6f7fa4",
+          "label": "sq1",
+          "line_end": 42,
+          "line_start": 8,
+          "original_id": "6c4aad139c708ea4",
+          "table_name": "sq1",
+          "type": "intermediate_table",
+          "variable_type": "subquery"
+        }
+      },
+      {
+        "data": {
+          "context": "CTE{frequent_ss_items}:join:sq1",
+          "defined_in": "CTE{frequent_ss_items}:join:sq1",
+          "id": "l2_tbl_5ee04576f6",
+          "label": "output(sq1)",
+          "line_end": 42,
+          "line_start": 8,
+          "original_id": "31898c1f6decaed3",
+          "table_name": "\u27d0 sq1",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "CTE{frequent_ss_items}:join:sq1",
+          "defined_in": "FROM",
+          "flow_role": "source",
+          "id": "l2_tbl_e172856349",
+          "label": "item",
+          "line_end": 42,
+          "line_start": 8,
+          "original_id": "db7e4b144cf4fe00",
+          "table_name": "item",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "CTE{max_store_sales}",
+          "id": "l2_tbl_4b47f4a028",
+          "label": "max_store_sales",
+          "line_end": 42,
+          "line_start": 19,
+          "original_id": "a2b46627adadaefb",
+          "table_name": "max_store_sales",
+          "type": "cte_table",
+          "variable_type": "cte"
+        }
+      },
+      {
+        "data": {
+          "context": "CTE{max_store_sales}/subq/sq2",
+          "defined_in": "FROM:CTE{max_store_sales}",
+          "id": "l2_tbl_bf2dc4b865",
+          "label": "sq2",
+          "line_end": 42,
+          "line_start": 33,
+          "original_id": "1626b1185b6ab968",
+          "table_name": "sq2",
+          "type": "intermediate_table",
+          "variable_type": "subquery"
+        }
+      },
+      {
+        "data": {
+          "context": "CTE{max_store_sales}/subq/sq2",
+          "defined_in": "CTE{max_store_sales}/subq/sq2",
+          "id": "l2_tbl_fe56b785e9",
+          "label": "output(sq2)",
+          "line_end": 42,
+          "line_start": 22,
+          "original_id": "8648ba006e94cef5",
+          "table_name": "\u27d0 sq2",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "CTE{max_store_sales}/subq/sq2",
+          "defined_in": "JOIN",
+          "flow_role": "waypoint",
+          "id": "l2_tbl_1365237046",
+          "label": "customer",
+          "line_end": 42,
+          "line_start": 25,
+          "original_id": "7f5463b630e912ab",
+          "table_name": "customer",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "CTE{best_ss_customer}",
+          "id": "l2_tbl_aee7251e58",
+          "label": "best_ss_customer",
+          "line_end": 42,
+          "line_start": 34,
+          "original_id": "38c69da26fb9e1dd",
+          "table_name": "best_ss_customer",
+          "type": "cte_table",
+          "variable_type": "cte"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "TOP0",
+          "id": "l2_tbl_5aca1f6108",
+          "label": "output",
+          "line_end": 64,
+          "line_start": 43,
+          "original_id": "e4381945dd8a9fdd",
+          "table_name": "\u27d0 output",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq/sq3",
+          "defined_in": "FROM:TOP0",
+          "id": "l2_tbl_d0f9197ebc",
+          "label": "sq3",
+          "line_end": 64,
+          "line_start": 64,
+          "original_id": "6584fd9c25fcf048",
+          "table_name": "sq3",
+          "type": "intermediate_table",
+          "variable_type": "subquery"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq/sq3",
+          "defined_in": "UNION",
+          "id": "l2_tbl_2347e555d7",
+          "label": "union_result",
+          "line_end": 0,
+          "line_start": 0,
+          "original_id": "bd1f0c9ea226bc66",
+          "table_name": "union_result",
+          "type": "intermediate_table",
+          "variable_type": "union_branch"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq/sq3/union0",
+          "defined_in": "TOP0/subq/sq3/union0",
+          "id": "l2_tbl_be034f2cc5",
+          "label": "output(union0)",
+          "line_end": 64,
+          "line_start": 45,
+          "original_id": "dbda4a588351df6a",
+          "table_name": "\u27d0 union0",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq/sq3/union0",
+          "defined_in": "FROM",
+          "flow_role": "source",
+          "id": "l2_tbl_9417bf458e",
+          "label": "catalog_sales",
+          "line_end": 64,
+          "line_start": 46,
+          "original_id": "53ad991091039dd2",
+          "table_name": "catalog_sales",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq/sq3/union1",
+          "defined_in": "TOP0/subq/sq3/union1",
+          "id": "l2_tbl_5c5b863730",
+          "label": "output(union1)",
+          "line_end": 64,
+          "line_start": 55,
+          "original_id": "53b2ea88f14e53bd",
+          "table_name": "\u27d0 union1",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq/sq3/union1",
+          "defined_in": "FROM",
+          "flow_role": "source",
+          "id": "l2_tbl_16136490ce",
+          "label": "web_sales",
+          "line_end": 64,
+          "line_start": 56,
+          "original_id": "b0e31cde98a62ccf",
+          "table_name": "web_sales",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_b58c7dbf2f",
+          "is_target": false,
+          "label": "itemdesc",
+          "orig_type": "transform",
+          "original_id": "34df67f6a38793e9",
+          "parent": "l2_tbl_5ee04576f6",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_58e8ae88cf",
+          "is_target": false,
+          "label": "i_item_desc",
+          "orig_type": "column",
+          "original_id": "ac0edca97b3c64fb",
+          "parent": "l2_tbl_e172856349",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_642ebd2f1c",
+          "is_target": false,
+          "label": "*",
+          "orig_type": "expression",
+          "original_id": "f4b1d308279ef040",
+          "parent": "l2_tbl_5ee04576f6",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_078cbd3180",
+          "is_target": false,
+          "label": "itemdesc",
+          "orig_type": "column",
+          "original_id": "a92aaf42112aa909",
+          "parent": "l2_tbl_977b6f7fa4",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_63d41f1f8e",
+          "is_target": false,
+          "label": "item_sk",
+          "orig_type": "column",
+          "original_id": "aeb07fb9ac11e2c9",
+          "parent": "l2_tbl_61ec23d97f",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_d0e34c8562",
+          "is_target": false,
+          "label": "i_item_sk",
+          "orig_type": "column",
+          "original_id": "c5b88c33ec9c6e9e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_cb3703611b",
+          "is_target": false,
+          "label": "solddate",
+          "orig_type": "column",
+          "original_id": "367fd649c3dfafd1",
+          "parent": "l2_tbl_61ec23d97f",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_15cde7492f",
+          "is_target": false,
+          "label": "d_date",
+          "orig_type": "column",
+          "original_id": "7ccff62d69510da8",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_893e478e44",
+          "is_target": false,
+          "label": "cnt",
+          "orig_type": "aggregate",
+          "original_id": "2786bff7efa099ce",
+          "parent": "l2_tbl_61ec23d97f",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_794ee7502c",
+          "is_target": false,
+          "label": "d_year",
+          "orig_type": "column",
+          "original_id": "189df2fb42081257",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_7392eb2a5a",
+          "is_target": false,
+          "label": "ss_sold_date_sk",
+          "orig_type": "column",
+          "original_id": "8c6fbdcb20942e71",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_4b94ebd413",
+          "is_target": false,
+          "label": "d_date_sk",
+          "orig_type": "column",
+          "original_id": "325a40719adca97e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_963a8f1cc0",
+          "is_target": false,
+          "label": "ss_item_sk",
+          "orig_type": "column",
+          "original_id": "360000a8898b3c4f",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_8a4169d7e3",
+          "is_target": false,
+          "label": "c_customer_sk",
+          "orig_type": "column",
+          "original_id": "74ad623f90e8a97f",
+          "parent": "l2_tbl_fe56b785e9",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_eb7ce7f4c1",
+          "is_target": false,
+          "label": "csales",
+          "orig_type": "aggregate",
+          "original_id": "f18f5cb6212ffd65",
+          "parent": "l2_tbl_fe56b785e9",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_290a23c9da",
+          "is_target": false,
+          "label": "ss_quantity",
+          "orig_type": "column",
+          "original_id": "5219ded155c447f0",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_ccda7138ec",
+          "is_target": false,
+          "label": "ss_sales_price",
+          "orig_type": "column",
+          "original_id": "eeb939555a45ac18",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_1990a49cba",
+          "is_target": false,
+          "label": "d_year",
+          "orig_type": "column",
+          "original_id": "25e33c95ea0203a3",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_ed78af1dfd",
+          "is_target": false,
+          "label": "ss_customer_sk",
+          "orig_type": "column",
+          "original_id": "865cc62b9f942fe8",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_43a0ea02cf",
+          "is_target": false,
+          "label": "ss_sold_date_sk",
+          "orig_type": "column",
+          "original_id": "dad0e0e4e4985655",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_6dbd9fcaf7",
+          "is_target": false,
+          "label": "d_date_sk",
+          "orig_type": "column",
+          "original_id": "5471e0f1d952ab64",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_ae951e0d1d",
+          "is_target": false,
+          "label": "tpcds_cmax",
+          "orig_type": "aggregate",
+          "original_id": "7e25c18767a36484",
+          "parent": "l2_tbl_4b47f4a028",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_80c117878b",
+          "is_target": false,
+          "label": "csales",
+          "orig_type": "column",
+          "original_id": "ed59cf500401ff58",
+          "parent": "l2_tbl_bf2dc4b865",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_0bbdfdf3c3",
+          "is_target": false,
+          "label": "c_customer_sk",
+          "orig_type": "column",
+          "original_id": "d022a1f2bb052f5b",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_1fe2292e66",
+          "is_target": false,
+          "label": "ssales",
+          "orig_type": "aggregate",
+          "original_id": "7b6a9c25e7506acd",
+          "parent": "l2_tbl_aee7251e58",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_6fef1bef07",
+          "is_target": false,
+          "label": "ss_quantity",
+          "orig_type": "column",
+          "original_id": "ccf0a32f9c5c0d4f",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_28384a7f5d",
+          "is_target": false,
+          "label": "ss_sales_price",
+          "orig_type": "column",
+          "original_id": "789ed4228028364e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_5f2ca077be",
+          "is_target": false,
+          "label": "ss_customer_sk",
+          "orig_type": "column",
+          "original_id": "7e6900c807dfeaae",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_39068c8940",
+          "is_target": false,
+          "label": "sales",
+          "orig_type": "expression",
+          "original_id": "75facf3d58b11d60",
+          "parent": "l2_tbl_be034f2cc5",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_b6e6074bf1",
+          "is_target": false,
+          "label": "cs_quantity",
+          "orig_type": "column",
+          "original_id": "f769f5f7e2d06f8f",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_5fa13153b7",
+          "is_target": false,
+          "label": "cs_list_price",
+          "orig_type": "column",
+          "original_id": "71509bf5f0010a4e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_7ff321e666",
+          "is_target": false,
+          "label": "cs_bill_customer_sk",
+          "orig_type": "column",
+          "original_id": "6c18e1e6049d9c4e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_d320a63bf7",
+          "is_target": false,
+          "label": "c_customer_sk",
+          "orig_type": "column",
+          "original_id": "5470aa8970e00cb0",
+          "parent": "l2_tbl_aee7251e58",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_fca43113cb",
+          "is_target": false,
+          "label": "cs_item_sk",
+          "orig_type": "column",
+          "original_id": "4275445e85892cb4",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_f48a4b0089",
+          "is_target": false,
+          "label": "cs_sold_date_sk",
+          "orig_type": "column",
+          "original_id": "2e2898f7327c7347",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_5e2980f4f5",
+          "is_target": false,
+          "label": "d_date_sk",
+          "orig_type": "column",
+          "original_id": "515ad9b2f6723dc9",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_cf88f45039",
+          "is_target": false,
+          "label": "d_year",
+          "orig_type": "column",
+          "original_id": "4022cf4a5d565758",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_52b984c7f8",
+          "is_target": false,
+          "label": "d_moy",
+          "orig_type": "column",
+          "original_id": "a7eb6760e26461cc",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_4f89b5cee3",
+          "is_target": false,
+          "label": "sales",
+          "orig_type": "expression",
+          "original_id": "f5dc5cae4ea78f29",
+          "parent": "l2_tbl_5c5b863730",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_182bc97595",
+          "is_target": false,
+          "label": "ws_quantity",
+          "orig_type": "column",
+          "original_id": "d02894dcaafb9dee",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_3d45a3c698",
+          "is_target": false,
+          "label": "ws_list_price",
+          "orig_type": "column",
+          "original_id": "3a4457afbc12b495",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_3c0d9b52a4",
+          "is_target": false,
+          "label": "ws_bill_customer_sk",
+          "orig_type": "column",
+          "original_id": "fb03e0b01162f249",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_0e133d9137",
+          "is_target": false,
+          "label": "ws_item_sk",
+          "orig_type": "column",
+          "original_id": "a4005a94455e902a",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_afb0bc04c5",
+          "is_target": false,
+          "label": "ws_sold_date_sk",
+          "orig_type": "column",
+          "original_id": "e09491474812ed4e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_1376d88941",
+          "is_target": false,
+          "label": "d_date_sk",
+          "orig_type": "column",
+          "original_id": "287a553ab6667a7e",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_877c180ef1",
+          "is_target": false,
+          "label": "d_year",
+          "orig_type": "column",
+          "original_id": "92139050dcd89312",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_c53fee0f46",
+          "is_target": false,
+          "label": "d_moy",
+          "orig_type": "column",
+          "original_id": "48f0ea464884af23",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_34b6e0b0e6",
+          "is_target": false,
+          "label": "SUMsales",
+          "orig_type": "aggregate",
+          "original_id": "44add1d5db4ea8ae",
+          "parent": "l2_tbl_61ec23d97f",
+          "type": "field",
+          "variable_type": "field"
+        }
+      },
+      {
+        "data": {
+          "field_group": "indirect",
+          "id": "fld_058902898a",
+          "is_target": false,
+          "label": "sales",
+          "orig_type": "column",
+          "original_id": "cfd015d9b6555733",
+          "parent": "l2_tbl_d0f9197ebc",
+          "type": "field",
+          "variable_type": "field"
+        }
+      }
+    ],
+    "script_name": "23a.sql",
+    "search_matched": true,
+    "target": ".",
+    "total_edges": 91,
+    "total_nodes": 77
+  },
+  "script_name": "23a.sql",
+  "seed": {
+    "field": "item_sk",
+    "table": "frequent_ss_items"
+  }
+}

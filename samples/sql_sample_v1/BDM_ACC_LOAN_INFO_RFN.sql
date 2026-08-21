@@ -1,4 +1,4 @@
---**所属主题：账户主题
+--**所属主题：账户主题  [known-invalid OCR fragment at lines 770, 818: dangling AND predicates — not valid on a real engine]
 --**功能描述：[贷款业务借据表]保理场景数据处理
 --**目标表：[BDM_ACC_LOAN_INFO】【贷款业务借据表】
 --**源表名：
@@ -767,7 +767,7 @@ JOIN (  -- 20240229修改科技贷款逻辑
     ,'Y' AS KJDK_FLAG
     FROM ods_cdp_gdc_label_fin
     WHERE 1104_report = 'G19'  -- [OCR-UNCERTAIN: value shown as 's70']
-    AND  -- AND field = 'IS_SIENCE_TECH' AND value = '1'  -- 20240401增的数据
+    AND  -- known-invalid OCR fragment: dangling AND predicate (not valid on a real engine) -- AND field = 'IS_SIENCE_TECH' AND value = '1'  -- 20240401增的数据
 ) KJDK
 ON P1.CUST_NO = KJDK.CUST_NO
 LEFT JOIN ods_gdc_split_fg_rating_temp gdc_wjfl  -- 五级形态手工表
@@ -815,7 +815,7 @@ ON stzf.lending_ref = P1.LENDING_REF
 AND SUBSTR(stzf.p_dt,1,7) = SUBSTR('${load_date}',1,7)
 LEFT JOIN ODS_GDC_RFN_RATE p15
 ON p15.contract_no = P1.CONTRACT_NO
-AND  -- [OCR-UNCERTAIN: dangling AND - following condition not captured]
+AND  -- known-invalid OCR fragment: dangling AND predicate (not valid on a real engine) [OCR-UNCERTAIN: dangling AND - following condition not captured]
 LEFT JOIN temp_1104_G19 p16
 ON p16.lending_ref = p1.lending_ref
 AND p16.bdm_table_field = 'LOAN_PURPOSE_SNI'

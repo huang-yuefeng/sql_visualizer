@@ -171,10 +171,13 @@ function resolveLayoutCollisions(positions, tableInfo, cy, pad = 80) {
  *
  * @param {object} cy - Cytoscape instance
  * @param {object} options - Layout options
+ * @param {function} [onFit] - optional callback invoked after the deferred
+ *   cy.fit completes (see layoutCore.applyLayout) — callers use it to apply
+ *   flow visibility AFTER the fit has seen the full graph (D-H2).
  */
-export async function applyElkLayout(cy, options = {}) {
+export async function applyElkLayout(cy, options = {}, onFit) {
   const elk = await getElk();
-  if (!elk) { runSnakeLayout(cy); return false; }
+  if (!elk) { runSnakeLayout(cy, onFit); return false; }
 
   const fieldRel = computeFieldRelPos(cy);
   const tableInfo = computeTableInfo(cy, fieldRel);
@@ -227,11 +230,11 @@ export async function applyElkLayout(cy, options = {}) {
     // Post-ELK collision resolution
     resolveLayoutCollisions(tablePositions, tableInfo, cy);
 
-    applyLayout(cy, tablePositions, fieldRel, tableInfo, FIT_PADDING);
+    applyLayout(cy, tablePositions, fieldRel, tableInfo, FIT_PADDING, onFit);
     return true;
   } catch (e) {
     console.warn('ELK layout failed:', e.message);
-    runSnakeLayout(cy);
+    runSnakeLayout(cy, onFit);
     return false;
   }
 }

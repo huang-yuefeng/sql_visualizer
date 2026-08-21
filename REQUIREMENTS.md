@@ -1458,20 +1458,24 @@ Edge direction today is a triangle arrow at the **end** of the line, where it is
 1. **Two edge classes, two color systems.** Value flow (`TABLE_FLOW, DML, TRANSFORM, COMPUTED, AGGREGATE, WINDOW, REF, FILTER, JOIN, SET_OP, SUBQUERY, CORRELATED, INDIRECT`) keeps its per-type color; structure (`SCHEMA, ALIAS, SUBSET`) gets one uniform gray. `TABLE_FLOW` is re-categorized out of `"structure"` (it is value flow).
 2. **Mid-point direction arrow.** Value-flow edges render their arrow at the line **midpoint** (native `mid-target-arrow-shape`), oriented `source → target` (the value-flow direction) — not at the line end (covered by the node label). Structure edges carry no mid-arrow.
 3. **Click-edge flow cone (two colors).** Clicking a value-flow edge `u → v` highlights its cone, anchored to the edge's own flow direction (independent of the query's upstream/downstream switch):
-   - **before** (amber `#F5A623`) = value-flow edges upstream of `u` (what flows in);
-   - **after** (cyan `#22D3EE`) = value-flow edges downstream of `v` (what flows out);
-   - the clicked edge itself is the **pivot** (gold, `edge-selected`);
+   - **before** (green `#2ECC71`) = value-flow edges upstream of `u` (what flows in);
+   - **after** (blue `#2196F3`) = value-flow edges downstream of `v` (what flows out);
+   - the clicked edge itself is the **pivot** (red `#FF3B30`, class `flow-cone-pivot`);
    - non-cone edges are dimmed (focus mode).
 4. **Value-flow only.** Structure edges are never part of the cone, never highlighted.
 5. **No animation.** The highlight is static (a one-shot class toggle) — no `requestAnimationFrame` loop, no moving particles.
 6. **L2 only.** The cone + mid-arrow are L2-only; L1 keeps its static arrows.
+
+> The amber/cyan/gold palette in the original draft was recolored to the RGB primaries
+> above (green/blue/red, class `flow-cone-pivot`) by task #239 (v3.3.158) — the 
+> implemented colors, matching `frontend/src/utils/graphStyles.js` `L2_FLOW_CONE_COLORS`.
 
 ### Acceptance criteria
 
 - [ ] `TABLE_FLOW` edges render in their value-flow (green) color, not the structure gray/blue
 - [ ] Structure edges (SCHEMA/ALIAS/SUBSET) render one uniform gray, distinct from every value-flow color
 - [ ] A value-flow edge's direction arrow sits at the line midpoint, oriented source → target, visible even when the target node's label is large
-- [ ] Clicking a value-flow edge highlights its before/after cone in amber/cyan with the edge as a gold pivot; non-cone edges dim; clicking empty space or another edge clears it
+- [ ] Clicking a value-flow edge highlights its before/after cone in green/blue with the edge as a red pivot (class `flow-cone-pivot`); non-cone edges dim; clicking empty space or another edge clears it
 - [ ] Clicking a structure edge does NOT produce a flow cone
 - [ ] The before/after cone is direction-correct in both query directions (downstream and upstream views)
 - [ ] No animation loop runs (static highlight only)

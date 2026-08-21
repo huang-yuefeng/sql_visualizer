@@ -99,4 +99,4 @@ def test_index_with_partial_body_builds_full_index(http_client):
         disk_fi = json.loads((cache_dir / "field_index.json").read_text())
         assert "a" in disk_fi and "b" in disk_fi, disk_fi
     finally:
-        http_client.delete(f"/api/workspace/{ws_id}")
+        http_client.delete(f"/api/me/workspaces/{ws_id}")

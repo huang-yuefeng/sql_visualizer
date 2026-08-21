@@ -145,6 +145,9 @@ export default function DataFlowGraph(props) {
     // flowOnly is the current toggle state (null = disabled, always full);
     // onFlowOnlyChange notifies the parent.
     flowNodeIds, flowEdgeIds, flowOnly, onFlowOnlyChange,
+    // R31/A-M5 layout persistence: savedPositions = {nodeId: [x,y]} re-applied
+    // on a fresh graph (resume); onPositionsChange reports drag-end positions.
+    savedPositions, onPositionsChange,
   } = props;
 
   const containerRef = useRef(null);
@@ -163,6 +166,9 @@ export default function DataFlowGraph(props) {
     flowNodeIds,
     flowEdgeIds,
     flowOnly,
+    // R31/A-M5: resume re-applies saved positions; drag-ends report positions.
+    savedPositions,
+    onPositionsChange,
     onEdgeTap: (e) => {
       const edgeData = e.target.data();
       // R25/§8.8: the per-edge payload (highlight_line / flow_kind /
@@ -231,8 +237,17 @@ export default function DataFlowGraph(props) {
     return () => { ro.disconnect(); clearTimeout(t); };
   }, [fit]);
 
-  // Mode switch via relayout
+  // Mode switch via relayout — D-H2: skip the initial mount. The hook's
+  // cy.ready runs the initial layout+fit itself (gated on layoutDoneRef
+  // internally); this effect only re-runs a layout when layoutMode changes
+  // after mount. Without the skip, the mount-time relayout would hide flow
+  // elements before the initial deferred cy.fit has seen the full graph.
+  const firstMountRef = useRef(true);
   React.useEffect(() => {
+    if (firstMountRef.current) {
+      firstMountRef.current = false;
+      return;
+    }
     if (layoutMode && relayout) relayout(layoutMode);
   }, [layoutMode, relayout]);
 

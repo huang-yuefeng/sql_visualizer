@@ -76,8 +76,12 @@ export function computeSnakePositions(topNodes, tableInfo) {
 
 /**
  * Run the full snake layout on a Cytoscape instance.
+ *
+ * @param onFit  optional callback invoked after the deferred cy.fit completes
+ *               (see layoutCore.applyLayout) — callers use it to apply flow
+ *               visibility AFTER the fit has seen the full graph (D-H2).
  */
-export function runSnakeLayout(cy) {
+export function runSnakeLayout(cy, onFit) {
   if (!cy || cy.destroyed()) return;
   if (cy.nodes().length === 0) return;
 
@@ -91,7 +95,7 @@ export function runSnakeLayout(cy) {
     topNodes.push(n);
   });
 
-  if (topNodes.length === 0) { cy.fit(undefined, FIT_PADDING); return; }
+  if (topNodes.length === 0) { cy.fit(undefined, FIT_PADDING); onFit?.(cy); return; }
 
   topNodes.sort((a, b) => {
     const al = a.data('layer'), bl = b.data('layer');
@@ -103,5 +107,5 @@ export function runSnakeLayout(cy) {
   });
 
   const tablePositions = computeSnakePositions(topNodes, tableInfo);
-  applyLayout(cy, tablePositions, fieldRel, tableInfo, FIT_PADDING);
+  applyLayout(cy, tablePositions, fieldRel, tableInfo, FIT_PADDING, onFit);
 }

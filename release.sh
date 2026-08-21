@@ -74,10 +74,14 @@ PIECE_COUNT=$(ls "$IMAGE_DIR"/part_* | wc -l)
 # Generate checksums
 (cd "$IMAGE_DIR" && md5sum part_* > checksums.md5)
 
-# Release manifest (target_deploy.sh version guard)
+# Release manifest (target_deploy.sh version guard). VERSION + BUILT are
+# stamped here; COMMIT is stamped AFTER the git commit below — the image was
+# built from this tree, and target_deploy.sh's version guard compares
+# PIECE_COMMIT against `git rev-parse HEAD`, so the manifest must name the
+# commit that now CONTAINS the tree (the release commit), not its parent.
+# The file is intentionally left uncommitted: it is regenerated on every run.
 {
     echo "VERSION=$VERSION"
-    echo "COMMIT=$(git rev-parse HEAD)"
     echo "BUILT=$(date '+%Y-%m-%d %H:%M:%S %z')"
 } > "$IMAGE_DIR/RELEASE.txt"
 echo "  Split into $PIECE_COUNT pieces ($IMAGE_SIZE total)"
@@ -101,6 +105,15 @@ git add VERSION backend/ frontend/ samples/ Dockerfile Dockerfile.dev \
 # Commit
 echo "  Commit: $COMMIT_MSG"
 git commit -m "$COMMIT_MSG"
+
+# Re-stamp COMMIT with the release commit itself (see the manifest comment
+# above). Left uncommitted on purpose — regenerated on every run; the deploy
+# guard compares it against git HEAD, and HEAD is this commit.
+{
+    echo "VERSION=$VERSION"
+    echo "COMMIT=$(git rev-parse HEAD)"
+    echo "BUILT=$(date '+%Y-%m-%d %H:%M:%S %z')"
+} > "$IMAGE_DIR/RELEASE.txt"
 
 # OFFLINE RULE (user ruling 2026-08-12): no internet-connecting command may
 # live in any *.sh file — `git push` was REMOVED for this reason. The release

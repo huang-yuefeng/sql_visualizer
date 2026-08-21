@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 
-LOG_FILE="target_deploy.log"
+LOG_FILE="$(pwd)/target_deploy.log"
 log() {
     echo -e "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG_FILE"
 }
@@ -35,7 +35,22 @@ fi
 
 CONTAINER_PORT="8000"
 HOST_PORT="${HOST_PORT:-8000}"
+case "$HOST_PORT" in
+    ''|*[!0-9]*)
+        echo -e "${RED}ERROR: HOST_PORT must be a positive integer (got '${HOST_PORT}')${NC}" >&2
+        exit 1
+        ;;
+esac
+if [ "$HOST_PORT" -lt 1 ] || [ "$HOST_PORT" -gt 65535 ]; then
+    echo -e "${RED}ERROR: HOST_PORT out of range 1-65535 (got '${HOST_PORT}')${NC}" >&2
+    exit 1
+fi
 ROLLBACK_TAG="previous"
+
+# R31: user data (workspaces + users.json) is DURABLE — the container mounts a
+# named volume for /tmp/workspaces so a recreate (every deploy) never wipes it.
+# Named volumes survive container recreation; data lives on across deploys.
+WS_VOLUME="gps_workspace_data"
 
 ROLLBACK_NEEDED=false
 
@@ -52,7 +67,8 @@ rollback() {
         docker rmi "${IMAGE_NAME}:${ROLLBACK_TAG}" 2>/dev/null || true
 
         docker run -d --pull=never \
-            -p 0.0.0.0:${HOST_PORT}:${CONTAINER_PORT} \
+            -p "0.0.0.0:${HOST_PORT}:${CONTAINER_PORT}" \
+            -v "$WS_VOLUME:/tmp/workspaces" \
             --name "$CONTAINER_NAME" \
             --restart unless-stopped \
             "${IMAGE_NAME}:latest"
@@ -77,6 +93,15 @@ if [ -f "$IMAGE_DIR/RELEASE.txt" ]; then
         echo -e "\n${RED}MISMATCH: pieces are v${PIECE_VERSION} but repo VERSION is v${REPO_VERSION} — image pieces are stale${NC}" | tee -a "$LOG_FILE" >&2
         echo -e "${RED}  Fix: obtain fresh docker_image/ pieces from the developer (offline transfer) and retry${NC}" | tee -a "$LOG_FILE" >&2
         exit 1
+    fi
+    if [ -n "$PIECE_COMMIT" ]; then
+        LOCAL_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+        log "  Local HEAD: ${LOCAL_COMMIT}"
+        if [ "$LOCAL_COMMIT" != "unknown" ] && [ "$LOCAL_COMMIT" != "$PIECE_COMMIT" ]; then
+            echo -e "\n${RED}COMMIT MISMATCH: pieces were built from ${PIECE_COMMIT} but local HEAD is ${LOCAL_COMMIT} — image pieces are stale${NC}" | tee -a "$LOG_FILE" >&2
+            echo -e "${RED}  Fix: obtain fresh docker_image/ pieces from the developer (offline transfer) and retry${NC}" | tee -a "$LOG_FILE" >&2
+            exit 1
+        fi
     fi
 else
     echo -e "\n${RED}ERROR: ${IMAGE_DIR}/RELEASE.txt manifest missing — cannot verify image piece version. Run release.sh first to generate the release pieces and manifest, then retry.${NC}" | tee -a "$LOG_FILE" >&2
@@ -162,7 +187,8 @@ fi
 # ── 5. Start container ──────────────────────────────────────────────
 log "=== Start container ==="
 docker run -d --pull=never \
-    -p 0.0.0.0:${HOST_PORT}:${CONTAINER_PORT} \
+    -p "0.0.0.0:${HOST_PORT}:${CONTAINER_PORT}" \
+    -v "$WS_VOLUME:/tmp/workspaces" \
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \
     "${IMAGE_NAME}:latest" || rollback
@@ -181,7 +207,7 @@ i=0
 while [ "$i" -lt 30 ]; do
     i=$((i+1))
     sleep 2
-    HEALTH_JSON=$(curl -sf --noproxy '*' http://127.0.0.1:${HOST_PORT}/api/health 2>/dev/null || true)
+    HEALTH_JSON=$(curl -sf --noproxy '*' "http://127.0.0.1:${HOST_PORT}/api/health" 2>/dev/null || true)
     if [ -n "$HEALTH_JSON" ]; then
         HEALTH_VER=$(echo "$HEALTH_JSON" | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
         log "  ${GREEN}Ready${NC} ($HEALTH_JSON)"
