@@ -1,10 +1,19 @@
-"""Workspace router — zip upload, workspace CRUD."""
-from fastapi import APIRouter, HTTPException, UploadFile, File
+"""Workspace router — zip upload, workspace CRUD, R31 lifecycle."""
+from fastapi import APIRouter, HTTPException, UploadFile, File, Request
+
+from app.config import REQUIRE_LOGIN
+from app.routers.auth import require_login, SESSION_COOKIE
 from app.services.logger import _push
 from app.services.workspace_service import (
     create_workspace, get_workspace, delete_workspace,
     get_workspace_dir, cleanup_all_workspaces, is_valid_ws_id,
+    read_meta, write_meta_cas, remove_from_my_history, remove_legacy_workspaces,
 )
+from app.services.auth_service import (
+    add_workspace_to_index, get_my_workspaces, index_has_room,
+    open_visit, touch_visit,
+)
+from app.services.audit_service import append_activity, read_activity
 from app.services.export_config_service import (
     get_export_config, save_export_config, reset_export_config,
     apply_export_config, DEFAULT_CONFIG,
@@ -18,26 +27,65 @@ from app.services.filter_service import apply_filter_config
 router = APIRouter(tags=["workspace"])
 
 
+def _session_ctx(request: Request) -> tuple[str, str | None]:
+    """Current session's (username, token). 401 when REQUIRE_LOGIN is on and
+    there is no valid session. A present, valid session cookie is ALWAYS
+    honored (login is not ignored when the gate is off — gate-off merely
+    means login is not REQUIRED); with the gate off and no session the
+    caller is the synthetic "dev-user" so the existing suite keeps working."""
+    token = request.cookies.get(SESSION_COOKIE)
+    sess = None
+    if token:
+        from app.services.auth_service import get_session
+        sess = get_session(token)
+    if sess is not None:
+        return sess["username"], token
+    if not REQUIRE_LOGIN:
+        return "dev-user", None
+    raise HTTPException(status_code=401, detail="Not logged in")
+
+
 @router.post("/workspace")
-async def upload_workspace(file: UploadFile):
-    """Upload a zip file, create workspace. Auto-scans and returns file tree."""
+async def upload_workspace(request: Request, file: UploadFile):
+    """Upload a zip file, create workspace. Auto-scans and returns file tree.
+
+    R31/A-M6: this is the workspace CREATE path. The server generates the
+    UUID4 ws_id (A-H4), stamps creator_username in meta.json, and adds it to
+    the creator's "my workspaces" index — refused with 409 when the creator's
+    list is full (quota, A-M2). Requires a session when REQUIRE_LOGIN is on.
+    """
+    username, token = _session_ctx(request)
     if not file.filename or not file.filename.lower().endswith('.zip'):
         raise HTTPException(status_code=400, detail="Only .zip files accepted")
-    
+
     content = await file.read()
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
     if len(content) > 100 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large (max 100MB)")
-    
+    # The quota + per-user index are REAL-session features (A-M2). When the
+    # login gate is OFF (dev/test, synthetic "dev-user", token=None) they are
+    # skipped entirely — otherwise a long-running dev suite would fill the
+    # phantom dev-user index to the cap and every create would 409.
+    if token:
+        if not index_has_room(username):
+            raise HTTPException(status_code=409,
+                                detail="Your workspace list is full — remove one from your list first")
+
     try:
-        ws_id = create_workspace(content)
+        ws_id = create_workspace(content, creator_username=username)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to extract zip: {str(e)}")
-    
+
+    if token:
+        add_workspace_to_index(username, ws_id, "creator")
+        open_visit(token, ws_id)
+        append_activity(ws_id, username, "", "workspace_created",
+                        f"{username} created this workspace")
+
     # Auto-scan
     tree = scan_folder(ws_id)
-    
+
     return {
         "workspace_id": ws_id,
         "file_tree": tree,
@@ -56,23 +104,129 @@ async def get_workspace_info(ws_id: str):
     return ws
 
 
-@router.delete("/workspace/{ws_id}")
-async def delete_workspace_endpoint(ws_id: str):
-    """Delete workspace and all its data.
+@router.delete("/me/workspaces/{ws_id}")
+async def remove_from_my_history_endpoint(request: Request, ws_id: str):
+    """R31 remove-from-my-history — ONE role-dependent action (A-M1/A-M2).
 
-    F2: ws_id is user-controlled path input — validate it first. A
-    malformed id (not 12 hex chars) is a 400; a well-formed id that names
-    no workspace is a 404 (consistent with delete_workspace's False).
+    - creator → PHYSICAL DELETE: server-global audit entry written BEFORE
+      removal (A-H3), then the workspace + files are removed and it drops
+      from every user's index (pop-up warning on the frontend).
+    - non-creator → link removed from the caller's index only; the action is
+      recorded in the workspace's activity log; the workspace survives.
+
+    F2: validate the id first — malformed → 400, valid-format missing → 404.
     """
+    username, token = _session_ctx(request)
     if not is_valid_ws_id(ws_id):
         raise HTTPException(status_code=400, detail="Invalid workspace id")
-    ok = delete_workspace(ws_id)
-    if not ok:
+    if get_workspace(ws_id) is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    # Clean up SSE log queue
-    from app.services.logger import remove_queue
-    remove_queue(ws_id)
-    return {"deleted": True}
+    ok, message, deleted = remove_from_my_history(ws_id, username, "")
+    if not ok:
+        raise HTTPException(status_code=404, detail=message)
+    if deleted:
+        # Clean up SSE log queue
+        from app.services.logger import remove_queue
+        remove_queue(ws_id)
+    return {"deleted": deleted, "message": message}
+
+
+@router.get("/workspaces")
+async def my_workspaces(request: Request):
+    """R31: the current user's "my workspaces" index + quota meter."""
+    username, _ = _session_ctx(request)
+    return get_my_workspaces(username)
+
+
+@router.put("/workspace/{ws_id}/layout")
+async def save_layout(request: Request, ws_id: str, body: dict):
+    """R31/A-M5: single layout endpoint — autosave node positions into
+    meta.json.layouts (key "l1" or "l2:{script}"). Current-state only
+    (replaces the entry). Positions for node ids that no longer exist are
+    skipped by the reader; stale l2:{script} keys are dropped on resume."""
+    username, token = _session_ctx(request)
+    if not is_valid_ws_id(ws_id):
+        raise HTTPException(status_code=400, detail="Invalid workspace id")
+    meta = read_meta(ws_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    level = body.get("level")
+    script = body.get("script")
+    positions = body.get("node_positions") or {}
+    if level not in ("l1", "l2"):
+        raise HTTPException(status_code=400, detail="level must be l1 or l2")
+    if level == "l2" and not script:
+        raise HTTPException(status_code=400, detail="script required for l2 layouts")
+    key = "l1" if level == "l1" else f"l2:{script}"
+    layouts = dict(meta.get("layouts") or {})
+    layouts[key] = positions
+    # drop stale l2:{script} keys for L2s no longer opened
+    opened = set(meta.get("opened_l2s") or [])
+    layouts = {k: v for k, v in layouts.items()
+               if k == "l1" or k.startswith("l2:") and k[3:] in opened}
+    meta["layouts"] = layouts
+    expected = int(body.get("state_version", meta.get("state_version", 0)))
+    if not write_meta_cas(ws_id, meta, expected):
+        fresh = read_meta(ws_id)
+        raise HTTPException(status_code=409, detail={
+            "message": f"state changed by another user — refreshed",
+            "fresh": fresh,
+        })
+    if token:
+        touch_visit(token, ws_id)
+    return {"saved": True, "state_version": read_meta(ws_id).get("state_version")}
+
+
+@router.get("/workspace/{ws_id}/resume")
+async def resume_workspace(request: Request, ws_id: str):
+    """R31: full current state (L1 + opened L2s + positions + state_version)."""
+    username, token = _session_ctx(request)
+    if not is_valid_ws_id(ws_id):
+        raise HTTPException(status_code=400, detail="Invalid workspace id")
+    meta = read_meta(ws_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    if token:
+        # R31 §5.5: membership = created + visited — an id-open that isn't
+        # already in the opener's index lands there as a participant. §5.6:
+        # at the cap (MAX_WORKSPACES_PER_USER) a NEW id-open is blocked with
+        # 409 — the existing-entry refresh below never hits the quota branch,
+        # so reopening a workspace already on the list always succeeds.
+        if not add_workspace_to_index(username, ws_id, "participant"):
+            raise HTTPException(
+                status_code=409,
+                detail="Your workspace list is full — remove one from your list first")
+        open_visit(token, ws_id)
+    return {
+        "workspace_id": ws_id,
+        "creator_username": meta.get("creator_username"),
+        "state_version": meta.get("state_version", 0),
+        "last_search": meta.get("last_search"),
+        "opened_l2s": meta.get("opened_l2s", []),
+        "layouts": meta.get("layouts", {}),
+        "index_status": get_index_status(ws_id),
+    }
+
+
+@router.post("/workspace/{ws_id}/close")
+async def close_workspace(request: Request, ws_id: str):
+    """R31: end this session's visit to the workspace (explicit close)."""
+    username, token = _session_ctx(request)
+    if token:
+        from app.services.visit_service import flush_session_visits
+        flush_session_visits(token, detail="close workspace")
+    return {"closed": True}
+
+
+@router.get("/workspace/{ws_id}/activity")
+async def get_activity(request: Request, ws_id: str):
+    """R31: read the workspace's history (name + IP + ts + action)."""
+    username, _ = _session_ctx(request)
+    if not is_valid_ws_id(ws_id):
+        raise HTTPException(status_code=400, detail="Invalid workspace id")
+    if get_workspace(ws_id) is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return {"activity": read_activity(ws_id)}
 
 
 @router.post("/workspace/{ws_id}/scan")

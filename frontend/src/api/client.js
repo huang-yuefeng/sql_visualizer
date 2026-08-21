@@ -51,8 +51,83 @@ export async function uploadWorkspace(zipFile) {
   return res.json();
 }
 
-export async function deleteWorkspace(wsId) {
-  const res = await fetch(`/api/workspace/${wsId}`, { method: 'DELETE' });
+// R31/A-M1: remove-from-my-history — role-dependent (creator = physical
+// delete, participant = link removal). Renamed from the legacy
+// deleteWorkspace (the old DELETE /api/workspace/{id} route is gone).
+export async function removeFromMyHistory(wsId) {
+  const res = await fetch(`/api/me/workspaces/${wsId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return res.json();
+}
+
+// Alias kept for callers that still use the old name (physical delete for
+// the creator, link removal otherwise — same endpoint).
+export const deleteWorkspace = removeFromMyHistory;
+
+// ── R31 auth / session ─────────────────────────────────────────────
+export async function login(username, password) {
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return res.json();
+}
+
+export async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+}
+
+export async function getMe() {
+  const res = await fetch('/api/auth/me');
+  if (res.status === 401) return null;
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return res.json();
+}
+
+// ── R31 my workspaces ──────────────────────────────────────────────
+export async function getMyWorkspaces() {
+  const res = await fetch('/api/workspaces');
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return res.json();
+}
+
+export async function resumeWorkspace(wsId) {
+  const res = await fetch(`/api/workspace/${wsId}/resume`);
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return res.json();
+}
+
+export async function closeWorkspace(wsId) {
+  await fetch(`/api/workspace/${wsId}/close`, { method: 'POST' });
+}
+
+export async function getWorkspaceActivity(wsId) {
+  const res = await fetch(`/api/workspace/${wsId}/activity`);
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return res.json();
+}
+
+export async function saveLayout(wsId, level, script, nodePositions, stateVersion) {
+  const res = await fetch(`/api/workspace/${wsId}/layout`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ level, script: script || null, node_positions: nodePositions, state_version: stateVersion }),
+  });
+  return res; // callers inspect status (200 vs 409-with-fresh-state)
+}
+
+// ── R31 notifications ──────────────────────────────────────────────
+export async function getNotifications() {
+  const res = await fetch('/api/notifications');
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return res.json();
+}
+
+export async function markNotificationRead(id) {
+  const res = await fetch(`/api/notifications/${id}/read`, { method: 'POST' });
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
@@ -62,6 +137,14 @@ export async function indexWorkspace(wsId, scripts) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scripts }),
   });
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return res.json();
+}
+
+// R31 open-existing: the file tree for a workspace already on disk (the
+// create path returns a tree inline; resume re-scans).
+export async function scanWorkspace(wsId) {
+  const res = await fetch(`/api/workspace/${wsId}/scan`, { method: 'POST' });
   if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }

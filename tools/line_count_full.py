@@ -6,10 +6,10 @@ Counts every text file (line = number of logical lines), excludes:
   - build output (frontend/dist), docker_image release parts, test-results
   - binary files (images, archives, wheels, etc.)
 Function-level detail (name, start, end) is extracted for .py / .js / .jsx /
-.mjs / .cjs files via AST / brace-aware scan (reusing line_count_summary.py).
+.mjs / .cjs files via AST / brace-aware scan.
 
-Writes JSON to /tmp/line_counts_full.json and a self-contained HTML ledger to
-tools/source_ledger_full.html.
+Writes JSON to /tmp/line_counts_full.json and prints per-area totals to stdout.
+(The self-contained HTML source ledger is rendered by tools/render_ledger_full.py.)
 
 Usage: python3 tools/line_count_full.py
 """
@@ -17,10 +17,8 @@ import ast
 import json
 import os
 import re
-import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # ── Exclusions ─────────────────────────────────────────────────────────
 # Deploy/build artifacts that duplicate frontend/src (bundled ELK + built
@@ -45,7 +43,10 @@ ARCHIVE_NAME_END = (".zip", ".tar.gz", ".tgz", ".tar", ".gz", ".7z", ".rar")
 
 
 def excluded(path):
-    parts = path.split(os.sep)
+    # Compare only the path relative to ROOT, so an ancestor dir named e.g.
+    # "static" or "dist" (as in /home/.../dist/...) can't blanket-exclude.
+    rel = os.path.relpath(path, ROOT)
+    parts = rel.split(os.sep)
     if any(p in EXCLUDED_PART or p.startswith("static.bak.") for p in parts):
         return True
     return False
@@ -62,7 +63,7 @@ def is_text(path):
             head = fh.read(8192)
         if b"\x00" in head:
             return False
-        head.decode("utf-8")
+        head.decode("utf-8", errors="ignore")  # 8192-byte head may cut a multibyte char
         return True
     except (UnicodeDecodeError, OSError):
         return False
@@ -93,43 +94,72 @@ def py_functions(path):
     return out
 
 
-def _strip_strings(line):
+def _strip_strings(line, in_block=False):
+    """Blank out string literals and comments in one line of JS.
+
+    Returns (masked, in_block): `masked` is `line` with '...' / "..." / `...`
+    literals, // line comments and /* */ block comments replaced by spaces;
+    `in_block` reports that the line ended inside an unterminated /* block and
+    must be carried to the next line. String-embedded delimiters (e.g. "//" or
+    "/*" inside a literal) are handled by the quote state machine above: quote
+    bodies are consumed before the comment checks.
+    """
     out, i, n = [], 0, len(line)
     while i < n:
         c = line[i]
-        if c in ("'", '"'):
+        if in_block:
+            j = line.find("*/", i)
+            if j != -1:
+                out.append(" " * (j + 2 - i))
+                i = j + 2
+                in_block = False
+            else:
+                out.append(" " * (n - i))
+                break
+        elif c in ("'", '"', "`"):
             q, j = c, i + 1
             while j < n:
                 if line[j] == "\\":
-                    j += 2; continue
+                    j += 2
+                    continue
                 if line[j] == q:
                     break
                 j += 1
-            i = j + 1; out.append("  ")
-        elif c == "`":
-            j = i + 1
-            while j < n:
-                if line[j] == "\\":
-                    j += 2; continue
-                if line[j] == "`":
-                    break
-                j += 1
-            i = j + 1; out.append("  ")
+            end = j + 1 if j < n else n
+            out.append(" " * (end - i))
+            i = end
         elif c == "/" and i + 1 < n and line[i + 1] == "/":
+            out.append(" " * (n - i))
             break
         elif c == "/" and i + 1 < n and line[i + 1] == "*":
             j = line.find("*/", i + 2)
-            i = (j + 2) if j != -1 else n
-            out.append("  ")
+            if j != -1:
+                out.append(" " * (j + 2 - i))
+                i = j + 2
+            else:
+                out.append(" " * (n - i))
+                in_block = True
+                break
         else:
-            out.append(c); i += 1
-    return "".join(out)
+            out.append(c)
+            i += 1
+    return "".join(out), in_block
+
+
+def mask_js_lines(lines):
+    """Mask strings/comments across a whole JS file, tracking /* */ across lines."""
+    out, in_block = [], False
+    for line in lines:
+        masked, in_block = _strip_strings(line, in_block)
+        out.append(masked)
+    return out
 
 
 def js_functions(path):
     with open(path, encoding="utf-8") as fh:
         lines = fh.readlines()
     n = len(lines)
+    masked_lines = mask_js_lines(lines)  # strings/comments blanked (length-preserving)
     func_re = re.compile(r"(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)")
     const_fn_re = re.compile(r"const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?function\b")
     const_arrow_re = re.compile(r"const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(?[^=;]*\)\s*=>")
@@ -141,7 +171,7 @@ def js_functions(path):
         depth = 0
         i = open_line
         while i < n:
-            masked = _strip_strings(lines[i])
+            masked = masked_lines[i]
             depth += masked.count("{") - masked.count("}")
             if depth <= 0 and i >= open_line:
                 return i
@@ -150,11 +180,11 @@ def js_functions(path):
 
     i = 0
     while i < n:
-        stripped = lines[i].strip()
+        stripped = masked_lines[i].strip()
         m = func_re.search(stripped)
-        if m and "function" in stripped and not stripped.startswith("//"):
+        if m and "function" in stripped:
             j = i
-            while j < n and "{" not in _strip_strings(lines[j]):
+            while j < n and "{" not in masked_lines[j]:
                 j += 1
             if j < n:
                 end = find_end(i, j)
@@ -162,7 +192,7 @@ def js_functions(path):
         m = const_fn_re.search(stripped)
         if m:
             j = i
-            while j < n and "{" not in _strip_strings(lines[j]):
+            while j < n and "{" not in masked_lines[j]:
                 j += 1
             if j < n:
                 end = find_end(i, j)
@@ -171,7 +201,7 @@ def js_functions(path):
         if m:
             j = i
             while j < n:
-                if "{" in _strip_strings(lines[j]):
+                if "{" in masked_lines[j]:
                     break
                 j += 1
             if j < n:
@@ -181,19 +211,19 @@ def js_functions(path):
         if m:
             cls, j, depth = m.group(1), i, 0
             while j < n:
-                masked = _strip_strings(lines[j])
+                masked = masked_lines[j]
                 depth += masked.count("{") - masked.count("}")
-                mm = method_re.match(lines[j])
+                mm = method_re.match(masked_lines[j])
                 if mm and depth >= 1:
                     k = j
-                    while k < n and "{" not in _strip_strings(lines[k]):
+                    while k < n and "{" not in masked_lines[k]:
                         k += 1
                     end = find_end(j, k)
                     out.append((f"{cls}.{mm.group(1)}", j + 1, end + 1))
                     j = end + 1
                     depth = 0
                     for z in range(i, j):
-                        depth += _strip_strings(lines[z]).count("{") - _strip_strings(lines[z]).count("}")
+                        depth += masked_lines[z].count("{") - masked_lines[z].count("}")
                     continue
                 if depth <= 0 and j > i:
                     break
@@ -265,7 +295,7 @@ def main():
             if path.endswith(CODE_EXT):
                 try:
                     funcs = py_functions(path) if path.endswith(".py") else js_functions(path)
-                except (SyntaxError, UnicodeDecodeError):
+                except (SyntaxError, UnicodeDecodeError, OSError):
                     funcs = []
             area = classify(rel)
             report["files"].setdefault(area, {})[rel] = {"lines": lines, "funcs": funcs}

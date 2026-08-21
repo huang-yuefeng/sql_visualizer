@@ -40,9 +40,12 @@ sys.path.insert(0, str(BACKEND_DIR))
 SAMPLES_DIR = BACKEND_DIR.parent / "samples"
 SNAPSHOT_DIR = Path(__file__).resolve().parent / "snapshots"
 
-# Runtime cap (~12 scripts × a few seconds each): sql_sample_v1 first (the
-# canonical regression sample), then tpcds_qualified.
-MAX_SCRIPTS = 12
+# Runtime cap: sql_sample_v1 first (the canonical regression sample), then
+# tpcds_qualified. Set to cover ALL current samples (5 sql_sample_v1 + 103
+# tpcds_qualified = 108) plus a small headroom. Any script beyond the cap is
+# UNPINNED — its snapshot is never generated and coverage silently drops.
+# Bump the cap when new samples are added.
+MAX_SCRIPTS = 110
 # Seed scan cap: candidates are walked in deterministic order (L2 table
 # index, then each table's fields in classification order); the first
 # candidate whose strict filter matches wins, otherwise the first

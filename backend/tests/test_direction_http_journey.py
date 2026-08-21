@@ -102,7 +102,7 @@ def r29_ws(http_client):
     assert r.status_code == 200, r.text
     assert r.json().get("script_count") == 3, r.text
     yield http_client, ws_id, sql_paths
-    http_client.delete(f"/api/workspace/{ws_id}")
+    http_client.delete(f"/api/me/workspaces/{ws_id}")
 
 
 def _search(client, ws_id, table, field, direction):

@@ -153,11 +153,16 @@ async def lifespan(app: FastAPI):
     if purged:
         logging.getLogger("uvicorn").info(
             f"Purged {purged} workspace cache file(s) on startup")
-    # Auto-cleanup old workspace data (>24h)
-    from app.services.workspace_service import cleanup_old_workspaces
-    removed = cleanup_old_workspaces(24)
-    if removed:
-        logging.getLogger("uvicorn").info(f"Cleaned up {removed} old workspace(s)")
+    # R31: workspaces are durable user data now — the old >24h auto-cleanup
+    # is REMOVED (it would destroy shared workspaces). One-time migration at
+    # rollout: pre-feature workspaces (no creator_username) are removed
+    # directly (user-confirmed, no backup). Runs on every start but is a
+    # no-op once no creator-less workspaces remain.
+    from app.services.workspace_service import remove_legacy_workspaces
+    migrated = remove_legacy_workspaces()
+    if migrated:
+        logging.getLogger("uvicorn").info(
+            f"R31 migration: removed {migrated} legacy workspace(s) without a creator")
     yield
 
 
@@ -185,9 +190,55 @@ async def health_check():
     return {"status": "ok", "version": _read_version()}
 
 
-# Import and register routers
-from app.routers import analysis, graph, variables, workspace, dataflow, logs  # noqa: E402
+# R31 login gate (A-M7): when REQUIRE_LOGIN is on, every /api/* endpoint
+# except health (and the login endpoint itself) requires a valid session
+# cookie; state-changing methods also pass a same-origin check
+# (Origin/Referer must match the service host). The static frontend stays
+# public — the SPA itself redirects to the login page on a 401.
+from urllib.parse import urlparse
 
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+from app.config import REQUIRE_LOGIN
+from app.routers.auth import SESSION_COOKIE
+from app.services import auth_service
+
+
+@app.middleware("http")
+async def login_gate(request: Request, call_next):
+    if REQUIRE_LOGIN:
+        path = request.url.path
+        # Exemptions: /api/health (public), /api/auth/login (session creation
+        # itself), and /api/admin/* — the admin endpoint is the gate-exempt
+        # BOOTSTRAP hole that provisions the FIRST account ("default first
+        # provisioned user", R31 impl §2.5): on a fresh deploy no account
+        # exists to log in with, so POST /api/admin/users must be reachable
+        # without a session. It only ever targets ADMIN_USERNAME and never
+        # reads existing data, so the exposed surface is minimal.
+        if path.startswith("/api/") and path != "/api/health" \
+                and not path.startswith("/api/auth/login") \
+                and not path.startswith("/api/admin/"):
+            token = request.cookies.get(SESSION_COOKIE)
+            if auth_service.get_session(token) is None:
+                return JSONResponse({"detail": "Not logged in"}, status_code=401)
+            if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+                origin = (request.headers.get("origin")
+                          or request.headers.get("referer") or "")
+                host = request.headers.get("host", "")
+                if origin and host:
+                    parsed = urlparse(origin)
+                    if parsed.hostname and parsed.netloc != host:
+                        return JSONResponse(
+                            {"detail": "Cross-origin request rejected"},
+                            status_code=403)
+    return await call_next(request)
+
+
+# Import and register routers
+from app.routers import analysis, graph, variables, workspace, dataflow, logs, auth  # noqa: E402
+
+app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(analysis.router, prefix="/api", tags=["analysis"])
 app.include_router(graph.router, prefix="/api", tags=["graph"])
 app.include_router(variables.router, prefix="/api", tags=["variables"])

@@ -22,7 +22,7 @@ import { NODE_STYLES, COMPOUND_STYLES, L1_PIPELINE_EDGE_STYLES, TURN_EDGE_STYLES
   OPERATION_NODE_STYLES, L2_DETAIL_STYLES, L2_NODE_ROLE_STYLES,
   L2_UNIFORM_EDGE_STYLES, L2_EDGE_CLASSES } from '../utils/graphStyles';
 import { stripFieldParents, computeFieldRelPos, positionTableFields } from '../utils/layoutCore';
-import { TABLE_SELECTOR } from '../config/layout';
+import { TABLE_SELECTOR, FIT_PADDING } from '../config/layout';
 import { runSnakeLayout } from '../utils/snakeLayout';
 import { decorateLabelWithLine } from '../utils/labelDecoration';
 import { applyFlowVisibility } from '../utils/flowVisibility';
@@ -50,15 +50,69 @@ function flowRoleBadge(d) {
   return parts.length > 0 ? parts.join('/') : null;
 }
 
+// ── R31 layout persistence (A-M5) ──────────────────────────────────
+/**
+ * Collect absolute node positions {nodeId: [x, y]} for every NON-field node
+ * (fields are re-derived from their table at table + frozen offset, so they
+ * are never saved — applyLayout and the drag handler position them).
+ */
+function collectPositions(cy) {
+  if (!cy || cy.destroyed()) return {};
+  const out = {};
+  cy.nodes().forEach(n => {
+    if (n.data('type') === 'field') return;
+    const p = n.position();
+    if (p) out[n.id()] = [Math.round(p.x), Math.round(p.y)];
+  });
+  return out;
+}
+
+/**
+ * Re-apply saved positions {nodeId: [x,y]} on a fresh graph (resume). Node
+ * ids that no longer exist are skipped — never an error (design §5.3). After
+ * tables move, fields are re-derived; then re-fit with the level-aware
+ * adaptive padding so the viewport spans the applied layout. Runs BEFORE
+ * flow-visibility hiding, so the fit sees every node — the same D-H2
+ * contract as the initial layout (the fit excludes display:none elements).
+ */
+function applySavedPositions(cy, savedPositions, fieldRel) {
+  if (!cy || cy.destroyed() || !savedPositions || typeof savedPositions !== 'object') return;
+  let moved = false;
+  cy.batch(() => {
+    cy.nodes().forEach(n => {
+      const p = savedPositions[n.id()];
+      if (Array.isArray(p) && p.length === 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])) {
+        n.position({ x: p[0], y: p[1] });
+        moved = true;
+      }
+    });
+  });
+  if (!moved) return;
+  // Fields follow their tables (shared helper — same math as the drag path).
+  if (fieldRel) {
+    const parents = new Set();
+    for (const rel of Object.values(fieldRel)) parents.add(rel.parentId);
+    for (const pid of parents) positionTableFields(cy, pid, fieldRel);
+  }
+  // Level-aware fit — mirrors layoutCore.applyLayout's adaptive padding
+  // (that file is the single source; kept in sync deliberately).
+  if (!cy.destroyed()) {
+    const level = (cy.container()?.closest?.('[data-level]')?.dataset?.level) || 'L1';
+    const panelW = cy.container()?.offsetWidth || 800;
+    const pad = level === 'L2' ? Math.max(30, Math.floor(panelW * 0.07)) : FIT_PADDING;
+    cy.fit(undefined, pad);
+  }
+}
+
 // ── Pipeline layout (lazy-import ELK) ──────────────────────────────
-async function pipelineLayout(cy, opts = {}) {
+async function pipelineLayout(cy, opts = {}, onFit) {
   if (!cy || cy.destroyed() || cy.nodes().length === 0) return;
   try {
     const { applyElkLayout } = await import('../utils/elkLayout');
-    await applyElkLayout(cy, opts);
+    await applyElkLayout(cy, opts, onFit);
   } catch (e) {
     console.warn('ELK layout failed, falling back to snake', e);
-    runSnakeLayout(cy);
+    runSnakeLayout(cy, onFit);
   }
 }
 
@@ -147,6 +201,13 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     // last drag frame's event was dropped.
     cy.on('dragfree', TABLE_SEL, evt => {
       if (fieldRelRef.current) positionTableFields(cy, evt.target.id(), fieldRelRef.current);
+    });
+    // R31/A-M5: report node positions after any drag ends (tables + scripts;
+    // fields follow their table via frozen offsets) — DataFlowApp autosaves
+    // them ≤1/s + on close (design §4 Q4). Fires for every draggable node.
+    cy.on('dragfree', () => {
+      const o = optsRef.current;
+      if (o.onPositionsChange) o.onPositionsChange(collectPositions(cy));
     });
 
     // ── Role badges on script nodes ─────────────────────────────
@@ -240,15 +301,29 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     // the full graph, so both View 1 and View 2 fit inside it.
     cy.ready(() => {
       fieldRelRef.current = computeFieldRelPos(cy);
-      if (layoutMode === 'pipeline') {
-        pipelineLayout(cy).then(() => {
-          applyFlowVisibility(cy, optsRef.current);
-          layoutDoneRef.current = true;
-        });
-      } else {
-        runSnakeLayout(cy);
-        applyFlowVisibility(cy, optsRef.current);
+      // D-H2: fit the FULL graph BEFORE hiding. applyLayout defers cy.fit
+      // via setTimeout(100); cy.fit excludes display:none elements, so hiding
+      // non-flow elements first would clip the viewport to the flow closure
+      // and push View 2's non-closure nodes off-screen. onFit runs after the
+      // deferred fit has seen every node — only then apply visibility (and
+      // mark the initial layout done).
+      const onFit = () => {
+        const o = optsRef.current;
+        // R31/A-M5: re-apply saved positions on a fresh graph (resume)
+        // instead of recomputing — node ids that no longer exist are skipped.
+        // Runs AFTER the layout's deferred fit (layoutCore.applyLayout) so the
+        // viewport refits to the applied positions, and BEFORE the flow filter
+        // hides anything (the re-fit must see the FULL graph, D-H2).
+        if (o.savedPositions) {
+          applySavedPositions(cy, o.savedPositions, fieldRelRef.current);
+        }
+        applyFlowVisibility(cy, o);
         layoutDoneRef.current = true;
+      };
+      if (layoutMode === 'pipeline') {
+        pipelineLayout(cy, {}, onFit);
+      } else {
+        runSnakeLayout(cy, onFit);
       }
     });
 
@@ -287,12 +362,17 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
   const relayout = useCallback((mode) => {
     const cy = cyRef.current;
     if (!cy || cy.destroyed()) return;
+    // D-H2: gate mount-time relayout on the initial layout having finished
+    // (cy.ready → layout → deferred fit). On a fresh graph DataFlowGraph's
+    // mount-time mode-switch effect fires relayout BEFORE the initial fit —
+    // running it would hide flow elements before cy.fit sees the full graph.
+    if (!layoutDoneRef.current) return;
     fieldRelRef.current = computeFieldRelPos(cy);
+    const onFit = () => applyFlowVisibility(cy, optsRef.current);
     if (mode === "pipeline") {
-      pipelineLayout(cy).then(() => applyFlowVisibility(cy, optsRef.current));
+      pipelineLayout(cy, {}, onFit);
     } else {
-      runSnakeLayout(cy);
-      applyFlowVisibility(cy, optsRef.current);
+      runSnakeLayout(cy, onFit);
     }
   }, []);
 

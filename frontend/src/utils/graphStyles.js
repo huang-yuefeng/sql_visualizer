@@ -1017,6 +1017,9 @@ export const L2_NODE_ROLE_STYLES = [
 
 // Class-name constants — single source of truth shared by the
 // stylesheet selectors (here) and the class application (DataFlowGraph).
+// Recolor #239 (v3.3.159): the cone went from amber/cyan/gold to RGB
+// primaries (green/blue/red) — COLOR ONLY; these class names did NOT
+// change (the pivot is still `flow-cone-pivot`).
 export const L2_EDGE_CLASSES = {
   uniform: 'l2-uniform',
   coneBefore: 'flow-cone-before',   // green #2ECC71 — upstream of the pivot

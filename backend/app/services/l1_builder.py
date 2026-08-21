@@ -554,38 +554,32 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
             return None
 
         if len(script_data) < 2:
-            # R24: single-script workspace — analyze the one script inline
-            # (analyze_multiple_scripts refuses <2 scripts) and feed the SAME
-            # all_scripts shape downstream, so L1 gets the full pipeline graph
-            # (script node + tables + reads/writes edges + lineage field
-            # children), exactly like the multi-script path. The script node
-            # must always be present so the user can double-click into L2.
+            # R24: single-script workspace — analyze the one script and feed
+            # the SAME all_scripts shape downstream, so L1 gets the full
+            # pipeline graph (script node + tables + reads/writes edges +
+            # lineage field children), exactly like the multi-script path.
+            # The script node must always be present so the user can
+            # double-click into L2.
+            # C-L1 (2026-08-19 review): the single-script path reuses the
+            # SAME cache-aware lookup as the multi-script path — a current
+            # cached analysis (exact sql-keyed; extractor_version + sql_text
+            # guarded) is served WITHOUT re-extraction; a cache miss falls
+            # back to the inline extraction pipeline. Both go through
+            # `_build_script_entry` so the entry shape is byte-identical
+            # (cache-hit L1 == fresh-extraction L1).
             name, sql = script_data[0]
             from app.extractor.adapter import run_full_analysis
-            from app.services.graph_service import build_graph_data
-            from app.services.multi_script_service import _classify_tables
-            result = run_full_analysis(sql, name)
-            result.setdefault("script_id",
-                              hashlib.md5((name + sql).encode()).hexdigest()[:12])
-            graph_data = build_graph_data(result)
-            input_tables, output_tables = _classify_tables(
-                result.get("variables", []))
+            from app.services.multi_script_service import _build_script_entry
+            analysis = _lookup_analysis(name, sql)
+            if analysis is None:
+                analysis = run_full_analysis(sql, name)
+            all_scripts = [_build_script_entry(name, sql, analysis)]
             # J12-10 stage 4: the physical model is built ONCE from the
-            # inline extraction result (the per-script analysis) and drives
-            # L1's tables/fields/aliases — display = pure projection.
-            all_scripts = [{
-                "script_id": result["script_id"],
-                "script_name": name,
-                "total_variables": result.get("total_variables", 0),
-                "total_dependencies": result.get("total_dependencies", 0),
-                "input_tables": sorted(input_tables),
-                "output_tables": sorted(output_tables),
-                "graph": graph_data,
-                "_all_vars": [{"name": v.get("name", ""),
-                               "source_tables": v.get("source_tables", [])}
-                              for v in result.get("variables", [])],
-                "_model": build_physical_model(result, script_name=name),
-            }]
+            # per-script analysis (cache-hit or fresh — the same
+            # deterministic dict) and drives L1's tables/fields/aliases —
+            # display = pure projection.
+            all_scripts[0]["_model"] = build_physical_model(
+                analysis, script_name=name)
         else:
             from app.services.multi_script_service import _build_script_entry
             from app.extractor.adapter import run_full_analysis

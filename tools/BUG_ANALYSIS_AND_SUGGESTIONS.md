@@ -4954,7 +4954,7 @@ analysis via `_lookup_analysis` guarded by `extractor_version == EXTRACTOR_VERSI
 back to `run_full_analysis` only on miss; `filter_service.py` derives
 `allowed_scripts = ∪ table_index[t]["scripts"]` over the File-2 tables when File 2 is present
 (File 1 ignored for scope; File-1-only and no-File-2 behavior preserved). New tests:
-`tests/test_l1_cache_aware.py` (cache-hit run patches `run_full_analysis` to raise and asserts
+`backend/tests/test_l1_cache_aware.py` (cache-hit run patches `run_full_analysis` to raise and asserts
 `cached == fresh` byte-identity; cache-miss falls back); `test_filter_config.py::test_tc10`
 rewritten to the ruling + new `test_tc11`; `test_s4b_resolution.py` M4-B test mocks
 `app.extractor.adapter.run_full_analysis`. Verified: full suite 858 passed / 5 skipped, Jaccard

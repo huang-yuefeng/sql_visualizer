@@ -138,8 +138,12 @@ export function computeTableInfo(cy, fieldRel) {
  * @param fieldRel        from computeFieldRelPos()
  * @param tableInfo       from computeTableInfo()
  * @param fitPadding      padding for cy.fit() (default FIT_PADDING)
+ * @param onFit           optional callback invoked after the deferred cy.fit
+ *                        completes — lets callers apply post-fit work (e.g.
+ *                        flow-visibility hiding) only AFTER the fit has seen
+ *                        the FULL graph (D-H2).
  */
-export function applyLayout(cy, tablePositions, fieldRel, tableInfo, fitPadding = FIT_PADDING) {
+export function applyLayout(cy, tablePositions, fieldRel, tableInfo, fitPadding = FIT_PADDING, onFit) {
   if (!cy || cy.destroyed()) return;
 
   cy.batch(() => {
@@ -224,6 +228,13 @@ export function applyLayout(cy, tablePositions, fieldRel, tableInfo, fitPadding 
         cy.fit(undefined, effectivePadding);
       }
     }
+    // D-H2: signal the caller that the deferred fit is done. This fit runs
+    // on the FULL graph — no flow elements are hidden yet — so the viewport
+    // spans every node and both flow-only (View 1) and full (View 2) render
+    // inside it. Callers must apply flow-visibility hiding only here, AFTER
+    // the fit: cy.fit excludes display:none elements, so hiding first would
+    // clip the viewport to the closure and push non-closure nodes off-screen.
+    onFit?.(cy);
   }, 100);
 }
 

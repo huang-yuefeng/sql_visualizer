@@ -15,7 +15,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useResizable } from './utils/useResizable';
 import './styles/resizable.css';
 
-export default function DataFlowApp() {
+export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace = null }) {
   const [wsId, setWsId] = useState(null);
   const [fileTree, setFileTree] = useState(null);
   const [selectedScripts, setSelectedScripts] = useState([]);
@@ -61,6 +61,91 @@ export default function DataFlowApp() {
   const [schemaCandidates, setSchemaCandidates] = useState(null);
   // A1: schema_evidence {present, tables, columns} (index response)
   const [schemaEvidence, setSchemaEvidence] = useState(null);
+
+  // ── R31: layout persistence + concurrent-edit notice (A-M4/A-M5) ──
+  // state_version drives the CAS save; resumeLayouts holds the shared
+  // `{"l1": {node:[x,y]}, "l2:{script}": {...}}` map re-applied on render.
+  const [stateVersion, setStateVersion] = useState(0);
+  const [resumeLayouts, setResumeLayouts] = useState({});
+  const [toast, setToast] = useState(null); // "state changed by X — refreshed"
+  const wsIdRef = useRef(null);
+  wsIdRef.current = wsId; // latest wsId for the unmount cleanup
+  const stateVersionRef = useRef(0);
+  const pendingLayoutRef = useRef(null);   // coalesced {level, script, positions, version}
+  const layoutTimerRef = useRef(null);
+  const openedRef = useRef(null);          // guards the open-existing effect
+
+  const setVersion = useCallback((v) => {
+    stateVersionRef.current = v;
+    setStateVersion(v);
+  }, []);
+
+  // Save the coalesced positions at most once per second (design §4 Q4 /
+  // §10.18): drags accumulate into pendingLayoutRef, one PUT per debounce
+  // window. On a 409 the server's fresh state is loaded and the pending edit
+  // is re-applied on top of it (A-M4) with a "refreshed" notice.
+  const flushLayoutSave = useCallback(async () => {
+    if (layoutTimerRef.current) {
+      clearTimeout(layoutTimerRef.current);
+      layoutTimerRef.current = null;
+    }
+    const pending = pendingLayoutRef.current;
+    if (!pending || !wsIdRef.current) return;
+    pendingLayoutRef.current = null;
+    const { level, script, positions, version } = pending;
+    try {
+      const res = await api.saveLayout(wsIdRef.current, level, script, positions, version);
+      if (res.status === 409) {
+        const body = await res.json().catch(() => null);
+        const fresh = body?.detail?.fresh;
+        if (fresh && fresh.state_version != null) {
+          setVersion(fresh.state_version);
+          if (fresh.layouts) setResumeLayouts(fresh.layouts);
+          setToast('State changed by another user — refreshed');
+          // Re-apply the pending edit on top of the fresh state (A-M4).
+          pendingLayoutRef.current = { level, script, positions, version: fresh.state_version };
+          layoutTimerRef.current = setTimeout(() => {
+            layoutTimerRef.current = null;
+            flushLayoutSave();
+          }, 1000);
+        }
+      } else if (res.ok) {
+        const body = await res.json().catch(() => null);
+        if (body && body.state_version != null) setVersion(body.state_version);
+      }
+      // other non-OK: silent failure (design: silent-fail handling)
+    } catch { /* silent */ }
+  }, [setVersion]);
+
+  const scheduleLayoutSave = useCallback((level, script, positions) => {
+    if (!wsIdRef.current) return;
+    pendingLayoutRef.current = { level, script, positions, version: stateVersionRef.current };
+    if (layoutTimerRef.current) return; // a save is already pending — coalesce
+    layoutTimerRef.current = setTimeout(() => {
+      layoutTimerRef.current = null;
+      flushLayoutSave();
+    }, 1000);
+  }, [flushLayoutSave]);
+
+  // Drag-end positions → debounced autosave for the CURRENT level+script.
+  const handlePositionsChange = useCallback((positions) => {
+    scheduleLayoutSave(
+      graphLevel === 'L2' ? 'l2' : 'l1',
+      graphLevel === 'L2' ? currentScriptName : null,
+      positions,
+    );
+  }, [graphLevel, currentScriptName, scheduleLayoutSave]);
+
+  // Final save on close: when the keyed DataFlowApp unmounts (close
+  // workspace / switch workspace / logout), flush the coalesced layout save
+  // and end the visit (design §4 Q4: "final write on close").
+  useEffect(() => {
+    return () => {
+      if (!wsIdRef.current) return;
+      flushLayoutSave();
+      api.closeWorkspace(wsIdRef.current).catch(() => {});
+    };
+  }, [flushLayoutSave]);
 
   // ── Resizable panel state ─────────────────────────────────────────
   const [leftPanelWidth, setLeftPanelWidth] = useState(260);
@@ -124,26 +209,30 @@ export default function DataFlowApp() {
     setL2ParseErrors(result.parse_errors || []);
   }, []);
 
-  // ── Upload & Analyze ──────────────────────────────────────────────
+  // ── R31: full reset of debugger state (no workspace lifecycle calls —
+  //     the keyed DataFlowApp remount already ends the previous visit) ──
+  const resetWorkspaceState = useCallback(() => {
+    setWsId(null); setFileTree(null); setSelectedScripts([]);
+    setTableIndex({}); setFieldIndex({}); setFullTableIndex({}); setFullFieldIndex({});
+    setIndexed(false); setViews([]); setActiveViewId(null); setL1Graph(null);
+    setL2Graph(null); setL2Result(null); setFlowOnly(null); setSqlText(''); setCurrentScriptName('');
+    setError(null); setActiveL1Table(null); setSelectedEdge(null);
+    setResolutionStats(null); setOrphanFieldSamples(null);
+    setSchemaCandidates(null); setSchemaEvidence(null);
+    setL2NotInFlow(false); setL2NotInFlowMessage(null); setL2ParseErrors([]);
+    setProgress(null); setVersion(0); setResumeLayouts({});
+    setShowLog(true);
+  }, [setVersion]);
+
+  // ── Upload (create) & Analyze ─────────────────────────────────────
   const handleUpload = useCallback(async (file) => {
-    setL1Graph(null); setL2Graph(null); setL2Result(null);
-    setL2NotInFlow(false); setL2NotInFlowMessage(null);
-    setL2ParseErrors([]);
-    setLoading(true); setError(null);
+    resetWorkspaceState();
+    setLoading(true);
     try {
-      // Clean up old workspace before creating new one
-      if (wsId) {
-        try { await api.deleteWorkspace(wsId); } catch (e) { /* ignore */ }
-        setWsId(null); setFileTree(null); setSelectedScripts([]);
-        setTableIndex({}); setFieldIndex({}); setIndexed(false);
-        setViews([]); setActiveViewId(null); setL1Graph(null);
-        setL2Graph(null); setL2Result(null); setSqlText(''); setError(null);
-        setActiveL1Table(null); setCurrentScriptName(''); setFlowOnly(null);
-        setResolutionStats(null); setOrphanFieldSamples(null);
-        setSchemaCandidates(null); setSchemaEvidence(null);
-        setSelectedEdge(null);
-        setShowLog(true);
-      }
+      // R31/A-M6: upload CREATES a new workspace (server UUID4 ws_id,
+      // stamped creator, added to "my workspaces"). The previous workspace
+      // is NOT deleted — the user manages their list on the dashboard
+      // (remove-from-my-history is role-dependent, A-M2).
       const result = await api.uploadWorkspace(file);
       setWsId(result.workspace_id);
       setFileTree(result.file_tree);
@@ -170,7 +259,53 @@ export default function DataFlowApp() {
     } finally {
       setLoading(false);
     }
-  }, [wsId]);
+  }, [resetWorkspaceState]);
+
+  // ── R31: open an existing workspace (dashboard Open / shared ?ws= link) ──
+  // resume → scan → index. state_version + saved layouts come from resume so
+  // the CAS save and saved-position re-application start from the shared state.
+  const handleOpenExisting = useCallback(async (targetWsId) => {
+    resetWorkspaceState();
+    setLoading(true);
+    try {
+      const resume = await api.resumeWorkspace(targetWsId);
+      setVersion(resume.state_version || 0);
+      setResumeLayouts(resume.layouts || {});
+      setWsId(targetWsId);
+      const tree = await api.scanWorkspace(targetWsId);
+      setFileTree(tree);
+      const scripts = collectSqlFiles(tree);
+      setSelectedScripts(scripts);
+      setProgress({ current: 0, total: scripts.length, phase: 'analyzing' });
+      const idxResult = await api.indexWorkspace(targetWsId, scripts);
+      setTableIndex(idxResult.table_index || {});
+      setFieldIndex(idxResult.field_index || {});
+      setFullTableIndex(idxResult.table_index || {});
+      setFullFieldIndex(idxResult.field_index || {});
+      setResolutionStats(idxResult.resolution_stats || null);
+      setOrphanFieldSamples(idxResult.orphan_field_samples || null);
+      setSchemaCandidates(idxResult.schema_candidates_summary || null);
+      setSchemaEvidence(idxResult.schema_evidence || null);
+      setIndexed(true);
+      setProgress(null);
+    } catch (e) {
+      // Open failed (e.g. deleted/unknown id) — surface it and stay on the
+      // empty debugger; the dashboard is one "Close" away.
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [resetWorkspaceState, setVersion]);
+
+  // ── R31: open-existing entry — runs once when the workspace id arrives
+  //     (dashboard Open or a shared ?ws= link). Guarded by openedRef so it
+  //     never re-runs on unrelated re-renders.
+  useEffect(() => {
+    if (openWorkspaceId && openedRef.current !== openWorkspaceId) {
+      openedRef.current = openWorkspaceId;
+      handleOpenExisting(openWorkspaceId);
+    }
+  }, [openWorkspaceId, handleOpenExisting]);
 
   // ── Poll indexing progress ───────────────────────────────────────
   const progressTimerRef = useRef(null);
@@ -201,7 +336,7 @@ export default function DataFlowApp() {
   // ── Search ────────────────────────────────────────────────────────
   const handleSearch = useCallback(async (table, field, direction) => {
     if (!wsId) return;
-    setL1Graph(null); setL2Graph(null); setL2Result(null);
+    setL1Graph(null); setL2Graph(null); setL2Result(null); setFlowOnly(null);
     setL2NotInFlow(false); setL2NotInFlowMessage(null);
     setL2ParseErrors([]);
     setLoading(true); setError(null);
@@ -226,7 +361,7 @@ export default function DataFlowApp() {
       setL1Graph(result.l1_graph);
       setDirection(direction);
       setGraphLevel('L1');
-      setL2Graph(null);
+      setL2Graph(null); setL2Result(null); setFlowOnly(null);
       setSqlText('');
       setActiveL1Table(null);
       setSelectedEdge(null);
@@ -240,7 +375,7 @@ export default function DataFlowApp() {
   // ── Open L2 (double-click on L1 script node) ──────────────────────
   const handleOpenL2 = useCallback(async (scriptId, scriptName) => {
     if (!wsId || !activeViewId) return;
-    setL2Graph(null);
+    setL2Graph(null); setL2Result(null); setFlowOnly(null);
     setLoading(true);
     try {
       const viewIdForApi = parentViewIdRef.current || activeViewId;
@@ -306,6 +441,7 @@ export default function DataFlowApp() {
       // so a stale parentViewIdRef (left pointing at the last-searched
       // view) must not survive into a later L1 double-click (CR6).
       parentViewIdRef.current = null;
+      setL2Graph(null); setL2Result(null); setFlowOnly(null);
       try {
         const parentView = views.find(v => v.view_id === entry.parent_view_id);
         const result = await api.getLevel2Graph(wsId, entry.parent_view_id, entry.script_name, true, parentView?.direction || direction);
@@ -325,7 +461,7 @@ export default function DataFlowApp() {
       parentViewIdRef.current = viewId;
       setL1Graph(entry.l1_graph_cache || { nodes: [], edges: [] });
       setGraphLevel('L1');
-      setL2Graph(null);
+      setL2Graph(null); setL2Result(null); setFlowOnly(null);
       setL2NotInFlow(false); setL2NotInFlowMessage(null);
       setL2ParseErrors([]);
       setSqlText('');
@@ -334,20 +470,26 @@ export default function DataFlowApp() {
     }
   }, [views, wsId, direction]);
 
-  // ── Delete workspace ──────────────────────────────────────────────
+  // ── Remove from my history (R31 A-M1/A-M2) ────────────────────────
+  // ONE role-dependent action — the backend decides: creator → physical
+  // delete (server-global audit log written before removal), participant →
+  // link removal only. The role-aware warning lives in the MyWorkspaces
+  // panel; this in-app control shows a generic warning and returns to the
+  // dashboard (the workspace is out of this user's list either way).
   const handleDeleteWorkspace = useCallback(async () => {
     if (!wsId) return;
+    if (!window.confirm(
+      'Remove this workspace from your history? If you created it, this DELETES the workspace and its files for everyone.'
+    )) return;
     try {
-      await api.deleteWorkspace(wsId);
-    } catch (e) { /* ignore */ }
-    setWsId(null); setFileTree(null); setSelectedScripts([]);
-    setTableIndex({}); setFieldIndex({}); setIndexed(false);
-    setViews([]); setActiveViewId(null); setL1Graph(null);
-    setL2Graph(null); setSqlText(''); setError(null);
-    setResolutionStats(null); setOrphanFieldSamples(null);
-    setSchemaCandidates(null); setSchemaEvidence(null);
-    setSelectedEdge(null);
-  }, [wsId]);
+      await api.removeFromMyHistory(wsId);
+    } catch (e) {
+      setError(e.message);
+      return;
+    }
+    resetWorkspaceState();
+    onCloseWorkspace?.();
+  }, [wsId, resetWorkspaceState, onCloseWorkspace]);
 
   // ── L1 Table lens click ─────────────────────────────────────────
   const handleTableClick = useCallback((tableName) => {
@@ -394,10 +536,10 @@ export default function DataFlowApp() {
       return newViews;
     });
     if (activeViewId === viewId) {
-      setActiveViewId(null); setL1Graph(null); setL2Graph(null);
+      setActiveViewId(null); setL1Graph(null); setL2Graph(null); setL2Result(null); setFlowOnly(null);
       setL2NotInFlow(false); setL2NotInFlowMessage(null);
       setL2ParseErrors([]);
-      setSqlText('');
+      setSqlText(''); setCurrentScriptName('');
       setSelectedEdge(null);
     }
   }, [wsId, activeViewId]);
@@ -449,6 +591,15 @@ export default function DataFlowApp() {
       {error && (
         <div className="error-banner" onClick={() => setError(null)}>
           {error} <span style={{ float: 'right', cursor: 'pointer' }}>x</span>
+        </div>
+      )}
+
+      {/* R31 concurrent-edit notice (A-M4) — shown on a layout 409: the
+          server state changed by another user, our pending edit was re-applied
+          on top of the fresh state. */}
+      {toast && (
+        <div className="concurrent-toast" onClick={() => setToast(null)} title="Dismiss">
+          {toast} <span style={{ float: 'right', cursor: 'pointer', marginLeft: 8 }}>x</span>
         </div>
       )}
 
@@ -557,6 +708,8 @@ export default function DataFlowApp() {
             onCanvasTap={clearEdgeSelection}
             selectedEdgeId={selectedEdge?.id}
             refitKey={graphLevel}
+            savedPositions={resumeLayouts['l1']}
+            onPositionsChange={handlePositionsChange}
           />
         )}
         {loading && !graphData && (
@@ -623,6 +776,8 @@ export default function DataFlowApp() {
               flowEdgeIds={l2Result?.flow_edge_ids}
               flowOnly={flowOnly}
               onFlowOnlyChange={setFlowOnly}
+              savedPositions={resumeLayouts[`l2:${currentScriptName}`]}
+              onPositionsChange={handlePositionsChange}
             />
           </div>
           {/* Resize handle: L2 graph | SQL panel */}

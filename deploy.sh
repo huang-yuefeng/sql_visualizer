@@ -35,8 +35,9 @@ if [ -z "$VERSION" ]; then
     echo -e "${RED}❌ VERSION file missing or empty — aborting deploy${NC}" >&2
     exit 1
 fi
-sed -i -E 's|(<meta name="version" content=")[^"]*(")|\1'"$VERSION"'\2|' dist/index.html
-if ! grep -q "name=\"version\" content=\"${VERSION}\"" dist/index.html; then
+VERSION_SED=$(printf '%s' "$VERSION" | sed 's/[&\\|]/\\&/g')
+sed -i -E 's|(<meta name="version" content=")[^"]*(")|\1'"$VERSION_SED"'\2|' dist/index.html
+if ! grep -qF -- "name=\"version\" content=\"${VERSION}\"" dist/index.html; then
     echo -e "${RED}❌ Failed to stamp v$VERSION into dist/index.html${NC}" >&2
     exit 1
 fi
@@ -48,13 +49,13 @@ cp -r dist/* "$STATIC_DIR"/
 
 echo -e "${YELLOW}🔄 Restarting Docker containers...${NC}"
 cd "$(dirname "$0")/.."
-docker compose -f docker-compose.yml restart 2>&1 || echo "Trying with sudo..." && echo huangyf | sudo -S docker compose -f docker-compose.yml restart 2>&1
+docker compose -f docker-compose.yml restart 2>&1
 
 echo -e "${YELLOW}⏳ Waiting for backend...${NC}"
 for i in $(seq 1 15); do
-  if curl -s --max-time 2 http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
+  if curl -s --noproxy '*' --max-time 2 http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
     echo -e "${GREEN}✅ Backend healthy${NC}"
-    VER=$(curl -s --max-time 2 http://127.0.0.1:8000/api/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','?'))" 2>/dev/null || echo "?")
+    VER=$(curl -s --noproxy '*' --max-time 2 http://127.0.0.1:8000/api/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','?'))" 2>/dev/null || echo "?")
     echo -e "${GREEN}✅ Version: $VER${NC}"
     echo -e "${GREEN}✅ Deploy complete — hard-refresh browser (Ctrl+Shift+R)${NC}"
     exit 0

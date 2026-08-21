@@ -6,7 +6,7 @@ class TestWorkspaceLifecycle:
     def test_create_workspace(self, workspace_client, d1_zip):
         ws_id = workspace_client.create(d1_zip)
         assert ws_id is not None
-        assert len(ws_id) == 12
+        assert len(ws_id) == 32  # R31/A-H4: full UUID4 hex, no client input
         ws = workspace_client.get(ws_id)
         assert ws is not None
         assert ws["workspace_id"] == ws_id

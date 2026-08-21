@@ -442,6 +442,7 @@ All sample DDL and queries are in [`samples/financial/`](samples/financial/).
 
 ## Roadmap
 
+- [ ] **Multi-user identity & workspace collaboration (R31)** — design settled 2026-08-19, awaiting go; traceable in `wiki/REQUIREMENTS_TRACEABILITY.md`, design note `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`
 - [ ] Cross-script data lineage (variable tracking across multiple SQL scripts)
 - [ ] Column-level lineage through CTE chains (exact column-to-column mapping)
 - [ ] Export graph as PNG/SVG
