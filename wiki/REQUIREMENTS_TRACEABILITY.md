@@ -1,7 +1,7 @@
 # Requirements Traceability Matrix — V3.3.160
 
 > Maps all requirements from REQUIREMENTS.md to implementation status.
-> Last updated: 2026-08-20 (R30 implemented v3.3.157/158 — #222 + recolor #239; v3.3.159/160 amendments added; R31 design settled — awaiting go)
+> Last updated: 2026-08-21 (R30 formal rows written — flow cone + ROW_FLOW; R30.8 reworded to the single-view visibility toggle; R4.5 tooltip row corrected; R31 design settled — awaiting go)
 
 ## Legend
 - ✅ Implemented & verified
@@ -49,7 +49,7 @@
 | R4.2 | Data flow edges between scripts (directed) | ✅ | table_script edges |
 | R4.3 | Click script node → open L2 graph for that script | ✅ | Double-click handler → handleOpenL2 |
 | R4.4 | Directional arrows on all edges | ✅ | target-arrow-shape: triangle on all edge styles |
-| R4.5 | Tooltips on edge hover showing type + description | ✅ | Edge tooltip popup for L1; L2 edge-hover tooltip REMOVED v3.3.159 (#240) — see R30.7 |
+| R4.5 | Tooltips on edge hover showing type + description — REMOVED (see R30.7) | ✅ | Shared L1+L2 edge-hover tooltip (`edgeHover` state + `.edge-tooltip` div) REMOVED v3.3.159 (#240, commit a77dfdd) — one shared feature, so the popup no longer appears on EITHER level; the L2 edge-click flow-cone + edge→SQL highlight are separate handlers, unchanged — see R30.7 |
 | R4.6 | Operation badges on script nodes showing roles | ✅ | Roles (REF/JOIN/FILTER etc.) appended to node label |
 | R4.7 | Source/Intermediate/Output table coloring | ✅ | Table nodes colored by role in legend |
 | R4.8 | Fit/Zoom controls | ✅ | Fit button + keyboard shortcut F |
@@ -238,9 +238,9 @@
 | R29.5 | L2 follows the query direction automatically (zoom-in of L1) | ✅ | R29 (2026-08-12) — v3.3.153 |
 | R29.6 | L2 flow-reason source/target anchoring follows the direction (user ruling 2026-08-12): downstream → seed = SOURCE (R19.1 unchanged); upstream → seed = TARGET (sources = the fields writing it) | ✅ | R29 (2026-08-12) — v3.3.153 — mirrors R19.7 |
 
-## R30 — L2 edge flow-direction display: mid-arrow + structure/flow color split + click-edge flow cone (requirement change, 2026-08-13)
+## R30 — L2 edge flow-direction display: mid-arrow + structure/flow color split + click-edge flow cone + ROW_FLOW (requirement change, 2026-08-13)
 
-> ✅ Code complete (v3.3.157/158 — #222 + recolor #239); the formal R30 rows in requirements_v2 §R30 (docs) are a separate pending doc item.
+> ✅ Implemented & formal (2026-08-21). Formal requirement + solution rows now live in `requirements_v2.md` §R30 (flow cone R30.1–R30.5, ROW_FLOW R30.11); the v3.3.159/160 additions are tracked here as R30.6–R30.10. Code: flow cone v3.3.157/158 (#222 + recolor #239), mid-arrow + uniform style v3.3.157 (#224/#225), ROW_FLOW v3.3.155 (#226).
 
 | ID | Requirement | Status | Notes |
 |----|------------|--------|-------|
@@ -251,9 +251,10 @@
 | R30.5 | No animation (static one-shot class toggle); L2 only — L1 keeps its static arrows | ✅ | R30 (2026-08-13) — implemented v3.3.157 (#222) |
 | R30.6 | Search-after-filter extraction-cache reuse | ✅ | #242 — v3.3.159 — repeated searches after a filter change reuse the extraction cache |
 | R30.7 | L2 edge-hover tooltip REMOVED | ✅ | #240 — v3.3.159 (commit a77dfdd) — L2 edge hover tooltip (edge type, counts) removed |
-| R30.8 | L2 two-view target-field toggle | ✅ | #247 — v3.3.160 — target-field highlight toggle between two open L2 views |
+| R30.8 | L2 single-view visibility toggle (View 1 flow-only ↔ View 2 full) | ✅ | #247 — v3.3.160 — in ONE open L2 view, a checkbox toggles between View 1 (only the searched field's flow closure: `flow_node_ids`/`flow_edge_ids`) and View 2 (the full script graph); pure `.show()/.hide()` visibility — positions preserved, never a re-layout |
 | R30.9 | Case1 autocomplete EAST5_SSTZFXXB fix | ✅ | #245 — v3.3.160 — Case1 table autocomplete fixed for EAST5_SSTZFXXB |
 | R30.10 | C-H1 L1 cache staleness guard | ✅ | #248 — v3.3.160 — L1 cache staleness guard added |
+| R30.11 | ROW_FLOW — the 17th edge type: row-level flow bridge emitted by the L2 walker's R29 continuation (the searched field's row-selection effect into a downstream statement's rows, e.g. subquery output `⟐ t` → CTE `temp_kmbh_gl`) | ✅ | #226 — v3.3.155 — flow-class edge (arrow + highlightable), shares the uniform line style; `ROW_FLOW` in `EDGE_TYPE_STYLE` (#2ECC71 solid width 2) + category "flow" (`backend/app/services/graph_service.py`), documented in `sql_model.py`, emitted by `compute_field_flow`'s continuation rounds (`backend/app/extractor/lineage.py`), rendered "row flow" by `highlight_strategies.py` |
 
 ## R31 — Multi-user identity & workspace collaboration (2026-08-19, design settled — awaiting go)
 
@@ -278,8 +279,8 @@
 ## Summary
 | Metric | Count |
 |--------|-------|
-| ✅ Implemented | 139 (all) — 87 R1–R16 + 20 R17–R20 + 16 R26–R28 + 6 R29 + 5 R30 + 5 v3.3.159/160 amendments |
-| 📝 Design, not implemented | 1 — R31 (multi-user — design settled, awaiting go). R30 is now ✅ code-complete; the formal R30 rows in requirements_v2 §R30 (docs) are a separate pending doc item, not counted here |
+| ✅ Implemented | 140 (all) — 87 R1–R16 + 20 R17–R20 + 16 R26–R28 + 6 R29 + 11 R30 (R30.1–R30.5 flow cone + R30.6–R30.10 v3.3.159/160 amendments + R30.11 ROW_FLOW) |
+| 📝 Design, not implemented | 1 — R31 (multi-user — design settled, awaiting go) |
 | Version | 3.3.160 |
 
 ## Key Fixes since V3.2.1

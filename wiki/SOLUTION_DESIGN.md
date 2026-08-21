@@ -1555,7 +1555,7 @@ carries a field of the queried field's flow.
   upstream/downstream switch):
   - **before** (green `#2ECC71`) = value-flow edges upstream of `u` (what flows in);
   - **after** (blue `#2196F3`) = value-flow edges downstream of `v` (what flows out);
-  - the clicked edge = the **pivot** (red `#FF3B30`, `edge-selected`);
+  - the clicked edge = the **pivot** (red `#FF3B30`, class `flow-cone-pivot`);
   - non-cone edges dimmed (focus mode).
 - **Value-flow only**: structure edges are never highlighted, never part of the cone.
 - **L2 only**: L1 keeps its static arrows.
@@ -1755,7 +1755,7 @@ ms (84%) and graph build ≈ 14 ms; a cache-hit rebuild (JSON load + `build_grap
 
 ## 5. Verification
 
-**IMPLEMENTED (v3.3.159).** `tests/test_l1_cache_aware.py` asserts a cache-hit L1 run
+**IMPLEMENTED (v3.3.159).** `backend/tests/test_l1_cache_aware.py` asserts a cache-hit L1 run
 patches `run_full_analysis` to raise (proving no re-extract) and `cached == fresh`
 (full-dict byte identity); the cache-miss (unindexed) path falls back to
 `run_full_analysis` and stays non-degraded. Full suite 858 passed / 5 skipped; Jaccard gate
