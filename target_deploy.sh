@@ -97,10 +97,19 @@ if [ -f "$IMAGE_DIR/RELEASE.txt" ]; then
     if [ -n "$PIECE_COMMIT" ]; then
         LOCAL_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
         log "  Local HEAD: ${LOCAL_COMMIT}"
-        if [ "$LOCAL_COMMIT" != "unknown" ] && [ "$LOCAL_COMMIT" != "$PIECE_COMMIT" ]; then
-            echo -e "\n${RED}COMMIT MISMATCH: pieces were built from ${PIECE_COMMIT} but local HEAD is ${LOCAL_COMMIT} — image pieces are stale${NC}" | tee -a "$LOG_FILE" >&2
-            echo -e "${RED}  Fix: obtain fresh docker_image/ pieces from the developer (offline transfer) and retry${NC}" | tee -a "$LOG_FILE" >&2
-            exit 1
+        if [ "$LOCAL_COMMIT" != "unknown" ]; then
+            # release.sh stamps RELEASE.txt BEFORE making its own commit, so
+            # PIECE_COMMIT names a pre-release commit that the release commit
+            # descends from. Strict equality would therefore always fail on any
+            # machine that has pulled the release commit (dev and target alike).
+            # Accept any ancestor of HEAD: the pieces are at-or-behind the
+            # checkout, never ahead of it. A diverged/unrelated pieces commit
+            # (real staleness) still refuses. (Local git op — offline-safe.)
+            if ! git merge-base --is-ancestor "$PIECE_COMMIT" HEAD 2>/dev/null; then
+                echo -e "\n${RED}COMMIT MISMATCH: pieces were built from ${PIECE_COMMIT} which is NOT an ancestor of local HEAD ${LOCAL_COMMIT} — image pieces are stale${NC}" | tee -a "$LOG_FILE" >&2
+                echo -e "${RED}  Fix: obtain fresh docker_image/ pieces from the developer (offline transfer) and retry${NC}" | tee -a "$LOG_FILE" >&2
+                exit 1
+            fi
         fi
     fi
 else

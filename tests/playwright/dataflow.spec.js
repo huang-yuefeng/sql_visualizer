@@ -4,6 +4,16 @@ const { test, expect } = require('@playwright/test');
 const BASE = 'http://localhost:8000';
 const TEST_ZIP = '/home/huangyf/work/sql_visualizer/samples/multi_workflow.zip';
 
+// R31: the login gate is ON in production (start.py sets REQUIRE_LOGIN=1), and
+// /api/auth/me always requires a session — the SPA shows the login page before
+// anything else. The admin endpoint (POST /api/admin/users) is the gate-exempt
+// BOOTSTRAP hole (R31 impl §2.5): on a fresh deploy no account exists to log in
+// with, so it provisions the FIRST account (admin@hsbc.com) without a session.
+// beforeAll seeds it (force=true = idempotent across runs; users.json persists),
+// beforeEach logs in. The endpoint only ever targets ADMIN_USERNAME.
+const ADMIN_USER = 'admin@hsbc.com';
+const ADMIN_PW = 'sqlviz-e2e-secret';
+
 // R29 made upstream (writing flow) the default search direction. crm_customers
 // is a SOURCE table — it has no writing flow, so querying it yields an empty
 // no_flow view. Every test searches an OUTPUT field (stg_customers.region),
@@ -47,18 +57,48 @@ async function tapFirstL2Edge(page) {
   await page.waitForTimeout(500);
 }
 
+// R31: log in through the gate page. The login form's username input has the
+// "you@hsbc.com" placeholder; the password is the only input[type=password].
+async function login(page) {
+  await page.waitForSelector('form'); // the gate login form
+  await page.getByPlaceholder('you@hsbc.com').fill(ADMIN_USER);
+  await page.locator('input[type="password"]').fill(ADMIN_PW);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  // Post-login landing page = the "My workspaces" dashboard
+  await page.getByText('My workspaces').waitFor();
+}
+
+// Repeatable E2E: every run uploads a NEW workspace, and without a clean slate
+// the quota (MAX_WORKSPACES_PER_USER = 10) fills up after two full runs. These
+// workspaces are E2E-created only, so physically deleting them (creator role,
+// A-M2) is safe. page.request shares the page's session cookie.
+async function cleanWorkspaces(page) {
+  const res = await page.request.get(`${BASE}/api/workspaces`);
+  if (!res.ok()) return;
+  const body = await res.json();
+  for (const w of body.workspaces || []) {
+    await page.request.delete(`${BASE}/api/me/workspaces/${w.ws_id}`);
+  }
+}
+
 test.describe('SQL Data Flow Debugger', () => {
+
+  test.beforeAll(async ({ request }) => {
+    // Bootstrap the test account (gate-exempt admin endpoint, force=true).
+    const res = await request.post(`${BASE}/api/admin/users`, {
+      data: { username: ADMIN_USER, password: ADMIN_PW, force: true },
+    });
+    expect(res.ok()).toBeTruthy();
+  });
 
   test.beforeEach(async ({ page }) => {
     await page.goto(BASE);
-    // Click Data Flow Debugger tab
-    await page.getByRole('button', { name: 'Data Flow Debugger' }).click();
-    // Upload test data
-    const fileChooserPromise = page.waitForEvent('filechooser');
-    await page.getByText('Upload .zip').click();
-    const fileChooser = await fileChooserPromise;
-    await fileChooser.setFiles(TEST_ZIP);
-    // Wait for indexing
+    await login(page);
+    // Remove workspaces left by previous runs so uploads never hit the quota.
+    await cleanWorkspaces(page);
+    // Upload from the dashboard ("+ Upload a folder (zip)")
+    await page.setInputFiles('input[type="file"][accept=".zip"]', TEST_ZIP);
+    // Wait for the debugger to open the new workspace + index
     await page.waitForTimeout(5000);
   });
 
