@@ -10,8 +10,9 @@ if [ -z "$VERSION" ]; then
     echo "❌ VERSION file missing or empty — aborting deploy" >&2
     exit 1
 fi
-sed -i -E 's|(<meta name="version" content=")[^"]*(")|\1'"$VERSION"'\2|' frontend/dist/index.html
-if ! grep -q "name=\"version\" content=\"${VERSION}\"" frontend/dist/index.html; then
+VERSION_SED=$(printf '%s' "$VERSION" | sed 's/[&\\|]/\\&/g')
+sed -i -E 's|(<meta name="version" content=")[^"]*(")|\1'"$VERSION_SED"'\2|' frontend/dist/index.html
+if ! grep -qF -- "name=\"version\" content=\"${VERSION}\"" frontend/dist/index.html; then
     echo "❌ Failed to stamp v$VERSION into frontend/dist/index.html" >&2
     exit 1
 fi

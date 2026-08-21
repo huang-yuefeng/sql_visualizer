@@ -45,3 +45,6 @@ tools/e2e_test/ocr_lines_tmp.js
 
 # Build/image artifacts (N7 hygiene — keep out of git)
 *.tar.gz
+
+# Playwright test artifacts (never commit — auto-generated per run)
+test-results/

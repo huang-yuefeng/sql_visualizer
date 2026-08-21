@@ -258,7 +258,7 @@ then re-runs the **full extraction pipeline per matched script on every search**
 (`analyze_multiple_scripts` → `run_full_analysis`: sqlglot parse + variable extraction +
 dependency graph + line map + graph build), even though the index already wrote the
 identical result to `analysis_{cache_key}.json` (key = md5(EXTRACTOR_VERSION + "|" +
-script_name + sql_text)). Each script is fully parsed at index **and** once per search
+rel_path + sql_text)). Each script is fully parsed at index **and** once per search
 (N+1 parses). Measured ≈ 197 ms/script (84% = extraction); a search matching N scripts
 costs ≈ N × 200 ms/request. **Gap:** uploading only the table→column CSV (no script→table)
 leaves the script scope unconstrained (`allowed_scripts = None`), so the search then
@@ -316,3 +316,26 @@ the L2 edge-click flow-cone highlight is a separate handler and is unchanged.
 **R31 (multi-user / login): design-settled 2026-08-19 — NOT yet implemented.**
 Traceable in `wiki/REQUIREMENTS_TRACEABILITY.md`; the design note is
 `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`. Implementation awaits go.
+
+---
+
+### R30 — L2 edge flow-direction display: mid-arrow + structure/flow color split + click-edge flow cone + ROW_FLOW (formal requirement + solution rows, 2026-08-21)
+
+The amendments above ("click-edge flow cone", "L2 edge styling: uniform style +
+mid-point arrow", "add a dedicated row-level edge type `ROW_FLOW`") are consolidated
+here as the **formal R30 rows**. Every row is ✅ implemented and verified against the
+live source. The v3.3.159/160 additions (cache reuse #242, tooltip removal #240, the
+two-view toggle #247, Case1 autocomplete #245, C-H1 cache guard #248) are tracked as
+R30.6–R30.10 in `wiki/REQUIREMENTS_TRACEABILITY.md`.
+
+| ID | Requirement | Solution (implemented, verified) |
+|----|-------------|-----------------------------------|
+| R30.1 | Two edge classes, two color systems: value flow keeps per-type color; structure (`SCHEMA`/`ALIAS`/`SUBSET`) gets one uniform gray; `TABLE_FLOW` re-categorized out of "structure" (value flow) | v3.3.157 (#224/#225) — `L2_UNIFORM_EDGE_STYLES` (`frontend/src/utils/graphStyles.js:1036`); `CATEGORY_MAP` moves `TABLE_FLOW` → `"flow"` and keeps `SCHEMA`/`ALIAS`/`SUBSET` → `"structure"` (`backend/app/services/graph_service.py`) |
+| R30.2 | Mid-point direction arrow on value-flow edges (native `mid-target-arrow-shape`), oriented `source → target` — not at the line end (covered by node labels); structure edges carry no arrow | v3.3.157 (#224/#225) — `target-arrow-shape: 'none'` + `mid-target-arrow-shape: 'triangle'` in `L2_UNIFORM_EDGE_STYLES` (`graphStyles.js:1049-1051`); applied to every L2 edge via the `.l2-uniform` class |
+| R30.3 | Click-edge flow cone (two colors), anchored to the edge's own flow direction: **before** (green `#2ECC71`) = value-flow edges upstream of the clicked edge; **after** (blue `#2196F3`) = value-flow edges downstream; the clicked edge is the red `#FF3B30` **pivot** with class `flow-cone-pivot`; non-cone edges dimmed | v3.3.157/158 (#222 + recolor #239) — `computeFlowCone`/`applyFlowCone`/`clearFlowCone` (`frontend/src/components/DataFlowGraph.jsx:37-132`); cone classes `flow-cone-before`/`flow-cone-after`/`flow-cone-pivot`/`flow-cone-dimmed` + `L2_FLOW_CONE_COLORS` (`graphStyles.js:1020-1034`); applied on L2 edge tap, cleared on canvas tap |
+| R30.4 | Value-flow only: structure edges are never part of the cone, never highlighted | v3.3.157 (#222) — `STRUCTURE_EDGE_TYPES = {SCHEMA, ALIAS, SUBSET}` excludes them from the cone BFS traversal (`DataFlowGraph.jsx:28,50`) |
+| R30.5 | No animation (static one-shot class toggle); L2 only — L1 keeps its static arrows | v3.3.157 (#222) — one-shot `addClass`/`removeClass`; `applyFlowCone` invoked only when `level === 'L2'` (`DataFlowGraph.jsx:174-176`) |
+| R30.11 | **`ROW_FLOW`** — the 17th edge type: row-level flow bridge emitted by the L2 walker's R29 continuation (the searched field's row-selection effect into a downstream statement's rows, e.g. subquery output `⟐ t` → CTE `temp_kmbh_gl`); flow-class edge (arrow + highlightable), shares the uniform line style — its *type name* distinguishes it, not a color | v3.3.155 (#226) — `ROW_FLOW` in `EDGE_TYPE_STYLE` (#2ECC71 solid width 2) + category `"flow"` (`backend/app/services/graph_service.py`); emitted by `compute_field_flow`'s continuation rounds (`backend/app/extractor/lineage.py`); documented in `backend/app/models/sql_model.py`; rendered as "row flow" by `highlight_strategies.py` |
+
+> Numbering matches `wiki/REQUIREMENTS_TRACEABILITY.md`: R30.6–R30.10 are the
+> v3.3.159/160 amendments (see their own amendment entries above); R30.11 is `ROW_FLOW`.
