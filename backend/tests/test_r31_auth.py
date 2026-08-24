@@ -4,8 +4,11 @@ remove-from-history, layout CAS, notifications, visit lifecycle.
 These run IN-PROCESS with the login gate OFF (REQUIRE_LOGIN defaults false
 so the rest of the suite stays green): the session routes still enforce
 their own auth via `require_login`, and the workspace router treats the
-caller as the synthetic "dev-user". The gate-ON behavior is covered by
-test_r31_gate.py (subprocess with REQUIRE_LOGIN=true).
+caller as the synthetic "dev-user". Gate-ON behavior is covered two ways:
+the `_gate_on` monkeypatch fixture (below) flips `app.main.REQUIRE_LOGIN`
+in-process to exercise the #293 public-exemption surface, and
+test_r31_gate.py runs a subprocess with REQUIRE_LOGIN=true for the
+end-to-end gate itself.
 
 Settled design: wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md +
 wiki/R31_IMPLEMENTATION.md.
@@ -17,6 +20,7 @@ import zipfile
 import pytest
 from fastapi.testclient import TestClient
 
+from app import main as app_main
 from app.main import app
 from app.services import auth_service
 from app.services.audit_service import read_activity, read_audit
@@ -312,3 +316,35 @@ def test_open_visit_requires_live_session():
     # a stale token must not create a visit record
     auth_service.open_visit("no-such-token", "whatever")
     assert not auth_service.session_has_visit("no-such-token", "whatever")
+
+
+# --- #293: SQL Analysis is public (login-gate exempt) --------------------
+
+# The gate reads REQUIRE_LOGIN as a module-level global in app.main (imported
+# by value from app.config), so toggling it in-process must rebind the name on
+# app.main. The rest of this module runs with the gate OFF (default); these
+# tests force it ON for their own scope and rely on the autouse _cleanup
+# fixture to guarantee an empty session store (no session cookie).
+
+@pytest.fixture
+def _gate_on(monkeypatch):
+    """Force the login gate ON for the test (REQUIRE_LOGIN=true)."""
+    monkeypatch.setattr(app_main, "REQUIRE_LOGIN", True)
+
+
+def test_analysis_list_scripts_public_while_gate_on(_gate_on):
+    """#293: GET /api/scripts is reachable without a session."""
+    r = client.get("/api/scripts")
+    assert r.status_code == 200
+
+
+def test_analyze_public_while_gate_on(_gate_on):
+    """#293: POST /api/analyze is reachable without a session (not 401)."""
+    r = client.post("/api/analyze", data={"sql_text": "SELECT 1"})
+    assert r.status_code == 200
+
+
+def test_gate_still_covers_protected_endpoint(_gate_on):
+    """#293: Data Flow Debugger routes stay gated without a session."""
+    r = client.get("/api/workspace")
+    assert r.status_code == 401

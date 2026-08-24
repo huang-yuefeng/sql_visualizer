@@ -37,7 +37,8 @@ def main():
     r = client.get("/api/health")
     check(r.status_code == 200, f"health should be public, got {r.status_code}")
 
-    # every other /api/* is gated behind a session cookie
+    # the debugger endpoints below are gated behind a session cookie
+    # (SQL-Analysis /api/analyze* and /api/scripts are public — #293)
     for path in ("/api/workspaces", "/api/auth/me", "/api/workspace"):
         r = client.get(path)
         check(r.status_code == 401, f"{path} should 401 without session, got {r.status_code}")

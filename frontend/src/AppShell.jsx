@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import App from './App';
 import DataFlowApp from './DataFlowApp';
-import LoginPage from './components/LoginPage';
+import LoginForm from './components/LoginForm';
 import MyWorkspaces from './components/MyWorkspaces';
 import NotificationBell from './components/NotificationBell';
 import HistoryPanel from './components/HistoryPanel';
@@ -43,13 +43,17 @@ function PersistentPanel({ show, children }) {
 }
 
 /**
- * R31 session-aware shell — the front door before every page.
+ * R31/#293 session-aware shell.
  *
- * - On mount: GET /api/auth/me. 401 → LoginPage; 200 → the app.
+ * - On mount: GET /api/auth/me. 401 → logged-out shell (dataflow tab shows
+ *   the login form in its left panel); 200 → full shell.
+ * - The top bar (mode tabs) is ALWAYS rendered. Only the Data Flow Debugger
+ *   needs login — the SQL Analysis tab renders App.jsx logged-out.
  * - After login the "My workspaces" dashboard is the landing page; opening
  *   a workspace mounts DataFlowApp behind the gate.
- * - Top bar: mode tabs (kept), username chip, notification bell, workspace
- *   History + Close controls, theme toggle, logout.
+ * - Top bar: mode tabs, username chip, notification bell, workspace
+ *   History + Close controls, theme toggle, logout (logged-out: tabs +
+ *   theme toggle only).
  * - `?ws={id}` opens a shared workspace link (design §3) once logged in.
  */
 export default function AppShell() {
@@ -120,6 +124,14 @@ export default function AppShell() {
     return result;
   }, [openWorkspace]);
 
+  // Theme toggle — always visible in the top bar, logged in or not.
+  const themeToggle = (
+    <button className="theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+      title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
+      {theme === 'dark' ? '☀️' : '🌙'}
+    </button>
+  );
+
   if (!checked) {
     return (
       <ErrorBoundary>
@@ -129,10 +141,6 @@ export default function AppShell() {
         </div>
       </ErrorBoundary>
     );
-  }
-
-  if (!me) {
-    return <ErrorBoundary><LoginPage onLogin={handleLogin} /></ErrorBoundary>;
   }
 
   return (
@@ -152,7 +160,7 @@ export default function AppShell() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingRight: 12 }}>
-          {activeWsId && (
+          {me && activeWsId && (
             <>
               <button
                 onClick={() => setHistoryOpen(true)}
@@ -170,31 +178,47 @@ export default function AppShell() {
               </button>
             </>
           )}
-          <NotificationBell username={me.username} />
-          <span style={{
-            fontSize: 12, color: 'var(--ink-600)', border: '1px solid var(--border-strong)',
-            borderRadius: 12, padding: '3px 10px', background: 'var(--bg-surface)',
-            maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }} title={me.username}>
-            👤 {me.username}
-          </span>
-          <button className="theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
-            {theme === 'dark' ? '☀️' : '🌙'}
-          </button>
-          <button
-            onClick={handleLogout}
-            title="Log out (ends this session's visits)"
-            style={{ background: 'none', border: '1px solid var(--border-strong)', borderRadius: 6,
-              cursor: 'pointer', fontSize: 12, color: 'var(--danger)', padding: '4px 10px' }}>
-            Log out
-          </button>
+          {me ? (
+            <>
+              <NotificationBell username={me.username} />
+              <span style={{
+                fontSize: 12, color: 'var(--ink-600)', border: '1px solid var(--border-strong)',
+                borderRadius: 12, padding: '3px 10px', background: 'var(--bg-surface)',
+                maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }} title={me.username}>
+                👤 {me.username}
+              </span>
+              {themeToggle}
+              <button
+                onClick={handleLogout}
+                title="Log out (ends this session's visits)"
+                style={{ background: 'none', border: '1px solid var(--border-strong)', borderRadius: 6,
+                  cursor: 'pointer', fontSize: 12, color: 'var(--danger)', padding: '4px 10px' }}>
+                Log out
+              </button>
+            </>
+          ) : (
+            // Logged out — minimal top bar: tabs + theme toggle only.
+            themeToggle
+          )}
         </div>
       </div>
 
-      {/* ── Content behind the gate ── */}
+      {/* ── Content (no full-screen gate) ── */}
       <PersistentPanel show={mode === 'dataflow'}>
-        {activeWsId ? (
+        {!me ? (
+          // #293: logged out — login lives in the left panel of the debugger.
+          <div className="dataflow-layout">
+            <div className="dataflow-main">
+              <div className="panel-left">
+                <LoginForm onLogin={handleLogin} />
+              </div>
+              <div className="panel-center">
+                <div className="empty-state">Sign in to use the Data Flow Debugger</div>
+              </div>
+            </div>
+          </div>
+        ) : activeWsId ? (
           <DataFlowApp
             key={activeWsId}
             openWorkspaceId={activeWsId}

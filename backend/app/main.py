@@ -191,10 +191,11 @@ async def health_check():
 
 
 # R31 login gate (A-M7): when REQUIRE_LOGIN is on, every /api/* endpoint
-# except health (and the login endpoint itself) requires a valid session
-# cookie; state-changing methods also pass a same-origin check
-# (Origin/Referer must match the service host). The static frontend stays
-# public — the SPA itself redirects to the login page on a 401.
+# except the public prefixes below (health, login, admin bootstrap, and the
+# #293 SQL-Analysis endpoints) requires a valid session cookie;
+# state-changing methods also pass a same-origin check (Origin/Referer must
+# match the service host). The static frontend stays public — on a 401 the
+# SPA renders the login form in the Data Flow Debugger's left panel (#293).
 from urllib.parse import urlparse
 
 from fastapi import Request
@@ -204,21 +205,30 @@ from app.config import REQUIRE_LOGIN
 from app.routers.auth import SESSION_COOKIE
 from app.services import auth_service
 
+# #293: SQL Analysis is public (login-gate exempt) — the Data Flow Debugger
+# is the only part that requires login. /api/health and /api/auth/login have
+# always been exempt; /api/admin/* is the gate-exempt BOOTSTRAP hole that
+# provisions the FIRST account ("default first provisioned user", R31 impl
+# §2.5): on a fresh deploy no account exists to log in with, so POST
+# /api/admin/users must be reachable without a session. It only ever targets
+# ADMIN_USERNAME and never reads existing data, so the exposed surface is
+# minimal.
+PUBLIC_API_PREFIXES = (
+    "/api/health",
+    "/api/auth/login",
+    "/api/admin",
+    "/api/analyze",        # SQL Analysis (public — #293)
+    "/api/analyze_multi",  # SQL Analysis (public — #293)
+    "/api/scripts",        # SQL Analysis (public — #293)
+)
+
 
 @app.middleware("http")
 async def login_gate(request: Request, call_next):
     if REQUIRE_LOGIN:
         path = request.url.path
-        # Exemptions: /api/health (public), /api/auth/login (session creation
-        # itself), and /api/admin/* — the admin endpoint is the gate-exempt
-        # BOOTSTRAP hole that provisions the FIRST account ("default first
-        # provisioned user", R31 impl §2.5): on a fresh deploy no account
-        # exists to log in with, so POST /api/admin/users must be reachable
-        # without a session. It only ever targets ADMIN_USERNAME and never
-        # reads existing data, so the exposed surface is minimal.
-        if path.startswith("/api/") and path != "/api/health" \
-                and not path.startswith("/api/auth/login") \
-                and not path.startswith("/api/admin/"):
+        if path.startswith("/api/") and not any(
+                path.startswith(p) for p in PUBLIC_API_PREFIXES):
             token = request.cookies.get(SESSION_COOKIE)
             if auth_service.get_session(token) is None:
                 return JSONResponse({"detail": "Not logged in"}, status_code=401)

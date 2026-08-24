@@ -288,14 +288,14 @@ export default function DataFlowGraph(props) {
         {level === 'L2' && flowOnly !== null && onFlowOnlyChange && (
           <label
             className="flow-only-toggle"
-            title="仅目标字段流向: show only the nodes/edges carrying the searched field (View 1); off = the full script graph (View 2). Positions never change."
+            title="Flow only: show only the nodes/edges carrying the searched field (View 1); off = the full script graph (View 2). Positions never change."
           >
             <input
               type="checkbox"
               checked={flowOnly === true}
               onChange={(e) => onFlowOnlyChange(e.target.checked)}
             />
-            仅目标字段流向
+            Flow only
           </label>
         )}
       </div>

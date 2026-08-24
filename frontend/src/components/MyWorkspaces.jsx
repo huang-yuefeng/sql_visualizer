@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import * as api from '../api/client';
 
 /**
@@ -18,7 +18,9 @@ export default function MyWorkspaces({ open, onOpen, onUpload }) {
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [zipping, setZipping] = useState(false);
   const [resumeId, setResumeId] = useState('');
+  const folderRef = useRef(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -50,9 +52,7 @@ export default function MyWorkspaces({ open, onOpen, onUpload }) {
     }
   };
 
-  const handleUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const uploadZip = useCallback(async (file) => {
     setUploading(true);
     setError(null);
     try {
@@ -62,7 +62,41 @@ export default function MyWorkspaces({ open, onOpen, onUpload }) {
       setError(err.message || 'Upload failed');
     } finally {
       setUploading(false);
-      e.target.value = '';
+    }
+  }, [onUpload, refresh]);
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    await uploadZip(file);
+  };
+
+  // #286: same folder picker as the debugger (WorkspacePanel.handleFolder) —
+  // select a folder, pack it to zip client-side (JSZip), then upload. The
+  // R31 dashboard used to be zip-only; the debugger's "Select Folder" is
+  // unreachable until a workspace is open, so a fresh user could never
+  // upload a folder at all (chicken-and-egg).
+  const handleFolder = async (e) => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (files.length === 0) return;
+    setZipping(true);
+    setError(null);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      files.forEach(f => {
+        const relPath = f.webkitRelativePath || f.name;
+        zip.file(relPath, f);
+      });
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const name = files[0].webkitRelativePath?.split('/')[0] || 'workspace';
+      await uploadZip(new File([blob], `${name}.zip`));
+    } catch (err) {
+      setError(err && err.message ? err.message : 'Folder packing failed');
+    } finally {
+      setZipping(false);
     }
   };
 
@@ -132,12 +166,22 @@ export default function MyWorkspaces({ open, onOpen, onUpload }) {
       </ul>
 
       <label style={{
-        display: 'block', marginTop: 8, textAlign: 'center', cursor: uploading ? 'default' : 'pointer',
+        display: 'block', marginTop: 8, textAlign: 'center', cursor: uploading || zipping ? 'default' : 'pointer',
         padding: '7px 0', borderRadius: 6, border: '1px dashed var(--border-strong)',
         color: 'var(--accent)', fontSize: 12, fontWeight: 600,
       }}>
-        {uploading ? 'Uploading…' : '+ Upload a folder (zip)'}
-        <input type="file" accept=".zip" onChange={handleUpload} style={{ display: 'none' }} />
+        {zipping ? 'Packing folder…' : uploading ? 'Uploading…' : '📁 Select Folder'}
+        <input type="file" webkitdirectory="" directory="" multiple
+          ref={folderRef} onChange={handleFolder}
+          style={{ display: 'none' }} disabled={uploading || zipping} />
+      </label>
+      <label style={{
+        display: 'block', marginTop: 6, textAlign: 'center', cursor: uploading || zipping ? 'default' : 'pointer',
+        padding: '7px 0', borderRadius: 6, border: '1px solid var(--border-strong)',
+        color: 'var(--ink-600)', fontSize: 12, fontWeight: 600,
+      }}>
+        + Upload a folder (zip)
+        <input type="file" accept=".zip" onChange={handleUpload} style={{ display: 'none' }} disabled={uploading || zipping} />
       </label>
 
       {/* R31 §5.5: workspace-id resume box — any logged-in user who knows the
