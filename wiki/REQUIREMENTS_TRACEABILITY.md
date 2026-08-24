@@ -1,7 +1,7 @@
-# Requirements Traceability Matrix — V3.3.160
+# Requirements Traceability Matrix — V3.3.163
 
 > Maps all requirements from REQUIREMENTS.md to implementation status.
-> Last updated: 2026-08-21 (R30 formal rows written — flow cone + ROW_FLOW; R30.8 reworded to the single-view visibility toggle; R4.5 tooltip row corrected; R31 design settled — awaiting go)
+> Last updated: 2026-08-24 (#286 R31 regression fixed — dashboard folder upload restored; R31 status → released v3.3.162, E-series review fixes pending)
 
 ## Legend
 - ✅ Implemented & verified
@@ -13,7 +13,7 @@
 | ID | Requirement | Status | Notes |
 |----|------------|--------|-------|
 | R1.1 | Upload folder (zip) | ✅ | Upload .zip button works |
-| R1.2 | Direct folder upload (no zip) | ✅ | "Select Folder" button uses webkitdirectory + JSZip client-side |
+| R1.2 | Direct folder upload (no zip) | ✅ | "Select Folder" (webkitdirectory + JSZip client-side packing) is available on BOTH the dashboard (`MyWorkspaces.jsx`) and the debugger (`WorkspacePanel.jsx`). #286: R31 released v3.3.162 zip-only on the dashboard, which hid the picker behind the debugger (unreachable on a fresh account — chicken-and-egg); restored 2026-08-24 |
 | R1.3 | Hierarchical file tree display | ✅ | FolderTree component in left panel |
 | R1.4 | SQL files clickable, non-SQL grayed | ✅ | is_sql flag, non-SQL dimmed and not clickable |
 | R1.5 | Multi-select scripts/folders with checkboxes | ✅ | Checkboxes with [deselect all] |
@@ -251,14 +251,14 @@
 | R30.5 | No animation (static one-shot class toggle); L2 only — L1 keeps its static arrows | ✅ | R30 (2026-08-13) — implemented v3.3.157 (#222) |
 | R30.6 | Search-after-filter extraction-cache reuse | ✅ | #242 — v3.3.159 — repeated searches after a filter change reuse the extraction cache |
 | R30.7 | L2 edge-hover tooltip REMOVED | ✅ | #240 — v3.3.159 (commit a77dfdd) — L2 edge hover tooltip (edge type, counts) removed |
-| R30.8 | L2 single-view visibility toggle (View 1 flow-only ↔ View 2 full) | ✅ | #247 — v3.3.160 — in ONE open L2 view, a checkbox toggles between View 1 (only the searched field's flow closure: `flow_node_ids`/`flow_edge_ids`) and View 2 (the full script graph); pure `.show()/.hide()` visibility — positions preserved, never a re-layout |
+| R30.8 | L2 single-view visibility toggle (View 1 flow-only ↔ View 2 full) | ✅ | #247 — v3.3.160 — in ONE open L2 view, a checkbox toggles between View 1 (only the searched field's flow closure: `flow_node_ids`/`flow_edge_ids`) and View 2 (the full script graph); pure `.show()/.hide()` visibility — positions preserved, never a re-layout. **2026-08-24 (user ruling)**: the toggle label must be English — "Flow only" (the button previously read 仅目标字段流向; UI is English-only, Chinese is allowed solely inside the SQL script content) — see #290 |
 | R30.9 | Case1 autocomplete EAST5_SSTZFXXB fix | ✅ | #245 — v3.3.160 — Case1 table autocomplete fixed for EAST5_SSTZFXXB |
 | R30.10 | C-H1 L1 cache staleness guard | ✅ | #248 — v3.3.160 — L1 cache staleness guard added |
 | R30.11 | ROW_FLOW — the 17th edge type: row-level flow bridge emitted by the L2 walker's R29 continuation (the searched field's row-selection effect into a downstream statement's rows, e.g. subquery output `⟐ t` → CTE `temp_kmbh_gl`) | ✅ | #226 — v3.3.155 — flow-class edge (arrow + highlightable), shares the uniform line style; `ROW_FLOW` in `EDGE_TYPE_STYLE` (#2ECC71 solid width 2) + category "flow" (`backend/app/services/graph_service.py`), documented in `sql_model.py`, emitted by `compute_field_flow`'s continuation rounds (`backend/app/extractor/lineage.py`), rendered "row flow" by `highlight_strategies.py` |
 
-## R31 — Multi-user identity & workspace collaboration (2026-08-19, design settled — awaiting go)
+## R31 — Multi-user identity & workspace collaboration (2026-08-19, RELEASED v3.3.162)
 
-> Design note `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`; CODE_REVIEW_2026-08-19 Part A flags High-severity design flaws (A-H1..A-H4) that must be resolved before implementation.
+> Design note `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`. Released v3.3.162 (task #251). The 2026-08-19 re-review (Part E) found follow-up fixes still pending: E-H2 (#270), E-H4 (#272), E-H5 (#273), E-M2 (#277), E-M7 (#282), E-M8 (#283), E-M9 (#284), visit-logging removal (#285), config-provisioned users only (#269). #286 (2026-08-24): dashboard folder-upload regression fixed (see R1.2). #292/#293 (2026-08-24) — view-tree restore + login-into-left-panel
 
 | ID | Requirement | Status | Notes |
 |----|------------|--------|-------|
@@ -275,6 +275,8 @@
 | R31.11 | **Password recovery = re-register** (replaces the old account's inbox + index; workspaces unaffected) | 📝 | R31 (2026-08-19) |
 | R31.12 | **One global heavy-op gate** (debugger search + `/analyze` + `/analyze_multi`): while one runs, a new one returns HTTP 409 "system busy — please wait" | 📝 | R31 (2026-08-19) |
 | R31.13 | **Migration**: pre-feature workspaces (no creator) removed directly at rollout; concurrent same-file write loss **accepted** (low concurrency) with atomic temp+rename so files never corrupt | 📝 | R31 (2026-08-19) |
+| R31.14 | **#292 L1/L2 view tree not restored on opening a stored workspace** — the left-panel view tree (search views + their L2 children) is persisted server-side in views.json but the frontend never loads it on open (`listViews` in `frontend/src/api/client.js` is defined but never called; `handleOpenExisting` in `frontend/src/DataFlowApp.jsx` does resume→scan→index and skips views) | 📝 | #292 (2026-08-24) |
+| R31.15 | **#293 Login merged into the data flow debugger's left panel** — the full-screen LoginPage gate is removed; the login form lives in the debugger's left panel. ONLY the Data Flow Debugger requires login — SQL Analysis (legacy `/api/analyze`, `/api/analyze_multi`, `/api/scripts`) is public (exempt from the `login_gate` middleware via `PUBLIC_API_PREFIXES` in `backend/app/main.py`). Caveat: `DELETE /api/scripts` (clears the analysis cache) also becomes public — accepted for an internal tool | 📝 | #293 (2026-08-24) |
 
 ## Summary
 | Metric | Count |

@@ -112,6 +112,11 @@ graph cache (still deferred, #252).
 ### 2.7 `backend/app/main.py` — gate, worker pin, migration
 
 - **Login gate middleware**: every `/api/*` route except `/api/health` (and the static frontend) requires a valid session cookie → 401. Implement as a dependency applied at router registration (or `@app.middleware("http")` that checks the path prefix and cookie; static mount stays public but the SPA itself redirects to the login page).
+  **#293 (2026-08-24)**: only the Data Flow Debugger needs login — the legacy analysis
+  endpoints (`/api/analyze`, `/api/analyze_multi`, `/api/scripts`) are exempt via
+  `PUBLIC_API_PREFIXES` (alongside `/api/health`, `/api/auth/login`, `/api/admin/*`);
+  SQL Analysis works logged-out. Caveat: `DELETE /api/scripts` (clears the analysis
+  cache) also becomes public — accepted for an internal tool.
 - **Same-origin check** (A-M7): on state-changing methods (POST/PUT/DELETE), verify `Origin`/`Referer` host == the service host; else 403.
 - **Single worker**: the run command / Dockerfile CMD pins `--workers 1` (A-M8). Document that multi-worker is a misconfiguration.
 - **Migration at rollout** (design §6): delete legacy workspaces without `creator_username` (user-confirmed, no backup); remove the 24h auto-cleanup (C1); write a startup note when the audit.log is first created.
@@ -185,17 +190,39 @@ runs, a new one → `409 "system busy — please wait"`. Use an `asyncio`/thread
 ## 7. Frontend
 
 ### 7.1 Session-aware shell (`AppShell.jsx`)
+- **No full-screen gate (2026-08-24, #293)**: the `!me → <LoginPage/>` gate is removed.
+  The top bar with the mode tabs (**Data Flow Debugger** / **SQL Analysis**) is **always
+  visible**, logged in or out. In the dataflow tab an unauthenticated user sees the
+  debugger shell layout with only the login form in the **left panel** (a `.panel-left`
+  `<LoginForm/>`) and a one-line hint in the center (`.empty-state`
+  "Sign in to use the Data Flow Debugger"); nothing else in the dataflow tab is usable
+  logged-out. The **SQL Analysis** tab renders `App.jsx` with **no login** (only the
+  Data Flow Debugger needs login — legacy `/api/analyze`, `/api/analyze_multi`,
+  `/api/scripts` are exempt from the `login_gate` middleware, §2.7). Logged in:
+  unchanged — `MyWorkspaces` dashboard (no workspace open) or `DataFlowApp` (workspace
+  open); a `?ws=` shared link opened logged-out opens its workspace after login.
 - On mount: `GET /api/auth/me`.
-  - 401 → render **LoginPage** (username + password; on 401 show "account not provisioned /
-    bad password"; "Forgot password" → "contact the administrator for a reset", A-H1).
+  - 401 → the dataflow tab shows the **left-panel login form + center hint** (no blocking
+    page); the analysis tab still works logged-out.
   - 200 + user's index → render **MyWorkspaces dashboard**: list (role, last-opened,
     quota meter `{count}/{cap}`), per-row **Open** / **Remove** (creator → warning dialog
     "this physically deletes the workspace for everyone"; participant → light confirm),
-    **workspace-id resume box**, notification bell (unread badge + inbox panel).
-  - Opening a workspace → render the existing `DataFlowApp`/`App` behind the gate.
+    **workspace-id resume box**, notification bell (unread badge + inbox panel),
+    **workspace upload** — both "📁 Select Folder" (webkitdirectory + JSZip client-side
+    packing, mirroring the debugger's `WorkspacePanel.handleFolder`) and "+ Upload a
+    folder (zip)".
+  - Opening a workspace → render the existing `DataFlowApp`/`App`.
+
+  **#286 (2026-08-24)**: R31 released v3.3.162 with the dashboard **zip-only** — the
+  webkitdirectory "Select Folder" picker lived only inside the debugger
+  (`WorkspacePanel.jsx`), which requires an already-open workspace, so a fresh account
+  (empty list) could never upload a folder (chicken-and-egg). Fixed by adding the
+  folder picker to the dashboard's `MyWorkspaces.jsx`; deployed 2026-08-24.
 
 ### 7.2 New components
-- `frontend/src/components/LoginPage.jsx`
+- `frontend/src/components/LoginForm.jsx` (form-only, embedded in the debugger's left
+  panel — extracted from the deleted `LoginPage.jsx`; keeps the Playwright selectors:
+  a `<form>`, username `you@hsbc.com`, one `input[type="password"]`, "Sign in")
 - `frontend/src/components/MyWorkspaces.jsx` (dashboard + quota meter + remove dialogs + resume box)
 - `frontend/src/components/NotificationBell.jsx` (unread badge, inbox, mark-read)
 - `frontend/src/components/HistoryPanel.jsx` (activity log viewer)
