@@ -279,8 +279,14 @@ processes all scripts referencing the field — "search on full scripts".
   File 2 is ABSENT, the File-1-only scope (or unconstrained, if neither file is
   uploaded) is preserved unchanged (`filter_service.py`). This closes the File-2-only
   gap and removes the File-1 dependence when File 2 is present.
-- **Final-L1-graph cache: DEFERRED** (not in this release) — parts 1+2 already remove the
-  dominant cost; the extra invalidation surface is not worth the marginal win now.
+- **Final-L1-graph cache: IMPLEMENTED (#252, v3.3.164)** — the deferred part is now in:
+  `_build_l1_graph` memoizes on `(analysis_cache_signature, matched_script_file_signature,
+  ws_id, script_names, table, field, direction)` via `_l1_graph_memo` (LRU cap 192), and
+  the analysis-cache map is memoized per ws_id on the cache-dir file-set/mtime
+  (`_analysis_map_lru`, cap 12; J12-11 #193). Invalidation is file-signature-driven
+  (SHA-256 over `(name, mtime_ns, size)`), so an edited script, re-index, or analysis
+  rewrite all bust the memo without a cache-key bump; `degraded` results are never
+  memoized. Backend suite + Jaccard gate stay green.
 
 **Status: ✅ implemented (v3.3.159).** Pass A is cache-aware (`_lookup_analysis` +
 `extractor_version` guard, mirror of `dataflow_service.py:530-543`; single-script inline path

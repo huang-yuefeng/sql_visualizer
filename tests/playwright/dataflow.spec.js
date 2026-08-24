@@ -6,13 +6,12 @@ const TEST_ZIP = '/home/huangyf/work/sql_visualizer/samples/multi_workflow.zip';
 
 // R31: the login gate is ON in production (start.py sets REQUIRE_LOGIN=1), and
 // /api/auth/me always requires a session — the SPA shows the login page before
-// anything else. The admin endpoint (POST /api/admin/users) is the gate-exempt
-// BOOTSTRAP hole (R31 impl §2.5): on a fresh deploy no account exists to log in
-// with, so it provisions the FIRST account (admin@hsbc.com) without a session.
-// beforeAll seeds it (force=true = idempotent across runs; users.json persists),
-// beforeEach logs in. The endpoint only ever targets ADMIN_USERNAME.
+// anything else. Accounts are provisioned from CONFIG (PROVISIONED_USERS) at
+// startup only — the gate-exempt POST /api/admin/users bootstrap is REMOVED
+// (R31 #269). The login below uses the config default admin account
+// (admin@hsbc.com / 123456).
 const ADMIN_USER = 'admin@hsbc.com';
-const ADMIN_PW = 'sqlviz-e2e-secret';
+const ADMIN_PW = '123456';
 
 // R29 made upstream (writing flow) the default search direction. crm_customers
 // is a SOURCE table — it has no writing flow, so querying it yields an empty
@@ -82,14 +81,6 @@ async function cleanWorkspaces(page) {
 }
 
 test.describe('SQL Data Flow Debugger', () => {
-
-  test.beforeAll(async ({ request }) => {
-    // Bootstrap the test account (gate-exempt admin endpoint, force=true).
-    const res = await request.post(`${BASE}/api/admin/users`, {
-      data: { username: ADMIN_USER, password: ADMIN_PW, force: true },
-    });
-    expect(res.ok()).toBeTruthy();
-  });
 
   test.beforeEach(async ({ page }) => {
     await page.goto(BASE);

@@ -18,6 +18,15 @@
 > check + HTTP residual risk documented; A-M8 single uvicorn worker enforced; A-M9 restart loses
 > open-visit flush accepted; A-M10 open_visits keyed by session, username in memos).
 > **All A-M items resolved 2026-08-21.**
+>
+> **R31 backend follow-ups resolved 2026-08-24 (see `REQUIREMENTS_TRACEABILITY.md`
+> R31.16–R31.22):** #269 provisioning is config-only (`PROVISIONED_USERS`, no `/api/admin/users`
+> endpoint); #270 bare `DELETE /api/workspace` (cleanup-all) removed; #272 L2 layout keys persist
+> (opened_l2s prune removed) + layout editing is creator-only; #273 heavy-op gate wired into search
+> + `/analyze` + `/analyze_multi` (409 "system busy — please wait"); #279 **ZERO session expiry**
+> (no 30-min idle); #280 same-origin check kept (decision only, no code); #285 **per-user visit
+> logging dropped** (`visit_service.py` deleted, `close_workspace` is a no-op 200). Sections below
+> annotated accordingly.
 
 > Design note — revised 2026-08-19 (6th revision). Email is **dropped** (no usable
 > mail path on the target network). Replaced with **local accounts (`@hsbc.com` usernames) + IP
@@ -38,8 +47,9 @@ Make the SQL Data Flow Visualizer a multi-user service where:
 1. **A login entrance page gates every page of the service** — no page is reachable before login.
    Users log in with their HSBC-postfix email **`user_name@hsbc.com`** (format enforced, validated
    as `*@hsbc.com`) plus a **password issued when the account is provisioned**. Accounts are
-   **pre-provisioned from an admin-managed allowlist** — an unknown username is rejected at login,
-   never auto-created. The email string is an identifier only — **no mail is ever sent**.
+   **pre-provisioned from config (`config.PROVISIONED_USERS`)** at startup (#269) — an unknown
+   username is rejected at login, never auto-created. There is **no HTTP endpoint that provisions
+   or resets accounts**. The email string is an identifier only — **no mail is ever sent**.
 2. Every operation on a workspace is **recorded with the actor's name and IP**, so "who modified
    this" is always answerable.
 3. Work is organized by **workspace id** — the shared unit of state. A workspace keeps its own
@@ -89,24 +99,24 @@ the workspace's **search state** stays shared and current-state-only.
 | # | Question | Decision |
 |---|----------|----------|
 | — | Login | **Username MUST be `*@hsbc.com`** (format-validated) + **password**. Accounts are **pre-provisioned from the admin allowlist**; an unknown username is **rejected** at login (no self-registration). Client **IP recorded at login** and on every workspace operation. No email, no OTP. |
-| — | Logout | **Idle timeout (30 min)**; also a logout button. Visit flush triggers: workspace close / session expiry / logout. |
+| — | Logout | **No idle timeout — ZERO session expiry (#279)** (session lives until logout or server restart; browser drops the cookie on close). A logout button destroys the session. **No visit flush** — per-user visit logging is dropped (#285). |
 | — | One L1 + multiple L2 | Keep. One search = one L1; the L2s the user opened are retained. |
 | Q2 | Last-search state | **Shared**, workspace-wide. Resume = current workspace state, never personal history. Last-writer (closes last) wins. |
 | Q3 | Access model | **Open by workspace id** — any logged-in user who knows the id can open and edit; creator is only alerted (in-app). (Known simple, slight risk, accepted for now.) |
-| Q4 | Layout save | **L1 and L2 node x/y are both autosaved** on each drag-end. Only the L2 views the user actually **opened** are retained. Save **node x/y only**; zoom/pan ignored. **One storage location** — `meta.json` `layouts` map (A-M5). |
-| — | Multiple tabs | A user may have several workspaces open in different tabs **and in several sessions (browsers)**. Visits are tracked **per session, per workspace** (A-M10); logout/expiry flushes **only that session's** visits; memos are aggregated per user (created when the last of the user's sessions closes the workspace). |
+| Q4 | Layout save | **L1 and L2 node x/y are both autosaved** on each drag-end. Save **node x/y only**; zoom/pan ignored. **One storage location** — `meta.json` `layouts` map (A-M5). `l2:{script}` keys **persist once saved** — the opened_l2s prune was removed (#272, also fixes #291). |
+| — | Multiple tabs | A user may have several workspaces open in different tabs **and in several sessions (browsers)**. Each session is independent (zero expiry, #279). **Visit tracking is dropped** (#285) — no per-session open-visits registry, no visit memos/creator-alerts. |
 | — | Login gate | **Login entrance page before any page** — the whole service is behind it; only the health endpoint stays public. |
 | Q5 | Concurrent users | **CAS-conditional saves** (A-M4): a save applies only if the `state_version` it was built on still matches; otherwise **409 → auto reload + re-apply** with a "state changed by X — refreshed" notice. Saves are **debounced (≤1/s + final on close)** so rapid operations coalesce and conflict windows stay rare. No locking. |
 | Q6 | Accounts | **Persisted local accounts** (pre-provisioned from the admin allowlist + password issued at provisioning). Stable identity is what makes the inbox, the per-user index, and "creator" meaningful. |
 | Q7 | Notifications | **In-app, keep all records, one file per user** (`notifications/{username}.json`). One memo per workspace-close. **No script contents** — script names, search table/field names, ws_id, time. Enough to understand what happened. |
-| Q8 | Idle timeout | **30 minutes**. Memo added on workspace close / session expiry / logout. |
+| Q8 | Idle timeout | **None — ZERO session expiry (#279).** No idle reaper; a session lives until logout or server restart (browser drops the session cookie on close). No visit memos on close/logout (#285). |
 | — | Concurrent writes | **Accepted**: losing the rarer concurrent update is OK (low simultaneous-user count). Files are still written atomically (temp + rename) so a race **never corrupts a file** — it only drops the losing writer's update. |
 | — | Layout write cadence | Frontend writes layout **at most once per second**; a **final write on workspace close**. The layout file keeps **only current state** (per-view `{node_id:[x,y]}`), never history — its size does not grow. |
 | — | Heavy CPU load | **One global heavy-op gate** covering the debugger **search** and the analysis API (`/analyze`, `/analyze_multi`). While any one is running, a new one is **refused with "system busy — please wait"** instead of starting in parallel and blocking the server. |
 | — | IP audit | **Every workspace operation recorded as {username, ip, ts, action, detail}** — "who modified this" is always answerable. |
 | — | Workspace delete | **One action, role-dependent (A-M2).** A creator's **remove-from-my-history IS the physical delete** (pop-up warning; server-global audit log written **before** removal; dropped from every index). A non-creator's remove-from-my-history only drops the link from their own index — the workspace and files survive, logged in the workspace's activity log. No separate delete path. |
 | — | Quota | Each user may **keep at most `MAX_WORKSPACES_PER_USER`** workspaces in their "my workspaces" list (default **10**, single config constant). Because a creator's remove-from-history is a **physical delete**, **a creator can never hold more than 10 of their own workspaces** — each creation occupies a slot; to create more they must delete one (A-M2). At the cap, opening a new workspace (create or id-open) requires removing one from the list first. |
-| — | Password recovery | **Admin-mediated reset only.** The user contacts an administrator, who verifies identity out-of-band and issues a new password. **No self-service path ever overwrites an existing identity** (A-H1). |
+| — | Password recovery | **Config re-provisioning only (#269).** The user contacts an administrator, who verifies identity out-of-band, updates `config.PROVISIONED_USERS` (or `PROVISIONED_USERS_JSON`), and redeploys — the startup force-sync applies the new password. **No HTTP endpoint ever provisions, resets, or overwrites an existing identity** (A-H1). |
 | — | Old workspaces | **Removed** at rollout — pre-feature workspaces (no creator) are deleted; all workspaces from this point carry a creator. |
 
 ## 5. Model
@@ -114,40 +124,42 @@ the workspace's **search state** stays shared and current-state-only.
 ### 5.1 Identity & login (local accounts)
 
 - Login page: **username (must match `*@hsbc.com`) + password**. An unknown username is
-  **rejected** — accounts exist only when **pre-provisioned from the admin-managed allowlist**
-  (no self-registration); `created_at` records provisioning time.
+  **rejected** — accounts exist only when **pre-provisioned from config
+  (`config.PROVISIONED_USERS`, default `{"admin@hsbc.com": "123456"}`, env-overridable via
+  `PROVISIONED_USERS_JSON`)** (no self-registration); `created_at` records provisioning time.
+  `main.py` lifespan force-syncs every config entry at startup
+  (`auth_service.provision_user(username, password, force=True)`) — each deploy re-syncs
+  accounts/passwords to config (#269).
 - Format validation on the server: the username must match `*@hsbc.com`. It is **never** used as a
   mailbox — no mail is sent anywhere.
 - Passwords hashed with a salted KDF (PBKDF2-HMAC via stdlib `hashlib`; no new dependencies).
   Never stored or logged in plaintext. Minimum length **≥ 6**.
-- **Password recovery = admin-mediated reset.** There is **no self-service "forgot password"**:
-  the user contacts an administrator, who verifies identity out-of-band and sets a new password.
-  **No endpoint ever overwrites an existing identity without such verification** (A-H1).
+- **Password changes = config re-provisioning (#269).** There is **no self-service "forgot
+  password"** and **no HTTP admin-reset endpoint** (the gate-exempt `POST /api/admin/users`
+  bootstrap is REMOVED): a password is changed by updating `PROVISIONED_USERS` (or
+  `PROVISIONED_USERS_JSON`) and redeploying — the startup force-sync applies it. **No endpoint
+  ever overwrites an existing identity without such verification** (A-H1).
 - The client **IP** is captured at login (`request.client.host`), stored on the session and on the
-  user record (`last_login_ip`), and included in the visit's audit entries.
+  user record (`last_login_ip`).
 - Successful login creates a **session**; identity is an `HttpOnly` + `SameSite=Lax` cookie (A-M7).
 
-### 5.2 Sessions & open visits
+### 5.2 Sessions — ZERO expiry, no open-visits registry
 
 - Server-side sessions keyed by an opaque token in an `HttpOnly` cookie (not readable by JS),
-  holding `{username, ip, last_active}`. Cookie set with **`SameSite=Lax`** — cross-site requests
-  never carry it (A-M7).
-- **Open-visits registry (per SESSION, per workspace):** `session_token → {ws_id → {opened_at,
-  last_active}}`; the session record carries **`username`** (A-M10). A user may have several
-  workspaces open at once (multiple tabs) **and** several simultaneous sessions (multiple
-  browsers); each is an independent visit keyed to its own session.
-- **Idle timeout 30 min** — activity extends it; on expiry the session is destroyed and **only
-  that session's** open visits flush (one memo per workspace + creator alerts where applicable).
-  A long-running search that completes extends the session (it counts as activity).
-- Explicit **logout** button ends the session immediately (same flush — only that session's visits).
-- **Per-user aggregation (A-M10):** when a session closes a visit, the memo/creator-alert is
-  created **only if no other of that user's sessions still has the workspace open** — two sessions
-  on the same workspace produce one memo when the *last* one closes; one browser's logout never
-  closes another browser's visit.
-- Session store and `open_visits` are in-memory; both are lost on container restart — **accepted**
-  (A-M9). A restart interrupts any open visit **silently**: no visit-end memo for that stretch and
-  no creator alert. On next login the user simply continues; the interrupted visit's bookkeeping is
-  skipped.
+  holding `{username, ip}`. Cookie set with **`SameSite=Lax`** — cross-site requests never carry
+  it (A-M7).
+- **ZERO session expiry (#279):** no 30-min idle timeout, no `max_age` on the cookie, no
+  `last_active` reaper. A session lives until **logout** or **server restart** (A-M9 accepted);
+  the browser drops the session cookie when the window closes.
+- Explicit **logout** button destroys the session and clears the cookie (no visit flush).
+- **Per-user VISIT logging is dropped entirely (#285):** there is **no open_visits registry**, no
+  `open_visit`/`touch_visit`/`flush_session_visits`, no visit memos or creator visit-alerts
+  (`visit_service.py` deleted). Workspace **close** (`POST /api/workspace/{ws_id}/close`) is a
+  **no-op returning 200** (kept so the frontend `closeWorkspace` control still works). Only
+  **creator-driven activity events** (workspace create / creator delete / remove-from-history) and
+  their notifications remain.
+- Session store is in-memory; lost on container restart — **accepted** (A-M9). On next login the
+  user simply continues.
 
 ### 5.3 Workspace state (shared, durable)
 
@@ -179,35 +191,27 @@ the workspace's **search state** stays shared and current-state-only.
   endpoint** `PUT /api/workspace/{ws_id}/layout` `{level: "l1"|"l2", script?, node_positions}`.
   Each entry is **current state only** (replaced on save, never appended — file size does not
   grow). On resume, positions are re-applied instead of recomputed; **positions for node ids that
-  no longer exist are skipped, not errors**; stale `l2:{script}` keys for L2s not re-opened are
-  dropped (retention rule, §4 Q4). Zoom/pan intentionally not saved. (History of layout *actions*
-  lives in the activity log, not the layout file.)
+  no longer exist are skipped, not errors**; `l2:{script}` keys **persist once saved** — the old
+  opened_l2s prune (which always dropped every `l2:{script}` key) is removed (#272, also fixes
+  #291). Zoom/pan intentionally not saved. (History of layout *actions* lives in the activity log,
+  not the layout file.)
 
 ### 5.4 Activity log + in-app notifications
 
 **Activity log (per workspace, append-only)** — `workspaces/{ws_id}/activity.json`, stored as
 **NDJSON: one `{...}` record per line, appended with `O_APPEND`** — real appends, never
 read-modify-write, so concurrent appends are never lost (A-M3). Every entry is
-`{username, ip, ts, action, detail}`. Events include: visit start, search performed, L2 opened,
-layout saved, visit end, **remove-from-my-list**. This is the durable, IP-audited "who modified
-this" record, readable by any opener. **The creator's physical DELETE is NOT logged here** — this
-file is removed with the workspace, so the deletion event is written to the **server-global audit
-log** instead (A-H3).
+`{username, ip, ts, action, detail}`. Events include: search performed, L2 opened, layout saved,
+**remove-from-my-list**. This is the durable, IP-audited "who modified this" record, readable by
+any opener. **The creator's physical DELETE is NOT logged here** — this file is removed with the
+workspace, so the deletion event is written to the **server-global audit log** instead (A-H3).
 
-**Visit model:** a *visit* is a user's time on ONE workspace; a user may hold several open visits
-at once (one per tab). A visit ends on the first of:
-1. explicit **Close workspace** action,
-2. **logout**,
-3. **session idle expiry**.
-
-On visit end, **notifications are created** (in-app, not emailed):
-- → **the visiting user's inbox** — memo: **username** (self-describing, A-M10), ws_id, visit
-  start/end (and session login time + IP), script names (+ count), the last search (query / filter
-  / direction), L2 views opened, layout saves.
-- → **the creator's inbox**, only if the visitor ≠ creator — alert: who (username), when, what
-  changed (search replaced, L2s opened, layouts adjusted).
-
-A user visiting N workspaces in one session gets N memos.
+**Visit model — DROPPED (#285):** per-user visit logging (open-visits registry, visit start/end
+memos, creator visit-alerts) is **removed entirely** (`visit_service.py` deleted). **No
+notifications are generated on workspace close or logout** — `close_workspace` is a no-op 200.
+Notifications exist only for **creator-driven activity**:
+- → **the creator's inbox** — an alert when a **non-creator** removes the workspace from their own
+  list (who, when); and when a creator physically deletes a workspace.
 
 **Notification record** — **one file per user** (`notifications/{username}.json`), list of
 `{id, kind: memo|alert, title, body, read, created_at}`. Title keeps the mailbox-searchable format —
@@ -219,8 +223,9 @@ A user visiting N workspaces in one session gets N memos.
 ### 5.5 "My workspaces" (per-user index) + reading history
 
 - `users.json` keeps each user's **workspace index**: `workspaces: [{ws_id, role: creator |
-  participant, first_opened, last_opened}]`. Membership = **created + visited** (any workspace the
-  user opened lands in the index). Updated when the user creates or opens a workspace.
+  participant, first_opened, last_opened}]`. Membership = **created + opened** (any workspace the
+  user opened lands in the index; "opened" replaces the former "visited" — the visit model is
+  dropped, #285). Updated when the user creates or opens a workspace.
 - On login the app shows the user's list → choose one to resume. The **workspace-id resume box**
   still opens any workspace by id (and adds it to the index on first open).
 - Any opener can **read a workspace's history** via its activity log (name + IP + time + action).
@@ -253,8 +258,8 @@ A user visiting N workspaces in one session gets N memos.
 | `workspaces/{ws_id}/meta.json` (new) | `creator_username`, `created_at`, `state_version`, last-search ref, **`layouts` map** (`{"l1": …, "l2:{script}": …}`, A-M5), opened-L2 list | Durable, per workspace |
 | `workspaces/{ws_id}/activity.json` (new) | NDJSON `{username, ip, ts, action, detail}`, one record per line, **O_APPEND** (A-M3) | Durable, per workspace |
 | `audit.json` (new, server-global) | NDJSON `{username, ip, ts, ws_id, action}`, one record per line, **O_APPEND** (A-M3) — **deletion events** survive the workspace they describe (A-H3) | Durable, outside any workspace |
-| `sessions` (in-memory) | token → `{username, ip, last_active}` | TTL 30 min / on logout |
-| `open_visits` (in-memory) | `session_token → {ws_id → {opened_at, last_active}}` (session carries `username`; per-user aggregation at flush, A-M10) | Flushed on visit end (close/logout/expiry), per session |
+| `sessions` (in-memory) | token → `{username, ip}` | **ZERO expiry (#279)** — until logout or server restart (A-M9); browser drops the session cookie on close |
+| ~~`open_visits`~~ (in-memory) | ~~`session_token → {ws_id → {opened_at, last_active}}`~~ | **REMOVED (#285)** — visit tracking dropped; no registry, no flush |
 | existing `views.json` | search views (unchanged) | Durable |
 
 **Concurrency:** two write paths, one per store type (A-M3):
@@ -271,10 +276,10 @@ A user visiting N workspaces in one session gets N memos.
   A race never corrupts a file; it only drops the last writer's change.
 
 **Deployment constraint (A-M8):** the backend must run **exactly one uvicorn worker** —
-`--workers 1`, pinned in the run command/Docker config. Sessions and `open_visits` are in-memory,
-and the A-M4 CAS relies on single-process compare-and-rename atomicity. A multi-worker launch is a
-**documented misconfiguration**: it silently breaks login (a session created on worker 1 is unknown
-to worker 2), open-visit flush, and the CAS guarantee.
+`--workers 1`, pinned in the run command/Docker config. Sessions are in-memory, and the A-M4 CAS
+relies on single-process compare-and-rename atomicity. A multi-worker launch is a **documented
+misconfiguration**: it silently breaks login (a session created on worker 1 is unknown to worker 2)
+and the CAS guarantee. (No open_visits — visit tracking is dropped, #285.)
 
 **Heavy-operation gate (single, global):** all CPU-heavy operations — the debugger **search** and
 the analysis API (`/analyze`, `/analyze_multi`) — share **one gate** and run **one at a time**.
@@ -287,36 +292,37 @@ turns the queue into a clear user message.)
 
 ## 7. API additions (draft)
 
-- `POST /api/admin/users`  `{username, password}` — **admin-only**: create a user or reset a
-  password (rejects non-`@hsbc.com` / short password); the only way a password ever changes (A-H1)
-- `POST /api/auth/login`  `{username, password}` → sets session cookie; records client IP;
-  **rejects unknown usernames** (not on the pre-provisioned allowlist, A-H2)
-- `POST /api/auth/logout` → destroy session, flush visit memo
+- `POST /api/auth/login`  `{username, password}` → sets session cookie (zero expiry, #279);
+  records client IP; **rejects unknown usernames** (not provisioned in config, A-H2)
+- `POST /api/auth/logout` → destroy session, clear cookie (no visit flush — visits dropped, #285)
 - `GET  /api/auth/me` → current username (+ last_login_ip)
 - `GET  /api/workspaces` → **my workspaces** index (list + `{count, cap}` so the UI can show a meter)
 - `POST /api/workspace` → **create** (the existing folder/zip upload, extended): server generates a
   **UUID4 `ws_id`** (A-H4), stamps `creator_username` in `meta.json`, adds to the creator's index
   (409 if over quota, A-M2/A-M6)
-- `POST /api/workspace/{ws_id}/close` → end visit, write activity log, create memo (+ creator alert)
+- `POST /api/workspace/{ws_id}/close` → **no-op returning 200** (visits dropped, #285 — kept so the
+  frontend `closeWorkspace` control still works)
 - `DELETE /api/me/workspaces/{ws_id}` → **remove from my history — role-dependent (A-M2):** as
   **creator** this physically deletes the workspace (pop-up warning; server-global audit-log entry
   written **before** removal; dropped from every index); as **non-creator** it removes only the
   caller's own index entry and records the action in the workspace's activity log. **Single
   endpoint — the separate physical-delete path was dropped** (A-M1).
 - `GET  /api/workspace/{ws_id}/activity` → **read the workspace's history** (name + IP + ts + action)
-- `POST /api/workspace/{ws_id}/search` (existing) → also records layout savepoints per opened L2;
-  returns **409 "system busy — please wait"** if another heavy op is running
+- `POST /api/workspace/{ws_id}/search` (existing) → returns **409 "system busy — please wait"** if
+  another heavy op is running (#273)
 - `POST /api/analyze` / `POST /api/analyze_multi` (existing) → under the **same global heavy-op
-  gate** (409 "system busy" while another heavy op runs)
+  gate** (409 "system busy" while another heavy op runs, #273)
 - `PUT  /api/workspace/{ws_id}/layout` → autosave node positions into `meta.json.layouts` (body
   `{level: "l1"|"l2", script?, node_positions}`; frontend sends **≤1/s**; **current-state only**,
   overwrites the entry). **One endpoint** for the L1 and all L2s — the `view_id`-keyed path is
-  dropped (A-M5).
+  dropped (A-M5). **Creator-only (#272):** a non-creator session gets **403**.
 - `GET  /api/workspace/{ws_id}/resume` → full current state (L1 + opened L2 + positions + state_version)
 - `GET  /api/notifications` → current user's inbox; `POST /api/notifications/{id}/read`
 
-**All endpoints are behind the login entrance** (session cookie required) — no page or API is
-reachable before login; only the health endpoint stays public.
+**Login gate (#293):** only the **Data Flow Debugger** requires login — the legacy SQL Analysis
+endpoints (`/api/analyze`, `/api/analyze_multi`, `/api/scripts`) are public (exempt from the
+`login_gate` middleware via `PUBLIC_API_PREFIXES`, alongside `/api/health` and `/api/auth/login`).
+All workspace endpoints above require a session cookie.
 
 ## 8. Frontend additions
 
@@ -344,8 +350,10 @@ reachable before login; only the health endpoint stays public.
 ## 9. Security notes
 
 - Usernames are enforced `*@hsbc.com`; passwords hashed (salted KDF), never plaintext, min length 6.
-  Accounts are **pre-provisioned from the admin allowlist** — unknown usernames are rejected (A-H2).
-- **Password recovery is admin-mediated only** — no self-service reset can overwrite an identity (A-H1).
+  Accounts are **pre-provisioned from config** (`PROVISIONED_USERS`, #269) — unknown usernames are
+  rejected (A-H2).
+- **Password changes are config re-provisioning only (#269)** — no self-service reset and no HTTP
+  admin-reset endpoint can overwrite an identity (A-H1).
 - **Open-by-workspace-id** is the accepted loose access — any logged-in user who knows the id can
   open/edit; the creator is alerted in-app afterwards. **`ws_id` is server-generated UUID4 /
   128-bit random and no endpoint enumerates ids** (A-H4).
@@ -354,10 +362,12 @@ reachable before login; only the health endpoint stays public.
   it is a personal-index operation recorded in the workspace's activity log. A creator is therefore
   bounded to at most `MAX_WORKSPACES_PER_USER` physical workspaces.
 - **IP audit** makes every workspace modification attributable (name + IP + time).
-- Session cookie: **`HttpOnly` + `SameSite=Lax`**, 30-min idle expiry (A-M7).
+- Session cookie: **`HttpOnly` + `SameSite=Lax`**, **ZERO expiry (#279)** — no `max_age` (browser
+  drops it on close); the in-memory session lives until logout or server restart (A-M7/A-M9).
 - **Same-origin check** on every state-changing request — the server verifies the `Origin`/`Referer`
   header matches the service origin; otherwise 403. The app is same-origin by design, so no CSRF
-  token system is needed (A-M7).
+  token system is needed (A-M7). **#280 (decision only, no code change):** kept as defense-in-depth
+  behind SameSite=Lax; the accepted no-`Origin` / `Origin: null` bypass is documented.
 - **Plain HTTP on the managed LAN is an accepted, documented residual risk** — no TLS on the target
   network; `SameSite=Lax` + origin check close the cookie-borne attack path (A-M7).
 
@@ -367,26 +377,30 @@ reachable before login; only the health endpoint stays public.
    switch to `X-Forwarded-For` only if a trusted proxy is ever introduced.
 2. ~~Old-workspace removal~~ → **remove directly**, no backup.
 3. ~~Password policy~~ → **minimum length ≥ 6**.
-4. ~~Session store / `open_visits` lost on restart~~ → **accepted** (A-M9) — a restart interrupts
-   open visits without memo/creator alert; no persistence machinery.
+4. ~~Session store / `open_visits` lost on restart~~ → **accepted** (A-M9) — in-memory sessions
+   are lost on restart; **no open_visits exists anymore** (visits dropped, #285); no persistence
+   machinery.
 5. ~~Notification retention~~ → **keep all**.
 6. ~~Username format~~ → **`user_name@hsbc.com`**, enforced.
-7. ~~Account provisioning~~ → **pre-provisioned allowlist** — unknown usernames rejected at login (A-H2).
+7. ~~Account provisioning~~ → **pre-provisioned from config (`PROVISIONED_USERS`, #269)** —
+   unknown usernames rejected at login (A-H2); no HTTP provisioning endpoint.
 8. ~~Workspace delete~~ → **one role-dependent remove-from-my-history (A-M2)**: creator = physical
    delete (warning + audit-before-removal, dropped from every index); non-creator = link removal
    only, logged in the workspace's activity log.
 9. ~~Quota~~ → **`MAX_WORKSPACES_PER_USER` default 10** (config constant); opening a new one at the
    cap requires removing one from the list first. The history cap **is** the creation cap — a
    creator can never hold more than 10 of their own workspaces (A-M2).
-10. ~~Password recovery~~ → **admin-mediated reset only** — no self-service path overwrites an
-    existing identity (A-H1).
+10. ~~Password recovery~~ → **config re-provisioning only (#269)** — the admin edits
+    `PROVISIONED_USERS`/`PROVISIONED_USERS_JSON` and redeploys; the startup force-sync applies it.
+    No self-service path and **no HTTP endpoint** overwrites an existing identity (A-H1).
 11. ~~Concurrent editing~~ → **CAS-conditional saves on `state_version`** (A-M4): a stale save gets
     409 → auto reload + re-apply + "state changed by X — refreshed" notice. No locking; debounced
     saves (≤1/s, final on close) keep conflict windows rare.
-12. ~~"My workspaces" membership~~ → **created + visited**.
+12. ~~"My workspaces" membership~~ → **created + opened** (opening a workspace by id adds it as a
+    participant; "visited" superseded by #285).
 13. ~~L1 layout~~ → **saved too** — positions autosaved for the current L1 *and* each opened L2.
-14. ~~Multiple tabs~~ → **per-(user, workspace) open-visits registry**; all open visits flush on
-    logout/expiry (one memo each).
+14. ~~Multiple tabs~~ → **visit tracking dropped (#285)** — no open-visits registry, no visit
+    flush, no visit memos. Each session is independent with ZERO expiry (#279).
 15. ~~Login gate~~ → **login entrance page before any page**; only the health endpoint stays public.
 16. ~~Concurrent write loss~~ → **accepted** (low simultaneous users, **single uvicorn worker —
     enforced, A-M8**); files still written atomically (temp + rename) so a race never corrupts a
@@ -425,10 +439,9 @@ reachable before login; only the health endpoint stays public.
 29. ~~Single-worker constraint (A-M8)~~ → backend runs **exactly one uvicorn worker**
     (`--workers 1`, pinned); sessions/`open_visits` stay in-memory and the A-M4 CAS stays
     single-process atomic. A multi-worker launch is a documented misconfiguration.
-30. ~~Restart vs open-visit flush (A-M9)~~ → **accepted explicitly**: `open_visits` is in-memory;
-    a restart drops active visits silently (no memo/creator alert for the interrupted stretch). On
-    next login the user continues. No persist/flush-at-startup machinery.
-31. ~~open_visits keyed by username (A-M10)~~ → keyed by **session token**; the session carries
-    `username`. Flush is **per-session**; memo/creator-alert is **aggregated per user** (created
-    only when the last of a user's sessions closes the workspace). **Memos carry the username**
-    (confirmed 2026-08-21).
+30. ~~Restart vs open-visit flush (A-M9)~~ → **accepted explicitly**: in-memory **sessions** are
+    lost on a restart (user logs in again). **No open_visits / visit flush exists anymore** (#285);
+    no persist/flush-at-startup machinery.
+31. ~~open_visits keyed by username (A-M10)~~ → **superseded by #285** — the open-visits registry
+    and visit memos/creator-alerts are **dropped entirely** (`visit_service.py` deleted); only
+    creator-driven activity notifications remain.

@@ -8,18 +8,25 @@
 
 ## 0. Scope
 
-**In scope (this build):** login gate, local accounts (`*@hsbc.com`, pre-provisioned
-allowlist, PBKDF2), sessions (HttpOnly cookie, 30-min idle), open-visits registry,
-per-user "my workspaces" index + quota, role-dependent remove-from-history (creator =
-physical delete w/ audit-before-removal; participant = link removal), server-global
-`audit.json` + per-workspace `activity.json` (both O_APPEND NDJSON), in-app
-notifications, `meta.json` `layouts` map + CAS-conditional state writes, single
-`PUT .../layout` endpoint, single uvicorn worker, same-origin check.
+**In scope (this build):** login gate, local accounts (`*@hsbc.com`, pre-provisioned from
+CONFIG `PROVISIONED_USERS` — no admin HTTP endpoint, #269; PBKDF2), sessions (HttpOnly
+cookie, ZERO expiry, #279), per-user "my workspaces" index + quota, role-dependent
+remove-from-history (creator = physical delete w/ audit-before-removal; participant =
+link removal), server-global `audit.json` + per-workspace `activity.json` (both O_APPEND
+NDJSON), in-app notifications (**creator-driven only** — no visit memos/creator-alerts,
+#285), `meta.json` `layouts` map + CAS-conditional state writes, single `PUT .../layout`
+endpoint (**creator-only**, #272), one global heavy-op gate (#273), single uvicorn worker,
+same-origin check.
 
-**Out of scope:** TLS (accepted residual risk, A-M7), email, self-service password
-recovery (admin-mediated only, A-H1), multi-worker support (documented
-misconfiguration, A-M8), J12-11 cache reuse (still trigger-gated, #193), Final-L1
-graph cache (still deferred, #252).
+**Out of scope / REMOVED by R31 backend fixes:** per-user **visit logging** (`open_visits`
+registry, `visit_service.py`, visit memos — #285); the bare `DELETE /api/workspace`
+cleanup-all endpoint + `cleanup_all_workspaces()` (#270); the `/api/admin` user-bootstrap
+endpoint + `/api/admin` in `PUBLIC_API_PREFIXES` (#269); the 30-min idle session expiry
+(#279); TLS (accepted residual risk, A-M7), email, self-service password recovery
+(config re-provisioning only, #269), multi-worker support (documented misconfiguration,
+A-M8). J12-11 cache reuse (#193) and the Final-L1 graph cache (#252) are
+**IMPLEMENTED** (2026-08-24 — in-memory L1 caches in `l1_builder.py`; see R29.7/R29.8 in
+`REQUIREMENTS_TRACEABILITY.md`).
 
 ## 1. Conflicts with the current code that MUST be resolved first
 
@@ -33,7 +40,7 @@ graph cache (still deferred, #252).
 
 ## 2. New backend modules
 
-### 2.1 `backend/app/services/auth_service.py` — accounts, sessions, visits
+### 2.1 `backend/app/services/auth_service.py` — accounts, sessions
 
 **users.json** (durable, `WORKSPACE_ROOT/users.json`):
 
@@ -52,14 +59,17 @@ graph cache (still deferred, #252).
 ```
 
 - `load_users()` / `save_users(users)` — temp+rename (accepted-loss, A-M3/§6.3).
-- `provision_user(username, password)` — allowlist only (called by admin endpoint).
+- `provision_user(username, password, force=False)` — **config-only** (#269): called by the
+  startup provisioning loop (`main.py` lifespan) with `force=True` for every `PROVISIONED_USERS`
+  entry; there is **no admin HTTP endpoint**. Returns False on invalid username/short password.
 - `verify_username_format(username)` — `re.fullmatch(r".+@hsbc\.com")` (design: `*@hsbc.com`).
 - `hash_password(password, salt=None)` — `hashlib.pbkdf2_hmac("sha256", password, salt, 100_000)`, 16-byte random salt hex.
 - `login(username, password, ip)` → `token | None`; rejects unknown usernames (A-H2), records `last_login_ip`, creates session.
-- `create_session(username, ip)` / `get_session(token)` (extends `last_active`, 30-min idle) / `destroy_session(token)`.
-- Sessions in-memory: `{token: {"username", "ip", "last_active"}}`. Token = `secrets.token_hex(32)`.
-- **open_visits**: `{token: {ws_id: {"opened_at", "last_active"}}}`; helpers `open_visit(token, ws_id)`, `touch_visit(token, ws_id)`, `flush_session_visits(token)`.
-- `flush_session_visits(token)` → for each open ws_id: write activity-log visit-end, create memo (+ creator alert) **only if no other session of the same username has that ws_id open** (A-M10). See §4.
+- `create_session(username, ip)` / `get_session(token)` / `destroy_session(token)` — **ZERO
+  expiry (#279)**: no `last_active`, no idle reaper. `get_session` returns a copy or None.
+- Sessions in-memory: `{token: {"username", "ip"}}`. Token = `secrets.token_hex(32)`.
+- **NO open_visits** — per-user visit tracking is **dropped (#285)** (`visit_service.py` deleted);
+  there is no `open_visit`/`touch_visit`/`flush_session_visits` machinery.
 
 ### 2.2 `backend/app/services/audit_service.py` — append-only logs
 
@@ -86,38 +96,46 @@ graph cache (still deferred, #252).
 
 | Endpoint | Contract |
 |----------|----------|
-| `POST /api/auth/login` `{username, password}` | 200 + `Set-Cookie` session (HttpOnly, SameSite=Lax); 401 unknown username (A-H2) or bad password |
-| `POST /api/auth/logout` | destroy session, `flush_session_visits`, clear cookie |
+| `POST /api/auth/login` `{username, password}` | 200 + `Set-Cookie` session (HttpOnly, SameSite=Lax, **no max_age — ZERO expiry, #279**); 401 unknown username (A-H2) or bad password |
+| `POST /api/auth/logout` | destroy session, clear cookie (no visit flush — #285) |
 | `GET /api/auth/me` | current username + `last_login_ip`; 401 if none |
-| `POST /api/admin/users` `{username, password}` | admin-only (config `ADMIN_USERNAME`, default first provisioned user); creates/resets password (A-H1). Rejects non-`@hsbc.com`, short password |
 | `GET /api/workspaces` | my-workspaces index + `{count, cap}` |
 | `GET /api/notifications` | current user's inbox |
 | `POST /api/notifications/{id}/read` | mark read |
+
+**REMOVED:** the gate-exempt `POST /api/admin/users` bootstrap endpoint (#269) — provisioning is
+config-only (`PROVISIONED_USERS` force-synced at startup), so there is no HTTP way to create or
+reset an account.
 
 ### 2.6 `backend/app/routers/workspace.py` — extend
 
 | Endpoint | Contract |
 |----------|----------|
 | `POST /api/workspace` (existing upload) | + `creator_username` from session; quota check (409); full-UUID4 ws_id; stamps meta; adds to creator's index |
-| `PUT /api/workspace/{ws_id}/layout` `{level:"l1"|"l2", script?, node_positions}` | A-M5 single endpoint → `meta.json.layouts` (key `l1` or `l2:{script}`); current-state only, replaces entry |
+| `PUT /api/workspace/{ws_id}/layout` `{level:"l1"|"l2", script?, node_positions}` | A-M5 single endpoint → `meta.json.layouts` (key `l1` or `l2:{script}`); current-state only, replaces entry. **Creator-only (#272):** non-creator session → **403**. L2 keys persist (no opened_l2s prune) |
 | `GET /api/workspace/{ws_id}/resume` | full current state: L1 + opened L2s + positions + `state_version` |
-| `POST /api/workspace/{ws_id}/close` | end visit → activity log + memo (+ creator alert) |
+| `POST /api/workspace/{ws_id}/close` | **no-op returning 200** (#285 — visits dropped; kept so the frontend `closeWorkspace` control still works) |
 | `GET /api/workspace/{ws_id}/activity` | read the history (name + IP + ts + action) |
 | `DELETE /api/me/workspaces/{ws_id}` | role-dependent (A-M1/A-M2) — see §2.4 |
-| `GET /api/workspace/{ws_id}/search`, `GET .../level1`, `GET .../level2` (existing) | behind the same session gate + heavy-op gate; record visit touch + activity |
+| `POST /api/workspace/{ws_id}/search`, `GET .../level1`, `GET .../level2` (existing) | behind the same session gate + heavy-op gate (search → 409 "system busy — please wait" while another heavy op runs, #273) |
 
 **Removed:** the old `DELETE /api/workspace/{ws_id}` (A-M1 — single role-dependent path).
-`DELETE /api/workspace` (cleanup-all) becomes admin-only or is removed.
+`DELETE /api/workspace` (cleanup-all) is **REMOVED entirely (#270)** — `cleanup_all_workspaces()`
+deleted; no session can rmtree every workspace + notifications.
 
 ### 2.7 `backend/app/main.py` — gate, worker pin, migration
 
 - **Login gate middleware**: every `/api/*` route except `/api/health` (and the static frontend) requires a valid session cookie → 401. Implement as a dependency applied at router registration (or `@app.middleware("http")` that checks the path prefix and cookie; static mount stays public but the SPA itself redirects to the login page).
   **#293 (2026-08-24)**: only the Data Flow Debugger needs login — the legacy analysis
   endpoints (`/api/analyze`, `/api/analyze_multi`, `/api/scripts`) are exempt via
-  `PUBLIC_API_PREFIXES` (alongside `/api/health`, `/api/auth/login`, `/api/admin/*`);
-  SQL Analysis works logged-out. Caveat: `DELETE /api/scripts` (clears the analysis
-  cache) also becomes public — accepted for an internal tool.
-- **Same-origin check** (A-M7): on state-changing methods (POST/PUT/DELETE), verify `Origin`/`Referer` host == the service host; else 403.
+  `PUBLIC_API_PREFIXES` (alongside `/api/health` and `/api/auth/login` — **`/api/admin/*`
+  is REMOVED from the prefixes, #269**); SQL Analysis works logged-out. Caveat:
+  `DELETE /api/scripts` (clears the analysis cache) also becomes public — accepted for an
+  internal tool.
+- **Config provisioning (#269)**: the lifespan force-syncs every `config.PROVISIONED_USERS`
+  entry via `auth_service.provision_user(username, password, force=True)` — each deploy
+  re-syncs accounts/passwords to config. No HTTP endpoint provisions users.
+- **Same-origin check** (A-M7): on state-changing methods (POST/PUT/DELETE), verify `Origin`/`Referer` host == the service host; else 403. **#280 (decision only):** kept as defense-in-depth; the accepted no-`Origin`/`Origin: null` bypass is documented.
 - **Single worker**: the run command / Dockerfile CMD pins `--workers 1` (A-M8). Document that multi-worker is a misconfiguration.
 - **Migration at rollout** (design §6): delete legacy workspaces without `creator_username` (user-confirmed, no backup); remove the 24h auto-cleanup (C1); write a startup note when the audit.log is first created.
 
@@ -130,21 +148,18 @@ graph cache (still deferred, #252).
 | `workspaces/{ws_id}/meta.json` | JSON; `creator_username`, `created_at`, `state_version`, `last_search`, `opened_l2s`, `layouts` | **CAS-gated** temp+rename (A-M4) |
 | `workspaces/{ws_id}/activity.json` | NDJSON, one record/line | **O_APPEND** (A-M3) |
 | `WORKSPACE_ROOT/audit.json` | NDJSON, one record/line | **O_APPEND** (A-M3), global |
-| `sessions`, `open_visits` | in-memory dicts | lost on restart — **accepted** (A-M9) |
+| `sessions` (in-memory) | `token → {username, ip}` | **ZERO expiry (#279)** — until logout or server restart (A-M9); browser drops the session cookie on close. No `open_visits` (dropped, #285) |
 
-## 4. Visit lifecycle (A-M10, one memo per user)
+## 4. Visit lifecycle — DROPPED (#285)
 
-```
-open workspace (via index open / id resume / create)
-  → open_visits[token][ws_id] = {opened_at, last_active}
-  → activity.json: {username, ip, ts, "visit_start"}
-workspace close / logout / idle-expiry (per session only)
-  → activity.json: {"visit_end"}
-  → memo to visitor: username (self-describing), ws_id, visit window,
-    session login time + IP, script names + count, last search, L2s opened, layout saves
-  → creator alert (if visitor != creator): who, when, what changed
-  → memo/alert created ONLY if no other session of that username has ws_id open
-```
+Per-user **visit logging is removed entirely** — there is no open-visits registry, no
+`visit_start`/`visit_end` activity entries, no visit memos/creator-alerts, and no flush on
+workspace close / logout / expiry. `visit_service.py` is deleted. `POST /api/workspace/{ws_id}/close`
+is a **no-op returning 200**. Only **creator-driven activity events** remain:
+workspace **create**, **creator delete**, and **remove-from-my-history** (non-creator remove
+records `removed-from-own-list` in the activity log; creator delete records `workspace deleted`
+in the server-global audit log before removal). Those events drive the only notifications that
+exist.
 
 ## 5. `meta.json` schema (extended)
 
@@ -163,8 +178,8 @@ workspace close / logout / idle-expiry (per session only)
 ```
 
 `layouts` keys: `"l1"` and `"l2:{script_name}"` → `{node_id: [x, y]}`. Positions for
-node ids that no longer exist are **skipped, not errors**; stale `l2:{script}` keys for
-un-reopened L2s are dropped (retention rule, design §4 Q4). `views.json` stays
+node ids that no longer exist are **skipped, not errors**; `l2:{script}` keys **persist once
+saved** — the opened_l2s prune is removed (#272, also fixes #291). `views.json` stays
 search-view records only — **not** layout storage (A-M5).
 
 ## 6. Concurrency & gating
@@ -199,25 +214,40 @@ runs, a new one → `409 "system busy — please wait"`. Use an `asyncio`/thread
   logged-out. The **SQL Analysis** tab renders `App.jsx` with **no login** (only the
   Data Flow Debugger needs login — legacy `/api/analyze`, `/api/analyze_multi`,
   `/api/scripts` are exempt from the `login_gate` middleware, §2.7). Logged in:
-  unchanged — `MyWorkspaces` dashboard (no workspace open) or `DataFlowApp` (workspace
-  open); a `?ws=` shared link opened logged-out opens its workspace after login.
+  **T8 (#295, 2026-08-24)** — the standalone `MyWorkspaces` dashboard is RETIRED and
+  the dataflow tab ALWAYS renders `<DataFlowApp/>`: workspace management lives in a
+  **"My workspaces" section at the top of the debugger's left panel** (list +
+  📁 Select Folder + zip upload + open-by-id). `key={activeWsId}` remounts the
+  debugger per open workspace; `?ws=` shared links opened logged-out open their
+  workspace after login (unchanged).
 - On mount: `GET /api/auth/me`.
   - 401 → the dataflow tab shows the **left-panel login form + center hint** (no blocking
     page); the analysis tab still works logged-out.
-  - 200 + user's index → render **MyWorkspaces dashboard**: list (role, last-opened,
-    quota meter `{count}/{cap}`), per-row **Open** / **Remove** (creator → warning dialog
-    "this physically deletes the workspace for everyone"; participant → light confirm),
+  - 200 + user's index → render **DataFlowApp** with the **"My workspaces" section**
+    at the top of the debugger's left panel: list (role, last-opened, quota meter
+    `{count}/{cap}`), per-row **Open** / **Remove** (creator → warning dialog "this
+    physically deletes the workspace for everyone"; participant → light confirm),
     **workspace-id resume box**, notification bell (unread badge + inbox panel),
     **workspace upload** — both "📁 Select Folder" (webkitdirectory + JSZip client-side
     packing, mirroring the debugger's `WorkspacePanel.handleFolder`) and "+ Upload a
-    folder (zip)".
-  - Opening a workspace → render the existing `DataFlowApp`/`App`.
+    folder (zip)". Upload → `api.uploadWorkspace(file)` → `onOpenWorkspace(result.workspace_id)`
+    (no double-index). `WorkspacePanel` renders with `showUploads={false}` so only one
+    pair of upload pickers exists.
+  - Opening a workspace → the same `DataFlowApp` keeps the workspace open (the
+    left-panel "My workspaces" section stays visible above the view tree).
 
   **#286 (2026-08-24)**: R31 released v3.3.162 with the dashboard **zip-only** — the
   webkitdirectory "Select Folder" picker lived only inside the debugger
   (`WorkspacePanel.jsx`), which requires an already-open workspace, so a fresh account
   (empty list) could never upload a folder (chicken-and-egg). Fixed by adding the
   folder picker to the dashboard's `MyWorkspaces.jsx`; deployed 2026-08-24.
+
+  **#295 (2026-08-24, T8)**: the standalone dashboard is retired. `MyWorkspaces` is now
+  an embedded **"My workspaces" section at the top of the debugger's left panel**
+  (`DataFlowApp` renders `<MyWorkspaces open onOpen onUpload onRemove showUploads={false}/>`),
+  and `AppShell` ALWAYS renders `DataFlowApp` when logged in (`key={activeWsId}` remounts
+  per open workspace). The folder picker survives via that section, so a fresh account
+  can still upload a folder — from inside the debugger.
 
 ### 7.2 New components
 - `frontend/src/components/LoginForm.jsx` (form-only, embedded in the debugger's left
@@ -239,7 +269,7 @@ runs, a new one → `409 "system busy — please wait"`. Use an `asyncio`/thread
 
 ## 8. Build sequence
 
-1. **Foundation**: `auth_service.py` (users.json, sessions, visits, hashing) + unit tests.
+1. **Foundation**: `auth_service.py` (users.json, sessions, config provisioning, hashing) + unit tests. (No visits — dropped, #285.)
 2. **Logs**: `audit_service.py` (O_APPEND NDJSON) + tests (append-only, concurrent appends).
 3. **Workspace service**: ws_id → 32 hex (C2), `meta.json` extension (C3), CAS write,
    role-dependent remove, quota, remove `cleanup_old_workspaces` (C1).
@@ -247,9 +277,9 @@ runs, a new one → `409 "system busy — please wait"`. Use an `asyncio`/thread
    check; `--workers 1`; migration.
 5. **Frontend**: LoginPage → MyWorkspaces → shell integration → debounced layout PUT →
    notifications/history/close → busy/409 handling.
-6. **E2E**: provision a user, login, create/upload a workspace, search, open L2, drag,
-   confirm layout persists on resume, second user id-open + alert, participant remove
-   vs creator delete (audit before removal), quota 409.
+6. **E2E**: login with a config-provisioned account, create/upload a workspace, search, open L2,
+   drag, confirm layout persists on resume, second user id-open, participant remove vs creator
+   delete (audit before removal), quota 409, layout PUT by a non-creator → 403 (#272).
 7. **Gate**: full pytest suite (existing 871 must stay green) + Jaccard gate 16/16 +
    vitest + playwright 6/6, then release → deploy → push.
 
@@ -265,8 +295,9 @@ runs, a new one → `409 "system busy — please wait"`. Use an `asyncio`/thread
 ## 10. Risks / notes
 
 - **Playwright spec**: the current `dataflow.spec.js` goes straight to the app. The
-  login gate will 401 it. The spec must provision a test user + login first (or run
-  behind the gate via the login flow). Plan for this explicitly.
+  login gate will 401 it. The spec logs in with the **config default admin**
+  (`admin@hsbc.com` / `123456`); the old force-provision `beforeAll` is removed (#269 —
+  there is no `/api/admin` endpoint anymore).
 - **Frontend size**: `AppShell` grows; keep the dashboard/components modular.
 - **`cleanup_old_workspaces` removal**: confirm no other caller relies on the 24h sweep.
 - **ws_id change breaks stored links/views from before rollout** — by design (migration
@@ -276,11 +307,11 @@ runs, a new one → `409 "system busy — please wait"`. Use an `asyncio`/thread
   (Dockerfile CMD `python3 -u start.py`). Dev uses Dockerfile.dev's `uvicorn --reload`,
   which never runs start.py, so the gate stays OFF in dev. An explicit
   `REQUIRE_LOGIN=0/1` in the run environment still wins (setdefault).
-- **Admin-endpoint bootstrap hole**: `/api/admin/*` is exempt from the login gate —
-  the only HTTP way to provision the FIRST account on a fresh deploy ("default first
-  provisioned user", §2.5). It only ever targets `ADMIN_USERNAME` (403 otherwise).
-  The playwright `beforeAll` uses it with `force=true` (idempotent; users.json persists).
-  LAN exposure is consistent with A-M7's accepted plain-HTTP-on-LAN residual risk.
+- **Provisioning is config-only (#269)**: `config.PROVISIONED_USERS` (default
+  `admin@hsbc.com` / `123456`, env override `PROVISIONED_USERS_JSON`) is force-synced at
+  startup. There is **no HTTP endpoint** that creates or resets accounts, so the old
+  gate-exempt `/api/admin` bootstrap hole is gone. Each deploy re-syncs passwords to
+  config (a drifted password is overwritten back to the config value).
 - **Durable user data across deploys**: `target_deploy.sh` mounts the named volume
   `gps_workspace_data:/tmp/workspaces` on both the start and rollback `docker run`s.
   Workspaces + `users.json` survive container recreation. A rollback to a pre-R31
