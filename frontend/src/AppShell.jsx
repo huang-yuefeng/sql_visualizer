@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import App from './App';
 import DataFlowApp from './DataFlowApp';
 import LoginForm from './components/LoginForm';
-import MyWorkspaces from './components/MyWorkspaces';
 import NotificationBell from './components/NotificationBell';
 import HistoryPanel from './components/HistoryPanel';
 import * as api from './api/client';
@@ -49,12 +48,20 @@ function PersistentPanel({ show, children }) {
  *   the login form in its left panel); 200 → full shell.
  * - The top bar (mode tabs) is ALWAYS rendered. Only the Data Flow Debugger
  *   needs login — the SQL Analysis tab renders App.jsx logged-out.
- * - After login the "My workspaces" dashboard is the landing page; opening
- *   a workspace mounts DataFlowApp behind the gate.
- * - Top bar: mode tabs, username chip, notification bell, workspace
- *   History + Close controls, theme toggle, logout (logged-out: tabs +
- *   theme toggle only).
+ * - T8 (#295): the standalone "My workspaces" dashboard is RETIRED. Logged in,
+ *   the dataflow tab ALWAYS renders <DataFlowApp/> — the debugger's left panel
+ *   hosts the "My workspaces" section (list + 📁 Select Folder + zip upload +
+ *   open-by-id) at its top, so workspace management and the debugger live in
+ *   ONE place. `key={activeWsId}` remounts DataFlowApp per open workspace.
+ *   `onOpenWorkspace` (open a listed/uploaded/typed id) feeds `activeWsId`;
+ *   `onCloseWorkspace` clears it (unmount cleanup flushes the layout + ends
+ *   the visit). Top-bar History/Close are keyed off `activeWsId`.
+ * - Logged out: the dataflow tab shows the login form in the left panel +
+ *   "Sign in to use the Data Flow Debugger" in the center (unchanged).
  * - `?ws={id}` opens a shared workspace link (design §3) once logged in.
+ * - E-M1 (#276): the shell registers `api.onSessionExpired` — a 401 from any
+ *   gated call drops the session (me=null → the login form re-renders in the
+ *   dataflow left panel). No redirect-reload.
  */
 export default function AppShell() {
   const [me, setMe] = useState(null);          // null = checking / logged out; {username} = in
@@ -83,6 +90,15 @@ export default function AppShell() {
       }
       setChecked(true);
     })();
+  }, []);
+
+  // ── E-M1 (#276): shared 401 interceptor — a mid-session expiry on any
+  // gated call drops the session (me=null → the login form re-renders in the
+  // dataflow left panel). Never a redirect-reload. The interceptor fires the
+  // handler at most once per 401 batch.
+  useEffect(() => {
+    const unsub = api.onSessionExpired(() => setMe(null));
+    return unsub;
   }, []);
 
   // ── Shared-workspace link `?ws={id}` ───────────────────────────────
@@ -115,14 +131,6 @@ export default function AppShell() {
     // save and calls POST /close (final write + visit-end memo, §4 Q4).
     setActiveWsId(null);
   }, []);
-
-  // Upload from the dashboard: create the workspace, then open it (the
-  // debugger's open-existing path scans + indexes).
-  const handleDashboardUpload = useCallback(async (file) => {
-    const result = await api.uploadWorkspace(file);
-    openWorkspace(result.workspace_id);
-    return result;
-  }, [openWorkspace]);
 
   // Theme toggle — always visible in the top bar, logged in or not.
   const themeToggle = (
@@ -218,17 +226,18 @@ export default function AppShell() {
               </div>
             </div>
           </div>
-        ) : activeWsId ? (
+        ) : (
+          // T8 (#295): logged in — ALWAYS the debugger. The standalone
+          // MyWorkspaces dashboard is retired; its list/upload/open live in
+          // the debugger's left panel. key={activeWsId} remounts per open
+          // workspace (open → handleOpenExisting; close → unmount cleanup
+          // flushes the layout + ends the visit).
           <DataFlowApp
             key={activeWsId}
             openWorkspaceId={activeWsId}
+            username={me.username}
+            onOpenWorkspace={openWorkspace}
             onCloseWorkspace={closeWorkspace}
-          />
-        ) : (
-          <MyWorkspaces
-            open
-            onOpen={openWorkspace}
-            onUpload={handleDashboardUpload}
           />
         )}
       </PersistentPanel>

@@ -12,7 +12,7 @@ import * as api from '../api/client';
  *   backend decides; this panel just warns the creator.
  * - An open here loads the workspace into the debugger (via onOpen).
  */
-export default function MyWorkspaces({ open, onOpen, onUpload }) {
+export default function MyWorkspaces({ open, onOpen, onUpload, onRemove }) {
   const [items, setItems] = useState([]);
   const [cap, setCap] = useState(10);
   const [error, setError] = useState(null);
@@ -43,7 +43,11 @@ export default function MyWorkspaces({ open, onOpen, onUpload }) {
     if (!window.confirm(warning)) return;
     setBusyId(w.ws_id);
     try {
-      await api.removeFromMyHistory(w.ws_id);
+      // T8 (#295): an embedded host (the debugger left panel) may override
+      // the removal so it can react when the OPEN workspace leaves the list
+      // (e.g. drop back to the empty debugger). Otherwise remove directly.
+      if (onRemove) await onRemove(w);
+      else await api.removeFromMyHistory(w.ws_id);
       await refresh();
     } catch (e) {
       setError(e.message);

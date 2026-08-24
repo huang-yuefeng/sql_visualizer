@@ -1,18 +1,20 @@
-"""R31 multi-user login: local accounts, sessions, open-visit registry.
+"""R31 multi-user login: local accounts + in-memory sessions.
 
 Settled design: wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md (§5.1, §5.2,
-A-H1/H2, A-M7/A-M9/A-M10) + wiki/R31_IMPLEMENTATION.md (§2.1).
+A-H1/H2, A-M7/A-M9) + wiki/R31_IMPLEMENTATION.md (§2.1) + R31 fixes
+(#269, #279, #285).
 
-- Usernames are `*@hsbc.com` local accounts, PRE-PROVISIONED from the admin
-  allowlist (no self-registration; an unknown username is rejected at login).
+- Usernames are `*@hsbc.com` local accounts, PRE-PROVISIONED from CONFIG
+  (PROVISIONED_USERS, provisioned at startup — no self-registration; an
+  unknown username is rejected at login). The /api/admin bootstrap endpoint
+  is REMOVED (#269).
 - Passwords hashed with salted PBKDF2-HMAC (stdlib hashlib, no new deps).
-- Password recovery is ADMIN-MEDIATED only (A-H1): the only way a password
-  changes is POST /api/admin/users. No self-service reset path exists here.
-- Sessions are in-memory, keyed by an opaque token (HttpOnly cookie on the
-  wire), 30-min idle expiry, and record the client IP at login (A-M7).
-- open_visits is keyed by SESSION token (A-M10); the session carries the
-  username so per-user memo aggregation works at flush time.
-- Sessions and open_visits are lost on restart — ACCEPTED (A-M9).
+- Sessions are in-memory, keyed by an opaque token (HttpOnly session cookie
+  on the wire — no max_age), ZERO expiry: a session lives until logout or
+  server restart (#279); the browser drops the cookie on close.
+- Sessions are lost on restart — ACCEPTED (A-M9).
+- Per-user VISIT logging is DROPPED entirely (#285): no open_visits registry,
+  no visit memos/creator-alerts, no flush machinery.
 """
 
 import hashlib
@@ -20,7 +22,6 @@ import json
 import re
 import secrets
 import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,14 +32,11 @@ from app.services.workspace_service import WORKSPACE_ROOT
 # own workspaces because a creator's remove-from-history physically deletes.
 MAX_WORKSPACES_PER_USER = 10
 
-# In-memory session/visit stores. Single uvicorn worker enforced (A-M8) — these
-# are process-local by design and a multi-worker launch is a documented
+# In-memory session store. Single uvicorn worker enforced (A-M8) — these are
+# process-local by design and a multi-worker launch is a documented
 # misconfiguration (sessions created on worker 1 are unknown to worker 2).
 _sessions: dict[str, dict] = {}
-_open_visits: dict[str, dict] = {}
 _lock = threading.Lock()
-
-SESSION_TTL_SECONDS = 30 * 60  # 30-min idle timeout (design §4 Q8)
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9._%+-]+@hsbc\.com$")
 MIN_PASSWORD_LEN = 6
@@ -98,11 +96,12 @@ def user_exists(username: str) -> bool:
 
 
 def provision_user(username: str, password: str, force: bool = False) -> bool:
-    """Pre-provision an account from the admin allowlist (A-H2/A-H1).
+    """Pre-provision an account from CONFIG (PROVISIONED_USERS — R31 #269).
 
-    Creates a NEW account, or (force=True, admin reset) overwrites the
-    password of an EXISTING one. The admin reset is the only path that
-    changes a password; nothing in the service self-services it.
+    Creates a NEW account, or (force=True) overwrites the password of an
+    EXISTING one. The startup provisioning loop (main.py lifespan) calls this
+    with force=True for every config entry, so each deploy re-syncs
+    accounts/passwords to config. No HTTP endpoint provisions users.
     Returns False on invalid username/short password.
     """
     if not verify_username_format(username) or not _valid_password(password):
@@ -156,104 +155,33 @@ def login(username: str, password: str, ip: str) -> str | None:
         _sessions[token] = {
             "username": username,
             "ip": ip,
-            "last_active": time.time(),
         }
     return token
 
 
 def get_session(token: str | None) -> dict | None:
-    """Return the session if valid and not idle-expired; else None."""
+    """Return the session if valid; else None.
+
+    R31 (#279): ZERO session expiry — no idle reaper, no last_active
+    extension. A session lives until logout or server restart (the browser
+    drops the session cookie on close).
+    """
     if not token:
         return None
     with _lock:
         sess = _sessions.get(token)
         if sess is None:
             return None
-        now = time.time()
-        if now - sess["last_active"] > SESSION_TTL_SECONDS:
-            _sessions.pop(token, None)
-            _open_visits.pop(token, None)
-            return None
-        sess["last_active"] = now  # activity extends the idle window
         return dict(sess)
 
 
 def destroy_session(token: str) -> dict | None:
-    """Destroy a session (logout) and return what it was (for visit flush)."""
+    """Destroy a session (logout) and return it (or None if it did not exist)."""
     with _lock:
         sess = _sessions.pop(token, None)
-        visits = _open_visits.pop(token, None)
     if sess is None:
         return None
-    return {"session": sess, "visits": visits or {}}
-
-
-# --- open visits (A-M10) ---------------------------------------------------
-
-def open_visit(token: str, ws_id: str) -> None:
-    """Record that this SESSION has opened ws_id (one tab = one visit)."""
-    sess = get_session(token)
-    if sess is None:
-        return
-    with _lock:
-        visits = _open_visits.setdefault(token, {})
-        visits[ws_id] = {"opened_at": _now(), "last_active": time.time()}
-
-
-def touch_visit(token: str, ws_id: str) -> None:
-    with _lock:
-        visits = _open_visits.get(token)
-        if visits and ws_id in visits:
-            visits[ws_id]["last_active"] = time.time()
-
-
-def session_has_visit(token: str, ws_id: str) -> bool:
-    with _lock:
-        return ws_id in _open_visits.get(token, {})
-
-
-def close_visit(token: str, ws_id: str) -> None:
-    """Explicit close-workspace: end this session's visit to ws_id."""
-    with _lock:
-        visits = _open_visits.get(token)
-        if visits:
-            visits.pop(ws_id, None)
-
-
-def flush_session_visits(token: str) -> list[dict]:
-    """Flush a session's open visits on logout/expiry.
-
-    Returns the flushed visit list [{username, ws_id, opened_at, last_active}]
-    so the caller can write activity-log entries + memos. The CALLER performs
-    the per-user aggregation (A-M10): a memo/creator-alert is created only if
-    no OTHER session of the same username still has the workspace open.
-    """
-    with _lock:
-        sess = _sessions.get(token)
-        visits = _open_visits.pop(token, {})
-    if sess is None:
-        return []
-    out = []
-    for ws_id, v in visits.items():
-        out.append({
-            "username": sess["username"],
-            "ip": sess["ip"],
-            "ws_id": ws_id,
-            "opened_at": v.get("opened_at"),
-        })
-    return out
-
-
-def other_sessions_have_visit(username: str, ws_id: str, except_token: str) -> bool:
-    """A-M10: does ANY other session belonging to username still have ws_id open?"""
-    with _lock:
-        for tok, visits in _open_visits.items():
-            if tok == except_token:
-                continue
-            sess = _sessions.get(tok)
-            if sess and sess.get("username") == username and ws_id in visits:
-                return True
-    return False
+    return dict(sess)
 
 
 # --- per-user workspace index (design §5.5 / §6) ----------------------------
@@ -322,7 +250,6 @@ def get_my_workspaces(username: str) -> dict:
 
 
 def reset_for_tests() -> None:
-    """Test hook: clear the in-memory session/visit stores (never on disk)."""
+    """Test hook: clear the in-memory session store (never on disk)."""
     with _lock:
         _sessions.clear()
-        _open_visits.clear()

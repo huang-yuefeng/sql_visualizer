@@ -6,12 +6,11 @@ from app.routers.auth import require_login, SESSION_COOKIE
 from app.services.logger import _push
 from app.services.workspace_service import (
     create_workspace, get_workspace, delete_workspace,
-    get_workspace_dir, cleanup_all_workspaces, is_valid_ws_id,
+    get_workspace_dir, is_valid_ws_id,
     read_meta, write_meta_cas, remove_from_my_history, remove_legacy_workspaces,
 )
 from app.services.auth_service import (
     add_workspace_to_index, get_my_workspaces, index_has_room,
-    open_visit, touch_visit,
 )
 from app.services.audit_service import append_activity, read_activity
 from app.services.export_config_service import (
@@ -79,7 +78,6 @@ async def upload_workspace(request: Request, file: UploadFile):
 
     if token:
         add_workspace_to_index(username, ws_id, "creator")
-        open_visit(token, ws_id)
         append_activity(ws_id, username, "", "workspace_created",
                         f"{username} created this workspace")
 
@@ -150,6 +148,11 @@ async def save_layout(request: Request, ws_id: str, body: dict):
     meta = read_meta(ws_id)
     if meta is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    # R31 (#272): creator-only layout editing — only the workspace creator
+    # may PUT layout (non-creator session → 403).
+    if meta.get("creator_username") != username:
+        raise HTTPException(status_code=403,
+                            detail="Only the workspace creator may edit the layout")
     level = body.get("level")
     script = body.get("script")
     positions = body.get("node_positions") or {}
@@ -159,11 +162,10 @@ async def save_layout(request: Request, ws_id: str, body: dict):
         raise HTTPException(status_code=400, detail="script required for l2 layouts")
     key = "l1" if level == "l1" else f"l2:{script}"
     layouts = dict(meta.get("layouts") or {})
+    # R31 (#272): E-H4 — the old opened_l2s prune DROPPED every l2:* key
+    # (opened_l2s is never written, so the set was always empty → L2 layout
+    # persistence was dead). The filter is removed so L2 positions persist.
     layouts[key] = positions
-    # drop stale l2:{script} keys for L2s no longer opened
-    opened = set(meta.get("opened_l2s") or [])
-    layouts = {k: v for k, v in layouts.items()
-               if k == "l1" or k.startswith("l2:") and k[3:] in opened}
     meta["layouts"] = layouts
     expected = int(body.get("state_version", meta.get("state_version", 0)))
     if not write_meta_cas(ws_id, meta, expected):
@@ -172,8 +174,6 @@ async def save_layout(request: Request, ws_id: str, body: dict):
             "message": f"state changed by another user — refreshed",
             "fresh": fresh,
         })
-    if token:
-        touch_visit(token, ws_id)
     return {"saved": True, "state_version": read_meta(ws_id).get("state_version")}
 
 
@@ -196,7 +196,6 @@ async def resume_workspace(request: Request, ws_id: str):
             raise HTTPException(
                 status_code=409,
                 detail="Your workspace list is full — remove one from your list first")
-        open_visit(token, ws_id)
     return {
         "workspace_id": ws_id,
         "creator_username": meta.get("creator_username"),
@@ -210,11 +209,9 @@ async def resume_workspace(request: Request, ws_id: str):
 
 @router.post("/workspace/{ws_id}/close")
 async def close_workspace(request: Request, ws_id: str):
-    """R31: end this session's visit to the workspace (explicit close)."""
-    username, token = _session_ctx(request)
-    if token:
-        from app.services.visit_service import flush_session_visits
-        flush_session_visits(token, detail="close workspace")
+    """R31 (#285): per-user visit logging is dropped, so closing a workspace
+    is a no-op. The endpoint is KEPT (returns 200) because the frontend calls
+    api.closeWorkspace on unmount — no frontend change required."""
     return {"closed": True}
 
 
@@ -310,12 +307,6 @@ async def upload_filter_config(ws_id: str,
         raise HTTPException(status_code=404, detail="Workspace not found")
     return await apply_filter_config(ws_id, script_table, table_col, push=_push)
 
-
-@router.delete("/workspace")
-async def cleanup_workspaces():
-    """Delete ALL workspaces. Use with caution."""
-    removed = cleanup_all_workspaces()
-    return {"cleaned": removed}
 
 @router.get("/workspace/{ws_id}/export-config")
 async def get_export_config_endpoint(ws_id: str):

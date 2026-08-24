@@ -1,6 +1,11 @@
 import React, { useRef, useState } from 'react';
 
-export default function WorkspacePanel({ wsId, loading, progress, onUpload, onDelete, onError }) {
+// T8 (#295): `showUploads` defaults to true (standalone use). The debugger
+// left panel now hosts the embedded "My workspaces" section (which owns the
+// upload pickers), so DataFlowApp passes showUploads={false} — WorkspacePanel
+// then renders ONLY the in-workspace ID/progress/Delete display and never a
+// second pair of upload buttons.
+export default function WorkspacePanel({ wsId, loading, progress, onUpload, onDelete, onError, showUploads = true }) {
   const zipRef = useRef(null);
   const folderRef = useRef(null);
   const [zipping, setZipping] = useState(false);
@@ -39,22 +44,24 @@ export default function WorkspacePanel({ wsId, loading, progress, onUpload, onDe
     <div className="workspace-panel">
       <h3>Workspace</h3>
       {!wsId ? (
-        <div>
-          <label className="upload-btn">
-            Select Folder
-            <input type="file" webkitdirectory="" directory="" multiple
-              ref={folderRef} onChange={handleFolder}
-              style={{ display: 'none' }} disabled={loading || zipping} />
-          </label>
-          {' '}
-          <label className="upload-btn upload-btn-secondary">
-            Upload .zip
-            <input type="file" accept=".zip" ref={zipRef} onChange={handleZip}
-              style={{ display: 'none' }} disabled={loading} />
-          </label>
-          {zipping && <div className="spinner">Packing folder...</div>}
-          {loading && !zipping && <div className="spinner">Uploading...</div>}
-        </div>
+        showUploads ? (
+          <div>
+            <label className="upload-btn">
+              Select Folder
+              <input type="file" webkitdirectory="" directory="" multiple
+                ref={folderRef} onChange={handleFolder}
+                style={{ display: 'none' }} disabled={loading || zipping} />
+            </label>
+            {' '}
+            <label className="upload-btn upload-btn-secondary">
+              Upload .zip
+              <input type="file" accept=".zip" ref={zipRef} onChange={handleZip}
+                style={{ display: 'none' }} disabled={loading} />
+            </label>
+            {zipping && <div className="spinner">Packing folder...</div>}
+            {loading && !zipping && <div className="spinner">Uploading...</div>}
+          </div>
+        ) : null
       ) : (
         <div>
           <div className="ws-id" data-ws-id={wsId}>ID: {wsId}</div>

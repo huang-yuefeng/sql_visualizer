@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.config import CORS_ORIGINS, DEBUG, CACHE_DIR
+from app.config import CORS_ORIGINS, DEBUG, CACHE_DIR, PROVISIONED_USERS
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 VERSION_FILE = Path(__file__).resolve().parent.parent.parent / "VERSION"
@@ -163,6 +163,13 @@ async def lifespan(app: FastAPI):
     if migrated:
         logging.getLogger("uvicorn").info(
             f"R31 migration: removed {migrated} legacy workspace(s) without a creator")
+    # R31 (#269): the ONLY account-provisioning path — config-driven. Each
+    # deploy force-syncs every PROVISIONED_USERS entry (create-or-reset) so
+    # accounts/passwords always match config. No HTTP endpoint provisions
+    # users anymore (the gate-exempt /api/admin bootstrap was removed —
+    # E-H1/E-H3).
+    for _username, _password in PROVISIONED_USERS.items():
+        auth_service.provision_user(_username, _password, force=True)
     yield
 
 
@@ -207,16 +214,12 @@ from app.services import auth_service
 
 # #293: SQL Analysis is public (login-gate exempt) — the Data Flow Debugger
 # is the only part that requires login. /api/health and /api/auth/login have
-# always been exempt; /api/admin/* is the gate-exempt BOOTSTRAP hole that
-# provisions the FIRST account ("default first provisioned user", R31 impl
-# §2.5): on a fresh deploy no account exists to log in with, so POST
-# /api/admin/users must be reachable without a session. It only ever targets
-# ADMIN_USERNAME and never reads existing data, so the exposed surface is
-# minimal.
+# always been exempt. There is NO public provisioning endpoint: accounts are
+# provisioned from config (PROVISIONED_USERS) at startup only (R31 #269 — the
+# /api/admin bootstrap hole was removed, E-H1/E-H3).
 PUBLIC_API_PREFIXES = (
     "/api/health",
     "/api/auth/login",
-    "/api/admin",
     "/api/analyze",        # SQL Analysis (public — #293)
     "/api/analyze_multi",  # SQL Analysis (public — #293)
     "/api/scripts",        # SQL Analysis (public — #293)

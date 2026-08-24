@@ -28,6 +28,20 @@ CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",")
 # unauthenticated. New R31 tests flip it on to exercise the gate.
 REQUIRE_LOGIN = os.environ.get("REQUIRE_LOGIN", "false").lower() == "true"
 
-# R31: the admin username for POST /api/admin/users (the only account that
-# may create/reset accounts). Provisioned as a normal allowlisted user too.
-ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin@hsbc.com")
+# R31 (#269): config-provisioned users — the ONLY account-provisioning path.
+# Every deploy force-syncs each account's password to this allowlist at
+# startup (main.py lifespan), so accounts always match config. Default = the
+# production admin account (admin@hsbc.com / 123456 — keep unchanged). A
+# test/deploy container may pin different users via PROVISIONED_USERS_JSON
+# (a JSON dict {username: password}).
+import json as _json
+
+PROVISIONED_USERS = {"admin@hsbc.com": "123456"}
+_env_provisioned = os.environ.get("PROVISIONED_USERS_JSON")
+if _env_provisioned:
+    try:
+        _parsed = _json.loads(_env_provisioned)
+        if isinstance(_parsed, dict):
+            PROVISIONED_USERS = _parsed
+    except Exception:
+        pass  # malformed override → keep the default allowlist

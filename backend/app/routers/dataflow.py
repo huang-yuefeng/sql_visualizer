@@ -1,4 +1,5 @@
 """Dataflow router — search, views, L1/L2 graphs, SQL highlight."""
+import asyncio
 import json
 import uuid
 from pathlib import Path
@@ -12,6 +13,7 @@ from app.services.dataflow_service import (
     create_search, get_level2_graph,
     list_views, delete_view,
 )
+from app.services.heavy_gate import gate
 from app.services.sql_highlight_service import get_highlight_ranges
 
 router = APIRouter(tags=["dataflow"])
@@ -41,6 +43,26 @@ def _normalize_direction(value) -> str:
             status_code=400,
             detail="Invalid direction %r — must be 'upstream' or 'downstream'" % value)
     return value
+
+
+def _run_coro_in_thread(coro_fn, *args, **kwargs):
+    """Run an async function to completion on a worker thread's own event loop.
+
+    R31 (#273): create_search is `async def` but its body is CPU-bound (L1
+    graph building). Running it via asyncio.to_thread keeps the single
+    worker's event loop free of the blocking graph build.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro_fn(*args, **kwargs))
+    finally:
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:
+            pass
+        loop.close()
+        asyncio.set_event_loop(None)
 
 
 def _load_index(ws_id: str) -> tuple[dict, dict, bool, int, int]:
@@ -216,8 +238,16 @@ async def search_dataflow(ws_id: str, body: dict):
         raise HTTPException(status_code=400, detail="Indexes not found. Run index first.")
 
     lineage_mode = body.get("lineage_mode", True)  # R18: default True
-    result = await create_search(ws_id, table, field, ti, fi,
-                                 lineage_mode=lineage_mode, direction=direction)
+    # R31 (#273): under the global heavy-op gate — while another heavy op
+    # runs, this returns 409 "system busy — please wait". create_search's L1
+    # graph build is CPU-bound and runs in a worker thread so the single
+    # worker's event loop is not blocked.
+    with gate as acquired:
+        if not acquired:
+            raise HTTPException(status_code=409, detail="system busy — please wait")
+        result = await asyncio.to_thread(
+            _run_coro_in_thread, create_search, ws_id, table, field, ti, fi,
+            lineage_mode, direction)
 
     # ── R17: Search diagnostic logging ──
     _emit_search_diagnostic(ws_id, table, field,

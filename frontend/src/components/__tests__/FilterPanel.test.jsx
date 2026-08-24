@@ -136,6 +136,69 @@ describe('FilterPanel — two-area layout + direction', () => {
   });
 });
 
+describe('FilterPanel — username-namespaced localStorage (E-M2/#277)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  function mountUser(username) {
+    return render(
+      <FilterPanel
+        wsId="ws1"
+        username={username}
+        tableIndex={{ orders: { fields: ['amount'] }, a: { fields: ['f'] } }}
+        fieldIndex={{ amount: { tables: ['orders'] }, f: { tables: ['a'] } }}
+        onSearch={() => {}}
+        loading={false}
+      />
+    );
+  }
+
+  it('saves search history under the per-user key, never the old global key', () => {
+    const onSearch = vi.fn();
+    render(
+      <FilterPanel
+        wsId="ws1"
+        username="alice@hsbc.com"
+        tableIndex={{ orders: { fields: ['amount'] } }}
+        fieldIndex={{ amount: { tables: ['orders'] } }}
+        onSearch={onSearch}
+        loading={false}
+      />
+    );
+    fireEvent.change(screen.getByPlaceholderText(/Type table name/), { target: { value: 'orders' } });
+    fireEvent.change(screen.getByPlaceholderText(/Type field name/), { target: { value: 'amount' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    expect(onSearch).toHaveBeenCalledWith('orders', 'amount', 'upstream');
+    const stored = JSON.parse(window.localStorage.getItem('df_search_history:alice@hsbc.com'));
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ table: 'orders', field: 'amount' });
+    // the legacy global key must never be written anymore
+    expect(window.localStorage.getItem('df_search_history')).toBeNull();
+  });
+
+  it('does not leak another user\'s pins into the panel', () => {
+    // user B's pins live under their own key — user A must not see them
+    window.localStorage.setItem(
+      'df_pinned_searches:bob@hsbc.com',
+      JSON.stringify([{ table: 'bob_t', field: 'bob_f' }])
+    );
+    mountUser('alice@hsbc.com');
+    expect(screen.queryByText('bob_t.bob_f')).not.toBeInTheDocument();
+  });
+
+  it('restores this user\'s own pins from the per-user key', () => {
+    window.localStorage.setItem(
+      'df_pinned_searches:alice@hsbc.com',
+      JSON.stringify([{ table: 'orders', field: 'amount' }])
+    );
+    mountUser('alice@hsbc.com');
+    expect(screen.getByText('orders.amount')).toBeInTheDocument();
+  });
+});
+
 describe('FilterPanel — typo-tolerant autocomplete (Fix B)', () => {
   beforeEach(() => {
     window.localStorage.clear();

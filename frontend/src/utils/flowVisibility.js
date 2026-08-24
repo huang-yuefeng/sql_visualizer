@@ -22,6 +22,23 @@ export function resolveFlowOnly(result) {
 }
 
 /**
+ * E-M8 (#283): fit the FULL graph (closure + non-closure) and then restore
+ * the flow-only visibility.
+ *
+ * Cytoscape's `fit()` excludes `display:none` elements, so a plain
+ * `cy.fit()` while View 1 (flow-only) is active bounds the viewport to the
+ * visible closure only — toggling to View 2 then shows non-closure nodes
+ * off-screen. This helper shows everything, fits, and re-applies the flow
+ * visibility — never a layout, so node positions stay byte-identical.
+ */
+export function fitAllElements(cy, { flowOnly, flowNodeIds, flowEdgeIds } = {}, padding = 50) {
+  if (!cy || (typeof cy.destroyed === 'function' && cy.destroyed())) return;
+  cy.elements().show();
+  cy.fit(undefined, padding);
+  applyFlowVisibility(cy, { flowOnly, flowNodeIds, flowEdgeIds });
+}
+
+/**
  * Apply the flow-only visibility filter to a cytoscape instance.
  *
  * `flowOnly` truthy → show exactly the closure nodes (`flowNodeIds`) and

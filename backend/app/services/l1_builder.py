@@ -8,6 +8,8 @@ import uuid
 import hashlib
 import logging
 import traceback
+import threading
+from collections import OrderedDict
 
 from app.services.workspace_service import get_workspace_dir
 from app.extractor.lineage import compute_field_lineage, compute_field_flow, PRODUCTION_EDGES
@@ -455,9 +457,233 @@ def _build_l1_directional_field_flow(all_scripts: list[dict],
     }
 
 
+# ── In-memory L1 caches (J12-11 #193 + #252) ─────────────────────────────
+# T1 (#193): per-ws_id memo of the analysis_cache_map, invalidated by the
+# analysis cache-dir file-set/mtime signature — the recorded J12-11 design.
+# T2 (#252): memo of the whole _build_l1_graph return value, invalidated by
+# the analysis-cache signature PLUS the matched-script file-set signature
+# (the builder reads the matched scripts' SQL directly, so an edit without
+# a re-index must invalidate — the C-H1 stale-edit class).
+# Both are in-memory only (lost on restart — intended, J12-8 purge
+# philosophy), signature-invalidated (re-index / re-extraction / S4b
+# mutation changes the file-set → miss → rebuild), LRU-bounded (no
+# unbounded growth across many workspaces), and byte-identical to the disk
+# read path (the memos store the SAME dicts a fresh read would produce).
+# No external packages (offline rule).
+
+_ANALYSIS_MAP_LRU_MAX = 12    # T1: most-recent workspaces
+_L1_GRAPH_MEMO_MAX = 192      # T2: most-recent (sig, ws, scripts, ...) keys
+_analysis_map_lru: "OrderedDict[str, tuple[str, dict]]" = OrderedDict()
+_l1_graph_memo: "OrderedDict[tuple, dict]" = OrderedDict()
+_memo_lock = threading.Lock()
+
+
+def _file_set_signature(base_dir, pattern) -> str:
+    """Hash of sorted (name, mtime_ns, size) for `base_dir.glob(pattern)`.
+
+    The leading byte records directory presence so an absent dir is
+    distinct from a present-but-empty one (a cache dir created later must
+    invalidate). mtime_ns + size is the same freshness signal the recorded
+    design uses; a changed file-set (re-index, re-extraction, S4b mutation,
+    script edit) changes the signature → memo miss.
+    """
+    h = hashlib.sha256()
+    h.update(b"\x01" if base_dir.is_dir() else b"\x00")
+    if base_dir.is_dir():
+        for p in sorted(base_dir.glob(pattern)):
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            h.update(p.name.encode("utf-8", "replace"))
+            h.update(b"|")
+            h.update(str(st.st_mtime_ns).encode("ascii"))
+            h.update(b"|")
+            h.update(str(st.st_size).encode("ascii"))
+            h.update(b";")
+    return h.hexdigest()
+
+
+def _analysis_signature(ws_id: str) -> str:
+    """File-set/mtime signature of the workspace's analysis cache dir."""
+    return _file_set_signature(get_workspace_dir(ws_id) / "cache",
+                               "analysis_*.json")
+
+
+def _analysis_cache_empty(ws_id: str) -> bool:
+    """True when the workspace's analysis cache dir holds NO analysis_*.json.
+
+    A build on an empty cache runs LIVE extraction (run_full_analysis) for
+    every matched script — the result's validity depends on the extraction
+    environment, which the file-set signature does NOT capture (M4-B #252
+    fix, 2026-08-24). Such a result must never be memoized NOR served from
+    the T2 graph memo: a later identical call could hit the memo and mask a
+    would-be degraded outcome. `_analysis_signature` alone cannot serve as
+    the gate (an empty-set signature is stable but indistinguishable from a
+    stale prior empty key), so the wrapper checks emptiness directly.
+    """
+    cache_dir = get_workspace_dir(ws_id) / "cache"
+    if not cache_dir.is_dir():
+        return True
+    return next(cache_dir.glob("analysis_*.json"), None) is None
+
+
+def _script_set_signature(ws_id: str, script_names) -> str:
+    """File-set/mtime signature of the matched scripts.
+
+    _build_l1_graph reads the matched scripts' SQL directly (sp.read_text)
+    and both the sql-keyed analysis lookup and the fresh-extraction
+    fallback depend on that text — so the T2 graph memo must invalidate
+    when a matched script changes even WITHOUT a re-index (the C-H1
+    stale-edit case).
+    """
+    scripts_dir = get_workspace_dir(ws_id) / "scripts"
+    h = hashlib.sha256()
+    h.update(b"\x01" if scripts_dir.is_dir() else b"\x00")
+    for name in sorted(script_names):
+        p = scripts_dir / name
+        try:
+            st = p.stat()
+            h.update(p.name.encode("utf-8", "replace"))
+            h.update(b"|")
+            h.update(str(st.st_mtime_ns).encode("ascii"))
+            h.update(b"|")
+            h.update(str(st.st_size).encode("ascii"))
+            h.update(b";")
+        except OSError:
+            h.update(name.encode("utf-8", "replace"))
+            h.update(b"|missing;")
+    return h.hexdigest()
+
+
+def _load_analysis_cache_map(ws_id: str) -> dict:
+    """Disk read path for the analysis cache map (extracted verbatim from
+    the old inline block — the memo stores exactly what this produces)."""
+    cache_dir = get_workspace_dir(ws_id) / "cache"
+    analysis_cache_map = {}
+    if cache_dir.exists():
+        for af_path in sorted(cache_dir.glob("analysis_*.json")):
+            try:
+                adata = json.loads(af_path.read_text())
+                sname = adata.get("script_name", "")
+                if sname:
+                    analysis_cache_map[sname] = adata
+            except Exception as exc:
+                _log.warning("L1: failed to read analysis cache %s: %s",
+                             af_path.name, exc)
+    return analysis_cache_map
+
+
+def _analysis_cache_map_for(ws_id: str) -> dict:
+    """T1 (#193): in-memory per-ws_id memo of the analysis cache map.
+
+    Keyed on ws_id + the analysis cache-dir file-set/mtime signature. When
+    the files are stable the memo serves the already-loaded dicts; when the
+    file-set changes (re-index, re-extraction, S4b mutation) the signature
+    changes and the map is rebuilt. Bounded LRU of most-recent workspaces;
+    in-memory only (restart-cleanup automatic — intended)."""
+    sig = _analysis_signature(ws_id)
+    with _memo_lock:
+        entry = _analysis_map_lru.get(ws_id)
+        if entry is not None and entry[0] == sig:
+            _analysis_map_lru.move_to_end(ws_id)
+            return entry[1]
+    m = _load_analysis_cache_map(ws_id)
+    with _memo_lock:
+        _analysis_map_lru[ws_id] = (sig, m)
+        _analysis_map_lru.move_to_end(ws_id)
+        while len(_analysis_map_lru) > _ANALYSIS_MAP_LRU_MAX:
+            _analysis_map_lru.popitem(last=False)
+    return m
+
+
+def _l1_graph_memo_key(ws_id: str, script_names, table: str, field: str,
+                       direction: str) -> tuple:
+    """T2 memo key: every input that can change _build_l1_graph's output
+    (ws_id, script_names, table, field, direction) + the analysis-cache
+    file-set signature + the matched-script file-set signature. The build
+    is deterministic given these (verified: no in-place mutation of the
+    result by callers, no writes that later reads depend on — see the
+    wrapper's docstring)."""
+    return (_analysis_signature(ws_id),
+            _script_set_signature(ws_id, script_names),
+            ws_id, tuple(script_names), table, field, direction)
+
+
+def _l1_graph_memo_get(key):
+    with _memo_lock:
+        g = _l1_graph_memo.get(key)
+        if g is not None:
+            _l1_graph_memo.move_to_end(key)
+        return g
+
+
+def _l1_graph_memo_set(key, g):
+    with _memo_lock:
+        _l1_graph_memo[key] = g
+        _l1_graph_memo.move_to_end(key)
+        while len(_l1_graph_memo) > _L1_GRAPH_MEMO_MAX:
+            _l1_graph_memo.popitem(last=False)
+
+
+def _l1_graph_copy(g: dict) -> dict:
+    """Shallow copy protecting the memo from caller mutation.
+
+    Callers (`_filter_l1_by_lineage`, the level1/search routers) read the
+    graph and rebuild new node/edge lists but never mutate node/edge dicts
+    in place — a copy of the top-level dict + its list containers keeps the
+    memoized dict pristine across hits."""
+    out = dict(g)
+    for k, v in g.items():
+        if isinstance(v, list):
+            out[k] = list(v)
+    return out
+
+
 def _build_l1_graph(ws_id: str, script_names: list[str],
                     table: str, field: str,
                     direction: str = "upstream") -> dict:
+    """Build Level 1 cross-script directional field-flow graph (R29).
+
+    Cached wrapper (#252): the Final-L1-graph memo. A repeat call with
+    identical inputs — same (ws_id, script_names, table, field, direction)
+    AND the same analysis-cache + script file-set signatures — is served
+    from the in-memory LRU (byte-identical, no re-read); any signature
+    change (re-index, re-extraction, S4b mutation, a matched-script edit)
+    is a miss → rebuild. The signature is the freshness mechanism;
+    restart-cleanup is automatic (in-memory). M4-B degraded results are
+    never memoized. Full build semantics on `_build_l1_graph_uncached`.
+    """
+    if len(script_names) < 1:
+        return _build_l1_graph_uncached(ws_id, script_names, table, field,
+                                        direction)
+    # M4-B (#252 fix, 2026-08-24): never memoize NOR serve when the analysis
+    # cache is empty — an empty cache means the build ran LIVE extraction
+    # (run_full_analysis) for every matched script, so the result's validity
+    # is a function of the extraction environment, which the file-set
+    # signature does not capture. Serving such a result from the memo would
+    # mask a would-be degraded outcome on a later identical call (the
+    # test_l1_degraded_fallback_visible contract). Indexed workspaces
+    # (non-empty cache) keep the full T2 memo behavior. Residual edge case:
+    # a NON-empty cache where some matched scripts still miss (stale/unindexed)
+    # runs live for those scripts and IS memoized — documented approximation.
+    if _analysis_cache_empty(ws_id):
+        return _build_l1_graph_uncached(ws_id, script_names, table, field,
+                                        direction)
+    memo_key = _l1_graph_memo_key(ws_id, script_names, table, field, direction)
+    hit = _l1_graph_memo_get(memo_key)
+    if hit is not None:
+        return _l1_graph_copy(hit)
+    result = _build_l1_graph_uncached(ws_id, script_names, table, field,
+                                      direction)
+    if not result.get("degraded"):
+        _l1_graph_memo_set(memo_key, result)
+    return result
+
+
+def _build_l1_graph_uncached(ws_id: str, script_names: list[str],
+                             table: str, field: str,
+                             direction: str = "upstream") -> dict:
     """Build Level 1 cross-script directional field-flow graph (R29).
 
     Field queries (field truthy): L1 is the queried field's data flow —
@@ -500,17 +726,14 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
         # serves the SAME analysis dict to both passes — the graph and the
         # model can never diverge (fresh-vs-cached L1 byte-identity).
         cache_dir = scripts_dir.parent / "cache"
-        analysis_cache_map = {}  # script_name → analysis dict
-        if cache_dir.exists():
-            for af_path in sorted(cache_dir.glob("analysis_*.json")):
-                try:
-                    adata = json.loads(af_path.read_text())
-                    sname = adata.get("script_name", "")
-                    if sname:
-                        analysis_cache_map[sname] = adata
-                except Exception as exc:
-                    _log.warning("L1: failed to read analysis cache %s: %s",
-                                 af_path.name, exc)
+        # T1 (#193): the analysis cache map is served from the in-memory
+        # per-ws_id memo (file-set/mtime-signature invalidated) instead of a
+        # full disk re-scan of every analysis_*.json per call. The memo
+        # stores the SAME dicts the disk path would load (json.loads of each
+        # file) — byte-identical. Staleness of the memoized entries is still
+        # bounded by the use-time `_analysis_current` (version + sql_text)
+        # guard in `_lookup_analysis` below.
+        analysis_cache_map = _analysis_cache_map_for(ws_id)
 
         def _analysis_current(adata: dict, sql: str) -> bool:
             """C-H1 (2026-08-19 review): a cache entry is usable only when it

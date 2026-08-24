@@ -1,5 +1,5 @@
 """R31 multi-user login — auth service, sessions, workspace ownership,
-remove-from-history, layout CAS, notifications, visit lifecycle.
+remove-from-history, layout CAS, notifications, config provisioning.
 
 These run IN-PROCESS with the login gate OFF (REQUIRE_LOGIN defaults false
 so the rest of the suite stays green): the session routes still enforce
@@ -26,7 +26,6 @@ from app.services import auth_service
 from app.services.audit_service import read_activity, read_audit
 from app.services.notification_service import (
     list_notifications, unread_count, mark_read)
-from app.services.visit_service import flush_session_visits
 from app.services.workspace_service import (
     WORKSPACE_ROOT, create_workspace, delete_workspace,
     get_workspace_dir, read_meta, write_meta_cas,
@@ -46,7 +45,7 @@ def _zip_bytes():
 
 @pytest.fixture(autouse=True)
 def _cleanup():
-    """Restore the in-memory session/visit stores and drop any test workspaces."""
+    """Restore the in-memory session store and drop any test workspaces."""
     auth_service.reset_for_tests()
     before = set(p.name for p in WORKSPACE_ROOT.iterdir())
     yield
@@ -100,27 +99,39 @@ def test_username_format_validation():
     assert auth_service.verify_username_format("a.b+c@hsbc.com")
 
 
-def test_admin_endpoint_requires_admin():
-    r = client.post("/api/admin/users",
-                    json={"username": "bob@hsbc.com", "password": "secret1"})
-    assert r.status_code == 403  # admin@hsbc.com is the only allowed caller
+def test_config_provisioned_user_can_login():
+    # R31 (#269): config provisioning is the ONLY provisioning path — the
+    # default allowlist is {"admin@hsbc.com": "123456"}. force-syncing it to
+    # config makes the default admin login work (idempotent across runs).
+    from app.config import PROVISIONED_USERS
+    assert PROVISIONED_USERS.get("admin@hsbc.com") == "123456"
+    assert auth_service.provision_user("admin@hsbc.com", "123456", force=True)
+    assert _login("admin@hsbc.com", "123456").status_code == 200
 
 
-def test_admin_provisions_and_resets():
-    # admin (default ADMIN_USERNAME) may provision — force=True first so the
-    # test is idempotent across runs (users.json persists in the dev volume)
+def test_config_provisioning_force_syncs_password():
+    # Each deploy re-syncs every PROVISIONED_USERS entry to config — a
+    # drifted password is overwritten back to the config value.
+    auth_service.provision_user("admin@hsbc.com", "999999", force=True)  # simulate drift
+    assert _login("admin@hsbc.com", "123456").status_code == 401  # drifted value live
+    assert auth_service.provision_user("admin@hsbc.com", "123456", force=True)
+    assert _login("admin@hsbc.com", "123456").status_code == 200
+    assert _login("admin@hsbc.com", "999999").status_code == 401  # old password dead
+
+
+def test_admin_bootstrap_endpoint_is_gone():
+    # R31 (#269): the gate-exempt POST /api/admin/users is REMOVED — there is
+    # no HTTP endpoint that provisions or resets accounts (config only). The
+    # path now falls through to the static frontend (405 for POST / 404 GET —
+    # never 200), and the call must NOT change any password.
+    auth_service.provision_user("admin@hsbc.com", "123456", force=True)
+    assert _login("admin@hsbc.com", "123456").status_code == 200
     r = client.post("/api/admin/users",
-                    json={"username": "admin@hsbc.com", "password": "secret1", "force": True})
-    assert r.status_code == 200
-    # re-provision without force refused
-    r = client.post("/api/admin/users",
-                    json={"username": "admin@hsbc.com", "password": "secret2"})
-    assert r.status_code == 400
-    # force = admin reset allowed
-    r = client.post("/api/admin/users",
-                    json={"username": "admin@hsbc.com", "password": "secret2", "force": True})
-    assert r.status_code == 200
-    assert _login("admin@hsbc.com", "secret2").status_code == 200
+                    json={"username": "admin@hsbc.com", "password": "pwned", "force": True})
+    assert r.status_code in (404, 405)  # no such endpoint (never 200)
+    # the attempted reset did not touch the account
+    assert _login("admin@hsbc.com", "123456").status_code == 200
+    assert _login("admin@hsbc.com", "pwned").status_code == 401
 
 
 # --- workspace ownership & quota ------------------------------------------
@@ -214,6 +225,43 @@ def test_layout_cas_bumps_version_and_rejects_stale():
     assert r.status_code == 200
     assert read_meta(ws_id)["layouts"]["l1"] == {"b": [1, 2]}
 
+    # E-H4 (#272): an l2:{script} layout key SURVIVES the save — the old
+    # opened_l2s prune (opened_l2s is never written → the filter set was
+    # always empty) dropped every l2 key, so L2 layout persistence was dead.
+    r = client.put(f"/api/workspace/{ws_id}/layout", json={
+        "level": "l2",
+        "script": "t1.sql",
+        "node_positions": {"n1": [5, 6]},
+        "state_version": 2,
+    })
+    assert r.status_code == 200
+    assert read_meta(ws_id)["layouts"]["l2:t1.sql"] == {"n1": [5, 6]}
+    # the l1 entry survived alongside the new l2 key
+    assert read_meta(ws_id)["layouts"]["l1"] == {"b": [1, 2]}
+
+
+def test_layout_non_creator_rejected_with_403():
+    # R31 (#272): creator-only layout editing — a non-creator session PUT
+    # layout → 403; the creator's own session can still save.
+    ws_id = create_workspace(_zip_bytes(), creator_username="owner@hsbc.com")
+    auth_service.provision_user("alice@hsbc.com", "secret1", force=True)
+    assert _login("alice@hsbc.com", "secret1").status_code == 200
+    r = client.put(f"/api/workspace/{ws_id}/layout", json={
+        "level": "l1",
+        "node_positions": {"a": [1, 2]},
+        "state_version": 0,
+    })
+    assert r.status_code == 403
+
+    auth_service.provision_user("owner@hsbc.com", "secret1", force=True)
+    assert _login("owner@hsbc.com", "secret1").status_code == 200
+    r = client.put(f"/api/workspace/{ws_id}/layout", json={
+        "level": "l1",
+        "node_positions": {"a": [1, 2]},
+        "state_version": 0,
+    })
+    assert r.status_code == 200
+
 
 def test_resume_returns_shared_state():
     ws_id = create_workspace(_zip_bytes(), creator_username=DEV_USER)
@@ -291,31 +339,6 @@ def test_notifications_flow(_provisioned_user):
     assert list_notifications("alice@hsbc.com")[0]["read"] is True
     # already-read → 404 (nothing new to mark)
     assert client.post(f"/api/notifications/{nid}/read").status_code == 404
-
-
-# --- visit lifecycle (A-M10) ----------------------------------------------
-
-def test_visit_flush_writes_activity_and_memo():
-    ws_id = create_workspace(_zip_bytes(), creator_username="owner@hsbc.com")
-    token = auth_service.login("alice@hsbc.com", "secret1", "10.0.0.9")
-    assert token
-    auth_service.open_visit(token, ws_id)
-
-    created = flush_session_visits(token, detail="logout")
-    assert created >= 2  # memo (alice) + creator alert (owner)
-
-    # activity log has the visit_end entry
-    assert any(r["action"] == "visit_end" and r["username"] == "alice@hsbc.com"
-               for r in read_activity(ws_id))
-    # alice has a memo, owner has an alert
-    assert any(n["kind"] == "memo" for n in list_notifications("alice@hsbc.com"))
-    assert any(n["kind"] == "alert" for n in list_notifications("owner@hsbc.com"))
-
-
-def test_open_visit_requires_live_session():
-    # a stale token must not create a visit record
-    auth_service.open_visit("no-such-token", "whatever")
-    assert not auth_service.session_has_visit("no-such-token", "whatever")
 
 
 # --- #293: SQL Analysis is public (login-gate exempt) --------------------

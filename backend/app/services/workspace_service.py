@@ -55,17 +55,6 @@ def is_valid_ws_id(ws_id: str) -> bool:
     return bool(_WS_ID_RE.fullmatch(ws_id))
 
 
-def cleanup_all_workspaces() -> int:
-    """Remove ALL workspaces. Returns count removed."""
-    _ensure_root()
-    removed = 0
-    for ws_dir in list(WORKSPACE_ROOT.iterdir()):
-        if ws_dir.is_dir():
-            shutil.rmtree(ws_dir)
-            removed += 1
-    return removed
-
-
 def _ensure_root():
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
 

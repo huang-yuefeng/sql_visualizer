@@ -355,6 +355,107 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
     # the node it became; merged-away nids map to their keeper).
     occ_to_id = {}
 
+    # ── #288 (T1): physical-table merge keys are case-FOLDED ──
+    # A physical table referenced with different cases (east5_stzfxxb vs
+    # EAST5_STZFXXB) is ONE table → one keeper compound. Only the
+    # "physical" entity kind folds; aliases, CTEs, subqueries and ⟐-output
+    # VTs keep their case-sensitive (name, context) identities (a case-twin
+    # alias A / a is still a DIFFERENT alias node).
+    _physical_names_lower = None
+
+    def _is_physical_ekey(ekey):
+        """True when the entity key names a physical table (the string-key
+        form for table/view/merge_target entities, or the defensive
+        (name, 'physical') tuple fallback)."""
+        if isinstance(ekey, str):
+            tbl = (physical_model.tables.get(ekey)
+                   if physical_model is not None else None)
+            return tbl is not None and tbl.kind == "physical"
+        return (isinstance(ekey, tuple) and len(ekey) == 2
+                and ekey[1] == "physical")
+
+    def _fold_physical(ekey):
+        """The case-folded merge/lookup key for physical entities; other
+        entity kinds pass through unchanged."""
+        if not _is_physical_ekey(ekey):
+            return ekey
+        if isinstance(ekey, str):
+            return ekey.lower()
+        return (ekey[0].lower(), ekey[1])
+
+    def _physical_names_lower_set():
+        """Lowercased names of every physical table in the model — the
+        case-insensitive parent-matching gate (never folds aliases)."""
+        nonlocal _physical_names_lower
+        if _physical_names_lower is None:
+            names = set()
+            if physical_model is not None:
+                for tbl in physical_model.tables.values():
+                    if tbl.kind == "physical":
+                        names.add(tbl.name.lower())
+            _physical_names_lower = names
+        return _physical_names_lower
+
+    # ── #289 (T2): INSERT write columns land on the write target ──
+    # A column that is a SCHEMA member of a statement's own ⟐ output VT (a
+    # SELECT projection) belongs to that statement's DML write target — not
+    # to the read-side table/alias it was extracted from (the extractor
+    # attributes a projection to the table it reads, so write columns
+    # sourced to a read alias — or a phantom alias — rendered off-target).
+    # Each statement's output VT is identified exactly like
+    # _simplify_dml_edges (entity key ('⟐ <name>', TOP{numeric})); the
+    # SCHEMA members × the statement's DML target → write_field_target[
+    # projection var id] = write target var id. Statement-local: every
+    # statement's own output VT + target pair, never cross-statement.
+    write_field_target = {}
+    if physical_model is not None:
+        _stmt_targets = {}
+        _stmt_members = []
+        for fe in full_graph.get("edges", []):
+            fed = fe.get("data", fe)
+            rel = (fed.get("edge_type", "") or fed.get("relationship", "")).upper()
+            src = fed.get("source", "")
+            _ek = entity_by_var_id.get(src)
+            _ctx = _ek[1] if (isinstance(_ek, tuple) and len(_ek) == 2
+                              and isinstance(_ek[1], str)) else ""
+            if not (isinstance(_ek, tuple) and len(_ek) == 2
+                    and isinstance(_ek[0], str)
+                    and _ek[0].startswith("⟐ ")
+                    and _ctx.startswith("TOP")
+                    and _ctx[3:].isdigit()):
+                continue
+            tgt = fed.get("target", "")
+            if "DML" in rel:
+                _stmt_targets[src] = tgt
+            elif rel == "SCHEMA":
+                _stmt_members.append((src, tgt))
+        for _src, _member in _stmt_members:
+            _tgt = _stmt_targets.get(_src)
+            if _tgt is not None:
+                write_field_target[_member] = _tgt
+
+    def _resolve_write_target(wtgt):
+        """#289: write target var id → its keeper compound id. Physical
+        keys are case-folded; a name-scan fallback covers the keeper when
+        it is not yet classified (later in node order)."""
+        wkey = entity_by_var_id.get(wtgt)
+        if wkey is None:
+            return None
+        keeper = keeper_by_entity.get(_fold_physical(wkey))
+        if keeper is not None:
+            return keeper["id"]
+        name = (wkey if isinstance(wkey, str)
+                else (wkey[0] if isinstance(wkey, tuple) and len(wkey) == 2
+                      and isinstance(wkey[0], str) else None))
+        if name is None:
+            return None
+        low = name.lower()
+        if low in _physical_names_lower_set():
+            for tid, tn in table_nodes.items():
+                if tn["type"] == "source_table" and tn["table_name"].lower() == low:
+                    return tn["id"]
+        return None
+
     # ── Phase 0: alias parent-resolution map from the model's alias
     # views (alias label → canonical entity name) — the alias/field
     # parent fallback's one-hop resolution; the model's alias_by_var_id
@@ -413,7 +514,11 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 ekey = entity_by_var_id.get(nid)
                 if ekey is None:
                     ekey = (label, "physical")
-                keeper = keeper_by_entity.get(ekey)
+                # #288: the physical merge key is case-folded — the same
+                # physical table referenced in different cases is ONE
+                # keeper (aliases/CTEs/subqueries keep their exact keys).
+                _ekey_folded = _fold_physical(ekey)
+                keeper = keeper_by_entity.get(_ekey_folded)
                 if keeper is not None:
                     occ_to_id[nid] = keeper["id"]
                     continue
@@ -471,7 +576,11 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 if physical_model is not None:
                     canon_key = physical_model.alias_by_var_id.get(nid)
                 if canon_key is not None:
-                    keeper = keeper_by_entity.get(canon_key)
+                    # #288: the canonical physical key is case-folded too —
+                    # an alias whose canonical table was merged under the
+                    # first (possibly differently-cased) occurrence still
+                    # resolves to the keeper.
+                    keeper = keeper_by_entity.get(_fold_physical(canon_key))
                     if keeper is not None:
                         alias_parent_id = keeper["id"]
                     else:
@@ -482,6 +591,16 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                                 if tn["table_name"] == canon_name:
                                     alias_parent_id = tn["id"]
                                     break
+                            # #288: case-insensitive physical-only fallback
+                            if (not alias_parent_id
+                                    and canon_name.lower()
+                                    in _physical_names_lower_set()):
+                                for tn in table_nodes.values():
+                                    if (tn["type"] == "source_table"
+                                            and tn["table_name"].lower()
+                                            == canon_name.lower()):
+                                        alias_parent_id = tn["id"]
+                                        break
                 alias_key = (alias_parent_id, label, alias_line)
                 dup_alias = alias_nodes_by_key.get(alias_key)
                 if dup_alias is not None:
@@ -502,7 +621,9 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             }
             occ_to_id[nid] = tbl_id
             if vt in ("table", "view") and not is_alias:
-                keeper_by_entity[ekey] = table_nodes[nid]
+                # #288: store under the folded key so case-variant
+                # occurrences merge into this keeper.
+                keeper_by_entity[_fold_physical(ekey)] = table_nodes[nid]
             elif is_alias:
                 alias_nodes_by_key[alias_key] = table_nodes[nid]
             continue
@@ -518,7 +639,14 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             # attribution). Seed placement is handled by the seed re-parent
             # pass instead.
             parent_table_id = None
-            if src_tables and len(src_tables) == 1:
+            # #289: INSERT SELECT projections land on the write target —
+            # but ONLY as a fallback. The physical model is the independent
+            # truth: a write column sourced to a real table/CTE/alias (a
+            # visible parent in this graph) renders ON that source, exactly
+            # as the model attributes it. The write-target routing applies
+            # only to projection columns the extractor sourced to a phantom
+            # alias (no node at all), which would otherwise be unparented.
+            if parent_table_id is None and src_tables and len(src_tables) == 1:
                 # Bug 28: Match source table name directly (aliases are now visible nodes)
                 # Try exact match first, then try canonical name if this is an alias
                 src_name = src_tables[0]
@@ -526,12 +654,40 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                     if tn["table_name"] == src_name or tid == src_tables[0]:
                         parent_table_id = tn["id"]
                         break
+                # #288: case-insensitive physical-only fallback (a field of
+                # a differently-cased occurrence of the merged physical
+                # table still lands on the keeper).
+                if (not parent_table_id
+                        and src_name.lower() in _physical_names_lower_set()):
+                    for tid, tn in table_nodes.items():
+                        if (tn["type"] == "source_table"
+                                and tn["table_name"].lower() == src_name.lower()):
+                            parent_table_id = tn["id"]
+                            break
                 if not parent_table_id:
                     resolved = alias_map.get(src_tables[0], src_tables[0])
                     for tid, tn in table_nodes.items():
                         if tn["table_name"] == resolved:
                             parent_table_id = tn["id"]
                             break
+                    # #288: case-insensitive physical-only fallback for the
+                    # resolved canonical name.
+                    if (not parent_table_id
+                            and resolved.lower() in _physical_names_lower_set()):
+                        for tid, tn in table_nodes.items():
+                            if (tn["type"] == "source_table"
+                                    and tn["table_name"].lower()
+                                    == resolved.lower()):
+                                parent_table_id = tn["id"]
+                                break
+
+            # #289 fallback: only when the projection column has NO visible
+            # source parent (phantom-sourced) does it land on the write
+            # target. Real table/CTE/alias sources keep their model owner.
+            if parent_table_id is None:
+                wtgt = write_field_target.get(nid)
+                if wtgt is not None:
+                    parent_table_id = _resolve_write_target(wtgt)
 
             is_target = (nid in target_node_ids)
             is_direct = (nid in direct_ids)
@@ -582,11 +738,29 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
         if vt in ("expression", "aggregate", "window", "case", "transform", "literal"):
             # Find parent table from source_tables or fallback to any existing table
             parent_table_id = None
-            if src_tables:
+            if parent_table_id is None and src_tables:
                 for tid, tn in table_nodes.items():
                     if tn["table_name"] in src_tables or tid in src_tables:
                         parent_table_id = tn["id"]
                         break
+                # #288: case-insensitive physical-only fallback.
+                if not parent_table_id:
+                    for src in src_tables:
+                        if src.lower() not in _physical_names_lower_set():
+                            continue
+                        for tid, tn in table_nodes.items():
+                            if (tn["type"] == "source_table"
+                                    and tn["table_name"].lower() == src.lower()):
+                                parent_table_id = tn["id"]
+                                break
+                        if parent_table_id:
+                            break
+            # #289 fallback: only when the computed projection has no visible
+            # source parent (phantom-sourced) does it land on the write target.
+            if parent_table_id is None:
+                wtgt = write_field_target.get(nid)
+                if wtgt is not None:
+                    parent_table_id = _resolve_write_target(wtgt)
             if not parent_table_id and table_nodes:
                 # Fallback: attach to first table node
                 _log.warning("L2 fallback: %s (%s) has no source table — attached to first table node '%s'",

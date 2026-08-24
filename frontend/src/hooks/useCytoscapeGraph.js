@@ -25,7 +25,7 @@ import { stripFieldParents, computeFieldRelPos, positionTableFields } from '../u
 import { TABLE_SELECTOR, FIT_PADDING } from '../config/layout';
 import { runSnakeLayout } from '../utils/snakeLayout';
 import { decorateLabelWithLine } from '../utils/labelDecoration';
-import { applyFlowVisibility } from '../utils/flowVisibility';
+import { applyFlowVisibility, fitAllElements } from '../utils/flowVisibility';
 
 const TABLE_SEL = TABLE_SELECTOR;
 
@@ -354,8 +354,21 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
   }, [flowOnly, flowNodeIds, flowEdgeIds]);
 
   const fit = useCallback((p = undefined) => {
-    if (cyRef.current && !cyRef.current.destroyed()) {
-      cyRef.current.fit(undefined, p !== undefined ? p : 50);
+    const cy = cyRef.current;
+    if (!cy || cy.destroyed()) return;
+    // E-M8 (#283): while a flow-only (View 1) filter is active, a plain fit
+    // bounds only the visible closure — View 2's non-closure nodes would sit
+    // off-screen after every resize. Fit the FULL graph, then restore the
+    // flow visibility (never a layout — positions are preserved).
+    const o = optsRef.current;
+    if (o.flowOnly || o.flowNodeIds || o.flowEdgeIds) {
+      fitAllElements(cy, {
+        flowOnly: o.flowOnly,
+        flowNodeIds: o.flowNodeIds,
+        flowEdgeIds: o.flowEdgeIds,
+      }, p !== undefined ? p : 50);
+    } else {
+      cy.fit(undefined, p !== undefined ? p : 50);
     }
   }, []);
 

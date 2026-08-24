@@ -8,11 +8,9 @@ except login itself (and health, which lives in main.py).
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
-from app.config import ADMIN_USERNAME
 from app.services import auth_service
 from app.services.notification_service import (
     list_notifications, mark_read, unread_count)
-from app.services.visit_service import flush_session_visits
 
 router = APIRouter(tags=["auth"])
 
@@ -56,18 +54,19 @@ async def login(request: Request, body: dict):
     if token is None:
         raise HTTPException(status_code=401, detail="invalid username or password")
     resp = JSONResponse({"username": username, "ip": ip})
-    resp.set_cookie(
-        SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=30 * 60)
+    # R31 (#279): ZERO session expiry — the cookie is a SESSION cookie (no
+    # max_age) so the browser drops it on close; the in-memory session lives
+    # until logout or server restart. No 30-min absolute wall-clock expiry.
+    resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax")
     return resp
 
 
 @router.post("/auth/logout")
 async def logout(request: Request):
-    """Destroy the session and flush that session's open visits (one memo
-    per workspace, aggregated per user — A-M10)."""
+    """Destroy the session and clear the cookie (R31 #285: no visit flush —
+    per-user visit logging is dropped)."""
     token = request.cookies.get(SESSION_COOKIE)
     if token:
-        flush_session_visits(token, detail="logout")
         auth_service.destroy_session(token)
     resp = Response(status_code=200)
     resp.delete_cookie(SESSION_COOKIE)
@@ -80,27 +79,6 @@ async def me(request: Request, username: str = Depends(require_login)):
     users = auth_service.load_users()
     rec = users.get(username, {})
     return {"username": username, "last_login_ip": rec.get("last_login_ip", "")}
-
-
-@router.post("/admin/users")
-async def admin_create_user(body: dict):
-    """Admin-only: create a user or reset a password (A-H1).
-
-    The ONLY way a password ever changes. Rejects non-`@hsbc.com` usernames
-    and short passwords. `force=true` = admin reset of an existing account;
-    without it, re-provisioning an existing user is refused.
-    """
-    username = (body.get("username") or "").strip()
-    password = body.get("password") or ""
-    if username != ADMIN_USERNAME:
-        raise HTTPException(status_code=403, detail="Admin only")
-    if not auth_service.verify_username_format(username):
-        raise HTTPException(status_code=400, detail="Invalid username (must be *@hsbc.com)")
-    force = bool(body.get("force"))
-    ok = auth_service.provision_user(username, password, force=force)
-    if not ok:
-        raise HTTPException(status_code=400, detail="Invalid password (min 6) or user exists without force")
-    return {"username": username, "created": True}
 
 
 @router.get("/notifications")

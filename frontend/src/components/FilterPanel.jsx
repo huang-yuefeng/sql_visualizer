@@ -17,13 +17,22 @@ function getTableColor(name) {
   return tableColorCache[name];
 }
 
-// Search history & pins from localStorage
-function loadHistory() { try { return JSON.parse(localStorage.getItem('df_search_history') || '[]'); } catch { return []; } }
-function saveHistory(h) { localStorage.setItem('df_search_history', JSON.stringify(h.slice(0, 20))); }
-function loadPins() { try { return JSON.parse(localStorage.getItem('df_pinned_searches') || '[]'); } catch { return []; } }
-function savePins(p) { localStorage.setItem('df_pinned_searches', JSON.stringify(p)); }
+// Search history & pins from localStorage — namespaced PER USER (E-M2/#277).
+// The old global `df_search_history`/`df_pinned_searches` keys leaked user A's
+// terms/pins into user B after a logout+login (nothing cleared them). The
+// username flows in from AppShell → DataFlowApp → FilterPanel, so each user's
+// history/pins live under `df_search_history:{username}`. A missing username
+// (defensive) falls back to `:anon` — never the shared global key. Clear-on-
+// logout is now unnecessary; the `theme` key and the R23 one-time
+// `df_last_search_view` purge stay global and untouched.
+function histKey(username) { return `df_search_history:${username || 'anon'}`; }
+function pinsKey(username) { return `df_pinned_searches:${username || 'anon'}`; }
+function loadHistory(username) { try { return JSON.parse(localStorage.getItem(histKey(username)) || '[]'); } catch { return []; } }
+function saveHistory(username, h) { localStorage.setItem(histKey(username), JSON.stringify(h.slice(0, 20))); }
+function loadPins(username) { try { return JSON.parse(localStorage.getItem(pinsKey(username)) || '[]'); } catch { return []; } }
+function savePins(username, p) { localStorage.setItem(pinsKey(username), JSON.stringify(p)); }
 
-export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, loading, onFilterApplied, onError }) {
+export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, onSearch, loading, onFilterApplied, onError }) {
   const [table, setTable] = useState('');
   const [field, setField] = useState('');
   const [tableSuggestions, setTableSuggestions] = useState([]);
@@ -36,8 +45,8 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
   const [filterIgnored, setFilterIgnored] = useState([]);     // F4/R2: payload.ignored_tables
   const [filterIgnoredRows, setFilterIgnoredRows] = useState(null); // D2: payload.ignored_rows
   const [uploadingFilter, setUploadingFilter] = useState(false);
-  const [searchHistory, setSearchHistory] = useState(loadHistory);
-  const [pinnedSearches, setPinnedSearches] = useState(loadPins);
+  const [searchHistory, setSearchHistory] = useState(() => loadHistory(username));
+  const [pinnedSearches, setPinnedSearches] = useState(() => loadPins(username));
   const [showHistory, setShowHistory] = useState(false);
   // R29: query direction — upstream (writing flow, DEFAULT) / downstream (reading flow)
   const [direction, setDirection] = useState('upstream');
@@ -96,7 +105,7 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
     const entry = { table: t, field: f, time: Date.now() };
     const newHistory = [entry, ...searchHistory.filter(h => !(h.table === t && h.field === f))];
     setSearchHistory(newHistory);
-    saveHistory(newHistory);
+    saveHistory(username, newHistory);
     onSearch(t, f, direction);
   };
 
@@ -113,7 +122,7 @@ export default function FilterPanel({ wsId, tableIndex, fieldIndex, onSearch, lo
     if (existing) newPins = pinnedSearches.filter(p => !(p.table === t && p.field === f));
     else newPins = [...pinnedSearches, { table: t, field: f }];
     setPinnedSearches(newPins);
-    savePins(newPins);
+    savePins(username, newPins);
   };
   const isPinned = (t, f) => pinnedSearches.some(p => p.table === t && p.field === f);
 

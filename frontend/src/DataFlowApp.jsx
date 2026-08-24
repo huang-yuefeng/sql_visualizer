@@ -1,5 +1,6 @@
 
 import WorkspacePanel from './components/WorkspacePanel';
+import MyWorkspaces from './components/MyWorkspaces';
 import FolderTree from './components/FolderTree';
 import FilterPanel from './components/FilterPanel';
 import ViewBar from './components/ViewBar';
@@ -11,11 +12,17 @@ import ResolutionReport from './components/ResolutionReport';
 import * as api from './api/client';
 import pickAutoEdge from './utils/pickAutoEdge';
 import { resolveFlowOnly } from './utils/flowVisibility';
+import { resumeLayoutKey } from './utils/layoutPersistence';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useResizable } from './utils/useResizable';
 import './styles/resizable.css';
 
-export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace = null }) {
+export default function DataFlowApp({
+  openWorkspaceId = null,
+  onOpenWorkspace = null,
+  onCloseWorkspace = null,
+  username = null,
+}) {
   const [wsId, setWsId] = useState(null);
   const [fileTree, setFileTree] = useState(null);
   const [selectedScripts, setSelectedScripts] = useState([]);
@@ -101,6 +108,10 @@ export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace =
         if (fresh && fresh.state_version != null) {
           setVersion(fresh.state_version);
           if (fresh.layouts) setResumeLayouts(fresh.layouts);
+          // E-M9 (#284): overlay the just-dragged positions on the fresh
+          // state too — they are being re-applied on top of it (A-M4), so a
+          // re-open must reflect them, not the open-time snapshot.
+          setResumeLayouts(prev => ({ ...prev, [resumeLayoutKey(level, script)]: positions }));
           setToast('State changed by another user — refreshed');
           // Re-apply the pending edit on top of the fresh state (A-M4).
           pendingLayoutRef.current = { level, script, positions, version: fresh.state_version };
@@ -112,6 +123,10 @@ export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace =
       } else if (res.ok) {
         const body = await res.json().catch(() => null);
         if (body && body.state_version != null) setVersion(body.state_version);
+        // E-M9 (#284): the server CONFIRMED these positions — fold them into
+        // resumeLayouts so a later re-open/re-search re-applies the LATEST
+        // drag, never the open-time snapshot (which would undo the drag).
+        setResumeLayouts(prev => ({ ...prev, [resumeLayoutKey(level, script)]: positions }));
       }
       // other non-OK: silent failure (design: silent-fail handling)
     } catch { /* silent */ }
@@ -288,6 +303,14 @@ export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace =
       setSchemaEvidence(idxResult.schema_evidence || null);
       setIndexed(true);
       setProgress(null);
+      // #292: populate the persisted view tree (search views + their L2
+      // children) from views.json so the left-panel ViewBar shows them.
+      // R23 clean start: NO auto-activation — the user clicks a view to load
+      // it. A view-list failure is non-critical (the tree just starts empty).
+      try {
+        const viewsRes = await api.listViews(targetWsId);
+        setViews(Array.isArray(viewsRes?.views) ? viewsRes.views : []);
+      } catch (e) { /* non-critical — views populate on the next search */ }
     } catch (e) {
       // Open failed (e.g. deleted/unknown id) — surface it and stay on the
       // empty debugger; the dashboard is one "Close" away.
@@ -491,6 +514,33 @@ export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace =
     onCloseWorkspace?.();
   }, [wsId, resetWorkspaceState, onCloseWorkspace]);
 
+  // ── T8 (#295): embedded "My workspaces" section (left panel) ──────
+  // Upload creates a NEW workspace server-side, then opens it — the open
+  // effect (handleOpenExisting) runs resume→scan→index ONCE on remount. We
+  // deliberately do NOT call handleUpload's inline index path here (it would
+  // double-index after the keyed remount).
+  const handleSectionUpload = useCallback(async (file) => {
+    const result = await api.uploadWorkspace(file);
+    onOpenWorkspace?.(result.workspace_id);
+    return result;
+  }, [onOpenWorkspace]);
+
+  // Remove-from-history (role-dependent, the backend decides: creator →
+  // physical delete, participant → link removal). If it was the OPEN
+  // workspace, drop back to the empty debugger.
+  const handleSectionRemove = useCallback(async (w) => {
+    try {
+      await api.removeFromMyHistory(w.ws_id);
+      if (w.ws_id === wsId) {
+        resetWorkspaceState();
+        onCloseWorkspace?.();
+      }
+    } catch (e) {
+      setError(e.message);
+      throw e; // let the embedded list surface the error line
+    }
+  }, [wsId, resetWorkspaceState, onCloseWorkspace]);
+
   // ── L1 Table lens click ─────────────────────────────────────────
   const handleTableClick = useCallback((tableName) => {
     setActiveL1Table(prev => prev === tableName ? null : tableName);
@@ -520,6 +570,21 @@ export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace =
 
   // ── Clear edge selection ────────────────────────────────────────────
   // ── Delete view ───────────────────────────────────────────────────
+  // E-M7 (#282): deleting the ACTIVE L2 child view (or its parent) must drop
+  // the graph back to L1 — no stale L2 graph/header/SQL/toggle with no live
+  // view. `clearL1` also clears the L1 nav (used when the deleted view WAS
+  // the active L1 view); when only an L2 child is gone, the L1 nav stays.
+  const dropToL1 = useCallback(({ clearL1 = false } = {}) => {
+    if (clearL1) setL1Graph(null);
+    setGraphLevel('L1');
+    setL2Graph(null); setL2Result(null); setFlowOnly(null);
+    setL2NotInFlow(false); setL2NotInFlowMessage(null);
+    setL2ParseErrors([]);
+    setSqlText(''); setCurrentScriptName('');
+    setSelectedEdge(null);
+    setActiveViewId(null);
+  }, []);
+
   const handleDeleteView = useCallback(async (viewId) => {
     if (!wsId) return;
     try { await api.deleteView(wsId, viewId); } catch (e) { /* ignore */ }
@@ -527,6 +592,18 @@ export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace =
     // prefers it over activeViewId, so a stale ref would address the API
     // with a dead view id (wrong parent chain / back navigation).
     if (parentViewIdRef.current === viewId) parentViewIdRef.current = null;
+    // E-M7: capture what the ACTIVE view was BEFORE the setViews below —
+    //   activeViewId === viewId            → the active view was deleted;
+    //   activeViewId is a child of viewId  → the active L2's PARENT was
+    //   deleted. Either way the active view no longer exists → drop to L1.
+    const activeWasDeleted =
+      activeViewId === viewId
+      || (activeViewId && views.some(v =>
+        v.view_id === viewId && (v.children || []).some(c => c.view_id === activeViewId)
+      ));
+    const activeViewIsAChild = activeViewId === viewId && views.some(v =>
+      (v.children || []).some(c => c.view_id === viewId)
+    );
     setViews(prev => {
       let newViews = prev.filter(v => v.view_id !== viewId);
       newViews = newViews.map(v => ({
@@ -535,14 +612,12 @@ export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace =
       }));
       return newViews;
     });
-    if (activeViewId === viewId) {
-      setActiveViewId(null); setL1Graph(null); setL2Graph(null); setL2Result(null); setFlowOnly(null);
-      setL2NotInFlow(false); setL2NotInFlowMessage(null);
-      setL2ParseErrors([]);
-      setSqlText(''); setCurrentScriptName('');
-      setSelectedEdge(null);
+    if (activeWasDeleted) {
+      // A deleted L2 child (or its deleted parent) → drop back to L1 and
+      // keep the L1 nav; a deleted active L1 view → clear the L1 nav too.
+      dropToL1({ clearL1: !activeViewIsAChild });
     }
-  }, [wsId, activeViewId]);
+  }, [wsId, activeViewId, views, dropToL1]);
 
   // Top panel always shows L1 as navigation graph (per requirement §3)
   const graphData = l1Graph;
@@ -607,10 +682,23 @@ export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace =
       <div className="dataflow-main">
       {/* Left panel */}
       <div className="panel-left">
+        {/* T8 (#295): "My workspaces" ALWAYS lives at the top of the
+            debugger's left panel — list (role badges + quota + remove),
+            📁 Select Folder, + Upload a folder (zip), and the open-by-id
+            box. Each keyed remount refetches the list. Uploads create then
+            open (handleOpenExisting runs resume→scan→index ONCE); the
+            WorkspacePanel below no longer duplicates the upload pickers. */}
+        <MyWorkspaces
+          open
+          onOpen={onOpenWorkspace}
+          onUpload={handleSectionUpload}
+          onRemove={handleSectionRemove}
+        />
         <WorkspacePanel
           wsId={wsId} loading={loading} progress={progress}
           onUpload={handleUpload} onDelete={handleDeleteWorkspace}
           onError={setError}
+          showUploads={false}
         />
         {fileTree && (
           <FolderTree
@@ -622,6 +710,7 @@ export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace =
         {indexed && (
           <FilterPanel
             wsId={wsId}
+            username={username}
             tableIndex={tableIndex} fieldIndex={fieldIndex}
             onSearch={handleSearch} loading={loading}
             onError={setError}
@@ -669,7 +758,9 @@ export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace =
                 }
                 return updated;
               });
-              if (activeViewId === childId) setActiveViewId(null);
+              // E-M7 (#282): deleting the ACTIVE L2 child drops back to L1 —
+              // no stale L2 graph/header/SQL/toggle with no live view.
+              if (activeViewId === childId) dropToL1();
             } catch (e) { setError(e.message); }
           }}
         />
@@ -776,7 +867,7 @@ export default function DataFlowApp({ openWorkspaceId = null, onCloseWorkspace =
               flowEdgeIds={l2Result?.flow_edge_ids}
               flowOnly={flowOnly}
               onFlowOnlyChange={setFlowOnly}
-              savedPositions={resumeLayouts[`l2:${currentScriptName}`]}
+              savedPositions={resumeLayouts[resumeLayoutKey('l2', currentScriptName)]}
               onPositionsChange={handlePositionsChange}
             />
           </div>

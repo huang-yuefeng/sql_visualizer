@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveFlowOnly, applyFlowVisibility } from '../flowVisibility';
+import { resolveFlowOnly, applyFlowVisibility, fitAllElements } from '../flowVisibility';
 
 // A minimal cytoscape-like instance: nodes()/edges()/elements() return
 // arrays whose elements expose id()/data()/show()/hide()/hidden();
@@ -39,13 +39,17 @@ function makeFakeCy({ nodes, edges }) {
     col.hidden = () => el.hidden();
     return col;
   };
-  return {
+  const cy = {
     nodes: () => nodeElems,
     edges: () => edgeElems,
     elements: () => all,
     getElementById,
     destroyed: () => false,
   };
+  // fit recorder — fitAllElements asserts that fit runs over the FULL graph
+  cy._fitCalls = [];
+  cy.fit = (els, pad) => { cy._fitCalls.push(pad); };
+  return cy;
 }
 
 const graph = {
@@ -147,5 +151,51 @@ describe('applyFlowVisibility — View 1 (flow-only) / View 2 (full)', () => {
       flowNodeIds: ['n1', 'n2'],
       flowEdgeIds: ['e1'],
     })).not.toThrow();
+  });
+});
+
+describe('fitAllElements — E-M8 (#283) fit bounds the FULL graph, then restores flow visibility', () => {
+  it('shows every element before fitting and re-hides non-closure nodes after', () => {
+    const cy = makeFakeCy(graph);
+    // Start with the flow-only filter applied (View 1).
+    applyFlowVisibility(cy, {
+      flowOnly: true,
+      flowNodeIds: ['n1', 'n2'],
+      flowEdgeIds: ['e1'],
+    });
+    expect(cy.nodes().find(n => n.id() === 'n3').hidden()).toBe(true);
+
+    fitAllElements(cy, {
+      flowOnly: true,
+      flowNodeIds: ['n1', 'n2'],
+      flowEdgeIds: ['e1'],
+    }, 40);
+
+    // fit ran over the FULL graph (fit() is called with the padding).
+    expect(cy._fitCalls).toEqual([40]);
+    // After the fit, the flow-only visibility is restored — n3 is hidden again.
+    expect(cy.nodes().find(n => n.id() === 'n1').hidden()).toBe(false);
+    expect(cy.nodes().find(n => n.id() === 'n2').hidden()).toBe(false);
+    expect(cy.nodes().find(n => n.id() === 'n3').hidden()).toBe(true);
+    expect(cy.nodes().find(n => n.id() === 'n4').hidden()).toBe(true);
+  });
+
+  it('uses the default padding when none is passed', () => {
+    const cy = makeFakeCy(graph);
+    fitAllElements(cy, { flowOnly: false });
+    expect(cy._fitCalls).toEqual([50]);
+  });
+
+  it('shows everything when no flow filter is active (flowOnly falsy)', () => {
+    const cy = makeFakeCy(graph);
+    cy.nodes().forEach(n => n.hide());
+    fitAllElements(cy, { flowOnly: null });
+    expect(cy._fitCalls).toEqual([50]);
+    cy.nodes().forEach(n => expect(n.hidden()).toBe(false));
+  });
+
+  it('is defensive on a null/destroyed instance', () => {
+    expect(() => fitAllElements(null, {}, 40)).not.toThrow();
+    expect(() => fitAllElements({ destroyed: () => true }, {}, 40)).not.toThrow();
   });
 });

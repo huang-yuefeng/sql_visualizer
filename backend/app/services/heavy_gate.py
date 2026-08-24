@@ -44,3 +44,10 @@ class HeavyGate:
         if self._acquired:
             release()
         return False
+
+
+# R31 (#273): the shared SINGLETON gate instance. Every heavy-op endpoint
+# (debugger search, /analyze, /analyze_multi) imports THIS instance so the
+# global busy flag serializes all of them — one heavy op at a time, and a
+# new one while busy is refused with HTTP 409 "system busy — please wait".
+gate = HeavyGate()

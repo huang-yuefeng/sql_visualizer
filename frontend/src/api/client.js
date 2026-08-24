@@ -6,6 +6,40 @@ function bust(url) {
   return url + sep + CACHE_BUST;
 }
 
+// ── E-M1 (#276): shared 401 interceptor ──────────────────────────────
+// A mid-session expiry (or a session dropped by the server) surfaces as
+// HTTP 401 on any GATED call. AppShell registers ONE handler on mount;
+// the interceptor fires it at most once per 401 batch — the session is
+// already gone, so a dozen concurrent 401s must not flash a dozen banners
+// or re-renders. Login and the PUBLIC analysis endpoints (/analyze,
+// /scripts, /scripts/{id}/graph) bypass the interceptor: a 401 there is
+// not a session-expiry signal. The handler is expected to drop the session
+// (set the shell's me=null) — NOT to redirect-reload the page.
+let sessionExpiredHandler = null;
+let sessionExpiredNotified = false;
+
+/** Register the session-expired callback (AppShell mount). Returns an unsubscribe. */
+export function onSessionExpired(cb) {
+  sessionExpiredHandler = cb;
+  sessionExpiredNotified = false;
+  return () => { if (sessionExpiredHandler === cb) sessionExpiredHandler = null; };
+}
+
+/** Reset the once-per-batch flag after a successful login/re-auth. */
+export function resetSessionExpired() {
+  sessionExpiredNotified = false;
+}
+
+/** fetch wrapper for GATED endpoints — fires the session-expired handler on 401. */
+async function gatedFetch(input, init) {
+  const res = await fetch(input, init);
+  if (res.status === 401 && sessionExpiredHandler && !sessionExpiredNotified) {
+    sessionExpiredNotified = true;
+    try { sessionExpiredHandler(); } catch { /* handler must never break the call */ }
+  }
+  return res;
+}
+
 // L12: read the error detail from a non-OK response without throwing on
 // non-JSON bodies (e.g. proxy 500 HTML) — fall back to the HTTP status.
 async function errorDetail(res) {
@@ -46,7 +80,7 @@ export async function getGraph(scriptId, withSnippets = true) {
 export async function uploadWorkspace(zipFile) {
   const form = new FormData();
   form.append('file', zipFile);
-  const res = await fetch('/api/workspace', { method: 'POST', body: form });
+  const res = await gatedFetch('/api/workspace', { method: 'POST', body: form });
   if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
@@ -55,7 +89,7 @@ export async function uploadWorkspace(zipFile) {
 // delete, participant = link removal). Renamed from the legacy
 // deleteWorkspace (the old DELETE /api/workspace/{id} route is gone).
 export async function removeFromMyHistory(wsId) {
-  const res = await fetch(`/api/me/workspaces/${wsId}`, { method: 'DELETE' });
+  const res = await gatedFetch(`/api/me/workspaces/${wsId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
@@ -72,11 +106,13 @@ export async function login(username, password) {
     body: JSON.stringify({ username, password }),
   });
   if (!res.ok) throw new Error(await errorDetail(res));
+  // A new session is established — a future expiry must notify again.
+  resetSessionExpired();
   return res.json();
 }
 
 export async function logout() {
-  await fetch('/api/auth/logout', { method: 'POST' });
+  await gatedFetch('/api/auth/logout', { method: 'POST' });
 }
 
 export async function getMe() {
@@ -88,29 +124,29 @@ export async function getMe() {
 
 // ── R31 my workspaces ──────────────────────────────────────────────
 export async function getMyWorkspaces() {
-  const res = await fetch('/api/workspaces');
+  const res = await gatedFetch('/api/workspaces');
   if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
 export async function resumeWorkspace(wsId) {
-  const res = await fetch(`/api/workspace/${wsId}/resume`);
+  const res = await gatedFetch(`/api/workspace/${wsId}/resume`);
   if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
 export async function closeWorkspace(wsId) {
-  await fetch(`/api/workspace/${wsId}/close`, { method: 'POST' });
+  await gatedFetch(`/api/workspace/${wsId}/close`, { method: 'POST' });
 }
 
 export async function getWorkspaceActivity(wsId) {
-  const res = await fetch(`/api/workspace/${wsId}/activity`);
+  const res = await gatedFetch(`/api/workspace/${wsId}/activity`);
   if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
 export async function saveLayout(wsId, level, script, nodePositions, stateVersion) {
-  const res = await fetch(`/api/workspace/${wsId}/layout`, {
+  const res = await gatedFetch(`/api/workspace/${wsId}/layout`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ level, script: script || null, node_positions: nodePositions, state_version: stateVersion }),
@@ -120,19 +156,19 @@ export async function saveLayout(wsId, level, script, nodePositions, stateVersio
 
 // ── R31 notifications ──────────────────────────────────────────────
 export async function getNotifications() {
-  const res = await fetch('/api/notifications');
+  const res = await gatedFetch('/api/notifications');
   if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
 export async function markNotificationRead(id) {
-  const res = await fetch(`/api/notifications/${id}/read`, { method: 'POST' });
+  const res = await gatedFetch(`/api/notifications/${id}/read`, { method: 'POST' });
   if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
 export async function indexWorkspace(wsId, scripts) {
-  const res = await fetch(`/api/workspace/${wsId}/index`, {
+  const res = await gatedFetch(`/api/workspace/${wsId}/index`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scripts }),
@@ -144,14 +180,14 @@ export async function indexWorkspace(wsId, scripts) {
 // R31 open-existing: the file tree for a workspace already on disk (the
 // create path returns a tree inline; resume re-scans).
 export async function scanWorkspace(wsId) {
-  const res = await fetch(`/api/workspace/${wsId}/scan`, { method: 'POST' });
+  const res = await gatedFetch(`/api/workspace/${wsId}/scan`, { method: 'POST' });
   if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
 
 export async function getWorkspaceStatus(wsId) {
-  const res = await fetch(`/api/workspace/${wsId}/status`);
+  const res = await gatedFetch(`/api/workspace/${wsId}/status`);
   return res.json();
 }
 
@@ -160,7 +196,7 @@ export async function uploadFilterConfig(wsId, scriptTableFile, tableColFile) {
   const form = new FormData();
   if (scriptTableFile) form.append('script_table', scriptTableFile);
   if (tableColFile) form.append('table_col', tableColFile);
-  const res = await fetch(`/api/workspace/${wsId}/filter-config`, {
+  const res = await gatedFetch(`/api/workspace/${wsId}/filter-config`, {
     method: 'POST',
     body: form,
   });
@@ -172,7 +208,7 @@ export async function uploadFilterConfig(wsId, scriptTableFile, tableColFile) {
 // The frontend ALWAYS sends it explicitly; the client default is upstream
 // (the documented writing-flow contract — CR7 ruling 2026-08-13).
 export async function searchDataFlow(wsId, table, field, direction = 'upstream') {
-  const res = await fetch(`/api/workspace/${wsId}/search`, {
+  const res = await gatedFetch(`/api/workspace/${wsId}/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ table, field, direction }),
@@ -182,30 +218,30 @@ export async function searchDataFlow(wsId, table, field, direction = 'upstream')
 }
 
 export async function listViews(wsId) {
-  const res = await fetch(`/api/workspace/${wsId}/views`);
+  const res = await gatedFetch(`/api/workspace/${wsId}/views`);
   return res.json();
 }
 
 export async function deleteView(wsId, viewId) {
-  const res = await fetch(`/api/workspace/${wsId}/views/${viewId}`, { method: 'DELETE' });
+  const res = await gatedFetch(`/api/workspace/${wsId}/views/${viewId}`, { method: 'DELETE' });
   return res.json();
 }
 
 export async function getLevel2Graph(wsId, viewId, script, filter = true, direction = 'upstream') {
   const params = new URLSearchParams({ script, filter: String(filter), direction });
-  const res = await fetch(bust(`/api/workspace/${wsId}/views/${viewId}/level2?${params}`));
+  const res = await gatedFetch(bust(`/api/workspace/${wsId}/views/${viewId}/level2?${params}`));
   if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
 // ── V3.1 SQL Export Config ─────────────────────────────────────────
 export async function getExportConfig(wsId) {
-  const res = await fetch(`/api/workspace/${wsId}/export-config`);
+  const res = await gatedFetch(`/api/workspace/${wsId}/export-config`);
   return res.json();
 }
 
 export async function saveExportConfig(wsId, config) {
-  const res = await fetch(`/api/workspace/${wsId}/export-config`, {
+  const res = await gatedFetch(`/api/workspace/${wsId}/export-config`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
@@ -215,12 +251,12 @@ export async function saveExportConfig(wsId, config) {
 }
 
 export async function resetExportConfig(wsId) {
-  const res = await fetch(`/api/workspace/${wsId}/export-config`, { method: 'DELETE' });
+  const res = await gatedFetch(`/api/workspace/${wsId}/export-config`, { method: 'DELETE' });
   return res.json();
 }
 
 export async function addViewChild(wsId, parentViewId, childEntry) {
-  const res = await fetch(`/api/workspace/${wsId}/views/${parentViewId}/children`, {
+  const res = await gatedFetch(`/api/workspace/${wsId}/views/${parentViewId}/children`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(childEntry),
@@ -230,7 +266,7 @@ export async function addViewChild(wsId, parentViewId, childEntry) {
 }
 
 export async function deleteViewChild(wsId, parentViewId, childId) {
-  const res = await fetch(`/api/workspace/${wsId}/views/${parentViewId}/children/${childId}`, {
+  const res = await gatedFetch(`/api/workspace/${wsId}/views/${parentViewId}/children/${childId}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(await errorDetail(res));

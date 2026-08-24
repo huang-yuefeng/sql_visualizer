@@ -48,18 +48,16 @@ def main():
                     json={"username": "ghost@hsbc.com", "password": "secret1"})
     check(r.status_code == 401, "unknown username must be rejected")
 
-    # Bootstrap hole (gate-exempt /api/admin/*): on a fresh deploy NO account
-    # exists to log in with, so POST /api/admin/users provisions the FIRST
-    # account without a session ("default first provisioned user", R31 impl
-    # §2.5). The endpoint only ever targets ADMIN_USERNAME.
-    r = client.post("/api/admin/users",
-                    json={"username": "admin@hsbc.com", "password": "secret1",
-                          "force": True})
-    check(r.status_code == 200, f"admin bootstrap: {r.status_code} {r.text[:200]}")
+    # R31 (#269): accounts are provisioned from CONFIG (PROVISIONED_USERS) at
+    # startup only — there is NO HTTP provisioning endpoint. The probe
+    # force-syncs the config default account directly (a prior test run may
+    # have mutated the stored password in the persistent users.json).
+    assert auth_service.provision_user("admin@hsbc.com", "123456", force=True), \
+        "config default admin must provision"
 
-    # login with the bootstrapped account
+    # login with the config-provisioned account
     r = client.post("/api/auth/login",
-                    json={"username": "admin@hsbc.com", "password": "secret1"})
+                    json={"username": "admin@hsbc.com", "password": "123456"})
     check(r.status_code == 200, f"login failed: {r.status_code} {r.text[:200]}")
     check("session" in client.cookies, "session cookie not set")
 
