@@ -13,6 +13,8 @@
 
 No source files were modified. The multi-user feature is documentation-only (no code landed); v3.3.159 source is the cache-reuse + flow-cone/tooltip changes.
 
+> **Part E added 2026-08-24** (v3.3.162, R31 + D-series): **7 High, 9 Medium, 8 Low** — all verified against HEAD `f6e575f`. Highlights: unauthenticated admin password reset (E-H1), session-only cleanup-all that deletes all workspaces + inboxes (E-H2), admin endpoint cannot provision any non-admin user so multi-user is non-functional (E-H3), L2 layout persistence entirely dead — `opened_l2s` never written (E-H4), heavy-op gate dead code (E-H5), close-workspace flushes every visit not just the target (E-H6), logout permanently 500s after a workspace is deleted mid-visit (E-H7). The D-series fixes themselves (D-H2 core ordering, D-H3, D-M3, D-M4, D-M7, D-M8) are verified correct.
+
 ---
 
 # Part A — Multi-user local-account design (documents)
@@ -209,3 +211,82 @@ No source files were modified. The multi-user feature is documentation-only (no 
 - **samples EAST5_STZFXXB_M.sql:138,74** — `NVL_WS(...)` likely `NVL(...)`; `REPLACE("$(load_date)",…)` double-quoted var; verify against source.
 - **requirements_v2.md:290** — stale "858 passed / 5 skipped" full-suite count vs v3.3.160.
 - **folder_index_service.py:608-645 (Fix A)** — new alias-field indexing has no re-index note / index-version bump; existing workspaces won't pick up the new fields silently.
+
+---
+
+# Part E — v3.3.162 source update (added 2026-08-24)
+
+> **Scope:** `git diff 8c26a0d..f6e575f` — the released v3.3.162 change set: R31 multi-user login (#251) + D-series fixes (#261-265). Reviewed per the user's 2026-08-24 request after remote work confirmed complete 21 Aug.
+> **Reviewers:** 5 parallel read-only sub-agents — backend auth, backend services, frontend R31 UI, frontend graph/D-fixes, deploy/docs.
+> **Status:** All findings verified against HEAD (`f6e575f`). No source files were modified. Per the standing rule, fixes go through the work list, not directly into source.
+
+## Verified fixed (D-series, this release)
+
+- **D-H3 — plaintext sudo password REMOVED** from `deploy.sh:51` (now `docker compose -f docker-compose.yml restart`).
+- **D-M3 — `--noproxy` + `$VERSION` sed/grep escaping** correct (`VERSION_SED` escapes `& \ |`; `grep -qF`).
+- **D-M7 — R30.8 reworded** to match the flow-only↔full visibility toggle implementation.
+- **D-M8 — review doc now tracked.**
+- **D-H2 core ordering fix is CORRECT** — deferred fit → `onFit` → `applySavedPositions` → `applyFlowVisibility` → `layoutDoneRef` (except the ResizeObserver path, see E-M8).
+- **D-M4 correct on all specified paths** (workspace delete, view delete, search, open-L2, view-tree navigation, upload, open-existing) — except the two child-delete paths in E-M7.
+- **target_deploy.sh COMMIT guard is a local-only ancestor check** (`git merge-base --is-ancestor`), safe on the offline target machine; release.sh offline-compliant (manifest stamped, no push/fetch, `--noproxy` smoke curl, `--pull=never`).
+- **R31 correctness confirmed**: `audit_service` O_APPEND writes are real appends (single `write()` per NDJSON line, torn-tail tolerated); `_WS_ID_RE` is 32-hex with no path traversal; open_visits keyed by session token with per-user aggregation at flush (A-M10 shape right); §5.5/§5.6 index-add-before-`open_visit` ordering on resume correct; PBKDF2 + per-user salt + timing-safe compare + HttpOnly+SameSite=Lax cookie + role-dependent DELETE all correct; restart-loss of in-memory state is the accepted A-M9 behavior.
+
+## High
+
+### E-H1 · Unauthenticated admin password reset — the bootstrap hole is a permanent backdoor
+- **File:** `backend/app/routers/auth.py:85-103` (the `username != ADMIN_USERNAME` check at `:95`), `backend/app/main.py:219-221` (the `/api/admin/` gate exemption).
+- **Problem:** the gate-exempt `/api/admin/users` endpoint never authenticates the caller — its only check is that the *body's* username equals `ADMIN_USERNAME` (default `admin@hsbc.com`, `config.py:33`). Any unauthenticated client can POST `{username: "admin@hsbc.com", password: "pwned1", force: true}` and take over the admin account. The design's stated mitigation ("it only ever targets ADMIN_USERNAME") is ineffective because the caller is never required to *be* the admin.
+- **Failure:** `curl -X POST http://192.168.0.66:8000/api/admin/users -H 'Content-Type: application/json' -d '{"username":"admin@hsbc.com","password":"pwned1","force":true}'` returns 200; the attacker logs in as admin. Violates A-H1 ("no endpoint ever overwrites an existing identity without verification").
+
+### E-H2 · `DELETE /api/workspace` (cleanup-all) requires only a session — any user destroys every workspace and every inbox
+- **File:** `backend/app/routers/workspace.py:314-318`, `backend/app/services/workspace_service.py:58-66`.
+- **Problem:** the design said cleanup-all "becomes admin-only or is removed" (R31 impl §2.6), but it is left login-gated only with no role check. Worse, `cleanup_all_workspaces()` rmtree's every *directory* under `WORKSPACE_ROOT` — which also deletes `notifications/` (all users' inboxes, `notification_service.py:28`). No audit entry is written.
+- **Failure:** any authenticated user calls `DELETE /api/workspace` → every workspace directory and the notifications directory are deleted.
+
+### E-H3 · The admin endpoint cannot provision any account other than ADMIN_USERNAME — the multi-user feature is non-functional
+- **File:** `backend/app/routers/auth.py:95-100`.
+- **Problem:** the only HTTP provisioning path rejects every username that is not `ADMIN_USERNAME` (`403 "Admin only"`), and no other path exists (the playwright spec only ever provisions `admin@hsbc.com`). The system can never have more than the admin account — "admin-managed allowlist" (design §1/§2/§7) has no HTTP implementation.
+- **Failure:** administrator calls `POST /api/admin/users {"username":"bob@hsbc.com",...}` → 403. The multi-user goal is unreachable by design.
+
+### E-H4 · L2 layout persistence is entirely dead — every `l2:{script}` save is silently discarded
+- **File:** `backend/app/routers/workspace.py:164-167`, `backend/app/services/workspace_service.py:115`.
+- **Problem:** `save_layout` filters `layouts` through `opened = set(meta.get("opened_l2s") or [])`, but `opened_l2s` is **never written anywhere** in the codebase (grep: only the `[]` init at `workspace_service.py:115` and reads at `workspace.py:164,205`). With `opened` always empty, every `l2:*` key just written is dropped before the CAS write — yet the PUT returns 200 and bumps `state_version`. Reported independently by two agents.
+- **Failure:** user drags an L2 graph, the debounced save says "saved", but re-opening that script always re-computes a fresh layout. L2 positions never persist; the core "layout work survives" promise (§5.3/A-M5) is unfulfilled. Related: `last_search`/`opened_l2s` have **no write path at all**, so `resume` always returns `last_search: null, opened_l2s: []` (§5.3 resume-state promise also unimplemented).
+
+### E-H5 · The heavy-op gate is dead code — "system busy" 409 is never returned
+- **File:** `backend/app/services/heavy_gate.py:14-46` (defines `try_acquire`/`release`/`HeavyGate`).
+- **Problem:** a repo-wide grep finds zero importers. `search_dataflow` (`dataflow.py:149`), `analyze_sql_endpoint` (`analysis.py:23`), `analyze_multi_endpoint` (`analysis.py:68`) all run ungated. Reported independently by both backend agents.
+- **Failure:** two users search at the same time → both run concurrently (blocking the single worker), and neither ever receives the design §6.4 "system busy — please wait" 409.
+
+### E-H6 · "Close workspace" ends ALL of the session's open visits, not just the workspace being closed
+- **File:** `backend/app/routers/workspace.py:211-218`; the purpose-built `close_visit(token, ws_id)` at `backend/app/services/auth_service.py:215` is never called.
+- **Problem:** `close_workspace` calls `flush_session_visits(token)`, which pops every ws_id in the session's `_open_visits`. Reported independently by both backend agents.
+- **Failure:** with workspaces A and B open in two tabs (same cookie → same token), closing B writes a premature `visit_end` for A, immediately memoizes/alerts on A, and removes A's visit — a later genuine close of A produces no memo. Multi-tab visit tracking (A-M10) is broken.
+
+### E-H7 · Logout/flush 500s when a session has an open visit to a deleted workspace — and the session then never dies
+- **File:** `backend/app/services/visit_service.py:45-46` → `backend/app/services/audit_service.py:31-35`; logout order at `backend/app/routers/auth.py:64-70`.
+- **Problem:** `_append_record` does `WORKSPACE_ROOT.mkdir()` but never creates `WORKSPACE_ROOT/{ws_id}`; after a creator-delete (`shutil.rmtree`), `os.open(..., O_APPEND|O_CREAT)` raises `FileNotFoundError` (O_CREAT cannot create a file without its parent). No try/except on the path. In logout, the flush runs **before** `destroy_session`, so the exception aborts the handler: the cookie is never cleared, the session is never destroyed, and `get_session` keeps extending `last_active` on every request.
+- **Failure:** Alice opens workspace W, Bob (creator) deletes W, Alice logs out → 500 every time; her session persists forever and the remaining visits in her flush loop are silently lost (already popped from `_open_visits`).
+
+## Medium
+
+- **E-M1 · Expired session mid-use never redirects to login** — `frontend/src/api/client.js:82-87` special-cases 401 only in `getMe()` (returns null); all other calls `throw` via `errorDetail()`, and `getMe()` runs once at AppShell mount (`AppShell.jsx:72-82`). No shared fetch interceptor → a mid-session expiry surfaces as "HTTP 401" banners with no redirect to login.
+- **E-M2 · Cross-user localStorage leak** — `FilterPanel.jsx:20-24,39` loads `df_search_history`/`df_pinned_searches` from localStorage on every mount; cleared nowhere on logout → user B sees user A's search terms/pins. (Verified.)
+- **E-M3 · Idle expiry silently discards open visits** — `auth_service.py:173-176` pops the session and `_open_visits` with no flush; no reaper or any other flush site. Design §5.2 says expiry → visit-end memo + creator alert; neither happens.
+- **E-M4 · Session cookie `max_age` is fixed at login — 30-min *absolute* wall-clock, not idle** — `auth.py:59-61` sets `max_age=30*60` once; the browser drops the cookie at t=30min even for an actively-working user, contradicting the "30-min idle" design (server-side `last_active` extension notwithstanding).
+- **E-M5 · Same-origin check is bypassed when no `Origin`/`Referer` is sent, or when `Origin: null`** — `main.py:225-234`: `if origin and host:` skips the entire check when both are absent, and `parsed.hostname` is falsy for `Origin: null` (sandboxed iframes). `/api/auth/login` is also exempt entirely. CSRF defense (A-M7) is only the SameSite=Lax cookie.
+- **E-M6 · HTTP-layer activity writes carry empty IPs; search/L1/L2 record no activity at all** — `workspace.py:83,124` pass `""` as IP (`_session_ctx` never reads `request.client.host`); `dataflow.py`'s `search_dataflow`/`get_level1`/`get_level2` never call `append_activity`/`touch_visit` (design §2.6 says they should). History panel shows `ip: ""` for creations/removals and nothing for searches.
+- **E-M7 · Deleting the active L2 child view leaves the stale L2 graph rendered** — `DataFlowApp.jsx:661-674` (`onRemoveChild` sets only `setActiveViewId(null)`) and `:538-544` (`handleDeleteView` misses the parent-of-active-child case). `graphLevel` stays `'L2'`, `l2Result`/`flowOnly`/`sqlText`/`currentScriptName` remain set → stale graph, header, SQL, and toggle with no live view. (D-M4 family miss.)
+- **E-M8 · D-H2 fix incomplete: `fit()` still bounds only visible nodes** — `DataFlowGraph.jsx:218-238` (ResizeObserver auto-fit) + `useCytoscapeGraph.js:356-360`: a panel resize while in View 1 (flow-only) auto-fits the closure; toggling to View 2 shows non-closure nodes off-screen until Fit — the exact D-H2 symptom, reachable after every resize.
+- **E-M9 · Stale `resumeLayouts` re-applied on re-open undoes recent drags** — `DataFlowApp.jsx:112-115` (save-success updates only `stateVersion`, never `resumeLayouts`); search → drag → autosave → re-search re-applies the open-time positions, dragging the layout back. Same for L2→L2 navigation.
+
+## Low
+
+- **Login timing leaks whether an account exists** — `auth_service.py:145-149` returns `None` for unknown usernames *before* the 100k-iteration PBKDF2; known+wrong-password runs the full KDF. Identical response bodies but ~100ms latency distinguishes "not provisioned" from "bad password" (A-H2).
+- **CORS reflects arbitrary origins with credentials** — `main.py:178-184` + `config.py:24`: `allow_origins=["*"]` with `allow_credentials=True` → Starlette reflects the request Origin. Only SameSite=Lax (and the gate's 403 for Origin-carrying cross-origin requests) keep the session cookie out.
+- **`close_workspace` does not validate `ws_id`** — `workspace.py:211-218` accepts any id and flushes the whole session regardless; a logged-in user can end every visit in their session with a garbage id (compounds E-H6).
+- **Mode tab persists across logout** — post-login landing after re-login is not "My workspaces"; the previous mode tab re-renders first.
+- **Layout-mode toggle dropped during the first ~100ms of a fresh graph** — `DataFlowGraph.jsx:246-252`: `relayout` early-returns while `layoutDoneRef` is false (reset on each graphData change); clicking Pipeline during load no-ops while the UI shows Pipeline active.
+- **`build.sh:29` curl missing `--noproxy`** — host-side smoke curl under the proxy env var; same failure mode `f1c79a9` fixed elsewhere.
+- **`test-layout.sh:24` curl to user-overridable `$BASE` without `--noproxy`** — a `BASE` override pointing at a non-localhost host would go through the proxy.
+- **`deploy.sh:51` `cd "$(dirname "$0")/.."` breaks on absolute-path invocation** — double `..` lands one directory above the repo root.
