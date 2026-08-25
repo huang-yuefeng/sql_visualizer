@@ -1847,6 +1847,115 @@ def _assemble_output(table_nodes: dict, field_nodes: list, new_edges: list,
     }
 
 
+def build_line_merged_edges(edges: list, nodes: list) -> list:
+    """ISSUE-6 / R32 — the L2 line-merged pass: one SQL line ≈ one edge.
+
+    Built ON TOP of an already-built L2 closure edge list (the same closure
+    that produces flow-only / full). The NODE set is never touched — callers
+    pass the node list through unchanged. This pass rewrites EDGES only:
+
+      1. Field→table promotion — every field endpoint is replaced by its
+         parent table (never dropped, never kept as a field endpoint).
+      2. Same-line same-table-pair merge — edges sharing (sql_line,
+         unordered table pair) collapse to ONE edge; direction resolves to
+         single arrow (one direction) / double arrow (both directions),
+         never two separate edges for opposite directions.
+      3. Type removed — the merged edge is an untyped "FLOW" edge (no
+         edge-type color).
+      4. Self-loop — table→same-table kept ONLY when it is the line's sole
+         edge; absorbed into the line's other edge(s) otherwise.
+      5. No SQL-line reference — an edge whose highlight_line is < 1 is
+         dropped.
+      6. Line spanning >2 tables — one edge per (unordered) table pair.
+
+    Returns a list of {"data": {...}} merged-edge dicts (the same container
+    shape as _assemble_output's edges). Each merged edge carries: id,
+    source, target, edge_type ("FLOW"), category ("flow"), label ("FLOW"),
+    highlight_line, and bidirectional (double arrow). Edges are emitted in
+    deterministic (line, pair) order; ids are content-derived.
+
+    Note: a field node with NO parent (a pre-existing classifier gap —
+    phantom-aliased write columns like `a.CHARGE_DEPARTMENT` whose alias
+    has no visible table node) has no table to promote to. Its endpoint is
+    retained as the field node id (the field node stays in the untouched
+    node set; its edge is never dropped). The parent table for such a field
+    is not recoverable from the stripped L2 payload without re-running the
+    classifier's write-target attribution, which is outside this pass.
+    """
+    # field node id → parent table id (promotion map). A node is field-like
+    # when classified as a field compound ("type" == "field") and carries a
+    # parent table id; table/CTE/alias/output nodes have no parent.
+    parent_of = {}
+    for n in nodes:
+        nd = n.get("data", n)
+        pid = nd.get("parent")
+        if nd.get("type") == "field" and pid:
+            parent_of[nd["id"]] = pid
+
+    # Promote every endpoint and bucket by SQL line (rule 1 + rule 5).
+    by_line = {}
+    for e in edges:
+        ed = e.get("data", e)
+        line = _safe_int(ed.get("highlight_line"))
+        if line < 1:
+            continue  # rule 5 — no SQL-line reference
+        src = parent_of.get(ed.get("source"), ed.get("source"))
+        tgt = parent_of.get(ed.get("target"), ed.get("target"))
+        by_line.setdefault(line, []).append((src, tgt))
+
+    merged = []
+    for line in sorted(by_line):
+        members = by_line[line]
+        # pair → {"self": bool, "dirs": set of ordered (src, tgt) arrows}.
+        pairs = {}
+        for src, tgt in members:
+            if src == tgt:
+                key = (src, src)
+                pairs.setdefault(key, {"self": True, "dirs": set()})
+                # a self-loop contributes no direction arrow
+            else:
+                a, b = (src, tgt) if src <= tgt else (tgt, src)
+                key = (a, b)
+                pairs.setdefault(key, {"self": False, "dirs": set()})
+                pairs[key]["dirs"].add((src, tgt))
+
+        non_self = [k for k, rec in pairs.items() if not rec["self"]]
+        self_loops = [k for k, rec in pairs.items() if rec["self"]]
+
+        for (a, b), rec in sorted(pairs.items()):
+            if rec["self"]:
+                # rule 4 — kept ONLY as the line's sole edge (no other
+                # table pair, and no second self-loop table on the line).
+                if non_self or len(self_loops) > 1:
+                    continue
+                source = target = a
+                bidirectional = False
+            else:
+                # rule 2/3 — one untyped edge per table pair; direction is
+                # double arrow only when both directions are present.
+                if (a, b) in rec["dirs"] and (b, a) in rec["dirs"]:
+                    source, target, bidirectional = a, b, True
+                elif (a, b) in rec["dirs"]:
+                    source, target, bidirectional = a, b, False
+                else:
+                    source, target, bidirectional = b, a, False
+
+            merged.append({
+                "data": {
+                    "id": "l2m_{}".format(
+                        hashlib.md5(f"{line}|{a}|{b}".encode()).hexdigest()[:12]),
+                    "source": source,
+                    "target": target,
+                    "edge_type": "FLOW",
+                    "category": "flow",
+                    "label": "FLOW",
+                    "highlight_line": line,
+                    "bidirectional": bidirectional,
+                },
+            })
+    return merged
+
+
 def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                     table: str, field: str,
                     relevance_filter: bool = True,

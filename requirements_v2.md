@@ -105,6 +105,33 @@ removal). Traceability rows: see `wiki/REQUIREMENTS_TRACEABILITY.md` "Code-revie
 
 ---
 
+### Amendment (2026-08-25) — L2 line-merged views (flow-only + full)
+
+§3 amended: L2 gains **two line-merged views** on top of the existing flow-only / full
+closures. They simplify the **edge** layer only — the **node set is identical** to the
+current L2 (all tables + fields + virtual tables kept; nothing dropped).
+
+- **Two views**: `flow-only-merged` (over the flow-only closure) and `full-merged` (over
+  the full graph) — same merge rule, different input closure.
+- **Field→table promotion**: every field edge is converted to its **table** edge — the
+  field endpoint is replaced by its parent table. Field edges are never dropped and never
+  kept as field edges.
+- **Same-line same-pair merge**: edges that share the same SQL line and the same table
+  pair collapse into **one** edge. Direction = **single arrow** (one direction) or
+  **double arrow** (both directions) — never two separate edges for opposite directions.
+- **Type removed**: the merged edge is a single untyped **flow** edge (edge-type colors
+  dropped).
+- **Self-loop** (table → same table): kept **only when it is the line's sole edge**;
+  otherwise absorbed into the line's other edge(s).
+- **No SQL-line reference**: an edge with no SQL line is dropped.
+- **Line spanning >2 tables** (special case): one edge per table pair.
+- **Goal**: one SQL line ≈ one edge — clearer to read, easier to test.
+
+Full design: `wiki/SOLUTION_DESIGN.md` §"L2 line-merged views"; traceability R32.1–R32.3.
+Benchmark method: `tools/BENCHMARK_CASE_BUILD_METHOD.md`.
+
+---
+
 ### Amendment (2026-08-13) — click-edge flow cone (two-color before/after highlight)
 
 §4 amended: clicking a **value-flow** edge `u → v` in the L2 graph highlights its

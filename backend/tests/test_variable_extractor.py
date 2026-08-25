@@ -240,3 +240,119 @@ class TestVariableExtractorIntegration:
         result = extract_variables_from_sql(sql, "fin_query1")
         assert 5 <= len(result.variables) <= 500, \
             f"Variable count {len(result.variables)} should be between 5 and 500"
+
+
+# ── ISSUE-4: case-insensitive physical-table identity ───────────────────
+
+class TestCaseSensitivePhysicalTableIdentity:
+    """Physical table names are script-global and case-insensitive; the
+    canonical spelling is the majority spelling of the source's identifier
+    tokens (ties → lowercase, then first-seen). Alias/CTE/derived handles
+    stay scope-local and are never folded globally."""
+
+    def test_mixed_case_table_folds_to_majority_spelling(self):
+        """`east5_stzfxxb` vs `EAST5_STZFXXB` → one canonical lowercase node.
+
+        The token stream sees 3 lowercase (INSERT target + ALTER + op-log
+        FROM) vs 1 uppercase (op-log column qualifier), so lowercase is the
+        genuine majority spelling — not a tie-break fallback.
+        """
+        sql = (
+            "INSERT OVERWRITE TABLE east5_stzfxxb PARTITION(p_dt='$(load_date)')\n"
+            "SELECT a.ccy_code FROM bdm_acc_entrusted_payment a;\n"
+            "ALTER TABLE east5_stzfxxb ADD PARTITION (p_dt='x');\n"
+            "INSERT INTO TABLE rrcdm_job_log "
+            "SELECT EAST5_STZFXXB.p_dt FROM east5_stzfxxb;"
+        )
+        r = extract_variables_from_sql(sql, "case_mixed")
+        table_names = {
+            v.name for v in r.variables
+            if v.variable_type == VariableType.TABLE
+        }
+        # The uppercase spelling must be folded away everywhere.
+        assert "EAST5_STZFXXB" not in table_names, table_names
+        assert "east5_stzfxxb" in table_names, table_names
+        # Column qualifier + schema evidence also carry the canonical case.
+        column_names = {
+            v.name for v in r.variables
+            if v.variable_type == VariableType.COLUMN
+        }
+        assert "east5_stzfxxb.p_dt" in column_names, column_names
+        assert not any(n.startswith("EAST5_STZFXXB.") for n in column_names), column_names
+        schemas = r.resolution_stats["script_schemas"]
+        assert "east5_stzfxxb" in schemas, schemas
+        assert "EAST5_STZFXXB" not in schemas, schemas
+
+    def test_mixed_case_tie_prefers_lowercase(self):
+        """A 1:1 case tie falls back to the lowercase spelling."""
+        sql = (
+            "INSERT OVERWRITE TABLE my_tbl SELECT x FROM src;\n"
+            "SELECT * FROM MY_TBL;"
+        )
+        r = extract_variables_from_sql(sql, "case_tie")
+        table_names = {v.name for v in r.variables
+                       if v.variable_type == VariableType.TABLE}
+        assert "my_tbl" in table_names, table_names
+        assert "MY_TBL" not in table_names, table_names
+
+    def test_alias_case_folds_within_scope_only(self):
+        """Alias `a` vs `A` is case-insensitive WITHIN a statement, but an
+        alias `a` bound to a different table in another statement never
+        merges (scope-locality — the two `a` handles stay distinct)."""
+        sql = "SELECT a.x, A.y FROM t1 a;\nSELECT a.z FROM t2 a;"
+        r = extract_variables_from_sql(sql, "case_alias")
+        cols = {v.name: v for v in r.variables
+                if v.variable_type == VariableType.COLUMN}
+        # Same scope + different case → same physical table attribution.
+        assert cols["a.x"].source_tables == ["t1"], cols["a.x"]
+        assert cols["A.y"].source_tables == ["t1"], cols["A.y"]
+        # Different scope + same alias spelling → the OTHER physical table.
+        assert cols["a.z"].source_tables == ["t2"], cols["a.z"]
+
+    def test_alias_colliding_with_physical_table_not_folded(self):
+        """An alias whose spelling case-collides with a physical table keeps
+        its own scope-local case — it is never folded to the physical
+        majority spelling (R-1)."""
+        sql = (
+            "SELECT * FROM EAST5_STZFXXB AS east5_stzfxxb;\n"
+            "SELECT * FROM EAST5_STZFXXB;"
+        )
+        r = extract_variables_from_sql(sql, "case_alias_collide")
+        tables = {v.name: v for v in r.variables
+                  if v.variable_type == VariableType.TABLE}
+        # the alias (alias_of set) keeps its lowercase spelling — NOT folded
+        # to the physical majority spelling EAST5_STZFXXB
+        alias_names = {n for n, v in tables.items() if v.alias_of is not None}
+        assert alias_names == {"east5_stzfxxb"}, alias_names
+        # the physical table folds to its uppercase majority spelling
+        physical = {n for n, v in tables.items() if v.alias_of is None}
+        assert physical == {"EAST5_STZFXXB"}, physical
+
+    def test_synthetic_alias_colliding_with_physical_table_not_folded(self):
+        """A LATERAL/VALUES/UNNEST alias whose spelling collides with a
+        physical table keeps its own case — it never folds to the physical
+        majority spelling (R-1 synthetic-alias path)."""
+        sql = (
+            "SELECT * FROM V;\n"
+            "SELECT * FROM V;\n"
+            "SELECT * FROM (VALUES (1,2)) AS v;"
+        )
+        r = extract_variables_from_sql(sql, "case_values_collide")
+        tables = {v.name: v for v in r.variables
+                  if v.variable_type == VariableType.TABLE}
+        alias_names = {n for n, v in tables.items() if v.is_alias_handle}
+        assert alias_names == {"v"}, alias_names
+        # the VALUES alias keeps its own lowercase spelling — not folded to V
+        assert tables["v"].source_tables == ["⟐ values"], tables["v"].source_tables
+
+    def test_insert_target_alias_colliding_with_physical_table_not_folded(self):
+        """An INSERT-target alias whose spelling collides with a physical
+        table keeps its own case (R-1 INSERT-alias path)."""
+        sql = "SELECT * FROM V; SELECT * FROM V; INSERT INTO T AS v SELECT 1;"
+        r = extract_variables_from_sql(sql, "case_insert_alias_collide")
+        tables = {v.name: v for v in r.variables
+                  if v.variable_type == VariableType.TABLE}
+        alias_names = {n for n, v in tables.items() if v.is_alias_handle}
+        assert alias_names == {"v"}, alias_names
+        # the INSERT alias keeps its own spelling, sourced to its target T
+        assert tables["v"].source_tables == ["T"], tables["v"].source_tables

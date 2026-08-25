@@ -3,6 +3,40 @@
     "edges": [
       {
         "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 189,
+          "id": "l2e_581d43b90de4",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 p_dt@L190 \u2192 \u2016east5_stzfxxb@L189 \u2192 \u27d0 output@L179\u2016 \u2192 rrcdm_job_log_exec_par@L179",
+          "source": "l2_tbl_cc4dd6d92c",
+          "target": "l2_tbl_12efa065fc",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "write",
+          "color": "#2980B9",
+          "desc": "INSERT/UPDATE/DELETE/MERGE",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "write",
+          "highlight_line": 179,
+          "id": "l2e_824af80900bd_dml_out",
+          "label": "TABLE_FLOW",
+          "line_style": "double",
+          "reason": "write (write leg) \u2014 p_dt@L190 \u2192 east5_stzfxxb@L189 \u2192 \u2016\u27d0 output@L179 \u2192 rrcdm_job_log_exec_par@L179\u2016",
+          "source": "l2_tbl_12efa065fc",
+          "target": "l2_tbl_15000cca24",
+          "width": 3
+        }
+      },
+      {
+        "data": {
           "category": "write",
           "color": "#2980B9",
           "desc": "INSERT/UPDATE/DELETE/MERGE",
@@ -37,6 +71,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 189,
+          "id": "l2e_91f21904c6d5",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016p_dt@L190 \u2192 east5_stzfxxb@L189\u2016",
+          "source": "fld_4f5e58ba74",
+          "target": "l2_tbl_cc4dd6d92c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "write",
           "color": "#2980B9",
           "desc": "INSERT/UPDATE/DELETE/MERGE",
@@ -51,9 +102,26 @@
           "target": "l2_tbl_91e205405e",
           "width": 3
         }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 190,
+          "id": "l2e_125a71c602a3",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016p_dt@L190 \u2192 east5_stzfxxb@L189\u2016",
+          "source": "fld_4f5e58ba74",
+          "target": "l2_tbl_cc4dd6d92c",
+          "width": 2
+        }
       }
     ],
-    "filtered_nodes": 3,
+    "filtered_nodes": 5,
     "nodes": [
       {
         "data": {
@@ -87,6 +155,35 @@
       },
       {
         "data": {
+          "context": "TOP7",
+          "defined_in": "INSERT",
+          "flow_target": true,
+          "id": "l2_tbl_15000cca24",
+          "label": "rrcdm_job_log_exec_par",
+          "line_end": 190,
+          "line_start": 179,
+          "original_id": "9df60ebca597645b",
+          "table_name": "rrcdm_job_log_exec_par",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP7",
+          "defined_in": "TOP7",
+          "id": "l2_tbl_12efa065fc",
+          "label": "output",
+          "line_end": 190,
+          "line_start": 179,
+          "original_id": "eae5be502b7d26f5",
+          "table_name": "\u27d0 output",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
           "field_group": "direct",
           "id": "fld_4f5e58ba74",
           "is_target": true,
@@ -102,8 +199,8 @@
     "script_name": "EAST5_STZFXXB_M.sql",
     "search_matched": true,
     "target": "east5_stzfxxb.p_dt",
-    "total_edges": 3,
-    "total_nodes": 3
+    "total_edges": 7,
+    "total_nodes": 7
   },
   "full": {
     "edges": [
@@ -305,7 +402,7 @@
           "id": "l2e_581d43b90de4",
           "label": "TABLE_FLOW",
           "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016EAST5_STZFXXB@L189 \u2192 \u27d0 output@L179\u2016 \u2192 rrcdm_job_log_exec_par@L179",
+          "reason": "chain (read into output) \u2014 \u2016east5_stzfxxb@L189 \u2192 \u27d0 output@L179\u2016 \u2192 rrcdm_job_log_exec_par@L179",
           "source": "l2_tbl_cc4dd6d92c",
           "target": "l2_tbl_12efa065fc",
           "width": 3
@@ -2659,23 +2756,6 @@
       },
       {
         "data": {
-          "category": "structure",
-          "color": "#7F8C8D",
-          "desc": "Disconnected bridge",
-          "edge_type": "SUBSET",
-          "flow_kind": "bridge",
-          "highlight_line": 179,
-          "id": "l2e_a4c83dd7cc94",
-          "label": "SUBSET",
-          "line_style": "dotted",
-          "reason": "bridge \u2014 \u2016rrcdm_job_log_exec_par@L179 \u2192 \u27d0 output@L174\u2016",
-          "source": "l2_tbl_15000cca24",
-          "target": "l2_tbl_7d2dd1a793",
-          "width": 1
-        }
-      },
-      {
-        "data": {
           "category": "filter",
           "color": "#E91E63",
           "desc": "JOIN key condition",
@@ -4615,7 +4695,7 @@
     "script_name": "EAST5_STZFXXB_M.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 162,
+    "total_edges": 161,
     "total_nodes": 147
   },
   "script_name": "EAST5_STZFXXB_M.sql",

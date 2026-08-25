@@ -218,6 +218,20 @@ CASES = [(seed, SQL_FILES[seed], "downstream")
     # §3.2: effect chain through the sup write to the rrcdm write).
     ("lending_ref", "BDM_ACC_LOAN_INFO_Digitallending.sql", "upstream"),
     ("lending_ref", "BDM_ACC_LOAN_INFO_SUP_M.sql", "downstream"),
+    # ISSUE-4 (2026-08-25) + EAST5 coverage cases. The east5 seed
+    # (east5_stzfxxb.p_dt) is THE case-insensitive table-identity case:
+    # the physical table is spelled 8x lowercase (INSERT/ALTER, lines
+    # 41/166-175) and 1x UPPERCASE (FROM EAST5_STZFXXB @189) -- the
+    # canonical spelling is the frequency-voted lowercase east5_stzfxxb
+    # (8 vs 1; ties -> lowercase). The downstream closure asserts the
+    # stmt2 read (FROM @189 / WHERE p_dt @190) folds into the SAME
+    # east5_stzfxxb node as the stmt1 partition write @41. The rrcdm
+    # cases broaden an existing seed (rrcdm_job_log_exec_par.data_dt)
+    # to a new script (the EAST5 job-log INSERT@179).
+    ("east5", "EAST5_STZFXXB_M.sql", "downstream"),
+    ("east5", "EAST5_STZFXXB_M.sql", "upstream"),
+    ("rrcdm", "EAST5_STZFXXB_M.sql", "downstream"),
+    ("rrcdm", "EAST5_STZFXXB_M.sql", "upstream"),
 ]
 EXISTING_CASES = frozenset(CASES[:4])
 
@@ -230,12 +244,14 @@ _HAS_DIRECTION = "direction" in inspect.signature(_build_l2_graph).parameters
 TARGET_FIELDS = {
     "bdm": "data_dt", "sup": "data_dt", "pl": "data_dt", "dl": "data_dt",
     "rrcdm": "data_dt", "iiapty": "iiapty", "lending_ref": "lending_ref",
+    "east5": "p_dt",
 }
 SEED_TABLE = {"bdm": "bdm_acc_loan_info", "sup": "bdm_acc_loan_info_sup",
               "pl": "bdm_acc_loan_info", "dl": "bdm_acc_loan_info",
               "rrcdm": "rrcdm_job_log_exec_par",
               "iiapty": "ods_hie_ipacmsp",
-              "lending_ref": "bdm_acc_loan_info"}
+              "lending_ref": "bdm_acc_loan_info",
+              "east5": "east5_stzfxxb"}
 FEATURES = ("nodes", "edges", "highlights")
 
 # ── Floors (recall/precision pairs, J12-12 2026-08-11): no direction may
@@ -330,6 +346,21 @@ FLOORS = {
         "edges": {"recall": 1.0000, "precision": 1.0000},
         "highlights": {"recall": 1.0000, "precision": 1.0000},
     },
+    # "east5" seed (2026-08-25, EAST5_STZFXXB_M.sql -- ISSUE-4 case).
+    # east5_stzfxxb.p_dt: the physical table is spelled 8x lowercase and
+    # 1x UPPERCASE; the canonical spelling is the frequency-voted
+    # lowercase east5_stzfxxb. Downstream = the 5-node / 7-edge /
+    # 4-highlight closure {41,179,189,190} (the no-bypass chain mirror +
+    # the stmt2 read through the case boundary @189/190); upstream = the
+    # 3-node / 3-edge / 1-highlight literal write chain @41. Probe-pinned
+    # against the served L2 (2026-08-25). The rrcdm cases reuse the
+    # existing "rrcdm" FLOORS (the EAST5 script adds a new script/direction
+    # pair for the same seed). FLOORS ratchet to the full 1.0000/1.0000.
+    "east5": {
+        "nodes": {"recall": 1.0000, "precision": 1.0000},
+        "edges": {"recall": 1.0000, "precision": 1.0000},
+        "highlights": {"recall": 1.0000, "precision": 1.0000},
+    },
 }
 
 
@@ -354,8 +385,20 @@ def build_a(seed, script, direction):
     return nodes, edges
 
 
+# ISSUE-5 (2026-08-25): the NORMALIZE_MAP label→canonical aliases are
+# matched case-INSENSITIVELY (fold the map keys once at module load), but
+# the comparison itself is case-SENSITIVE (the fallback preserves case).
+# This makes the ISSUE-4 canonical-spelling contract testable: physical
+# table names are folded to a single lowercase spelling, so a case
+# regression (the engine re-emitting EAST5_STZFXXB instead of the canonical
+# east5_stzfxxb) now fails the gate instead of silently casefolding into a
+# match. Columns/aliases are not folded by the extractor, so they must also
+# match the SQL source spelling exactly.
+_NORMALIZE_FOLDED = {k.casefold(): v for k, v in JC.NORMALIZE_MAP.items()}
+
+
 def _norm(label):
-    return JC.NORMALIZE_MAP.get(label, label)
+    return _NORMALIZE_FOLDED.get(label.casefold(), label)
 
 
 def _split_ep(ep):

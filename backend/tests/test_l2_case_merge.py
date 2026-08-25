@@ -111,6 +111,10 @@ def test_t1_case_insensitive_physical_merge(east5_ws):
     keeper_id = _east5_keeper_id(nodes)  # derived, not a hardcoded md5
     assert keep["id"] == keeper_id
     assert keep["type"] == "source_table", keep["type"]
+    # the keeper carries the canonical lowercase spelling, not the uppercase
+    # twin's — pinning WHICH occurrence won the merge (not just that one node
+    # survived).
+    assert keep["table_name"] == "east5_stzfxxb", keep["table_name"]
     # the merged node carries the uppercase occurrence's read field (p_dt)
     assert "p_dt" in _kids(nodes, keep["id"]), \
         "the merged east5 node must carry p_dt (the EAST5_STZFXXB read)"

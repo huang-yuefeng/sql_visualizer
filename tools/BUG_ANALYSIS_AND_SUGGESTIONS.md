@@ -5032,3 +5032,243 @@ proceeds with the default host port 8000 and never tells the user there are othe
 env override, `target_deploy.sh` logs a short usage hint (default port 8000 /
 `HOST_PORT=8010` example) before continuing with the default. Purely informational — the
 deploy proceeds normally. No internet-connecting command added (offline rule intact).
+
+---
+
+## ISSUE-4 · Case-split table index → uppercase `EAST5_STZFXXB` search shows only `p_dt` (2026-08-25, OPEN)
+
+**Symptom (user report, 2026-08-25):** in the Data Flow Debugger, selecting the table
+`EAST5_STZFXXB` (uppercase — the spelling used by the script's operation-log
+`FROM EAST5_STZFXXB`) makes the **field** autocomplete offer only `p_dt`, not the table's
+full field set.
+
+**Confirmed.** Indexing `samples/sql_sample_v1/EAST5_STZFXXB_M.sql` produces **two
+case-distinct `table_index` keys for the same physical table**:
+- `east5_stzfxxb` (lowercase) → **36 fields** — the write target, from
+  `INSERT OVERWRITE TABLE east5_stzfxxb PARTITION(...)` (line 41).
+- `EAST5_STZFXXB` (uppercase) → **1 field** `p_dt` — a read, from the operation-log
+  `FROM EAST5_STZFXXB` (line 189).
+
+The same split hits the `a`/`A` alias on `bdm_acc_entrusted_payment`: `a` (23 fields) vs
+`A` (10 fields). The source SQL is case-inconsistent (`a.`/`A.` and
+`east5_stzfxxb`/`EAST5_STZFXXB` are used interchangeably).
+
+**Root cause 1 — index keys are verbatim-case.** `backend/app/services/folder_index_service.py`
+registers tables and columns under the qualifier/name string exactly as it appears in the
+SQL, with no case normalization:
+- line 609: `table_index.setdefault(name, …)` — the `table`/`merge_target` name verbatim.
+- line 613-614: `table_name = name.split(".", 1)[0]` — the column qualifier verbatim
+  (e.g. `A` in `A.PRIMARY_SRC_SYSTEM`).
+- line 630 / 654: `physical = alias_to_physical.get(table_name, table_name)` —
+  case-sensitive map lookup; `EAST5_STZFXXB` is not a registered alias so it falls through
+  to the raw uppercase key.
+
+The extractor's `_resolve_alias` (variable_extractor_v2.py:2286) IS already case-insensitive
+(M3a), but the index's qualified-column path keys on the raw `name` qualifier (line 613),
+not on `source_tables` — so the case leak originates in the source SQL and survives into
+the keys.
+
+**Root cause 2 — frontend lookup is case-sensitive.** `frontend/src/components/FilterPanel.jsx:83-89`
+`getFieldOptions()`:
+```js
+if (table && tableIndex[table]) {
+  const tableFields = filterNames(tableIndex[table].fields || [], field);
+  if (tableFields.length > 0) return tableFields;
+}
+```
+`tableIndex[table]` uses the exact string; `table = "EAST5_STZFXXB"` hits the 1-field
+uppercase key → only `p_dt`. (`canSearch` at line 100 and `getTableOptions` at line 92 have
+the same case-sensitivity.)
+
+**Blast radius.** Any script that references the same physical table/alias with mixed case
+splits the index, and the search UI's field dropdown silently truncates to whichever
+case-variant key the user typed. The backend search (`create_search`,
+dataflow_service.py:66-68) is also case-sensitive (`table_index.get(table)`); in a
+single-script workspace it still returns the script because both keys carry the same
+`scripts` set — so the truncation is most visible in autocomplete, but a mixed-case
+`table.field` in a multi-table workspace can also miss scripts.
+
+**Decision (user, 2026-08-25):** target scripts are Hive/ODPS → hard-code case-insensitive
+table-name identity as default. When the same table appears under multiple spellings,
+canonical = the **most-frequent spelling in the source** (ties → prefer lowercase, then
+first-seen).
+
+**Fix direction (for the implementer, when commanded):** resolve identity AND canonical
+spelling in the **extractor** (`variable_extractor_v2.py`), not the indexer — the extractor
+is the essential source of truth; the indexer inherits canonical names with no reconstruction.
+- **Vote collection:** after tokenization (~line 706), build
+  `self._ident_votes: dict[casefolded, Counter[spelling]]` from `self._tokens`, counting
+  only identifier tokens (exclude STRING / NUMBER — drops the `'EAST5_STZFXXB'` string
+  literal at line 183; comments are tokenizer-skipped).
+  - Note: `process_statement` (line 1280-1297) does NOT walk `ALTER`, so the 7
+    `ALTER TABLE east5_stzfxxb` statements never register a table — counting from
+    `_register_table` would tie 1:1. The token stream sees 8 lowercase (1 INSERT + 7 ALTER)
+    vs 1 uppercase (op-log `FROM`) → lowercase wins.
+- **Canonicalization post-pass:** new `_canonicalize_table_names()` (alongside
+  `_attribute_output_containers` / `_finalize_schema_candidates`). For each registered
+  physical table/alias, rewrite: table/merge_target/view/cte var `name`, every var's
+  `source_tables` entries, the column var `name` **qualifier** (part before the first `.`),
+  and `_table_aliases` values.
+- **Bump `EXTRACTOR_VERSION`** (invalidates analysis caches).
+- **Indexer** (`folder_index_service.py`): verify only — `alias_to_physical` (580-584) and
+  the `name.split(".")[0]` qualifier (613) then receive canonical case, so the case-sensitive
+  `alias_to_physical.get(table_name, …)` (630/654) never misses. No index-level
+  normalization pass.
+- **Re-index** existing workspaces.
+
+**Expected result:** `east5_stzfxxb` (36 f) + `EAST5_STZFXXB` (1 f) → one `east5_stzfxxb`
+key (36 f); `a` (23 f) + `A` (10 f) → one `a` key (33 f).
+
+**Out of scope (separate follow-up):** resolving the undeclared `a`/`A` qualifier **to**
+`bdm_acc_entrusted_payment` (base table line 141 has no `AS a` in the source — OCR/authoring
+gap). This change collapses `a`+`A` to one spelling but does not map them to the physical
+table.
+
+**Clarification (user follow-up, 2026-08-25) — alias scope:** the user confirmed that SQL may
+reuse the *same alias string* in one script for *different tables*, because an alias is
+**statement-local, not script-global**. Consequence for the fix — two identity units must stay
+distinct, and the canonicalization must key on the **resolved physical table**, never the bare
+alias string:
+1. **Physical table name** (`east5_stzfxxb` vs `EAST5_STZFXXB`) — script-global, case-insensitive;
+   fold + frequency vote is safe. This is the actual bug.
+2. **Alias handle** (`a` vs `A`) — a per-`(statement, physical-table)` binding; case-fold its
+   spelling only **within its binding**, and never merge two aliases that bind to different
+   physical tables merely because the strings match.
+
+In `EAST5_STZFXXB_M.sql` the `a`/`A` split is **one** table: `FROM bdm_acc_entrusted_payment`
+(line 141) declares **no alias**, the body uses `a.`/`A.` interchangeably (49/50/130/132/138/140/
+144/153/156/159), and it is the only un-aliased table in scope — so `a` ≡ `A` ≡
+`bdm_acc_entrusted_payment`. Folding here is correct, but the implementer must not infer from this
+single-statement sample that a script-global alias fold is generally safe. Implementers key the
+vote + rewrite on `source_tables[0]` / `_table_aliases` values (physical table), with the alias
+handle folded per binding.
+
+**Generalized design principle (user ruling, 2026-08-25) — scope-aware identity, applies to ALL
+locally-used identifiers.** Identity = `(kind, scope, name)`; case-insensitivity is a
+**within-scope** equivalence. Same scope + different case → same identifier (fold); different scope
++ same spelling → different identifiers (never merge, and their case variants must not influence
+each other). This is SQL's own scoping rule: a name resolves to the nearest enclosing declaration.
+
+The extractor already carries the scaffolding: `_SelectScope` (line 290 — per-statement `owner`/
+`tables`/`aliases`/`ctes`/`deriveds`) and the C-9 statement context `TOP{stmt_idx}` (already used as
+the scope key for CTE vars — `_walk_cte_definitions` line 1301 warns a hardcoded `"TOP"` would
+orphan every CTE). The scope-blind hazard is the flat script-global registries — `_table_aliases`
+(644), `_cte_names` (643), `_derived_aliases` (668) — which are last-write-wins for reused local
+names; `_resolve_alias` (2286) mitigates by preferring `scope.aliases` first, but only when `scope`
+is threaded.
+
+Consequences for the fix:
+1. **Do NOT canonicalize alias/CTE/derived/column-alias spelling at all.** The `a`/`A` index split
+   disappears once the indexer keys columns on the **resolved physical table** (`source_tables[0]`),
+   not the raw qualifier `name.split(".")[0]`. A local handle is resolved scope-aware
+   (`scope.aliases` → `_table_aliases` → orphan S3/S4) and then discarded.
+2. **Only the physical table name (+ qualified field) is a global identifier** and therefore the
+   only namespace where the case-fold + frequency vote is sound script-globally.
+3. If any local identifier ever *does* need a canonical spelling (e.g. display consistency), the
+   vote is computed **per `(kind, scope, name.casefold())`** — never over the bare string.
+
+**Test plan (user will test more before implementing):**
+1. Unit: index `EAST5_STZFXXB_M.sql` → single `east5_stzfxxb` key (36 f), no uppercase key;
+   `a`/`A` collapse to one key.
+2. Regression: full pytest + **Jaccard gate** — verify benchmark comparison is
+   case-insensitive (or ground-truth spelling matches canonical) so canonicalization is not
+   a false regression.
+3. Frontend: search uppercase `EAST5_STZFXXB` → dropdown shows 36 fields.
+
+**Status: OPEN** (plan ready — awaiting user testing + command to implement; no-source-changes
+division of labor).
+
+## ISSUE-5 · Jaccard benchmark label comparison must be case-insensitive (2026-08-25, OPEN — pre-req of ISSUE-4)
+
+**Context.** ISSUE-4's fix canonicalizes table-name spelling at the extractor (frequency-based,
+case-insensitive identity). The Jaccard benchmark compares the served L2 output against canonical
+ground truth, and its **label-identity comparison is case-sensitive** — so after canonicalization
+the emitted case may legitimately differ from the ground-truth spelling and the gate would report a
+**false regression** even though the data flow is unchanged.
+
+**Root cause.** `backend/tests/test_jaccard_benchmark.py:357`:
+
+```python
+def _norm(label):
+    return JC.NORMALIZE_MAP.get(label, label)
+```
+
+Both the `NORMALIZE_MAP` key lookup and the returned value are case-sensitive. `_norm` is the
+single choke point for every label-identity comparison in the harness:
+- `_endpoint_ok` — line 370: `_norm(c_label) != _norm(nodes[node_id]["label"])` (edge endpoints).
+- `node_realized` — line 778: `_norm(nd["label"]) != _norm(c_label)` (canonical-node closure).
+- `r19_3_chain_problems` — line 636: `_norm(n.get("label", "")) == "⟐output"` (output-VT probe).
+
+Highlights are line-number sets (`hl_a & hl_b`, integers) — no case there. Edge matching routes
+through `anchor` (line) + `edge_type` prefix + `_endpoint_ok`, so all name identity funnels
+through `_norm`.
+
+**Fix direction (for the implementer, when commanded):** fold case at the single choke point —
+precompute a case-folded map once at module load and fold the input in `_norm`:
+
+```python
+_NORMALIZE_FOLDED = {k.casefold(): v.casefold() for k, v in JC.NORMALIZE_MAP.items()}
+
+def _norm(label):
+    return _NORMALIZE_FOLDED.get(label.casefold(), label.casefold())
+```
+
+`casefold()` is stable on the `⟐`/multi-byte canonical values and on `@line` suffixed alias keys
+(`p1@29`); it only collapses A–Z↔a–z, which is exactly the Hive/ODPS identity rule. Two keys that
+differ only by case are the same identifier in this domain, so folding cannot introduce a false
+match.
+
+**No floor change.** The comparison change is monotonic in the safe direction: it can only raise
+|A∩B| (fewer false mismatches), so recall and precision can only increase or stay equal — every
+existing `FLOORS[seed][feat]` still holds. No `FLOORS` edit.
+
+**Out of scope (no change):** `dml_phantom_field_dups` (line 810) dedups on the raw
+`(nd.get("parent"), nd.get("label"))` tuple. That is *within-response* internal consistency, not a
+cross-reference to ground truth — after ISSUE-4 canonicalization the response is internally
+case-consistent, so the raw key stays correct. No change there.
+
+**Test plan:**
+1. After ISSUE-4 lands, run `docker exec gps-sql-backend python3 -m pytest tests/test_jaccard_benchmark.py -v`
+   — all seeds/directions still at their floors (no false `REGRESSION` flags).
+2. Sanity: with a deliberately re-cased emitted label, `_norm("EAST5_STZFXXB") == _norm("east5_stzfxxb")`.
+
+**Status: OPEN** (plan ready — no-source-changes; implement together with ISSUE-4, or before it
+so the gate is case-blind first).
+
+---
+
+## ISSUE-6 — L2 line-merged views (new requirement, 2026-08-25)
+
+**Status: OPEN** (design recorded; implementation queued as #329/#330)
+
+**Requirement (user, 2026-08-25):** two new L2 views — `flow-only-merged` and
+`full-merged` — that simplify the *edge* layer so that **one SQL line ≈ one edge**.
+Clearer for the user to read, and easier to test (fewer edges to assert against).
+
+**Spec (final, after Q&A):**
+- Built on top of the existing L2 closures (flow-only / full). Node set is **identical**
+  to the current L2 — all tables + fields + virtual tables kept, nothing dropped.
+- **Field→table promotion**: each field edge is converted to its table edge — the field
+  endpoint is replaced by its parent table. Never drop a field edge (and never keep it as
+  a field edge).
+- **Same-line same-pair merge**: edges sharing the same SQL line and the same table pair
+  collapse into one edge. Direction = **single arrow** (one direction) / **double arrow**
+  (both directions); never two separate edges for opposite directions.
+- **Type removed**: the merged edge is a single untyped **flow** edge (edge-type colors
+  dropped).
+- **Self-loop** (table → same table): kept only when it is the line's **only** edge;
+  otherwise absorbed.
+- **No SQL-line reference**: an edge with no SQL line is dropped.
+- **Line spanning >2 tables** (special case): one edge per table pair.
+- Worked example (p_dt flow-only): line 41 `⟐output ↔ east5` (double), line 189
+  `east5 → ⟐output` (single), line 190 `east5 → east5` (self-loop, kept — sole edge).
+
+**Implementation location:** `l2_builder.py` / `dataflow_service.py` — a merge pass over
+the already-built closure edge list (the same closure that produces `flow_node_ids` /
+`flow_edge_ids` / `full_graph` in v3.3.160). Emit the merged edge set as new response
+fields (`flow_only_merged` / `full_merged`); the benchmark (#330) asserts recall =
+precision = 1.0 against independently-derived canonical merged edges.
+
+**Benchmark:** see `tools/BENCHMARK_CASE_BUILD_METHOD.md` Step 7 (the door). The
+line-merged views are benchmarked implement-then-benchmark (Ordering note Q4=A); ground
+truth still derived from SQL independently.

@@ -112,7 +112,7 @@ export default function DataFlowApp({
           // state too — they are being re-applied on top of it (A-M4), so a
           // re-open must reflect them, not the open-time snapshot.
           setResumeLayouts(prev => ({ ...prev, [resumeLayoutKey(level, script)]: positions }));
-          setToast('State changed by another user — refreshed');
+          setToast('State changed by another user - refreshed');
           // Re-apply the pending edit on top of the fresh state (A-M4).
           pendingLayoutRef.current = { level, script, positions, version: fresh.state_version };
           layoutTimerRef.current = setTimeout(() => {
@@ -784,8 +784,8 @@ export default function DataFlowApp({
         {activeView && (activeView.match_mode === 'no_matches' || activeView.match_mode === 'no_flow') && (
           <div className="no-match-banner">
             ⚠️ {activeView.match_mode === 'no_flow'
-              ? `${activeView.message || 'no flow in this direction'} — empty result view`
-              : `No matches: ${activeView.message || 'no tables in scope'} — empty result view`}
+              ? `${activeView.message || 'no flow in this direction'} - empty result view`
+              : `No matches: ${activeView.message || 'no tables in scope'} - empty result view`}
           </div>
         )}
         {graphData && (
@@ -847,7 +847,7 @@ export default function DataFlowApp({
               <div className="no-match-banner" style={l2NotInFlow ? { top: '44px' } : undefined}>
                 {l2ParseErrors.map(e => (
                   <div key={e.stmt_idx}>
-                    ⚠️ SQL parse error in statement {e.stmt_idx} — {e.detail || 'check the script syntax'}
+                    ⚠️ SQL parse error in statement {e.stmt_idx} - {e.detail || 'check the script syntax'}
                   </div>
                 ))}
               </div>
@@ -856,7 +856,7 @@ export default function DataFlowApp({
                 backend message shown verbatim above the full-script graph */}
             {l2NotInFlow && (
               <div className="no-match-banner">
-                ⚠️ {l2NotInFlowMessage || 'Field not in this script — showing the full script graph'}
+                ⚠️ {l2NotInFlowMessage || 'Field not in this script - showing the full script graph'}
               </div>
             )}
             <DataFlowGraph

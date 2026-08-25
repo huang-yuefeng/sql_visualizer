@@ -1878,3 +1878,47 @@ layout autosave (≤1/s + final on close).
 ## 10. Migration (rollout)
 Remove pre-feature workspaces (no creator, no backup) → create `data/` → ship login page together
 with endpoint gating (one release, never an unreachable app). Verify existing e2e fixtures first.
+
+---
+
+# L2 line-merged views — one SQL line ≈ one edge (2026-08-25)
+
+> **Status:** Requirement recorded (R32.1/R32.2/R32.3). Design; no source change yet.
+
+## 1. The requirement
+
+Two new L2 views (`flow-only-merged`, `full-merged`) on top of the existing closures,
+simplifying the **edge** layer only. The node set is byte-identical to the current L2;
+only the edges are rewritten so that **one SQL line corresponds to one edge**.
+
+## 2. Merge semantics (final, user-confirmed)
+
+1. **Node set unchanged** — all tables + fields + virtual tables kept; nothing dropped.
+2. **Field→table promotion** — every field edge is converted to its table edge (field
+   endpoint → its parent table). Field edges are never dropped and never kept as field
+   edges.
+3. **Same-line same-pair merge** — edges sharing the same SQL line and table pair collapse
+   into one. Direction = single arrow (one direction) / double arrow (both directions);
+   never two separate opposite edges.
+4. **Type removed** — the merged edge is one untyped `flow` edge (edge-type colors gone).
+5. **Self-loop** — table→same-table kept only when it is the line's sole edge; absorbed
+   otherwise.
+6. **No SQL line** — dropped.
+7. **>2-table line** (special case) — one edge per table pair.
+
+## 3. Where it plugs in
+
+The existing v3.3.160 mechanism already computes the two closures and returns
+`flow_node_ids` / `flow_edge_ids` / `full_graph`. The merged views are a **merge pass**
+over the same edge list — group by `(sql_line, unordered_table_pair)`, resolve the arrow
+direction(s) from the member edges, absorb non-sole self-loops, drop line-less edges —
+emitting two new response fields (`flow_only_merged` / `full_merged`). The frontend
+renders them as two more view-mode options (no re-layout — positions are node-keyed and
+the node set is unchanged).
+
+## 4. Verification
+
+- Jaccard gate: canonical merged edges derived from SQL independently (one line ≈ one
+  edge), recall = precision = 1.0 for nodes/edges/highlights. (#330)
+- Existing views byte-identical — the merge is a new pass, not a mutation of the current
+  payload.

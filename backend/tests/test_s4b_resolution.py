@@ -413,12 +413,15 @@ def test_l1_never_fabricate_unindexed_owner(monkeypatch):
         delete_workspace(ws)
 
 
-def test_l2_case_variant_tables_not_merged():
-    """Review L2: distinct case-variant tables (Orders / orders, valid
-    coexisting names on Linux MySQL) must NOT be merged by the owner check.
-    Both visible, evidence under the EXACT 'Orders' → attributed to Orders,
-    not ambiguous; and a scope whose visible table has no exact m_ws entry
-    falls back case-insensitively to the single case variant."""
+def test_l2_case_variant_tables_fold():
+    """ISSUE-4 (2026-08-25): physical-table identity is CASE-INSENSITIVE
+    (Hive/ODPS default). Case-variant spellings fold to the frequency-voted
+    canonical name (ties → lowercase). Two case-variant DDL declarations are
+    invalid under Hive (one table, one name): the fold collapses both onto the
+    canonical 'orders', the shared column k resolves to it, and id — declared
+    only under the 'Orders' spelling — surfaces as an orphan rather than being
+    force-attributed to the folded table (never-guess on the contradictory
+    redeclaration)."""
     ws = _make_ws({
         "ddl.sql": "CREATE TABLE Orders (id INT, k INT);\n"
                    "CREATE TABLE orders (name VARCHAR(10), k INT);\n",
@@ -426,15 +429,17 @@ def test_l2_case_variant_tables_not_merged():
     })
     try:
         result = index_scripts(ws, ["ddl.sql", "q.sql"])
-        assert result["field_index"]["id"]["tables"] == ["Orders"], \
+        # both spellings fold to the canonical lowercase 'orders' (tie → lower)
+        assert result["field_index"]["k"]["tables"] == ["orders"], \
+            result["field_index"]["k"]
+        assert result["field_index"]["id"]["tables"] == [], \
             result["field_index"]["id"]
-        assert result["resolution_stats"]["by_strategy"]["schema"] == 1
-        assert "id" not in result["orphan_field_samples"]
+        assert "id" in result["orphan_field_samples"]
     finally:
         delete_workspace(ws)
 
-    # fallback: the visible table has no exact m_ws entry; the single case
-    # variant owns the field → resolves (exact-first, then case fallback).
+    # fallback: the query references a case variant with no exact m_ws entry;
+    # the single case variant owns the field → resolves case-insensitively.
     # The query must not qualify its own columns — qualified refs would
     # create an exact m_ws key for `orders` and block the fallback.
     ws2 = _make_ws({

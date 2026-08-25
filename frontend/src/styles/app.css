@@ -1011,3 +1011,35 @@ body { background: var(--bg-app); color: var(--ink-900); }
   border-radius: 10px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
 }
+
+/* ── Taste-skill polish (2026-08-25) ───────────────────────────────
+   1. Reduced motion: the app has pulse/skeleton/flash animations —
+      honor the OS "reduce motion" preference (mandatory per taste-skill
+      for any motion above hover-only).
+   2. Visible focus ring: the --accent-ring token was defined but never
+      applied — keyboard users get no focus indicator. One accent ring,
+      consistent with the HSBC red system.
+   3. Tabular numerals: line numbers, timestamps and counts align in a
+      fixed-width digit grid so columns don't jitter as values change. */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 1px;
+}
+
+.line-num,
+.log-ts,
+.history-time,
+.rr-coverage,
+.view-bar-tab-count {
+  font-variant-numeric: tabular-nums;
+}

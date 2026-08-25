@@ -109,6 +109,7 @@ class VariableDefinition(BaseModel):
     source_variables: list[str] = Field(default_factory=list) # IDs of upstream variables
     source_tables: list[str] = Field(default_factory=list)   # Physical tables this traces to
     alias_of: Optional[str] = None                           # I4: id of the exact source var this alias pairs with (ALIAS edge)
+    is_alias_handle: bool = False                            # R-1: this TABLE var is a scope-local alias handle, never canonicalized
     defined_in: str = ""                                     # "CTE:batch_summary" / "SELECT" / "MERGE"
     line_start: int = 0                                      # Starting line number in SQL
     line_end: int = 0                                        # Ending line number in SQL

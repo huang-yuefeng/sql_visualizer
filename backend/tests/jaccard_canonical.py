@@ -1071,6 +1071,70 @@ CANONICAL_EDGES = [
      "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep", "stmt": "TOP1"},
     {"row": "LFS79", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "sup@223", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 223, "spec": "anchor_rel_ep"},
+    # ── ISSUE-4 case-insensitive physical-table identity (2026-08-25,
+    #    EAST5_STZFXXB_M.sql). The physical table east5_stzfxxb is
+    #    spelled 8× lowercase (INSERT OVERWRITE @41, ALTER @166-175) and
+    #    1× UPPERCASE (FROM EAST5_STZFXXB @189); the canonical spelling
+    #    is the frequency-voted majority -- east5_stzfxxb (8 vs 1; ties →
+    #    lowercase per ISSUE-4 _majority_spelling). The extractor folds
+    #    the uppercase identifier BEFORE attribution, so the stmt2 read
+    #    (FROM @189 / WHERE p_dt @190) folds into the SAME
+    #    east5_stzfxxb table as the stmt1 partition write @41 -- the
+    #    downstream closure E5D5/E5D6/E5D7 asserts the stmt2 read THROUGH
+    #    the case boundary (a regression here would attribute p_dt@190 to
+    #    a distinct EAST5_STZFXXB table and drop these edges). ──
+    #    east5↓ (p_dt downstream): the sup/pl/dl no-bypass chain mirror
+    #    on east5_stzfxxb.p_dt -- E5D1 stmt1 write leg output@41 →
+    #    east5_stzfxxb@41 (TABLE_FLOW, flow_kind='write'), E5D2/E5D3 the
+    #    partition value-write + REF into output@41 (V1/R1 mirrors),
+    #    E5D4 stmt2 write leg output@179 → rrcdm@179, E5D5 the stmt2
+    #    FROM read p_dt@190 → east5_stzfxxb@189 (P18 mirror), E5D6 the
+    #    reader's read leg east5_stzfxxb@189 → output@179 (P22 mirror),
+    #    E5D7 the stmt2 WHERE filter p_dt@190 → east5_stzfxxb@190 (F1
+    #    mirror). Served closure probe-verified (2026-08-25): 5 nodes /
+    #    7 edges / 4 highlights {41,179,189,190}.
+    {"row": "E5D1", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
+     "src": "⟐output@0", "dst": "east5_stzfxxb@41", "type": "TABLE_FLOW", "anchor": 41, "spec": "anchor_rel_ep", "stmt": "TOP0"},
+    {"row": "E5D2", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
+     "src": "p_dt@41", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 41, "spec": "anchor_rel_ep", "stmt": "TOP0"},
+    {"row": "E5D3", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
+     "src": "p_dt@41", "dst": "⟐output@0", "type": "REF", "anchor": 41, "spec": "anchor_rel_ep"},
+    {"row": "E5D4", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
+     "src": "⟐output@0", "dst": "rrcdm@179", "type": "TABLE_FLOW", "anchor": 179, "spec": "anchor_rel_ep", "stmt": "TOP7"},
+    {"row": "E5D5", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
+     "src": "p_dt@190", "dst": "east5_stzfxxb@189", "type": "REF", "anchor": 189, "spec": "anchor_rel_ep"},
+    {"row": "E5D6", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
+     "src": "east5_stzfxxb@189", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 189, "spec": "anchor_rel_ep"},
+    {"row": "E5D7", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
+     "src": "p_dt@190", "dst": "east5_stzfxxb@190", "type": "FILTER", "anchor": 190, "spec": "anchor_rel_ep"},
+    #    east5↑ (p_dt upstream): the literal-terminated write chain
+    #    (PARTITION(p_dt='$(load_date)') @41 -- the UBP mirror; no
+    #    producing field). 3 nodes / 3 edges / 1 highlight {41}.
+    {"row": "E5U1", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "upstream",
+     "src": "p_dt@41", "dst": "⟐output@0", "type": "REF", "anchor": 41, "spec": "anchor_rel_ep"},
+    {"row": "E5U2", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "upstream",
+     "src": "p_dt@41", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 41, "spec": "anchor_rel_ep"},
+    {"row": "E5U3", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "upstream",
+     "src": "⟐output@0", "dst": "east5_stzfxxb@41", "type": "TABLE_FLOW", "anchor": 41, "spec": "anchor_rel_ep"},
+    #    rrcdm↓EAST5 (data_dt downstream): the writer's own leg -- the
+    #    job-log INSERT@179 SELECT '$(load_date)' AS data_dt@180
+    #    (literal-terminated; the RDS mirror). 3 nodes / 3 edges /
+    #    2 highlights {179,180}. RDE2 is the output-VT membership SCHEMA
+    #    (engine-emission convention, pending per CR10).
+    {"row": "RDE1", "seed": "rrcdm", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
+     "src": "data_dt@180", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 180, "spec": "anchor_rel_ep"},
+    {"row": "RDE2", "seed": "rrcdm", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
+     "src": "⟐output@0", "dst": "data_dt@180", "type": "SCHEMA", "anchor": 180, "spec": "anchor_rel_ep", "pending": True},
+    {"row": "RDE3", "seed": "rrcdm", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
+     "src": "⟐output@0", "dst": "rrcdm@179", "type": "TABLE_FLOW", "anchor": 179, "spec": "anchor_rel_ep", "stmt": "TOP7"},
+    #    rrcdm↑EAST5 (data_dt upstream): the same literal write chain
+    #    (URS mirror). 3 nodes / 3 edges / 2 highlights {179,180}.
+    {"row": "RUE1", "seed": "rrcdm", "script": "EAST5_STZFXXB_M.sql", "direction": "upstream",
+     "src": "data_dt@180", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 180, "spec": "anchor_rel_ep"},
+    {"row": "RUE2", "seed": "rrcdm", "script": "EAST5_STZFXXB_M.sql", "direction": "upstream",
+     "src": "⟐output@0", "dst": "data_dt@180", "type": "SCHEMA", "anchor": 180, "spec": "anchor_rel_ep", "pending": True},
+    {"row": "RUE3", "seed": "rrcdm", "script": "EAST5_STZFXXB_M.sql", "direction": "upstream",
+     "src": "⟐output@0", "dst": "rrcdm@179", "type": "TABLE_FLOW", "anchor": 179, "spec": "anchor_rel_ep"},
 ]
 
 # Response-node-LABEL -> canonical-label alignment (served node ids are
@@ -1123,6 +1187,16 @@ NORMALIZE_MAP = {
     #    the dl closure's served labels (bdm_acc_loan_info, output ×2,
     #    rrcdm_job_log_exec_par, data_dt) are all covered by the folds
     #    above. Inert for the bdm/sup/pl seeds.
+    # ── "east5" seed (2026-08-25, EAST5_STZFXXB_M.sql -- ISSUE-4): NO
+    #    fold entry needed. The canonical physical spelling IS the
+    #    frequency-voted lowercase east5_stzfxxb (8 lowercase identifier
+    #    tokens vs 1 uppercase EAST5_STZFXXB @189), and the ISSUE-4
+    #    extractor fold serves that same lowercase label. The uppercase
+    #    variant folds to it automatically via the ISSUE-5 _norm casefold
+    #    (case-insensitive label identity), so the canonical spelling is
+    #    asserted behaviorally -- the stmt2 read (@189/@190) folds into
+    #    the SAME east5_stzfxxb node as the stmt1 write @41 -- not by a
+    #    name map entry.
 }
 
 # Per-seed canonical closure nodes: {"label", "line", "kind"}.
@@ -1476,6 +1550,59 @@ CANONICAL_NODES_DIR = {
          "note": "the sup statement's charge_department instance (the p2 self-join key @203)"},
         {"label": "CHARGE_DEPARTMENT", "line": None, "kind": "field",
          "note": "edgeless CHARGE_DEPARTMENT instance (label-only entry)"},
+    ],
+    # ── ISSUE-4 + EAST5 coverage cases (2026-08-25) ──
+    # east5↓ -- east5_stzfxxb.p_dt downstream (ISSUE-4 case): the
+    # physical table is spelled 8× lowercase + 1× UPPERCASE; the
+    # canonical spelling is the frequency-voted lowercase east5_stzfxxb.
+    # The 5-node closure asserts the stmt2 read (FROM EAST5_STZFXXB @189
+    # / WHERE p_dt @190) folds into the SAME east5_stzfxxb node as the
+    # stmt1 partition write @41. The two ⟐output entries are the two
+    # statements' output VTs (TOP0 @41 / TOP7 @179), separated by
+    # incident line evidence.
+    ("east5", "EAST5_STZFXXB_M.sql", "downstream"): [
+        {"label": "p_dt", "line": 41, "kind": "field",
+         "note": "the partition column p_dt (PARTITION(p_dt='$(load_date)')@41; also the stmt2 WHERE read p_dt @190)"},
+        {"label": "east5_stzfxxb", "line": 41, "kind": "table",
+         "note": "the physical table -- canonical spelling east5_stzfxxb (frequency vote 8 lowercase vs 1 UPPERCASE; ties -> lowercase)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "stmt1 output VT (TOP0, line_start 41)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "stmt2 output VT (TOP7, line_start 179)"},
+        {"label": "rrcdm", "line": 179, "kind": "table",
+         "note": "the job-log write target rrcdm_job_log_exec_par (INSERT@179)"},
+    ],
+    # east5↑ -- east5_stzfxxb.p_dt upstream: the literal-terminated
+    # write chain (PARTITION(p_dt='$(load_date)')@41 -- no producing
+    # field, so the upstream closure is the writer's own leg).
+    ("east5", "EAST5_STZFXXB_M.sql", "upstream"): [
+        {"label": "p_dt", "line": 41, "kind": "field",
+         "note": "the partition column p_dt (literal-terminated)"},
+        {"label": "east5_stzfxxb", "line": 41, "kind": "table",
+         "note": "the physical table -- canonical spelling east5_stzfxxb"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "stmt1 output VT (TOP0)"},
+    ],
+    # rrcdm↓EAST5 -- rrcdm_job_log_exec_par.data_dt downstream: the
+    # writer's own leg (job-log INSERT@179, data_dt written from the
+    # literal '$(load_date)'@180 -- the RDS mirror; the FROM read
+    # EAST5_STZFXXB @189 carries p_dt, a different field -- excluded).
+    ("rrcdm", "EAST5_STZFXXB_M.sql", "downstream"): [
+        {"label": "data_dt", "line": 180, "kind": "field",
+         "note": "log output column '$(load_date)' AS data_dt@180 -- the write-leg partition var"},
+        {"label": "rrcdm", "line": 179, "kind": "table",
+         "note": "job-log INSERT target (INSERT@179)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "log statement output VT (TOP7)"},
+    ],
+    # rrcdm↑EAST5 -- the same literal write chain (URS mirror).
+    ("rrcdm", "EAST5_STZFXXB_M.sql", "upstream"): [
+        {"label": "data_dt", "line": 180, "kind": "field",
+         "note": "log output column '$(load_date)' AS data_dt@180 (literal-terminated)"},
+        {"label": "rrcdm", "line": 179, "kind": "table",
+         "note": "job-log INSERT target (INSERT@179)"},
+        {"label": "⟐output", "line": None, "kind": "vt",
+         "note": "log statement output VT (TOP7)"},
     ],
 }
 

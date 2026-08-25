@@ -25,7 +25,7 @@ from app.extractor.physical_model import build_physical_model
 
 
 from app.services.l1_builder import _build_l1_graph
-from app.services.l2_builder import _build_l2_graph
+from app.services.l2_builder import _build_l2_graph, build_line_merged_edges
 
 @dataclass
 class SearchView:
@@ -658,14 +658,25 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
             # same-key edge), and View 2 must still render them.
             flow_matched = bool(table and field) and filter_relevant_nodes
             if flow_matched:
+                flow_nodes = l2_result.get("nodes", [])
+                flow_edges = l2_result.get("edges", [])
                 response["flow_node_ids"] = [
-                    n["data"]["id"] for n in l2_result.get("nodes", [])
+                    n["data"]["id"] for n in flow_nodes
                     if n.get("data", {}).get("id")
                 ]
                 response["flow_edge_ids"] = [
-                    e["data"]["id"] for e in l2_result.get("edges", [])
+                    e["data"]["id"] for e in flow_edges
                     if e.get("data", {}).get("id")
                 ]
+                # ISSUE-6 / R32: the line-merged flow view — one SQL line ≈
+                # one edge. Same node set (passed through unchanged); only
+                # the edges are rewritten by the merge pass. The existing
+                # flow_node_ids / flow_edge_ids / full_graph payload is
+                # untouched — this is a NEW pass, never a mutation.
+                response["flow_only_merged"] = {
+                    "nodes": flow_nodes,
+                    "edges": build_line_merged_edges(flow_edges, flow_nodes),
+                }
                 full_l2 = _build_l2_graph(ws_id, script_name, sql_text,
                                           table, field, False, direction)
                 if not full_l2.get("error"):
@@ -679,15 +690,25 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
                         e["data"]["id"] for e in full_edges
                         if e.get("data", {}).get("id")
                     }
+                    # ISSUE-6 / R32: the full view's merged nodes/edges are
+                    # the SAME combined lists as full_graph below — the
+                    # merge pass runs over them without mutating them.
+                    full_merged_nodes = full_nodes + [
+                        n for n in flow_nodes
+                        if n.get("data", {}).get("id") not in full_node_ids
+                    ]
+                    full_merged_edges = full_edges + [
+                        e for e in flow_edges
+                        if e.get("data", {}).get("id") not in full_edge_ids
+                    ]
                     response["full_graph"] = {
-                        "nodes": full_nodes + [
-                            n for n in l2_result.get("nodes", [])
-                            if n.get("data", {}).get("id") not in full_node_ids
-                        ],
-                        "edges": full_edges + [
-                            e for e in l2_result.get("edges", [])
-                            if e.get("data", {}).get("id") not in full_edge_ids
-                        ],
+                        "nodes": full_merged_nodes,
+                        "edges": full_merged_edges,
+                    }
+                    response["full_merged"] = {
+                        "nodes": full_merged_nodes,
+                        "edges": build_line_merged_edges(
+                            full_merged_edges, full_merged_nodes),
                     }
         return response
 
