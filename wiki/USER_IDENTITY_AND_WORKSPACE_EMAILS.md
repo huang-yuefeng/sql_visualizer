@@ -2,8 +2,8 @@
 
 ## Status
 
-> **Design settled 2026-08-19 — implementation awaiting the go-command; NOT implemented in any
-> release (no code exists).** Traceability rows **R31.1–R31.13** live in
+> **Design settled 2026-08-19; IMPLEMENTED and shipped in v3.3.164 (2026-08-24).** Traceability
+> rows **R31.1–R31.29** live in
 > `wiki/REQUIREMENTS_TRACEABILITY.md`. `wiki/CODE_REVIEW_2026-08-19.md` (Part A, read-only) flagged
 > High-severity design flaws; all four were **resolved and incorporated 2026-08-21**:
 > **A-H1** → admin-mediated password reset only (self-service re-register removed); **A-H2** →
@@ -31,7 +31,8 @@
 > Design note — revised 2026-08-19 (6th revision). Email is **dropped** (no usable
 > mail path on the target network). Replaced with **local accounts (`@hsbc.com` usernames) + IP
 > audit + in-app notifications + per-workspace activity log + a per-user "my workspaces" index**.
-> **All decisions locked — design settled, awaiting the go-command to implement. No code changed.**
+> **All decisions locked and IMPLEMENTED (v3.3.164, 2026-08-24).** Sections below reflect the shipped
+> code; where a later decision changed a section, it is annotated with its R31.x traceability row.
 
 **Change vs the 2026-08-14 email design:** every email function maps to an in-app equivalent —
 OTP login → local accounts; memo/creator-alert emails → notification inboxes; mailbox-searchable
@@ -326,10 +327,11 @@ All workspace endpoints above require a session cookie.
 
 ## 8. Frontend additions
 
-- **Login entrance page — the front door before any page**: `user_name@hsbc.com` + password
-  (server-validates the `@hsbc.com` format; an **unknown username is rejected** — "account not
-  provisioned, contact the administrator"). **Forgot password** link → **"contact the administrator
-  for a reset"** (no self-service re-register, A-H1). Every page redirects here when not logged in.
+- **Login — embedded in the Data Flow Debugger's left panel (#293)**: `user_name@hsbc.com` +
+  password (server-validates the `@hsbc.com` format; an **unknown username is rejected** — "account
+  not provisioned, contact the administrator"). **Forgot password** link → **"contact the
+  administrator for a reset"** (no self-service re-register, A-H1). The debugger requires login;
+  **SQL Analysis works logged-out** (`/api/analyze`, `/api/analyze_multi`, `/api/scripts` public).
 - **My workspaces dashboard** on login: the user's workspace list (role, last-opened, **quota meter
   `{count}/{cap}`**). Per row: **Open** and **Remove**. **Remove shows a warning dialog when the
   caller is the creator** ("this physically deletes the workspace for everyone") and only a

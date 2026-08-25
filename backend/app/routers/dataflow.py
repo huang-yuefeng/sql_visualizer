@@ -460,9 +460,15 @@ async def debug_graph_layout(ws_id: str, body: dict):
     if not ti and not fi:
         raise HTTPException(status_code=400, detail="Index not found")
 
-    # Run search to get L1 graph
+    # Run search to get L1 graph — under the global heavy-op gate (R31 #273),
+    # like /search: CPU-bound work runs in a worker thread so the event loop
+    # is not blocked; a concurrent heavy op returns 409 "system busy".
     from app.services.dataflow_service import create_search
-    search_result = await create_search(ws_id, table, field, ti, fi)
+    with gate as acquired:
+        if not acquired:
+            raise HTTPException(status_code=409, detail="system busy — please wait")
+        search_result = await asyncio.to_thread(
+            _run_coro_in_thread, create_search, ws_id, table, field, ti, fi)
 
     # Extract graph data
     l1_data = search_result.get("l1_graph", {})

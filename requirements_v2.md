@@ -49,6 +49,62 @@ toolbar drops a seldom-used toggle.
 
 ---
 
+### Amendment (2026-08-25) — search scope: real physical tables/fields only (user ruling)
+
+The search function exists to **retrieve data-flow errors**. A data-flow error is
+visible only on a **real physical table and its physical field** — there is no error
+state on a computed/derived alias. Therefore the searchable index (the table and field
+autocomplete of §2) is limited to:
+
+- **Physical tables** — schema files (`.ddl`/`.schema`) and tables read/written in scripts.
+- **Physical fields** — real columns of those tables: schema-declared columns, columns
+  actually referenced in scripts, and **output aliases of `INSERT`/`CTAS`/`UPDATE`/
+  `MERGE`** (these become real columns of the write target and carry its data-flow errors).
+- **NOT searchable** — computed/derived aliases with no physical backing: bare-SELECT
+  aggregates (`COUNT(o.order_id) AS total_orders`), expression outputs (`NVL(a.bal,0) AS X`),
+  window/CASE outputs. These are query-local results, not physical columns, so no
+  data-flow error can be seen on them (D-M1, folder_index Fix A fallback).
+
+---
+
+### Amendment (2026-08-25) — code-review decisions: access model + security hardening
+(walkthrough of `wiki/CODE_REVIEW_2026-08-24.md`, one-by-one; implementation queued, awaiting GO)
+
+Decisions taken during the 2026-08-25 review walkthrough. Coding reference for the pending
+implementation batch — tasks #303 (H1), #308 (M-S1), #309 (M-L1), #310 (M-L2), #315 (M-Po3),
+#316 (M-Po4), #317 (M-Po5), #318 (M-Po6), #319 (M-Po7), #320 (low backlog), #322 (notification
+removal). Traceability rows: see `wiki/REQUIREMENTS_TRACEABILITY.md` "Code-review decisions".
+
+- **Access model (M-Po5)** — every workspace has exactly **ONE writer, its creator**; any number
+  of **concurrent read-only readers**. Reads are open to all authenticated users (confidentiality
+  model, documented). User-level writes are **creator-only**: `PUT layout` already enforces it
+  (#272); add the same check to `POST filter-config`, `PUT`/`DELETE export-config`, and
+  `POST`/`DELETE .../views/{view_id}/children`. The derived-cache endpoints (`/search`, `/scan`,
+  `/index`, `/debug/graph`) stay open to all authenticated readers.
+- **REQUIRE_LOGIN fails closed (M-Po3)** — the `config.py:29` default flips to **ON**. A deploy
+  that forgets `REQUIRE_LOGIN` now runs locked, not open. Dev/test must pass `REQUIRE_LOGIN=false`
+  explicitly; the test suite authenticates as the default account **`admin@hsbc.com` / `123456`**
+  instead of the synthetic anonymous `dev-user`.
+- **Per-operation client IP (M-Po4)** — workspace-create and remove-from-history/delete activity
+  and audit records pass the caller's real `request.client.host` (reuse the existing `_client_ip`
+  helper) — no more empty `ip: ""` (completes R31.2).
+- **Audit file permissions (M-Po6)** — `audit.json` / `activity.json` created **`0600`**
+  (owner-only) instead of `0644`. Durability stays on the named Docker volume.
+- **Session revocation on password change (M-Po7)** — **zero-expiry sessions are KEPT** (#279); a
+  config force-sync that overwrites a password (`provision_user(force=True)`) also invalidates
+  that user's open sessions.
+- **Notification subsystem removed (#322)** — the R31 in-app notification feature (per-user inbox,
+  `add_memo`/`add_creator_alert`, `mark_read`, the bell) is removed — no producers remain post-#285.
+- **Login throttling (H1)** — exponential backoff on failed logins: **per-username primary +
+  per-IP secondary**, **no lockout**, keep the `@hsbc.com` namespace.
+- **Layout fixes (M-L1, M-L2)** — L1 drags save under their **own level key** (not the L2 key when
+  L2 is open); the flow-only ↔ full toggle is **pure visibility — camera-stable, never re-layout**
+  (user-ruled design: the user must find the newly-added part of the full graph).
+- **Low hardening backlog (#320)** — all Low items from the review queued as-is (2 already covered:
+  `mark_read` idempotency is moot under the #322 removal; empty-IP is M-Po4).
+
+---
+
 ### Amendment (2026-08-13) — click-edge flow cone (two-color before/after highlight)
 
 §4 amended: clicking a **value-flow** edge `u → v` in the L2 graph highlights its
@@ -317,11 +373,17 @@ the L2 edge-click flow-cone highlight is a separate handler and is unchanged.
 
 ---
 
-### Amendment (2026-08-19) — R31 multi-user / login (DESIGN ONLY, awaiting go)
+### Amendment (2026-08-19) — R31 multi-user / login (IMPLEMENTED — v3.3.164, 2026-08-24)
 
-**R31 (multi-user / login): design-settled 2026-08-19 — NOT yet implemented.**
-Traceable in `wiki/REQUIREMENTS_TRACEABILITY.md`; the design note is
-`wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`. Implementation awaits go.
+**R31 (multi-user / login): IMPLEMENTED and shipped in v3.3.164 (2026-08-24).**
+Requirement + implementation rows R31.1–R31.29 live in
+`wiki/REQUIREMENTS_TRACEABILITY.md`; implementation detail is
+`wiki/R31_IMPLEMENTATION.md`; the identity/workspace design is
+`wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`. Scope: config-provisioned local
+accounts (`PROVISIONED_USERS`), login gate (analysis endpoints public),
+creator-only writes, heavy-op gate, zero-expiry sessions, per-user "my
+workspaces" dashboard. Follow-up rulings 2026-08-25 (notification subsystem
+removal, search scope = physical tables/fields only) are separate amendments.
 
 ---
 

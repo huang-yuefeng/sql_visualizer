@@ -1,7 +1,7 @@
-# Requirements Traceability Matrix — V3.3.163
+# Requirements Traceability Matrix — V3.3.164
 
 > Maps all requirements from REQUIREMENTS.md to implementation status.
-> Last updated: 2026-08-24 (#288/#289 L2 graph backend fixes — case-insensitive physical-table merge shipped; #289 INSERT write-column routing corrected to be a model-following fallback (write columns land on their physical-model owner; only phantom-sourced columns land on the write target); #286 R31 regression fixed — dashboard folder upload restored; R31 status → released v3.3.162, E-series review fixes pending)
+> Last updated: 2026-08-25 (R31 status markers reconciled with shipped code — 8 previously-📝 rows flipped to ✅ against verified implementation; summary recounted: 169 implemented / 1 partial (R31.2 IP audit, pending M-Po4); version bumped to 3.3.164. Prior 2026-08-24: #288/#289 L2 graph backend fixes — case-insensitive physical-table merge shipped; #289 INSERT write-column routing corrected to be a model-following fallback (write columns land on their physical-model owner; only phantom-sourced columns land on the write target); #286 R31 regression fixed — dashboard folder upload restored; R31 status → released v3.3.162, E-series review fixes pending)
 
 ## Legend
 - ✅ Implemented & verified
@@ -18,13 +18,14 @@
 | R1.4 | SQL files clickable, non-SQL grayed | ✅ | is_sql flag, non-SQL dimmed and not clickable |
 | R1.5 | Multi-select scripts/folders with checkboxes | ✅ | Checkboxes with [deselect all] |
 | R1.6 | Multiple users, separate workspaces | ✅ | UUID workspace IDs |
-| R1.7 | Extract tables/fields as search indexes | ✅ | tableIndex, fieldIndex from all selected scripts |
+| R1.7 | Extract tables/fields as search indexes | ✅ | tableIndex, fieldIndex from all selected scripts — scope = **physical tables/fields only** (2026-08-25 ruling: search retrieves data-flow errors, visible only on physical tables/fields) |
+| R1.8 | Search scope = real physical tables/fields only | 📝 | 2026-08-25 ruling — physical columns already indexed; derived/computed aliases still leak via the Fix A `source_tables[0]` fallback (D-M1, `folder_index_service.py:646-650`) → pending #308 (folder_index curation) |
 
 ## R2 — Filter Panel / Search (from requirements_v2.md §2)
 | ID | Requirement | Status | Notes |
 |----|------------|--------|-------|
-| R2.1 | Table name autocomplete | ✅ | Color-coded dots per table |
-| R2.2 | Field name autocomplete | ✅ | Table-colored dots from associated table |
+| R2.1 | Table name autocomplete | ✅ | Physical tables only (2026-08-25 ruling); color-coded dots per table |
+| R2.2 | Field name autocomplete | ✅ | Physical fields only (2026-08-25 ruling); table-colored dots from associated table |
 | R2.3 | Table-first input: select table → field dropdown shows table's fields | ✅ | getFieldOptions() filters by selected table |
 | R2.4 | Field-first input: type field → table dropdown shows tables containing it | ✅ | getTableOptions() filters by selected field |
 | R2.5 | Search button triggers L1 view | ✅ | Enter key also triggers search |
@@ -267,24 +268,24 @@
 | ID | Requirement | Status | Notes |
 |----|------------|--------|-------|
 | R31.1 | **Login entrance page gates every page** of the service; username MUST be `*@hsbc.com` + password (min 6); accounts are **pre-provisioned from CONFIG** (`PROVISIONED_USERS`, unknown usernames rejected — no self-registration); username is an identifier only — **no mail is ever sent** | ✅ | R31 (2026-08-19) — design note `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`; #269 config provisioning (2026-08-24) |
-| R31.2 | **IP audit**: client IP recorded at login and with **every** workspace operation as `{username, ip, ts, action, detail}` — "who modified this" is always answerable | 📝 | R31 (2026-08-19) |
-| R31.3 | **Share by workspace id**: any logged-in user who knows the id can open/edit; `creator_username` fixed at creation; creator is **alerted in-app** when someone else works on the workspace | 📝 | R31 (2026-08-19) |
-| R31.4 | **Shared current state, last-writer-wins**: one L1 (the last search) + the opened L2s; resume-by-id shows the current state, never personal history; monotonically increasing `state_version` drives a "state changed by X — refreshed" notice | 📝 | R31 (2026-08-19) |
-| R31.5 | **Layout persistence (L1 + L2)**: node x/y autosaved **≤1/s** plus a **final write on workspace close**; layout file is **current-state only** (never grows); positions restored on resume, stale ids skipped | 📝 | R31 (2026-08-19) |
-| R31.6 | **"My workspaces" per-user index** (membership = created + visited) with quota `MAX_WORKSPACES_PER_USER` (default 10); at the cap, opening a new workspace requires removing one from the list first | 📝 | R31 (2026-08-19) |
-| R31.7 | **Remove-from-own-history** (any user, index only, never the server copy) vs **physical delete** (creator only — removes the workspace and every user's index entry) | 📝 | R31 (2026-08-19) |
-| R31.8 | **Workspace history readable by any opener**: per-workspace activity log (who, when, IP, what) | 📝 | R31 (2026-08-19) |
+| R31.2 | **IP audit**: client IP recorded at login and with **every** workspace operation as `{username, ip, ts, action, detail}` — "who modified this" is always answerable | 📝 | R31 (2026-08-19) — **partial**: login IP recorded (`auth_service.login` → `last_login_ip`); per-operation IP is still `""` in workspace-create/remove activity — pending code-review M-Po4 |
+| R31.3 | **Share by workspace id**: any logged-in user who knows the id can open/edit; `creator_username` fixed at creation; creator is **alerted in-app** when someone else works on the workspace | ✅ | R31 (2026-08-19) — share-by-id + fixed `creator_username` live (`/workspace/{id}/resume` membership, `create_workspace`); **#285 (2026-08-24): the creator-alert half DROPPED** (per-user visit logging removed) — the share remains |
+| R31.4 | **Shared current state, last-writer-wins**: one L1 (the last search) + the opened L2s; resume-by-id shows the current state, never personal history; monotonically increasing `state_version` drives a "state changed by X — refreshed" notice | ✅ | R31 (2026-08-19) — `/workspace/{id}/resume` returns current state; CAS `write_meta_cas` bumps `state_version`, 409 on stale (#272) |
+| R31.5 | **Layout persistence (L1 + L2)**: node x/y autosaved **≤1/s** plus a **final write on workspace close**; layout file is **current-state only** (never grows); positions restored on resume, stale ids skipped | ✅ | R31 (2026-08-19) — `PUT /workspace/{id}/layout` (creator-only #272); ≤1/s autosave + final write on close; restore on resume (#284, #291) |
+| R31.6 | **"My workspaces" per-user index** (membership = created + visited) with quota `MAX_WORKSPACES_PER_USER` (default 10); at the cap, opening a new workspace requires removing one from the list first | ✅ | R31 (2026-08-19) — `auth_service.add_workspace_to_index` + quota (409 at cap); #295 merged into the debugger left panel |
+| R31.7 | **Remove-from-own-history** (any user, index only, never the server copy) vs **physical delete** (creator only — removes the workspace and every user's index entry) | ✅ | R31 (2026-08-19) — `remove_from_my_history` (#270 removed the bare cleanup-all): creator→physical delete + server-global audit first; non-creator→index only |
+| R31.8 | **Workspace history readable by any opener**: per-workspace activity log (who, when, IP, what) | ✅ | R31 (2026-08-19) — activity.json NDJSON (O_APPEND) + `GET /workspace/{id}/activity` (any opener) |
 | R31.9 | **In-app notifications, one file per user** (`notifications/{username}.json`, kept forever): memo on visit end (close/logout/30-min idle); creator alert if visitor ≠ creator; title `[SQL Data Flow Visualizer] Workspace {ws_id} · {time}` | ✅ | R31 (2026-08-19) — **#285 (2026-08-24): visit-end memos/creator-alerts DROPPED** (per-user visit logging removed); the notification store + endpoints remain for creator-driven events |
 | R31.10 | **Multiple tabs**: visits tracked per (user, workspace); logout/expiry flushes all open visits (one memo each) | ✅ | R31 (2026-08-19) — **#285 (2026-08-24): per-user VISIT LOGGING DROPPED** — the open_visits registry, flush machinery, and visit memos/creator-alerts are removed (E-H6/E-H7/E-M3/E-M6) |
 | R31.11 | **Password recovery = admin-mediated reset** (no self-service path overwrites an identity, A-H1); with #269 the ONLY path is re-provisioning from config (`PROVISIONED_USERS`, force-synced at every startup) — no HTTP reset endpoint | ✅ | R31 (2026-08-19) — #269 config provisioning (2026-08-24) |
-| R31.12 | **One global heavy-op gate** (debugger search + `/analyze` + `/analyze_multi`): while one runs, a new one returns HTTP 409 "system busy — please wait" | ✅ | R31 (2026-08-19) — **#273 (2026-08-24) wired in**: `heavy_gate.gate` singleton gates all three; CPU-bound work moved off the event loop (`asyncio.to_thread`) |
-| R31.13 | **Migration**: pre-feature workspaces (no creator) removed directly at rollout; concurrent same-file write loss **accepted** (low concurrency) with atomic temp+rename so files never corrupt | 📝 | R31 (2026-08-19) |
+| R31.12 | **One global heavy-op gate** (debugger search + `/analyze` + `/analyze_multi` + diagnostic `/workspace/{id}/debug/graph`): while one runs, a new one returns HTTP 409 "system busy — please wait" | ✅ | R31 (2026-08-19) — **#273 (2026-08-24) wired in**: `heavy_gate.gate` singleton gates all heavy ops; CPU-bound work moved off the event loop (`asyncio.to_thread`). 2026-08-25: code-review M-P1 wrapped the diagnostic `debug/graph` endpoint in the same gate |
+| R31.13 | **Migration**: pre-feature workspaces (no creator) removed directly at rollout; concurrent same-file write loss **accepted** (low concurrency) with atomic temp+rename so files never corrupt | ✅ | R31 (2026-08-19) — `remove_legacy_workspaces()` in the lifespan (no-op once none remain); temp+rename accepted-loss writes (A-M3) |
 | R31.14 | **#292 L1/L2 view tree not restored on opening a stored workspace** — the left-panel view tree (search views + their L2 children) is persisted server-side in views.json but the frontend never loads it on open (`listViews` in `frontend/src/api/client.js` is defined but never called; `handleOpenExisting` in `frontend/src/DataFlowApp.jsx` does resume→scan→index and skips views) | ✅ | #292 (2026-08-24) — `handleOpenExisting` calls `api.listViews(wsId)` after index and `setViews(viewsRes.views)`; no auto-activate (R23 clean start) |
-| R31.15 | **#293 Login merged into the data flow debugger's left panel** — the full-screen LoginPage gate is removed; the login form lives in the debugger's left panel. ONLY the Data Flow Debugger requires login — SQL Analysis (legacy `/api/analyze`, `/api/analyze_multi`, `/api/scripts`) is public (exempt from the `login_gate` middleware via `PUBLIC_API_PREFIXES` in `backend/app/main.py`). Caveat: `DELETE /api/scripts` (clears the analysis cache) also becomes public — accepted for an internal tool | 📝 | #293 (2026-08-24) |
+| R31.15 | **#293 Login merged into the data flow debugger's left panel** — the full-screen LoginPage gate is removed; the login form lives in the debugger's left panel. ONLY the Data Flow Debugger requires login — SQL Analysis (legacy `/api/analyze`, `/api/analyze_multi`, `/api/scripts`) is public (exempt from the `login_gate` middleware via `PUBLIC_API_PREFIXES` in `backend/app/main.py`). Caveat: `DELETE /api/scripts` (clears the analysis cache) also becomes public — accepted for an internal tool | ✅ | #293 (2026-08-24) — shipped v3.3.164; login form in the debugger left panel, SQL Analysis public |
 | R31.16 | **#269 Config-provisioned users only** — the gate-exempt `POST /api/admin/users` bootstrap (E-H1/E-H3) is REMOVED; `/api/admin` is gone from `PUBLIC_API_PREFIXES`. Accounts are provisioned from `config.PROVISIONED_USERS` (default `admin@hsbc.com` / `123456`, env-overridable via `PROVISIONED_USERS_JSON`) at startup — `main.py` lifespan force-syncs every entry. No HTTP endpoint provisions users | ✅ | #269 (2026-08-24) — R31 backend Team A |
 | R31.17 | **#270 bare `DELETE /api/workspace` (cleanup-all) removed** (E-H2) — the endpoint and `cleanup_all_workspaces()` are deleted; no session can rmtree every workspace + the notifications dir | ✅ | #270 (2026-08-24) — R31 backend Team A |
 | R31.18 | **#272 L2 layout persistence + creator-only layout editing** (E-H4) — the `opened_l2s` prune that silently dropped every `l2:{script}` layout is removed (L2 drag positions now persist; also fixes #291). `PUT .../layout` is now creator-only — a non-creator session gets 403 | ✅ | #272 (2026-08-24) — R31 backend Team A |
-| R31.19 | **#273 heavy-op gate wired in** (E-H5) — `heavy_gate.gate` (module singleton) gates debugger search + `/analyze` + `/analyze_multi`; while one runs a new one returns **409 "system busy — please wait"** (released in a finally). CPU-bound work moved off the event loop via `asyncio.to_thread` | ✅ | #273 (2026-08-24) — R31 backend Team A |
+| R31.19 | **#273 heavy-op gate wired in** (E-H5) — `heavy_gate.gate` (module singleton) gates debugger search + `/analyze` + `/analyze_multi` + the diagnostic `/workspace/{id}/debug/graph` (M-P1, 2026-08-25); while one runs a new one returns **409 "system busy — please wait"** (released in a finally). CPU-bound work moved off the event loop via `asyncio.to_thread` | ✅ | #273 (2026-08-24) — R31 backend Team A; M-P1 (2026-08-25) wrapped the debug endpoint |
 | R31.20 | **#279 ZERO session expiry** (E-M4) — the 30-min absolute `max_age` cookie and the idle-reaper/`last_active` extension are removed. The session cookie has no `max_age` (the browser drops it on close); in-memory sessions live until logout or server restart (A-M9 accepted) | ✅ | #279 (2026-08-24) — R31 backend Team A |
 | R31.21 | **#280 Same-origin check kept as defense-in-depth** (E-M5 decision) — NO code change. SameSite=Lax is the real boundary; the origin check stays; the accepted no-Origin / `Origin: null` bypass is documented. The Low CORS `allow_origins=["*"]` item stays out of scope | ✅ | #280 (2026-08-24) — R31 backend Team A (decision recorded) |
 | R31.22 | **#285 Per-user visit logging dropped** (E-H6/E-H7/E-M3/E-M6, folds #278/#281) — `visit_service.py` deleted; `open_visits` registry, `open_visit`/`touch_visit`/`flush_session_visits`, visit memos/creator-alerts and all visit `append_activity` calls removed. `close_workspace` is a **no-op returning 200** (frontend `closeWorkspace` kept). Only creator-driven activity events (workspace create/delete/remove-from-history) remain | ✅ | #285 (2026-08-24) — R31 backend Team A |
@@ -296,12 +297,33 @@
 | R31.28 | **#291 L2 READ path applies saved positions** — L2 open reads `resumeLayouts[resumeLayoutKey('l2', currentScriptName)]` (was mismatched vs the `l2:{script}` save key); together with #272 (backend prune removed) and #284 (frontend resumeLayouts update) L2 drag persistence round-trips | ✅ | #291 (2026-08-24) — R31 frontend Team B |
 | R31.29 | **#295 Workspace management merged into the debugger left panel** — the standalone MyWorkspaces dashboard is retired; AppShell always renders `<DataFlowApp>` when logged in; a "My workspaces" section sits at the top of `.panel-left` (list + 📁 Select Folder + zip upload + open-by-id); upload → `api.uploadWorkspace(file)` then `onOpenWorkspace(result.workspace_id)`; WorkspacePanel gets `showUploads={false}` so no second upload picker appears | ✅ | #295 (2026-08-24) — R31 frontend Team B |
 
+## Code-review decisions (2026-08-25) — queued, awaiting GO
+
+One-by-one walkthrough of `wiki/CODE_REVIEW_2026-08-24.md`. Decisions recorded; implementation
+queued behind the go-command. See the `requirements_v2.md` "Code-review decisions" amendment for
+the full design.
+
+| ID | Decision | Status | Trace |
+|----|----------|--------|-------|
+| M-Po3 | REQUIRE_LOGIN fails **closed** — `config.py:29` default flips ON; test suite authenticates as `admin@hsbc.com` | ⏸ | #315 |
+| M-Po4 | Per-operation client IP in activity/audit (completes R31.2) | ⏸ | #316 |
+| M-Po5 | Access model: reads open to all authenticated users; creator-only on user-level mutations (filter/export-config, views) | ⏸ | #317 |
+| M-Po6 | `audit.json`/`activity.json` created `0600` (owner-only) | ⏸ | #318 |
+| M-Po7 | Session revocation on password change (zero-expiry kept, #279) | ⏸ | #319 |
+| M-S1 (D-M1) | Search scope = physical tables/fields only — folder_index Fix A curation (R1.8) | ⏸ | #308 |
+| M-L1 | L1 drags saved under their own level key (not the L2 key when L2 is open) | ⏸ | #309 |
+| M-L2 | Flow-only ↔ full toggle is pure visibility — camera-stable, never re-layout | ⏸ | #310 |
+| H1 | Login throttling — exponential backoff, per-username + per-IP, no lockout | ⏸ | #303 |
+| #322 | R31 notification subsystem removed (no producers remain post-#285) | ⏸ | #322 |
+| #320 | Low hardening backlog — 28 items, 2 covered (mark_read moot / empty-IP = M-Po4) | ⏸ | #320 |
+
 ## Summary
 | Metric | Count |
 |--------|-------|
-| ✅ Implemented | 144 (all) — 89 R1–R16 + 20 R17–R20 + 16 R26–R28 + 8 R29 (R29.1–R29.6 + R29.7 #193 + R29.8 #252) + 11 R30 (R30.1–R30.5 flow cone + R30.6–R30.10 v3.3.159/160 amendments + R30.11 ROW_FLOW) — R5.10/R5.11 = #288/#289 (2026-08-24, Team C) |
-| 📝 Design, not implemented | 1 — R31 (multi-user — design settled, awaiting go) |
-| Version | 3.3.160 |
+| ✅ Implemented | 169 (all) — 89 R1–R16 + 17 R17–R20 + 16 R26–R28 + 8 R29 (R29.1–R29.6 + R29.7 #193 + R29.8 #252) + 11 R30 (R30.1–R30.5 flow cone + R30.6–R30.10 v3.3.159/160 amendments + R30.11 ROW_FLOW) — R5.10/R5.11 = #288/#289 (2026-08-24, Team C) + 28 R31 (R31.1–R31.29, recounted 2026-08-25) |
+| 📝 Partial — in progress | 2 — R31.2 (IP audit: login IP recorded; per-operation IP capture pending — code review M-Po4) + R1.8 (search scope = physical tables/fields only — 2026-08-25 ruling; derived aliases still leak via Fix A fallback, pending #308) |
+| ⏸ Awaiting GO — code-review batch (2026-08-25) | 11 tasks — #303, #308–#310, #315–#320, #322 (see "Code-review decisions" table; requirements_v2.md amendment is the coding reference) |
+| Version | 3.3.164 |
 
 ## Key Fixes since V3.2.1
 | Fix | Description |

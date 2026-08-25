@@ -803,31 +803,36 @@ Both L1 and L2 must use the **same strict field-flow walker** (`compute_field_fl
 
 When no specific field is queried (table-only search), or when `lineage_mode` is off, the full table-level graph is shown — behavior unchanged from the current definition. The upstream/downstream query direction applies only to field queries (R29, 2026-08-12).
 
-## Multi-User & Workspace Model (2026-08-19, design settled — awaiting go)
+## Multi-User & Workspace Model (2026-08-19; IMPLEMENTED v3.3.164, 2026-08-24)
 
 Full decision log: `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`. This section formally defines the
-multi-user collaboration entities and their invariants. No code changed.
+multi-user collaboration entities and their invariants (R31.1–R31.29, shipped v3.3.164).
 
-**Login gate:** a **login entrance page gates every page** of the service — no page or API is
-reachable before login; only the health endpoint stays public (R31, design-only).
+**Login gate:** the login middleware guards every `/api/*` path not in `PUBLIC_API_PREFIXES`
+(`/api/health`, `/api/auth/login`, `/api/analyze`, `/api/analyze_multi`, `/api/scripts` — the last
+three keep **SQL Analysis** usable logged-out, #293). The Data Flow Debugger requires a session; the
+login form is embedded in the debugger's left panel (#293), not a separate page.
 
 ### User Account
 A durable local identity.
-- `username`: string, MUST match the locked format **`*@hsbc.com`** (`user_name@hsbc.com`, validated
-  as `*@hsbc.com`) — an **identifier only**; no mail is ever sent. The exact character-set regex is
-  **not yet settled** — R31 is design-only (no code exists); the precise charset is TBD, awaiting the
-  go-command.
+- `username`: string, MUST match the locked format **`*@hsbc.com`** (`user_name@hsbc.com`) — an
+  **identifier only**; no mail is ever sent. The charset is enforced by
+  `^[A-Za-z0-9._%+-]+@hsbc\.com$` (`auth_service.py`, `_USERNAME_RE`). Accounts are
+  **pre-provisioned from CONFIG** (`PROVISIONED_USERS`, #269) — an unknown username is rejected at
+  login; there is no self-registration.
 - `password_hash`, `salt`: PBKDF2-HMAC; minimum password length **6**.
 - `created_at`, `last_login_ip`.
 - `workspaces`: index entries `{ws_id, role ∈ {creator, participant}, first_opened, last_opened}`.
 - Invariant: `|workspaces| ≤ MAX_WORKSPACES_PER_USER` (default **10**). At the cap, adding a
   workspace (create or id-open not already indexed) is rejected (HTTP 409).
-- Recovery: **re-register** replaces the account record (inbox + index reset); workspaces
-  themselves are unaffected.
+- Recovery: accounts are **config-provisioned only** — there is no re-register endpoint (#269). A
+  forgotten password is **admin-mediated** (A-H1): contact the administrator for a reset. Workspaces
+  are unaffected by account recovery.
 
 ### Session
 `token → {username, ip, last_active}`; identity carried by an `HttpOnly` cookie.
-- Invariant: idle time **> 30 min** ⇒ session destroyed and all open visits flushed.
+- Invariant: sessions are **ZERO-expiry (#279)** — no idle timeout; a session lives until logout or
+  server restart (browser drops the cookie on close).
 - Every authenticated API call extends `last_active`; a completed long-running search also extends it.
 - Store is in-memory; lost on container restart (**accepted**).
 

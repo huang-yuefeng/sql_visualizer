@@ -277,6 +277,18 @@ Output: L2 graph {nodes, edges}
 
 ## Validation — Orphan Field Check (fields without any table)
 
+> **Search scope (2026-08-25 user ruling):** the search function retrieves
+> **data-flow errors**, which are visible only on **real physical tables and
+> their physical fields**. So the autocomplete/index scope (tableIndex +
+> fieldIndex) is limited to physical tables and physical fields. Computed/
+> derived aliases with no physical backing — bare-SELECT aggregates
+> (`COUNT(o.order_id) AS total_orders`), expression outputs (`NVL(a.bal,0) AS X`),
+> window/CASE outputs — are **not** searchable (they are query-local results, not
+> physical columns, so no data-flow error can be seen on them). The one exception:
+> output aliases of `INSERT`/`CTAS`/`UPDATE`/`MERGE` **are** real columns of the
+> write target and stay indexed (they carry the target's data-flow errors). See
+> requirements §2 amendment (2026-08-25) + traceability R1.8.
+
 Companion to Bug 53: a field with no table attribution cannot be found
 via table→field autocomplete, cannot attach in L1/L2, and silently
 vanishes from filter results. The check surfaces these so extraction
