@@ -1,9 +1,18 @@
 """Pytest configuration and shared fixtures."""
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+# R31 (M-Po3, 2026-08-25): REQUIRE_LOGIN fails closed by default in config.py.
+# The unauthenticated test suite runs with the login gate OFF, so force it here
+# BEFORE any app import (pytest imports conftest before test modules; config.py
+# reads this env once at import). Gate-ON behavior is covered separately by
+# test_r31_gate.py (subprocess REQUIRE_LOGIN=true) and the `_gate_on` fixture in
+# test_r31_auth.py (monkeypatches app.main.REQUIRE_LOGIN in-process).
+os.environ["REQUIRE_LOGIN"] = "false"
 
 # Add backend/ to the import path
 BACKEND_DIR = Path(__file__).resolve().parent.parent

@@ -380,6 +380,12 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     // mount-time mode-switch effect fires relayout BEFORE the initial fit —
     // running it would hide flow elements before cy.fit sees the full graph.
     if (!layoutDoneRef.current) return;
+    // #310: show every element before re-running the layout. applyLayout's
+    // deferred cy.fit excludes display:none elements, so if a flow-only
+    // (View 1) filter is active the fit would bound only the visible closure
+    // and push View 2's non-closure nodes off-screen after the mode switch.
+    // The flow-only ↔ full toggle itself stays pure visibility (no re-layout).
+    cy.elements().show();
     fieldRelRef.current = computeFieldRelPos(cy);
     const onFit = () => applyFlowVisibility(cy, optsRef.current);
     if (mode === "pipeline") {

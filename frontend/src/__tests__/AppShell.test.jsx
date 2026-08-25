@@ -25,7 +25,6 @@ vi.mock('../DataFlowApp', () => ({
 }));
 vi.mock('../components/MyWorkspaces', () => ({ default: () => <div data-testid="my-workspaces">ws</div> }));
 vi.mock('../components/LoginForm', () => ({ default: () => <div data-testid="login-form">login</div> }));
-vi.mock('../components/NotificationBell', () => ({ default: () => null }));
 vi.mock('../components/HistoryPanel', () => ({ default: () => null }));
 
 /**

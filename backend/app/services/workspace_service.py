@@ -243,7 +243,14 @@ def remove_from_my_history(ws_id: str, username: str, ip: str) -> tuple[bool, st
     if is_creator:
         # A-H3: the deletion event must survive the workspace it describes.
         append_audit(username, ip, ws_id, "workspace deleted")
-        shutil.rmtree(ws_dir)
+        try:
+            shutil.rmtree(ws_dir)
+        except FileNotFoundError:
+            # A concurrent delete already removed the directory (race between
+            # the existence check above and rmtree) — the goal is met, so
+            # report success instead of a 500. The shared index is still
+            # cleaned below.
+            pass
         remove_ws_from_all_indexes(ws_id)
         return True, "Workspace deleted", True
     else:

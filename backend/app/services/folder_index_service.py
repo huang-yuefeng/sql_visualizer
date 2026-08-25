@@ -29,7 +29,9 @@ _SCHEMA_CREATE_KINDS = {"TABLE", "VIEW"}
 # invisible to autocomplete. These ARE indexable fields when the variable is a
 # genuine statement OUTPUT alias: `is_output` True (excludes CTE bodies) and a
 # top-level statement context (excludes subquery-interior / JOIN / EXISTS
-# scopes — those carry /subq, /exists, :join markers).
+# scopes — those carry /subq, /exists, :join markers). #308: these are only
+# attributed to a DML write target — a bare SELECT's output alias stays
+# un-attributed (computed/derived aliases are not searchable).
 _OUTPUT_ALIAS_TYPES = frozenset({
     "case", "transform", "literal", "aggregate", "window", "expression",
 })
@@ -600,7 +602,10 @@ def index_scripts(ws_id: str, script_paths: list[str],
                 name = v.get("name", "")
                 context = v.get("context", "")
 
-                if vt == "table":
+                if vt in ("table", "merge_target"):
+                    # merge_target (MERGE target table) is a physical write
+                    # target like `table` — it must get the same script
+                    # attribution so the table surfaces in autocomplete.
                     table_index.setdefault(name, {"fields": set(), "scripts": set()})
                     table_index[name]["scripts"].add(rel_path)
 
@@ -631,23 +636,18 @@ def index_scripts(ws_id: str, script_paths: list[str],
                 elif vt in _OUTPUT_ALIAS_TYPES and v.get("is_output") \
                         and _is_top_statement_context(context):
                     # Fix A (case1): SELECT-output aliases of non-column
-                    # expressions are indexable fields too — a bank-ETL target
+                    # expressions are indexable fields — a bank-ETL target
                     # column written `INSERT INTO tgt SELECT <expr> AS col` is
-                    # the very field the user searches for. Attributed to the
-                    # DML target table when this alias feeds a write; else the
-                    # alias's own source_tables[0] (plain SELECT); else no
-                    # table (output columns of a bare SELECT belong to no
-                    # named table). Name guard: unaliased expression
+                    # the very field the user searches for. Attributed ONLY to
+                    # the DML write target (INSERT / UPDATE / MERGE via
+                    # dml_target_by_src_id); a bare SELECT's output alias has
+                    # no physical table — computed/derived aliases are not
+                    # searchable (#308). Name guard: unaliased expression
                     # projections auto-name to SQL fragments — never indexed.
                     field_name = name.split(".", 1)[-1] if "." in name else name
                     if not _is_plain_field_name(field_name):
                         continue
                     table_name = dml_target_by_src_id.get(v.get("id", ""), "")
-                    if not table_name:
-                        for _st in v.get("source_tables", []):
-                            if _st and not _st.startswith("⟐") and _st not in cte_names:
-                                table_name = _st
-                                break
                     field_index.setdefault(field_name, {"tables": set(), "scripts": set()})
                     field_index[field_name]["scripts"].add(rel_path)
                     if table_name:
@@ -1483,10 +1483,21 @@ def autocomplete(index: dict, type_: str, query: str) -> list[str]:
         return sorted(index.keys())[:20]
     q = query.lower()
     sub = sorted(k for k in index if q in k.lower())
-    if len(sub) >= 2:
-        return sub[:20]
     exact = sorted(k for k in index if k.lower() == q)
     prefix = sorted(k for k in index if k.lower().startswith(q))
+    # Only short-circuit on an exact/prefix hit — those are confident matches.
+    # A substring-only hit (however many) is NOT a confidence signal, so the
+    # Levenshtein-<=1 fallback still runs and a typo'd key (one extra/missing/
+    # wrong char) can surface the intended name.
+    if exact or prefix:
+        ranked: list[str] = []
+        seen: set[str] = set()
+        for k in sub + exact + prefix:
+            kl = k.lower()
+            if kl not in seen:
+                seen.add(kl)
+                ranked.append(k)
+        return ranked[:20]
     dist1 = sorted(
         k for k in index
         if k.lower() not in {e.lower() for e in exact}

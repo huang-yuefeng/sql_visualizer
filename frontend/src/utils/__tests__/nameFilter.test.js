@@ -32,7 +32,7 @@ describe('filterNames', () => {
   ];
 
   it('returns first 20 (alphabetical) for empty query', () => {
-    expect(filterNames(names, '')).toEqual(names.slice(0, 20));
+    expect(filterNames(names, '')).toEqual([...names].sort());
   });
 
   it('substring primary: two hits → no typo fallback', () => {

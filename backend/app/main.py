@@ -179,6 +179,11 @@ app = FastAPI(
     description="Extract, classify, and visualize variables from GPS financial SQL scripts",
     version=_read_version(),
     lifespan=lifespan,
+    # P1: keep /docs, /redoc and /openapi.json private unless DEBUG — the
+    # API schema is disabled in production (the SPA is served from /static).
+    docs_url="/docs" if DEBUG else None,
+    redoc_url="/redoc" if DEBUG else None,
+    openapi_url="/openapi.json" if DEBUG else None,
 )
 
 
@@ -198,8 +203,8 @@ async def health_check():
 
 
 # R31 login gate (A-M7): when REQUIRE_LOGIN is on, every /api/* endpoint
-# except the public prefixes below (health, login, admin bootstrap, and the
-# #293 SQL-Analysis endpoints) requires a valid session cookie;
+# except the public prefixes below (health, login, and the #293 SQL-Analysis
+# endpoints) requires a valid session cookie;
 # state-changing methods also pass a same-origin check (Origin/Referer must
 # match the service host). The static frontend stays public — on a 401 the
 # SPA renders the login form in the Data Flow Debugger's left panel (#293).
@@ -226,12 +231,23 @@ PUBLIC_API_PREFIXES = (
 )
 
 
+def _path_is_public(path: str) -> bool:
+    """Boundary-safe public-prefix match.
+
+    A bare `startswith` would let `/api/scriptsx` wrongly match the public
+    `/api/scripts`. A path is public only when it EQUALS a prefix or starts
+    with ``prefix + "/"``."""
+    for p in PUBLIC_API_PREFIXES:
+        if path == p or path.startswith(p + "/"):
+            return True
+    return False
+
+
 @app.middleware("http")
 async def login_gate(request: Request, call_next):
     if REQUIRE_LOGIN:
         path = request.url.path
-        if path.startswith("/api/") and not any(
-                path.startswith(p) for p in PUBLIC_API_PREFIXES):
+        if path.startswith("/api/") and not _path_is_public(path):
             token = request.cookies.get(SESSION_COOKIE)
             if auth_service.get_session(token) is None:
                 return JSONResponse({"detail": "Not logged in"}, status_code=401)

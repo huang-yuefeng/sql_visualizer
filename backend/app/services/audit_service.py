@@ -25,12 +25,21 @@ def _now_iso() -> str:
 
 
 def _append_record(path: Path, record: dict) -> None:
-    """Append one NDJSON line with O_APPEND — real append, no read-modify-write."""
-    WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+    """Append one NDJSON line with O_APPEND — real append, no read-modify-write.
+
+    Creates the record's parent dir (not just WORKSPACE_ROOT) so a concurrent
+    delete of the workspace dir doesn't 500 the append. Writes the full buffer
+    in a loop — os.write may return fewer bytes than asked, and a single-shot
+    write would silently drop the tail."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(record, ensure_ascii=False) + "\n"
-    fd = os.open(str(path), os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
+    data = line.encode("utf-8")
+    fd = os.open(str(path), os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
     try:
-        os.write(fd, line.encode("utf-8"))
+        view = memoryview(data)
+        while view:
+            n = os.write(fd, view)
+            view = view[n:]
     finally:
         os.close(fd)
 

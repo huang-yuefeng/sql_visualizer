@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import App from './App';
 import DataFlowApp from './DataFlowApp';
 import LoginForm from './components/LoginForm';
-import NotificationBell from './components/NotificationBell';
 import HistoryPanel from './components/HistoryPanel';
 import * as api from './api/client';
 
@@ -188,7 +187,6 @@ export default function AppShell() {
           )}
           {me ? (
             <>
-              <NotificationBell username={me.username} />
               <span style={{
                 fontSize: 12, color: 'var(--ink-600)', border: '1px solid var(--border-strong)',
                 borderRadius: 12, padding: '3px 10px', background: 'var(--bg-surface)',

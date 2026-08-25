@@ -678,7 +678,10 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
                                       direction)
     if not result.get("degraded"):
         _l1_graph_memo_set(memo_key, result)
-    return result
+    # The miss path stores `result` in the memo, so hand the caller a COPY —
+    # returning the shared canonical dict would let caller mutation corrupt
+    # the memoized graph (the hit path already returns `_l1_graph_copy`).
+    return _l1_graph_copy(result)
 
 
 def _build_l1_graph_uncached(ws_id: str, script_names: list[str],

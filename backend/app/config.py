@@ -23,10 +23,13 @@ DEBUG = os.environ.get("DEBUG", "true").lower() == "true"
 # CORS
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",")
 
-# R31: login gate. Production enables it (REQUIRE_LOGIN=1 in the run
-# command); dev/test default to off so the existing suite keeps running
-# unauthenticated. New R31 tests flip it on to exercise the gate.
-REQUIRE_LOGIN = os.environ.get("REQUIRE_LOGIN", "false").lower() == "true"
+# R31: login gate. FAILS CLOSED — default ON (M-Po3, 2026-08-25): a deploy
+# that forgets the flag now runs LOCKED instead of silently collapsing the
+# multi-user model to one anonymous "dev-user". Dev/test must pass
+# REQUIRE_LOGIN=false explicitly (backend/tests/conftest.py sets it before
+# any app import, so the unauthenticated suite keeps running). The R31 gate
+# tests flip it on (test_r31_gate.py subprocess) to exercise the gate.
+REQUIRE_LOGIN = os.environ.get("REQUIRE_LOGIN", "true").lower() == "true"
 
 # R31 (#269): config-provisioned users — the ONLY account-provisioning path.
 # Every deploy force-syncs each account's password to this allowlist at

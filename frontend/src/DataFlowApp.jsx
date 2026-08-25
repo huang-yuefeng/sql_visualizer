@@ -143,13 +143,17 @@ export default function DataFlowApp({
   }, [flushLayoutSave]);
 
   // Drag-end positions → debounced autosave for the CURRENT level+script.
-  const handlePositionsChange = useCallback((positions) => {
+  // #309: the level is passed EXPLICITLY per graph. The shared callback must
+  // not derive it from the GLOBAL graphLevel — while an L2 is open (graphLevel
+  // === 'L2') the L1 graph stays mounted + draggable side-by-side, so an L1
+  // drag would otherwise be written under the L2 key and corrupt the layout.
+  const handlePositionsChange = useCallback((level, positions) => {
     scheduleLayoutSave(
-      graphLevel === 'L2' ? 'l2' : 'l1',
-      graphLevel === 'L2' ? currentScriptName : null,
+      level,
+      level === 'l2' ? currentScriptName : null,
       positions,
     );
-  }, [graphLevel, currentScriptName, scheduleLayoutSave]);
+  }, [currentScriptName, scheduleLayoutSave]);
 
   // Final save on close: when the keyed DataFlowApp unmounts (close
   // workspace / switch workspace / logout), flush the coalesced layout save
@@ -800,7 +804,7 @@ export default function DataFlowApp({
             selectedEdgeId={selectedEdge?.id}
             refitKey={graphLevel}
             savedPositions={resumeLayouts['l1']}
-            onPositionsChange={handlePositionsChange}
+            onPositionsChange={(positions) => handlePositionsChange('l1', positions)}
           />
         )}
         {loading && !graphData && (
@@ -868,7 +872,7 @@ export default function DataFlowApp({
               flowOnly={flowOnly}
               onFlowOnlyChange={setFlowOnly}
               savedPositions={resumeLayouts[resumeLayoutKey('l2', currentScriptName)]}
-              onPositionsChange={handlePositionsChange}
+              onPositionsChange={(positions) => handlePositionsChange('l2', positions)}
             />
           </div>
           {/* Resize handle: L2 graph | SQL panel */}

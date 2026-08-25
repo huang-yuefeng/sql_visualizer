@@ -1,10 +1,11 @@
 """R31 multi-user login — auth service, sessions, workspace ownership,
-remove-from-history, layout CAS, notifications, config provisioning.
+remove-from-history, layout CAS, config provisioning.
 
-These run IN-PROCESS with the login gate OFF (REQUIRE_LOGIN defaults false
-so the rest of the suite stays green): the session routes still enforce
-their own auth via `require_login`, and the workspace router treats the
-caller as the synthetic "dev-user". Gate-ON behavior is covered two ways:
+These run IN-PROCESS with the login gate OFF (REQUIRE_LOGIN fails closed by
+default; backend/tests/conftest.py forces it OFF before any app import so the
+rest of the suite stays green): the session routes still enforce their own
+auth via `require_login`, and the workspace router treats the caller as the
+synthetic "dev-user". Gate-ON behavior is covered two ways:
 the `_gate_on` monkeypatch fixture (below) flips `app.main.REQUIRE_LOGIN`
 in-process to exercise the #293 public-exemption surface, and
 test_r31_gate.py runs a subprocess with REQUIRE_LOGIN=true for the
@@ -24,8 +25,6 @@ from app import main as app_main
 from app.main import app
 from app.services import auth_service
 from app.services.audit_service import read_activity, read_audit
-from app.services.notification_service import (
-    list_notifications, unread_count, mark_read)
 from app.services.workspace_service import (
     WORKSPACE_ROOT, create_workspace, delete_workspace,
     get_workspace_dir, read_meta, write_meta_cas,
@@ -263,6 +262,60 @@ def test_layout_non_creator_rejected_with_403():
     assert r.status_code == 200
 
 
+def test_export_config_non_creator_rejected_with_403():
+    # #317 M-Po5: export-config mutation is creator-only — a non-creator
+    # session PUT/DELETE export config → 403; the creator's own session can
+    # still save and reset.
+    ws_id = create_workspace(_zip_bytes(), creator_username="owner@hsbc.com")
+    auth_service.provision_user("alice@hsbc.com", "secret1", force=True)
+    assert _login("alice@hsbc.com", "secret1").status_code == 200
+
+    assert client.put(f"/api/workspace/{ws_id}/export-config",
+                      json={"row_limit": 50}).status_code == 403
+    assert client.delete(f"/api/workspace/{ws_id}/export-config").status_code == 403
+
+    auth_service.provision_user("owner@hsbc.com", "secret1", force=True)
+    assert _login("owner@hsbc.com", "secret1").status_code == 200
+    assert client.put(f"/api/workspace/{ws_id}/export-config",
+                      json={"row_limit": 50}).status_code == 200
+    assert client.delete(f"/api/workspace/{ws_id}/export-config").status_code == 200
+
+
+def test_view_mutation_non_creator_rejected_with_403():
+    # #317 M-Po5: the view child-add / view-delete endpoints are creator-only
+    # — a non-creator session is refused 403 (checked before any view lookup).
+    ws_id = create_workspace(_zip_bytes(), creator_username="owner@hsbc.com")
+    auth_service.provision_user("alice@hsbc.com", "secret1", force=True)
+    assert _login("alice@hsbc.com", "secret1").status_code == 200
+
+    assert client.post(f"/api/workspace/{ws_id}/views/fakeview/children",
+                       json={"view_id": "c1"}).status_code == 403
+    assert client.delete(f"/api/workspace/{ws_id}/views/fakeview").status_code == 403
+
+
+def test_activity_and_audit_records_capture_client_ip(_provisioned_user):
+    # #316 M-Po4: activity + audit records carry the real client IP (from
+    # request.client.host), never "".
+    assert _login("alice@hsbc.com", "secret1").status_code == 200
+    r = client.post("/api/workspace",
+                    files={"file": ("w.zip", _zip_bytes(), "application/zip")})
+    assert r.status_code == 200
+    ws_id = r.json()["workspace_id"]
+
+    created = read_activity(ws_id)
+    assert created and created[0]["action"] == "workspace_created"
+    assert created[0]["ip"], "workspace_created activity ip must be non-empty"
+
+    # creator remove-from-history physically deletes; the audit entry is
+    # written BEFORE removal and carries the client IP.
+    out = client.delete(f"/api/me/workspaces/{ws_id}")
+    assert out.status_code == 200
+    audited = next((rec for rec in read_audit()
+                    if rec["ws_id"] == ws_id and rec["action"] == "workspace deleted"),
+                   None)
+    assert audited and audited["ip"], "workspace deleted audit ip must be non-empty"
+
+
 def test_resume_returns_shared_state():
     ws_id = create_workspace(_zip_bytes(), creator_username=DEV_USER)
     r = client.get(f"/api/workspace/{ws_id}/resume")
@@ -312,33 +365,51 @@ def test_resume_membership_and_quota(_provisioned_user):
         delete_workspace(other)
 
 
-# --- notifications ---------------------------------------------------------
+# --- notifications removed (#322) ------------------------------------------
 
-def test_notifications_flow(_provisioned_user):
+def test_notification_endpoints_removed(_provisioned_user):
+    # The in-app notification subsystem is removed entirely — the endpoints
+    # no longer exist (404/405, never 200).
+    assert _login("alice@hsbc.com", "secret1").status_code == 200
+    assert client.get("/api/notifications").status_code in (404, 405)
+    assert client.post("/api/notifications/abc123/read").status_code in (404, 405)
+
+
+# --- password change revokes sessions (#319 M-Po7) -------------------------
+
+def test_password_change_revokes_sessions(_provisioned_user):
+    assert _login("alice@hsbc.com", "secret1").status_code == 200
+    token = client.cookies.get("session")
+    assert token and auth_service.get_session(token) is not None
+
+    # force re-provision of an EXISTING account overwrites the password → the
+    # old session is revoked (no expiry added, #279 stays).
+    assert auth_service.provision_user("alice@hsbc.com", "secret2", force=True)
+    assert auth_service.get_session(token) is None
+    assert client.get("/api/auth/me").status_code == 401
+
+    # old password dead, new password works
+    assert _login("alice@hsbc.com", "secret1").status_code == 401
+    assert _login("alice@hsbc.com", "secret2").status_code == 200
+
+    # restore the fixture password for any later test
     auth_service.provision_user("alice@hsbc.com", "secret1", force=True)
-    _login("alice@hsbc.com", "secret1")
 
-    # start from an empty inbox (notifications persist across runs)
-    (WORKSPACE_ROOT / "notifications" / "alice@hsbc.com.json").unlink(missing_ok=True)
 
-    # seed two memos directly through the service
-    from app.services.notification_service import add_memo
-    add_memo("alice@hsbc.com", "ws_abc", "body 1")
-    add_memo("alice@hsbc.com", "ws_abc", "body 2")
+# --- audit/activity file permissions (#318 M-Po6) --------------------------
 
-    r = client.get("/api/notifications")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["unread"] == 2
-    assert len(body["notifications"]) == 2
-    nid = body["notifications"][0]["id"]
-
-    r = client.post(f"/api/notifications/{nid}/read")
-    assert r.status_code == 200
-    assert unread_count("alice@hsbc.com") == 1
-    assert list_notifications("alice@hsbc.com")[0]["read"] is True
-    # already-read → 404 (nothing new to mark)
-    assert client.post(f"/api/notifications/{nid}/read").status_code == 404
+def test_activity_file_created_0600():
+    # _append_record creates log files mode 0600 (activity.json and the
+    # server-global audit.json both flow through it).
+    import os
+    from app.services import audit_service
+    ws_id = create_workspace(_zip_bytes(), creator_username=DEV_USER)
+    try:
+        audit_service.append_activity(ws_id, DEV_USER, "127.0.0.1", "test")
+        path = WORKSPACE_ROOT / ws_id / "activity.json"
+        assert (path.stat().st_mode & 0o777) == 0o600
+    finally:
+        delete_workspace(ws_id)
 
 
 # --- #293: SQL Analysis is public (login-gate exempt) --------------------

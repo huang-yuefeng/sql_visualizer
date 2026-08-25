@@ -42,7 +42,7 @@ describe('api 401 interceptor (E-M1/#276)', () => {
     await Promise.allSettled([
       api.getMyWorkspaces(),
       api.resumeWorkspace('w1'),
-      api.getNotifications(),
+      api.getWorkspaceStatus('w1'),
       api.getWorkspaceActivity('w1'),
     ]);
     expect(cb).toHaveBeenCalledTimes(1);
@@ -71,6 +71,16 @@ describe('api 401 interceptor (E-M1/#276)', () => {
 
   it('does NOT fire on a non-401 error', async () => {
     fetchMock.mockResolvedValue(new Response('', { status: 500 }));
+    const cb = vi.fn();
+    api.onSessionExpired(cb);
+    await expect(api.getMyWorkspaces()).rejects.toThrow();
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire on a 403 (authenticated but forbidden)', async () => {
+    // Creator-only checks (#272) return 403 for a non-creator session — the
+    // session is still valid, so this must NOT drop the session.
+    fetchMock.mockResolvedValue(new Response('', { status: 403 }));
     const cb = vi.fn();
     api.onSessionExpired(cb);
     await expect(api.getMyWorkspaces()).rejects.toThrow();

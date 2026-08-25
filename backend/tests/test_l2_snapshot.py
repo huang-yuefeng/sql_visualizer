@@ -21,6 +21,21 @@ finding (fix direction: canonical sort of the dependency list).
 
 Rebaseline ONLY on intentional output changes:
   L2_SNAPSHOT_UPDATE=1 python3 -m pytest tests/test_l2_snapshot.py -q
+
+IMPORTANT — the gate is self-consistency only. A snapshot asserts that the
+CURRENT build reproduces the COMMITTED baseline; it does not prove the
+baseline is CORRECT. When re-baselining (especially after an intentional
+output change, e.g. a physical-model stage), a HUMAN must sanity-check the
+new baseline ONCE before it is committed — eyeball a few diffs of the
+regenerated JSON to confirm the change is the intended one and not a silent
+regression that the byte-equality gate would happily re-pin. There is no
+independent oracle wired into this harness.
+
+Note: `test_full_l2_output_is_deterministic_across_workspaces` (the ws-id
+independence check) is a separate concern from the per-script byte-equality
+gate and could be split into its own module — it is slow (it doubles the
+subprocess build count) and its failure mode (a leaked per-workspace value)
+is distinct from an output-content regression.
 """
 
 import io

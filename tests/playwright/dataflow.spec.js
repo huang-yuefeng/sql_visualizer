@@ -1,15 +1,18 @@
 // @ts-check
+const path = require('path');
 const { test, expect } = require('@playwright/test');
 
 const BASE = 'http://localhost:8000';
-const TEST_ZIP = '/home/huangyf/work/sql_visualizer/samples/multi_workflow.zip';
+// Resolve the fixture relative to this file (tests/playwright/) instead of
+// hardcoding one developer's absolute checkout path.
+const TEST_ZIP = path.resolve(__dirname, '../../samples/multi_workflow.zip');
 
-// R31: the login gate is ON in production (start.py sets REQUIRE_LOGIN=1), and
-// /api/auth/me always requires a session — the SPA shows the login page before
-// anything else. Accounts are provisioned from CONFIG (PROVISIONED_USERS) at
-// startup only — the gate-exempt POST /api/admin/users bootstrap is REMOVED
-// (R31 #269). The login below uses the config default admin account
-// (admin@hsbc.com / 123456).
+// R31: the login gate is ON in production (start.py sets REQUIRE_LOGIN=1) —
+// gated /api/* calls 401 without a session, and the login FORM renders in the
+// Data Flow Debugger's left panel (#293; there is no full-page gate).
+// Accounts are provisioned from CONFIG (PROVISIONED_USERS) at startup only —
+// the gate-exempt POST /api/admin/users bootstrap is REMOVED (R31 #269). The
+// login below uses the config default admin account (admin@hsbc.com / 123456).
 const ADMIN_USER = 'admin@hsbc.com';
 const ADMIN_PW = '123456';
 
@@ -21,13 +24,38 @@ const ADMIN_PW = '123456';
 const SEARCH_TBL = 'stg_customers';
 const SEARCH_FIELD = 'region';
 
-// Production builds (localhost:8000 = the gps-sql release container) gate the
-// window.__cy / __cy1 debug globals behind import.meta.env.DEV (v3.3.149), so
-// those handles never exist in the deployed app. Cytoscape itself registers the
-// live instance on its container element (container._cyreg.cy) in every build;
-// the tests read that instead — no app code change required. Each DataFlowGraph
-// renders `.dataflow-graph-container[data-level="L1"|"L2"]` with the
-// `.graph-canvas` inside it, so the right instance is selected by level.
+// E2E coverage note: this spec exercises only the debugger happy-path. The
+// login gate, workspace quota (MAX_WORKSPACES_PER_USER), creator-only 403s,
+// and the heavy-op gate have UNIT coverage only (backend/tests/test_r31_gate.py,
+// backend/tests/test_r31_auth.py) — no browser E2E for them. The in-app
+// notification subsystem is REMOVED (#322), so it needs no coverage here.
+
+// ── Cytoscape instance access ──────────────────────────────────────
+// window.__cy / __cy1 are DEV-only (v3.3.149) and never exist in a production
+// build, so there is no app-provided global to read. Cytoscape registers the
+// live instance on its own container element as `el._cyreg.cy` in every build.
+// `_cyreg` is an internal Cytoscape handle, not a stable public API, but it is
+// the only DOM→instance path available without an app change (and re-exposing a
+// production global is exactly what v3.3.149 removed). That coupling is kept in
+// ONE place (cyEval below) so a future stable accessor only needs to change
+// here. Each DataFlowGraph renders `.dataflow-graph-container[data-level="L1"|"L2"]`
+// with the `.graph-canvas` inside it, so the right instance is selected by level.
+//
+// cyEval builds a self-contained page expression: `level` and `tail` are
+// interpolated into the source at build time, so nothing (level, tail, or a
+// function) is passed across the evaluate boundary — this Playwright build
+// cannot serialize plain function arguments.
+function cyEval(page, level, tail) {
+  const expr = `
+    (() => {
+      const el = document.querySelector('.dataflow-graph-container[data-level="${level}"] .graph-canvas');
+      const cy = el && el._cyreg && el._cyreg.cy;
+      if (!cy) return null;
+      ${tail}
+    })()
+  `;
+  return page.evaluate(expr);
+}
 
 async function search(page) {
   await page.getByRole('textbox', { name: 'Type table name...' }).fill(SEARCH_TBL);
@@ -38,28 +66,26 @@ async function search(page) {
 }
 
 async function openL2(page) {
-  await page.evaluate(() => {
-    const el = document.querySelector('.dataflow-graph-container[data-level="L1"] .graph-canvas');
-    const cy = el && el._cyreg && el._cyreg.cy;
-    if (cy) cy.nodes('[type="script_node"]').eq(0).emit('dbltap');
-  });
+  await cyEval(page, 'L1', `
+    const firstScript = cy.nodes('[type="script_node"]').eq(0);
+    if (firstScript.length) firstScript.emit('dbltap');
+  `);
   await page.waitForSelector('.dataflow-graph-container[data-level="L2"]');
   await page.waitForTimeout(2000);
 }
 
 async function tapFirstL2Edge(page) {
-  await page.evaluate(() => {
-    const el = document.querySelector('.dataflow-graph-container[data-level="L2"] .graph-canvas');
-    const cy = el && el._cyreg && el._cyreg.cy;
-    if (cy && cy.edges().length > 0) cy.edges()[0].emit('tap');
-  });
+  await cyEval(page, 'L2', `
+    if (cy.edges().length > 0) cy.edges()[0].emit('tap');
+  `);
   await page.waitForTimeout(500);
 }
 
-// R31: log in through the gate page. The login form's username input has the
-// "you@hsbc.com" placeholder; the password is the only input[type=password].
+// R31: log in through the login form (the Data Flow Debugger's left panel
+// post-#293). The username input has the "you@hsbc.com" placeholder; the
+// password is the only input[type=password].
 async function login(page) {
-  await page.waitForSelector('form'); // the gate login form
+  await page.waitForSelector('form'); // the login form
   await page.getByPlaceholder('you@hsbc.com').fill(ADMIN_USER);
   await page.locator('input[type="password"]').fill(ADMIN_PW);
   await page.getByRole('button', { name: 'Sign in' }).click();
@@ -81,8 +107,17 @@ async function cleanWorkspaces(page) {
 }
 
 test.describe('SQL Data Flow Debugger', () => {
+  // R6: console errors are collected across the WHOLE flow. The listener is
+  // attached in beforeEach BEFORE page.goto so no action (login, upload,
+  // index, search, L2, edge tap) is ever observed without it.
+  let consoleErrors;
 
   test.beforeEach(async ({ page }) => {
+    consoleErrors = [];
+    page.on('console', msg => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
+    });
+
     await page.goto(BASE);
     await login(page);
     // Remove workspaces left by previous runs so uploads never hit the quota.
@@ -105,13 +140,13 @@ test.describe('SQL Data Flow Debugger', () => {
 
     // L1 graph should appear with the L1 header badge
     await expect(page.getByText('Cross-Script Pipeline')).toBeVisible();
-    // The directional L1 must contain at least one script node
-    const scriptNodes = await page.evaluate(() => {
-      const el = document.querySelector('.dataflow-graph-container[data-level="L1"] .graph-canvas');
-      const cy = el && el._cyreg && el._cyreg.cy;
-      return cy ? cy.nodes('[type="script_node"]').length : 0;
-    });
-    expect(scriptNodes).toBeGreaterThan(0);
+    // R29 (upstream = writing flow): the directional L1 for stg_customers.region
+    // carries exactly the producing script (step2) — step1/3/4/5 do not produce
+    // this field. The script-node label is the full zip-relative path.
+    const scriptLabels = await cyEval(page, 'L1', `
+      return cy.nodes('[type="script_node"]').map(n => n.data('label'));
+    `);
+    expect(scriptLabels).toEqual(['multi_workflow/step2_enrich_customers.sql']);
   });
 
   test('R3: Double-click script opens L2 with edges', async ({ page }) => {
@@ -123,11 +158,7 @@ test.describe('SQL Data Flow Debugger', () => {
     await expect(page.getByText('Per-Script Detail')).toBeVisible();
 
     // Should have edges
-    const edgeCount = await page.evaluate(() => {
-      const el = document.querySelector('.dataflow-graph-container[data-level="L2"] .graph-canvas');
-      const cy = el && el._cyreg && el._cyreg.cy;
-      return cy ? cy.edges().length : 0;
-    });
+    const edgeCount = await cyEval(page, 'L2', `return cy.edges().length;`);
     expect(edgeCount).toBeGreaterThan(0);
   });
 
@@ -147,10 +178,7 @@ test.describe('SQL Data Flow Debugger', () => {
     await search(page);
     await openL2(page);
 
-    const exceeds = await page.evaluate(() => {
-      const el = document.querySelector('.dataflow-graph-container[data-level="L2"] .graph-canvas');
-      const cy = el && el._cyreg && el._cyreg.cy;
-      if (!cy) return -1;
+    const exceeds = await cyEval(page, 'L2', `
       let count = 0;
       cy.nodes('[type="field"]').forEach(f => {
         const fp = f.position();
@@ -159,25 +187,21 @@ test.describe('SQL Data Flow Debugger', () => {
         const p = cy.getElementById(pid);
         if (!p.length) return;
         const ph = p.data('_tableHeight') || 80;
-        if (fp.y > p.position().y + ph) count++;
+        const top = p.position().y;
+        if (fp.y > top + ph) count++; // bottom overflow (field below table)
+        if (fp.y < top) count++;      // top overflow (field above table top)
       });
       return count;
-    });
+    `);
     expect(exceeds).toBe(0);
   });
 
-  test('R6: Console has zero errors', async ({ page }) => {
-    const errors = [];
-    page.on('console', msg => {
-      if (msg.type() === 'error') errors.push(msg.text());
-    });
-
-    await search(page);
-    await openL2(page);
-    await tapFirstL2Edge(page);
-
-    // Filter out expected cytoscape warnings
-    const realErrors = errors.filter(e => !e.includes('Deprecation') && !e.includes('Warning'));
+  test('R6: Console has zero errors', async () => {
+    // consoleErrors is populated from beforeEach (listener attached before
+    // page.goto). Filter out expected cytoscape warnings.
+    const realErrors = consoleErrors.filter(
+      e => !e.includes('Deprecation') && !e.includes('Warning')
+    );
     expect(realErrors.length).toBe(0);
   });
 });

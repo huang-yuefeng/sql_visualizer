@@ -121,7 +121,7 @@ No source files were modified. The four prior design HIGHS (A-H1 re-register tak
 - **Playwright R2 assertion weakened to `>0`** — `tests/playwright/dataflow.spec.js:114`. Assert a concrete minimum or specific labels.
 - **R5 only checks bottom overflow; R6 console listener attached after setup** — `dataflow.spec.js:155-181`.
 - **Spec couples to Cytoscape `_cyreg`; `TEST_ZIP` absolute path; stale comment** — `dataflow.spec.js:4,33,52-67`.
-- **No E2E for gate/quota/notification** — only unit coverage; correct the release note or add E2E.
+- **No E2E for gate/quota** — only unit coverage (`test_r31_gate.py`, `test_r31_auth.py`); the in-app notification subsystem was REMOVED (#322), so it needs no E2E. No browser E2E is planned for gate/quota.
 - **Stale "admin bootstrap" comment** — `main.py:200-203`.
 
 ---

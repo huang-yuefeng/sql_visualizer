@@ -15,6 +15,13 @@ function bust(url) {
 // /scripts, /scripts/{id}/graph) bypass the interceptor: a 401 there is
 // not a session-expiry signal. The handler is expected to drop the session
 // (set the shell's me=null) — NOT to redirect-reload the page.
+//
+// Only 401 fires the handler. The backend distinguishes 401 (unauthenticated
+// — the login_gate middleware returns it when the session cookie is missing/
+// invalid) from 403 (authenticated-but-forbidden — the creator-only #272
+// checks return it when a non-creator mutates a workspace). A 403 means the
+// session is still VALID, so it must NOT drop the session; the caller
+// surfaces the 403 detail to the user instead.
 let sessionExpiredHandler = null;
 let sessionExpiredNotified = false;
 
@@ -30,7 +37,13 @@ export function resetSessionExpired() {
   sessionExpiredNotified = false;
 }
 
-/** fetch wrapper for GATED endpoints — fires the session-expired handler on 401. */
+/**
+ * fetch wrapper for GATED endpoints — fires the session-expired handler on 401.
+ *
+ * Deliberately narrow: `=== 401` only. A 403 (authenticated but forbidden —
+ * e.g. the creator-only #272 checks, non-creator → 403) is NOT session expiry
+ * and must not fire the handler; the caller surfaces that 403 detail directly.
+ */
 async function gatedFetch(input, init) {
   const res = await fetch(input, init);
   if (res.status === 401 && sessionExpiredHandler && !sessionExpiredNotified) {
@@ -152,19 +165,6 @@ export async function saveLayout(wsId, level, script, nodePositions, stateVersio
     body: JSON.stringify({ level, script: script || null, node_positions: nodePositions, state_version: stateVersion }),
   });
   return res; // callers inspect status (200 vs 409-with-fresh-state)
-}
-
-// ── R31 notifications ──────────────────────────────────────────────
-export async function getNotifications() {
-  const res = await gatedFetch('/api/notifications');
-  if (!res.ok) throw new Error(await errorDetail(res));
-  return res.json();
-}
-
-export async function markNotificationRead(id) {
-  const res = await gatedFetch(`/api/notifications/${id}/read`, { method: 'POST' });
-  if (!res.ok) throw new Error(await errorDetail(res));
-  return res.json();
 }
 
 export async function indexWorkspace(wsId, scripts) {

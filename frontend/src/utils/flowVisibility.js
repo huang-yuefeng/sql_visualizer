@@ -12,13 +12,19 @@
 
 /**
  * Resolve the initial toggle state from an L2 response.
- *  - `flow_node_ids` present (matched search) → flow-only ON (default).
+ *  - `flow_node_ids` OR `flow_edge_ids` present (matched search) → flow-only
+ *    ON (default). The closure normally carries both lists together, but a
+ *    node-only or edge-only closure must still enable View 1 — an edge set
+ *    is part of the same flow closure, not a separate signal.
  *  - absent (no search seed / search did not match / filter off) → null
  *    (toggle disabled, always show the full graph).
  */
 export function resolveFlowOnly(result) {
-  return (Array.isArray(result && result.flow_node_ids)
-    && result.flow_node_ids.length > 0) ? true : null;
+  const hasNodes = Array.isArray(result && result.flow_node_ids)
+    && result.flow_node_ids.length > 0;
+  const hasEdges = Array.isArray(result && result.flow_edge_ids)
+    && result.flow_edge_ids.length > 0;
+  return (hasNodes || hasEdges) ? true : null;
 }
 
 /**

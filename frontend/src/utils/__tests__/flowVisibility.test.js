@@ -74,6 +74,11 @@ describe('resolveFlowOnly — default toggle state from an L2 response', () => {
 
   it('returns null when the closure is empty', () => {
     expect(resolveFlowOnly({ flow_node_ids: [] })).toBe(null);
+    expect(resolveFlowOnly({ flow_node_ids: [], flow_edge_ids: [] })).toBe(null);
+  });
+
+  it('returns true when only flow_edge_ids is present (edge-only closure)', () => {
+    expect(resolveFlowOnly({ flow_edge_ids: ['e1'] })).toBe(true);
   });
 });
 

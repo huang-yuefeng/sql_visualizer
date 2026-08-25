@@ -4,8 +4,9 @@ import json
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
+from app.routers.workspace import _session_ctx
 from app.services.workspace_service import get_workspace, get_workspace_dir
 from app.services.logger import _push, _ts
 from app.services.dataflow_service import (
@@ -267,11 +268,17 @@ async def get_views(ws_id: str):
 
 
 @router.post("/workspace/{ws_id}/views/{view_id}/children")
-async def add_view_child(ws_id: str, view_id: str, body: dict):
+async def add_view_child(request: Request, ws_id: str, view_id: str, body: dict):
     """Add a child (L2 script) entry to a view. Persisted to views.json."""
+    username, _ = _session_ctx(request)
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    # R31 (#272): creator-only mutation — only the workspace creator may
+    # add a child view (non-creator session → 403).
+    if ws.get("creator_username") != username:
+        raise HTTPException(status_code=403,
+                            detail="Only the workspace creator may add a child view")
     views = _load_views(ws_id)
     for v in views:
         if v["view_id"] == view_id:
@@ -285,11 +292,17 @@ async def add_view_child(ws_id: str, view_id: str, body: dict):
 
 
 @router.delete("/workspace/{ws_id}/views/{view_id}")
-async def remove_view(ws_id: str, view_id: str):
+async def remove_view(request: Request, ws_id: str, view_id: str):
     """Delete a search view or child L2 entry."""
+    username, _ = _session_ctx(request)
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    # R31 (#272): creator-only mutation — only the workspace creator may
+    # delete a view (non-creator session → 403).
+    if ws.get("creator_username") != username:
+        raise HTTPException(status_code=403,
+                            detail="Only the workspace creator may delete a view")
     ok = delete_view(ws_id, view_id)
     if not ok:
         raise HTTPException(status_code=404, detail="View not found")

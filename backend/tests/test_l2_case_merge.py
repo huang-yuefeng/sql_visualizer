@@ -34,10 +34,27 @@ from app.services.l2_builder import _build_l2_graph, _classify_compound_nodes
 
 EAST5 = "EAST5_STZFXXB_M.sql"
 EAST5_PATH = BACKEND_DIR.parent / "samples" / "sql_sample_v1" / EAST5
-# The east5_stzfxxb keeper compound id (md5 of the first table occurrence's
-# var id) — probe-verified; the case-split twin EAST5_STZFXXB currently
-# renders as l2_tbl_36f606a08d.
-EAST5_KEEPER = "l2_tbl_cc4dd6d92c"
+
+
+def _east5_keeper_id(node_map):
+    """Derive the east5_stzfxxb keeper compound id from the graph instead of
+    hardcoding the md5 — the keeper is the single physical node whose
+    table_name folds to east5_stzfxxb. The md5 id is an implementation detail
+    of the physical-table merge and must not be a brittle fixture constant."""
+    matches = [n["id"] for n in node_map.values()
+               if n.get("table_name", "").lower() == "east5_stzfxxb"]
+    assert len(matches) == 1, \
+        f"expected exactly one east5_stzfxxb physical node, got {len(matches)}"
+    return matches[0]
+
+
+def _table_id(node_map, table_name):
+    """First node id whose table_name matches exactly (None if absent) — a
+    guarded lookup, no StopIteration on a missing table."""
+    for n in node_map.values():
+        if n.get("table_name") == table_name:
+            return n["id"]
+    return None
 
 
 @pytest.fixture
@@ -91,7 +108,8 @@ def test_t1_case_insensitive_physical_merge(east5_ws):
         f"east5_stzfxxb must render as ONE node, got {len(east5)}: " \
         f"{[(n['id'], n.get('table_name')) for n in east5]}"
     keep = east5[0]
-    assert keep["id"] == EAST5_KEEPER
+    keeper_id = _east5_keeper_id(nodes)  # derived, not a hardcoded md5
+    assert keep["id"] == keeper_id
     assert keep["type"] == "source_table", keep["type"]
     # the merged node carries the uppercase occurrence's read field (p_dt)
     assert "p_dt" in _kids(nodes, keep["id"]), \
@@ -129,9 +147,10 @@ def test_t2_insert_write_columns_on_target(east5_ws):
     res = _build_l2_graph(east5_ws, EAST5, EAST5_PATH.read_text(),
                           "", "", False)
     nodes = _nodes_by(res)
-    kids = _kids(nodes, EAST5_KEEPER)
-    bdm_id = next(n["id"] for n in nodes.values()
-                  if n.get("table_name") == "bdm_acc_loan_info")
+    keeper_id = _east5_keeper_id(nodes)
+    kids = _kids(nodes, keeper_id)
+    bdm_id = _table_id(nodes, "bdm_acc_loan_info")
+    assert bdm_id is not None, "bdm_acc_loan_info table not found"
     bdm_kids = _kids(nodes, bdm_id)
     for wc in ("dis_bank_id", "bz", "TAG_COUNTRY", "TAG_ENTITY",
                "TAG_BRANCH", "TAG_GBGF", "TAG_RESERVE",
@@ -163,15 +182,16 @@ def test_t2_write_target_parent_at_classification(east5_ws):
         nodes, full_graph.get("edges", []), "", "", physical_model=pm)
     table_nodes, field_nodes, _alias_map, _occ = _classify_compound_nodes(
         nodes, full_graph, EAST5, target_ids, direct_ids, None, pm)
+    keeper_id = _east5_keeper_id(table_nodes)
     for probe in ("dis_bank_id", "bz", "TAG_COUNTRY", "RESERVED_2"):
         got = [fn for fn in field_nodes
                if fn.get("label") == probe
-               and fn.get("parent") == EAST5_KEEPER]
+               and fn.get("parent") == keeper_id]
         assert got, \
             f"{probe} must be a field node parented to the east5 keeper"
     # model-aligned: nbjgh is attributed to bdm_acc_loan_info, not east5
-    bdm_id = next(tn["id"] for tn in table_nodes.values()
-                  if tn["table_name"] == "bdm_acc_loan_info")
+    bdm_id = _table_id(table_nodes, "bdm_acc_loan_info")
+    assert bdm_id is not None, "bdm_acc_loan_info table not found"
     nbjgh = [fn for fn in field_nodes if fn.get("label") == "nbjgh"]
     assert nbjgh, "nbjgh not found as a field node"
     assert nbjgh[0].get("parent") == bdm_id, \
@@ -187,8 +207,8 @@ def test_t2_dml_qo_routing_untouched(east5_ws):
     nodes = _nodes_by(res)
     assert not any(n["id"].startswith("qo_") for n in nodes.values()), \
         "no qo_ intermediate nodes may exist"
-    east5_id = next(n["id"] for n in nodes.values()
-                    if n.get("table_name") == "east5_stzfxxb")
+    east5_id = _table_id(nodes, "east5_stzfxxb")
+    assert east5_id is not None, "east5_stzfxxb table not found"
     write_legs = [e["data"] for e in res["edges"]
                   if e["data"].get("id", "").endswith("_dml_out")
                   and e["data"].get("target") == east5_id]

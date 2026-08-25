@@ -43,11 +43,17 @@ def indexed_ws():
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in sorted(WORKFLOW_DIR.glob("step*.sql")):
             zf.write(f, f.name)
-    ws_id = create_workspace(buf.getvalue())
+    ws_id = create_workspace(buf.getvalue(), creator_username="dev-user")
     scripts = sorted(f.name for f in WORKFLOW_DIR.glob("step*.sql"))
     index_scripts(ws_id, scripts)
     yield ws_id
     delete_workspace(ws_id)
+
+
+class _Req:
+    """Minimal request stand-in for direct handler calls (no HTTP server)."""
+    cookies = {}
+    client = None
 
 
 def _upload(ws_id: str, script_table_csv: str | None = None,
@@ -59,7 +65,7 @@ def _upload(ws_id: str, script_table_csv: str | None = None,
     tc = (UploadFile(filename="table_col.csv",
                      file=io.BytesIO(table_col_csv.encode()))
           if table_col_csv is not None else None)
-    return asyncio.run(upload_filter_config(ws_id, script_table=st, table_col=tc))
+    return asyncio.run(upload_filter_config(_Req(), ws_id, script_table=st, table_col=tc))
 
 
 def _filtered(ws_id: str) -> dict:
@@ -617,7 +623,7 @@ class TestL11CsvEncoding:
                      "ETL,客户表,名称,备注\n"
                      "ETL,stg_customers,customer_id,Staging customer id\n").encode("gbk")
         st = UploadFile(filename="table_col.csv", file=io.BytesIO(csv_bytes))
-        r = asyncio.run(upload_filter_config(indexed_ws, script_table=None, table_col=st))
+        r = asyncio.run(upload_filter_config(_Req(), indexed_ws, script_table=None, table_col=st))
         assert r["filtered"] is True
         assert "stg_customers" in _filtered_tables(indexed_ws)
         joined = "\n".join(diag_msgs)
@@ -629,7 +635,7 @@ class TestL11CsvEncoding:
         """A UTF-8 BOM must not break parsing (utf-8-sig strips it)."""
         st = UploadFile(filename="script_table.csv",
                         file=io.BytesIO(("﻿" + CSV1 + f"{STEP2},stg_customers\n").encode()))
-        r = asyncio.run(upload_filter_config(indexed_ws, script_table=st, table_col=None))
+        r = asyncio.run(upload_filter_config(_Req(), indexed_ws, script_table=st, table_col=None))
         assert r["filtered"] is True
         assert "stg_customers" in _filtered_tables(indexed_ws)
 

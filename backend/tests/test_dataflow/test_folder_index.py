@@ -150,6 +150,62 @@ FROM ODS_CASE1_SRC a;
             workspace_client.delete(ws_id)
 
 
+class TestBareSelectAliasesNotAttributed:
+    """#308: a bare top-level SELECT's computed output aliases (aggregates /
+    expressions) are NOT attributed to any physical table — only a DML write
+    target makes a SELECT-output alias searchable."""
+
+    BARE_SELECT = """\
+SELECT
+  u.user_id,
+  u.username,
+  COUNT(o.order_id) AS total_orders,
+  SUM(o.amount) AS total_spent,
+  AVG(o.amount) AS avg_order_amount,
+  MAX(o.order_date) AS last_order_date
+FROM users u
+LEFT JOIN orders o ON u.user_id = o.user_id
+GROUP BY u.user_id, u.username;
+"""
+
+    INSERT_OVERWRITE = """\
+INSERT OVERWRITE TABLE daily_orders
+SELECT SUM(o.amount) AS total_spent, COUNT(o.order_id) AS total_orders
+FROM orders o;
+"""
+
+    def test_bare_select_aggregates_have_no_table(self, workspace_client):
+        ws_id = workspace_client.create(
+            _single_sql_zip("bare_select", self.BARE_SELECT))
+        try:
+            result = workspace_client.index(ws_id)
+            fi = result["field_index"]
+            ti = result["table_index"]
+            # computed aliases are registered by name but never glued onto a
+            # physical source table
+            assert "total_orders" in fi
+            assert fi["total_orders"]["tables"] == [], fi["total_orders"]
+            assert fi["total_spent"]["tables"] == [], fi["total_spent"]
+            assert "total_orders" not in ti.get("users", {}).get("fields", []), ti
+            assert "total_spent" not in ti.get("orders", {}).get("fields", []), ti
+        finally:
+            workspace_client.delete(ws_id)
+
+    def test_insert_overwrite_aggregate_indexed_against_target(self,
+                                                              workspace_client):
+        ws_id = workspace_client.create(
+            _single_sql_zip("insert_ow", self.INSERT_OVERWRITE))
+        try:
+            result = workspace_client.index(ws_id)
+            fi = result["field_index"]
+            ti = result["table_index"]
+            assert "total_spent" in ti["daily_orders"]["fields"], ti
+            assert "daily_orders" in fi["total_spent"]["tables"], \
+                fi["total_spent"]
+        finally:
+            workspace_client.delete(ws_id)
+
+
 class TestFolderIndex:
     def test_index_builds_table_index(self, workspace_client, d1_zip):
         ws_id = workspace_client.create(d1_zip)

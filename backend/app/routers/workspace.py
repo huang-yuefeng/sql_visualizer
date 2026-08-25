@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Request
 
 from app.config import REQUIRE_LOGIN
-from app.routers.auth import require_login, SESSION_COOKIE
+from app.routers.auth import require_login, SESSION_COOKIE, _client_ip
 from app.services.logger import _push
 from app.services.workspace_service import (
     create_workspace, get_workspace, delete_workspace,
@@ -78,7 +78,7 @@ async def upload_workspace(request: Request, file: UploadFile):
 
     if token:
         add_workspace_to_index(username, ws_id, "creator")
-        append_activity(ws_id, username, "", "workspace_created",
+        append_activity(ws_id, username, _client_ip(request), "workspace_created",
                         f"{username} created this workspace")
 
     # Auto-scan
@@ -119,7 +119,7 @@ async def remove_from_my_history_endpoint(request: Request, ws_id: str):
         raise HTTPException(status_code=400, detail="Invalid workspace id")
     if get_workspace(ws_id) is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    ok, message, deleted = remove_from_my_history(ws_id, username, "")
+    ok, message, deleted = remove_from_my_history(ws_id, username, _client_ip(request))
     if not ok:
         raise HTTPException(status_code=404, detail=message)
     if deleted:
@@ -287,7 +287,7 @@ async def get_workspace_status(ws_id: str):
 
 
 @router.post("/workspace/{ws_id}/filter-config")
-async def upload_filter_config(ws_id: str,
+async def upload_filter_config(request: Request, ws_id: str,
                                 script_table: UploadFile = File(None),
                                 table_col: UploadFile = File(None)):
     """Upload CSV filter files to narrow the table/field index.
@@ -302,9 +302,15 @@ async def upload_filter_config(ws_id: str,
     HTTP-only. `push=_push` is resolved at call time so tests can
     intercept the R16 diagnostic stream.
     """
+    username, _ = _session_ctx(request)
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    # R31 (#272): creator-only mutation — only the workspace creator may
+    # update the filter config (non-creator session → 403).
+    if ws.get("creator_username") != username:
+        raise HTTPException(status_code=403,
+                            detail="Only the workspace creator may update the filter config")
     return await apply_filter_config(ws_id, script_table, table_col, push=_push)
 
 
@@ -318,21 +324,33 @@ async def get_export_config_endpoint(ws_id: str):
 
 
 @router.put("/workspace/{ws_id}/export-config")
-async def update_export_config(ws_id: str, body: dict):
+async def update_export_config(request: Request, ws_id: str, body: dict):
     """Save SQL export config. Body: partial or full config dict."""
+    username, _ = _session_ctx(request)
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    # R31 (#272): creator-only mutation — only the workspace creator may
+    # update the export config (non-creator session → 403).
+    if ws.get("creator_username") != username:
+        raise HTTPException(status_code=403,
+                            detail="Only the workspace creator may update the export config")
     config = save_export_config(ws_id, body)
     return config
 
 
 @router.delete("/workspace/{ws_id}/export-config")
-async def delete_export_config(ws_id: str):
+async def delete_export_config(request: Request, ws_id: str):
     """Reset SQL export config to defaults."""
+    username, _ = _session_ctx(request)
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    # R31 (#272): creator-only mutation — only the workspace creator may
+    # reset the export config (non-creator session → 403).
+    if ws.get("creator_username") != username:
+        raise HTTPException(status_code=403,
+                            detail="Only the workspace creator may reset the export config")
     return reset_export_config(ws_id)
 
 

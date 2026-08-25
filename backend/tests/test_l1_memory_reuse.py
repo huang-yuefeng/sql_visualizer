@@ -165,6 +165,30 @@ def test_t2_invalidates_when_script_edited_without_reindex(
         "an edited script must invalidate the graph memo → fresh re-extract"
 
 
+def test_m4b_empty_cache_bypasses_graph_memo(ws, monkeypatch):
+    """M4-B (#252): an EMPTY analysis cache means the build ran LIVE
+    extraction, so the result is never memoized NOR served from the T2 graph
+    memo — a repeat call must rebuild (the file-set signature cannot capture
+    the extraction-environment dependency, so serving from the memo would
+    mask a would-be degraded outcome)."""
+    names = _script_names()
+
+    real_uncached = l1_builder._build_l1_graph_uncached
+    builds = []
+
+    def _counting(*args, **kwargs):
+        builds.append(1)
+        return real_uncached(*args, **kwargs)
+
+    monkeypatch.setattr(l1_builder, "_build_l1_graph_uncached", _counting)
+
+    first = _build_l1_graph(ws, names, TARGET_TABLE, TARGET_FIELD)
+    second = _build_l1_graph(ws, names, TARGET_TABLE, TARGET_FIELD)
+
+    assert builds == [1, 1], \
+        "an empty analysis cache must bypass the T2 graph memo — every call rebuilds"
+
+
 # ── T1: analysis_cache_map memo ─────────────────────────────────────────
 
 

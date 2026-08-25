@@ -29,7 +29,7 @@ export function levenshteinLe1(a, b) {
 // Filter + rank `names` against the query (case-insensitive), max 20.
 // Empty query → first 20 (alphabetical, matching backend sorted keys).
 export function filterNames(names, q) {
-  if (!q) return (names || []).slice(0, MAX);
+  if (!q) return (names || []).slice().sort().slice(0, MAX);
   const query = q.toLowerCase();
   const sub = (names || [])
     .filter((n) => n.toLowerCase().includes(query))

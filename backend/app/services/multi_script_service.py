@@ -79,6 +79,11 @@ def _build_script_entry(name: str, sql: str, result: dict) -> dict:
     input_tables/output_tables (via `_classify_tables`), graph (via
     `build_graph_data`), _all_vars (name + source_tables per variable).
     """
+    # P3: never mutate the caller's dict in place — the L1 Pass-A cache path
+    # passes a T1-memoized analysis dict (a SHARED cache). Stamping
+    # `script_id` into it would corrupt the memo. Copy the top-level dict
+    # first (script_id is the only key written; nested lists are read-only).
+    result = dict(result)
     if "script_id" not in result:
         result["script_id"] = hashlib.md5((name + sql).encode()).hexdigest()[:12]
     variables = result.get("variables", [])
