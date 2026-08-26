@@ -141,10 +141,11 @@ export default function DataFlowGraph(props) {
     onEdgeClick, onToggleLayout, selectedEdgeId,
     onCanvasTap,
     // L2 flow toggle (#331, four modes): flowNodeIds / flowEdgeIds are the
-    // target-field flow closure from the L2 response (used only by the
-    // 'flow' mode's client-side filter); viewMode selects the view —
-    // 'flow' | 'full' | 'flow-merged' | 'full-merged' | null (disabled);
-    // onViewModeChange notifies the parent.
+    // target-field flow closure from the L2 response (used by the flow-only
+    // members' client-side filter — flowNodeIds is shared by both pairs, the
+    // edge ids differ: unmerged for 'flow', line-merged for 'flow-merged');
+    // viewMode selects the view — 'flow-merged' | 'full-merged' | 'flow' |
+    // 'full' | null (disabled); onViewModeChange notifies the parent.
     flowNodeIds, flowEdgeIds, viewMode, onViewModeChange,
     // R31/A-M5 layout persistence: savedPositions = {nodeId: [x,y]} re-applied
     // on a fresh graph (resume); onPositionsChange reports drag-end positions.
@@ -153,11 +154,13 @@ export default function DataFlowGraph(props) {
 
   const containerRef = useRef(null);
 
-  // The cytoscape hook still takes a boolean flowOnly (client-side filter
-  // over the FULL payload). 'flow' → filter to the closure, 'full' → show
-  // everything; the merged modes render a distinct payload (no filter) and
-  // so map to null.
-  const flowOnly = viewMode === 'flow' ? true : viewMode === 'full' ? false : null;
+  // The cytoscape hook takes a boolean flowOnly (client-side filter over a
+  // single FULL payload). Both pairs — detailed ('flow'/'full') and merged
+  // ('flow-merged'/'full-merged') — render from ONE payload and filter
+  // client-side, so the flow-only member hides non-closure elements without
+  // a re-layout (node positions stay byte-identical within each pair).
+  const flowOnly = (viewMode === 'flow' || viewMode === 'flow-merged') ? true
+    : (viewMode === 'full' || viewMode === 'full-merged') ? false : null;
 
   // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — the
   // client-side count feeds the toggle badge + the legend note; the
@@ -295,17 +298,17 @@ export default function DataFlowGraph(props) {
         {level === 'L2' && viewMode !== null && onViewModeChange && (
           <label
             className="flow-mode-toggle"
-            title="L2 view: Flow only (closure) / Full (entire script) toggle positions without re-layout; the merged views render one SQL line per edge."
+            title="L2 view: Flow only / Full toggle positions without re-layout; the merged views render one SQL line per edge, the detailed views render every edge."
           >
             <select
               className="flow-mode-select"
               value={viewMode}
               onChange={(e) => onViewModeChange(e.target.value)}
             >
-              <option value="flow">Flow only</option>
-              <option value="full">Full</option>
-              <option value="flow-merged">Flow only (merged)</option>
-              <option value="full-merged">Full (merged)</option>
+              <option value="flow-merged">Flow only</option>
+              <option value="full-merged">Full</option>
+              <option value="flow">Flow only (detailed)</option>
+              <option value="full">Full (detailed)</option>
             </select>
           </label>
         )}

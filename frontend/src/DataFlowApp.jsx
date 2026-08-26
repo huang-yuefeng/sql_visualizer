@@ -231,10 +231,11 @@ export default function DataFlowApp({
   const applyL2Result = useCallback((result) => {
     setL2Graph(result.graph);
     setL2Result(result);
-    // L2 view toggle: default to 'flow' (the closure) whenever the response
-    // carries the field-flow closure (matched search); null (disabled) when
-    // there is no search seed or the search did not match.
-    setL2ViewMode(resolveFlowOnly(result) === true ? 'flow' : null);
+    // L2 view toggle: default to 'flow-merged' (the line-merged closure,
+    // one SQL line ≈ one edge) whenever the response carries the field-flow
+    // closure (matched search); null (disabled) when there is no search seed
+    // or the search did not match.
+    setL2ViewMode(resolveFlowOnly(result) === true ? 'flow-merged' : null);
     // R25: every L2 entry path lands on a fresh graph — no stale edge
     // selection (and no reason-panel content) from a previous script.
     // R11-1: instead of leaving the reason panel stuck at "Click an edge
@@ -649,25 +650,37 @@ export default function DataFlowApp({
   const graphData = l1Graph;
 
   // ── #331: 4-way L2 view toggle ─────────────────────────────────────
-  // 'flow' / 'full' share the FULL payload and toggle visibility client-side
-  // (flowNodeIds/flowEdgeIds). 'flow-merged' / 'full-merged' are a DISTINCT
-  // node+edge set (the line-merged pass), so they render from their own
-  // payload — passing a different graphData rebuilds the cytoscape instance
-  // and runs layout (never a client-side filter over the full graph).
+  // Each pair — detailed ('flow'/'full') and merged ('flow-merged'/
+  // 'full-merged') — renders from ONE payload and toggles visibility
+  // client-side, so the flow-only member's node positions stay
+  // byte-identical to its full member (requirement: flow-only(merged) ↔
+  // full(merged) must not re-layout). The detailed pair uses full_graph
+  // (every edge); the merged pair uses full_merged (one SQL line ≈ one
+  // edge), a node SUPERSET of the flow closure — the flow-only member hides
+  // the non-closure elements client-side (flowNodeIds + flow-merged edge
+  // ids) rather than swapping to the smaller flow_only_merged payload.
   const isL2Merged = l2ViewMode === 'flow-merged' || l2ViewMode === 'full-merged';
   const l2GraphData = useMemo(() => {
     const full = (l2Result && l2Result.full_graph) || l2Graph;
     if (!l2Result) return l2Graph;
-    const merged = l2ViewMode === 'flow-merged'
-      ? l2Result.flow_only_merged
-      : l2ViewMode === 'full-merged'
-        ? l2Result.full_merged
-        : null;
-    // Defensive: only render a merged view when it actually carries nodes
-    // (an empty/absent merged payload falls back to the full graph).
-    if (merged && Array.isArray(merged.nodes) && merged.nodes.length > 0) return merged;
+    if (isL2Merged) {
+      const merged = l2Result.full_merged;
+      // Defensive: only render a merged view when it actually carries nodes
+      // (an empty/absent merged payload falls back to the full graph).
+      if (merged && Array.isArray(merged.nodes) && merged.nodes.length > 0) return merged;
+    }
     return full;
-  }, [l2Result, l2ViewMode, l2Graph]);
+  }, [l2Result, isL2Merged, l2Graph]);
+
+  // The flow-only members filter by edge id; the id set differs per pair —
+  // unmerged (flow_edge_ids) for 'flow', line-merged for 'flow-merged'.
+  const flowEdgeIds = useMemo(() => {
+    if (isL2Merged) {
+      return (l2Result?.flow_only_merged?.edges || [])
+        .map(e => e?.data?.id).filter(Boolean);
+    }
+    return l2Result?.flow_edge_ids;
+  }, [isL2Merged, l2Result]);
 
   // Breadcrumb navigation
   const breadcrumb = [];
@@ -912,8 +925,8 @@ export default function DataFlowApp({
               selectedEdgeId={selectedEdge?.id}
               viewMode={l2ViewMode}
               onViewModeChange={setL2ViewMode}
-              flowNodeIds={isL2Merged ? undefined : l2Result?.flow_node_ids}
-              flowEdgeIds={isL2Merged ? undefined : l2Result?.flow_edge_ids}
+              flowNodeIds={l2Result?.flow_node_ids}
+              flowEdgeIds={flowEdgeIds}
               savedPositions={resumeLayouts[resumeLayoutKey('l2', currentScriptName)]}
               onPositionsChange={(positions) => handlePositionsChange('l2', positions)}
             />

@@ -300,11 +300,11 @@ describe('DataFlowGraph — L2 4-way view toggle', () => {
   const flowProps = {
     flowNodeIds: ['n1', 'n2'],
     flowEdgeIds: ['e1'],
-    viewMode: 'flow',
+    viewMode: 'flow-merged',
     onViewModeChange: vi.fn(),
   };
 
-  it('passes the flow closure ids + derived flowOnly into the cytoscape hook (flow mode)', () => {
+  it('passes the flow closure ids + derived flowOnly for the flow-only (merged) default', () => {
     render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} />);
     const options = lastHookOptions();
     expect(options.flowNodeIds).toEqual(['n1', 'n2']);
@@ -312,24 +312,24 @@ describe('DataFlowGraph — L2 4-way view toggle', () => {
     expect(options.flowOnly).toBe(true);
   });
 
-  it('derives flowOnly=false for full mode and null for the merged modes', () => {
-    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} viewMode="full" />);
+  it('derives flowOnly per mode: merged + detailed pairs', () => {
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} viewMode="full-merged" />);
     expect(lastHookOptions().flowOnly).toBe(false);
 
-    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} viewMode="flow-merged" />);
-    expect(lastHookOptions().flowOnly).toBe(null);
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} viewMode="flow" />);
+    expect(lastHookOptions().flowOnly).toBe(true);
 
-    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} viewMode="full-merged" />);
-    expect(lastHookOptions().flowOnly).toBe(null);
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} viewMode="full" />);
+    expect(lastHookOptions().flowOnly).toBe(false);
   });
 
-  it('renders the 4-option select, defaulting to "Flow only" on a matched result', () => {
+  it('renders the 4-option select, merged views first', () => {
     render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} />);
     const sel = screen.getByRole('combobox');
     expect(sel).toBeInTheDocument();
-    expect(sel.value).toBe('flow');
+    expect(sel.value).toBe('flow-merged');
     expect(Array.from(sel.options).map(o => o.textContent)).toEqual([
-      'Flow only', 'Full', 'Flow only (merged)', 'Full (merged)',
+      'Flow only', 'Full', 'Flow only (detailed)', 'Full (detailed)',
     ]);
   });
 
