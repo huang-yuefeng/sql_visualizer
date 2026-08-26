@@ -50,7 +50,8 @@ def _check_isolated_nodes(variables, dependencies):
         edge_counts[d["target_id"]] += 1
     issues = []
     table_types = {"table", "view", "cte", "virtual_table",
-                   "merge_target", "union_branch", "subquery"}
+                   "merge_target", "union_branch", "subquery",
+                   "function_table"}
     for v in variables:
         c = edge_counts.get(v["id"], 0)
         vt = v.get("variable_type", "")
@@ -196,7 +197,8 @@ def _check_component_link_usage(variables, dependencies):
 
     # Only flag SUBSET edges that connect two table-like nodes directly
     # (no columns involved). These suggest a missing explicit reference.
-    table_types = {"table", "view", "cte", "virtual_table", "merge_target"}
+    table_types = {"table", "view", "cte", "virtual_table", "merge_target",
+                   "function_table"}
     for d in cl_edges:
         src = var_index.get(d["source_id"], {})
         tgt = var_index.get(d["target_id"], {})
@@ -308,7 +310,7 @@ def _check_tables_view_isolation(variables, dependencies):
     """
     issues = []
     table_types = {"table", "view", "cte", "subquery", "virtual_table",
-                   "merge_target", "union_branch"}
+                   "merge_target", "union_branch", "function_table"}
     # Build edge index per node
     out_edges = {}
     in_edges = {}

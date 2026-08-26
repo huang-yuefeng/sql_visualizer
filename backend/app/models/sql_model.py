@@ -28,6 +28,7 @@ Table-like objects that serve as sources or targets of data movement.
 | `cte` | `VariableType.CTE` | CTE (Common Table Expression, WITH ... AS) |
 | `subquery` | `VariableType.SUBQUERY` | SUBQUERY (nested SELECT in FROM / JOIN) |
 | `virtual_table` | `VariableType.VIRTUAL_TABLE` | SELECT output, JOIN result — a conceptual result set |
+| `function_table` | `VariableType.FUNCTION_TABLE` | Table-valued function call used as a row source (FROM/JOIN) |
 
 ### Category: Column References
 Column-level references that carry individual data values.
@@ -152,7 +153,7 @@ Node types are grouped into these categories for frontend filtering:
 
 | Category | Types | Color Theme |
 |----------|-------|-------------|
-| Data Source | table, cte, subquery, virtual_table | Blue/Green |
+| Data Source | table, cte, subquery, virtual_table, function_table | Blue/Green |
 | Column Reference | column, cte_column | Light Blue/Green |
 | DML Target | merge_target | Red |
 | Set Operation | union_branch | Grey |

@@ -488,7 +488,7 @@ def _occ_table_like(o) -> bool:
     source_tables (mirror of the retired display-side _table_like)."""
     return (o.get("variable_type") in
             {"table", "view", "cte", "virtual_table", "subquery",
-             "merge_target"}
+             "merge_target", "function_table"}
             or bool(o.get("source_tables")))
 
 

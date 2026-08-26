@@ -484,7 +484,7 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
 
         # ── Table-like nodes → compound parents ──
         if vt in ("table", "view", "cte", "subquery", "virtual_table",
-                   "merge_target", "union_branch"):
+                   "merge_target", "union_branch", "function_table"):
             # Bug 28: Keep aliases as visible compound nodes
             # Aliases carry fields and show the data flow explicitly:
             #   canonical_table --ALIAS--> alias (with fields) --DML--> target_table
@@ -503,7 +503,7 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             # nids record occ_to_id to the keeper, re-pointing every edge).
             # Aliases/subqueries/CTEs keep per-context semantics (Bug 28
             # visible aliases; distinct subquery scopes).
-            if vt in ("table", "view") and not is_alias:
+            if vt in ("table", "view", "function_table") and not is_alias:
                 # J12-10 stage 2: the keeper lookup is the physical model's
                 # entity key — for a non-alias table/view occurrence the
                 # model key IS the raw name (kind "physical"), so this is
@@ -528,9 +528,9 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 tbl_type = "alias_table"
             elif vt == "cte":
                 tbl_type = "cte_table"
-            elif is_output_node and vt not in ("table", "view"):
+            elif is_output_node and vt not in ("table", "view", "function_table"):
                 tbl_type = "output_table"
-            elif vt in ("table", "view") and not is_output_node:
+            elif vt in ("table", "view", "function_table") and not is_output_node:
                 tbl_type = "source_table"
             else:
                 tbl_type = "intermediate_table"
@@ -620,7 +620,7 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 "context": nd.get("context", ""),
             }
             occ_to_id[nid] = tbl_id
-            if vt in ("table", "view") and not is_alias:
+            if vt in ("table", "view", "function_table") and not is_alias:
                 # #288: store under the folded key so case-variant
                 # occurrences merge into this keeper.
                 keeper_by_entity[_fold_physical(ekey)] = table_nodes[nid]

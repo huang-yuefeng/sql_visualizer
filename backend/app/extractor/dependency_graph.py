@@ -18,6 +18,7 @@ _TABLE_TYPES = {
     VariableType.TABLE, VariableType.VIEW, VariableType.CTE,
     VariableType.SUBQUERY, VariableType.VIRTUAL_TABLE,
     VariableType.MERGE_TARGET, VariableType.UNION_BRANCH,
+    VariableType.FUNCTION_TABLE,
 }
 
 # ── Column-ish types tracked by the Phase-3 bare-name index (D3): the
@@ -132,7 +133,8 @@ def build_dependency_graph(
                 if anchor.id != v.id:
                     _add_edge(v, anchor, "SUBQUERY", "REFERENCE")
             continue
-        if v.variable_type not in (VariableType.TABLE, VariableType.VIEW):
+        if v.variable_type not in (VariableType.TABLE, VariableType.VIEW,
+                                   VariableType.FUNCTION_TABLE):
             continue
         if not v.source_tables:  # skip original names — only aliases
             continue
@@ -181,7 +183,8 @@ def build_dependency_graph(
     for tbl_var, op_type in dml_entries:
         ctx = tbl_var.context or "TOP"
         for v in variables:
-            if v.variable_type not in (VariableType.TABLE, VariableType.VIEW):
+            if v.variable_type not in (VariableType.TABLE, VariableType.VIEW,
+                                       VariableType.FUNCTION_TABLE):
                 continue
             if not v.source_tables:  # only aliases
                 continue
@@ -228,7 +231,8 @@ def build_dependency_graph(
         canon = (tbl_var.source_tables[0] if tbl_var.source_tables
                  else tbl_var.name)
         for v in variables:
-            if v.variable_type not in (VariableType.TABLE, VariableType.VIEW):
+            if v.variable_type not in (VariableType.TABLE, VariableType.VIEW,
+                                       VariableType.FUNCTION_TABLE):
                 continue
             if v.id == tbl_var.id:
                 continue
@@ -267,7 +271,8 @@ def build_dependency_graph(
         if v.variable_type == VariableType.CTE:
             cte_by_name[v.name].append(v)
     for v in variables:
-        if v.variable_type not in (VariableType.TABLE, VariableType.VIEW):
+        if v.variable_type not in (VariableType.TABLE, VariableType.VIEW,
+                                   VariableType.FUNCTION_TABLE):
             continue
         if not v.source_tables:
             continue
@@ -312,7 +317,8 @@ def build_dependency_graph(
             continue
         ctx = tbl_var.context or "TOP"
         for v in variables:
-            if v.variable_type not in (VariableType.TABLE, VariableType.VIEW):
+            if v.variable_type not in (VariableType.TABLE, VariableType.VIEW,
+                                       VariableType.FUNCTION_TABLE):
                 continue
             if (v.context or "TOP") != ctx or v.id == tbl_var.id:
                 continue
@@ -428,7 +434,8 @@ def build_dependency_graph(
     for v in variables:
         if v.variable_type in (VariableType.TABLE, VariableType.VIEW,
                                VariableType.CTE, VariableType.MERGE_TARGET,
-                               VariableType.SUBQUERY):
+                               VariableType.SUBQUERY,
+                               VariableType.FUNCTION_TABLE):
             table_index[v.name].append(v)
 
     # Pass 4a: alias/CTE/VT → columns (skip original table names)
@@ -477,7 +484,8 @@ def build_dependency_graph(
                 # in SELECT are output values (e.g., (SELECT COUNT(*) ...) AS cnt)
                 if v.variable_type in (VariableType.TABLE, VariableType.VIEW,
                                         VariableType.CTE, VariableType.VIRTUAL_TABLE,
-                                        VariableType.MERGE_TARGET, VariableType.UNION_BRANCH):
+                                        VariableType.MERGE_TARGET, VariableType.UNION_BRANCH,
+                                        VariableType.FUNCTION_TABLE):
                     continue
                 _add_edge(anchor, v, "SCHEMA", "OUTPUT")
 
@@ -507,7 +515,8 @@ def build_dependency_graph(
             match_t = lambda t: (t.name == v.source_tables[0]
                                  and t.id != v.id)
         for t in variables:
-            if t.variable_type not in (VariableType.TABLE, VariableType.VIEW):
+            if t.variable_type not in (VariableType.TABLE, VariableType.VIEW,
+                                       VariableType.FUNCTION_TABLE):
                 continue
             if (t.context or "TOP") != ctx:
                 continue
@@ -551,7 +560,8 @@ def build_dependency_graph(
         for pv in variables:
             if pv.variable_type not in (VariableType.TABLE, VariableType.VIEW,
                                          VariableType.CTE, VariableType.SUBQUERY,
-                                         VariableType.VIRTUAL_TABLE):
+                                         VariableType.VIRTUAL_TABLE,
+                                         VariableType.FUNCTION_TABLE):
                 continue
             if (pv.context or "TOP") != parent_ctx:
                 continue
@@ -761,7 +771,8 @@ def build_dependency_graph(
                         found = True
             if not found:
                 a = next((v for v in comp
-                         if v.variable_type == VariableType.TABLE), comp[0])
+                         if v.variable_type in (VariableType.TABLE,
+                                                VariableType.FUNCTION_TABLE)), comp[0])
                 # Bridge onto the nearest owner: the full context chain —
                 # exact context, then each enclosing context, then the
                 # CTE's own statement context — each with the
@@ -798,7 +809,8 @@ def build_dependency_graph(
         ec[d.source_id] += 1
         ec[d.target_id] += 1
 
-    skip_if_connected = {VariableType.TABLE, VariableType.VIEW}
+    skip_if_connected = {VariableType.TABLE, VariableType.VIEW,
+                         VariableType.FUNCTION_TABLE}
 
     # W3 (v3.3.7x): the Phase-8 bridge is typed HONESTLY from
     # extraction-time info only (the vars' own types/defined_in — never
@@ -844,7 +856,8 @@ def build_dependency_graph(
                 if word in ai:
                     return "DML", word
             return "REF", "READ"
-        if v.variable_type in (VariableType.TABLE, VariableType.VIEW):
+        if v.variable_type in (VariableType.TABLE, VariableType.VIEW,
+                               VariableType.FUNCTION_TABLE):
             if anchor.variable_type in _QUERY_ANCHOR_TYPES:
                 return "TABLE_FLOW", "REFERENCE"
             return "SUBSET", "BRIDGE"

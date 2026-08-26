@@ -296,6 +296,23 @@
           "desc": "Table feeds output",
           "edge_type": "TABLE_FLOW",
           "flow_kind": "chain",
+          "highlight_line": 0,
+          "id": "l2e_38aabea092bb",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016f@L0 \u2192 \u27d0 output@L41\u2016 \u2192 jrxkzh@L43 \u2192 east5_stzfxxb@L41",
+          "source": "l2_tbl_4900573c2e",
+          "target": "l2_tbl_91e205405e",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
           "highlight_line": 166,
           "id": "l2e_37b00a468c50",
           "label": "TABLE_FLOW",
@@ -512,6 +529,23 @@
       },
       {
         "data": {
+          "category": "structure",
+          "color": "#1ABC9C",
+          "desc": "Original \u2192 alias",
+          "edge_type": "ALIAS",
+          "flow_kind": "chain",
+          "highlight_line": 155,
+          "id": "l2e_8629af34dfb9",
+          "label": "ALIAS",
+          "line_style": "dashed",
+          "reason": "chain (alias hop) \u2014 \u2016v_bdm_sys_ftpsje_jydsf@L155 \u2192 f@L0\u2016 \u2192 jrxkzh@L43 \u2192 east5_stzfxxb@L41",
+          "source": "l2_tbl_9636e9709c",
+          "target": "l2_tbl_4900573c2e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "compute",
           "color": "#D35400",
           "desc": "COALESCE/CAST/CONCAT",
@@ -624,7 +658,7 @@
           "label": "COMPUTED",
           "line_style": "dotted",
           "reason": "field flow (compute step) \u2014 \u2016f.df_dfzh@L51 \u2192 stzfdxzh@L53\u2016",
-          "source": "fld_833949ee04",
+          "source": "l2_tbl_9636e9709c",
           "target": "l2_tbl_cc4dd6d92c",
           "width": 2
         }
@@ -642,23 +676,6 @@
           "line_style": "dotted",
           "reason": "field flow (compute step) \u2014 \u2016a.entd_opp_acct_no@L51 \u2192 stzfdxzh@L53\u2016",
           "source": "fld_d1b835101a",
-          "target": "l2_tbl_cc4dd6d92c",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "compute",
-          "color": "#E67E22",
-          "desc": "CASE WHEN result",
-          "edge_type": "COMPUTED",
-          "flow_kind": "field flow",
-          "highlight_line": 55,
-          "id": "l2e_66468488c563",
-          "label": "COMPUTED",
-          "line_style": "dotted",
-          "reason": "field flow (compute step) \u2014 \u2016f.df_dfhm@L55 \u2192 stzfdxhm@L65\u2016",
-          "source": "fld_07cdeb0a4a",
           "target": "l2_tbl_cc4dd6d92c",
           "width": 2
         }
@@ -710,40 +727,6 @@
           "line_style": "dotted",
           "reason": "field flow (compute step) \u2014 \u2016a.entd_opp_bank_no@L66 \u2192 stzfdxhh@L67\u2016",
           "source": "fld_2a0e37d8c4",
-          "target": "l2_tbl_cc4dd6d92c",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "compute",
-          "color": "#E67E22",
-          "desc": "CASE WHEN result",
-          "edge_type": "COMPUTED",
-          "flow_kind": "field flow",
-          "highlight_line": 66,
-          "id": "l2e_e2d139bcc5d7",
-          "label": "COMPUTED",
-          "line_style": "dotted",
-          "reason": "field flow (compute step) \u2014 \u2016f.df_dfxh@L66 \u2192 stzfdxhh@L67\u2016",
-          "source": "fld_ff09071e8e",
-          "target": "l2_tbl_cc4dd6d92c",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "compute",
-          "color": "#E67E22",
-          "desc": "CASE WHEN result",
-          "edge_type": "COMPUTED",
-          "flow_kind": "field flow",
-          "highlight_line": 68,
-          "id": "l2e_68ed59625a8e",
-          "label": "COMPUTED",
-          "line_style": "dotted",
-          "reason": "field flow (compute step) \u2014 \u2016f.df_dfxm@L68 \u2192 stzfdxxm@L69\u2016",
-          "source": "fld_3f29fa3a92",
           "target": "l2_tbl_cc4dd6d92c",
           "width": 2
         }
@@ -1316,6 +1299,40 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
+          "highlight_line": 156,
+          "id": "l2e_50cd53b9f11e",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016f@L0 \u2192 f.EAST_TRANS_SEQ_NO@L156\u2016",
+          "source": "l2_tbl_4900573c2e",
+          "target": "fld_66fc729a75",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 157,
+          "id": "l2e_c5da8ffc47fd",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016f@L0 \u2192 f.SJE_FUNCTION_SYS_CDE_17@L157\u2016",
+          "source": "l2_tbl_4900573c2e",
+          "target": "fld_5b0fa4d57d",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
           "highlight_line": 43,
           "id": "l2e_6f35dce6346d",
           "label": "SCHEMA",
@@ -1391,6 +1408,74 @@
           "reason": "structure \u2014 \u2016e@L152 \u2192 e.acct_no@L51\u2016",
           "source": "l2_tbl_ee991e8d5a",
           "target": "fld_41442506ad",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 51,
+          "id": "l2e_7facfb3b8b7f",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016f@L0 \u2192 f.df_dfzh@L51\u2016",
+          "source": "l2_tbl_4900573c2e",
+          "target": "fld_833949ee04",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 55,
+          "id": "l2e_298a7a3b6fed",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016f@L0 \u2192 f.df_dfhm@L55\u2016",
+          "source": "l2_tbl_4900573c2e",
+          "target": "fld_07cdeb0a4a",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 66,
+          "id": "l2e_d5f9c1052db7",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016f@L0 \u2192 f.df_dfxh@L66\u2016",
+          "source": "l2_tbl_4900573c2e",
+          "target": "fld_ff09071e8e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 68,
+          "id": "l2e_3dc5931e3fb1",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016f@L0 \u2192 f.df_dfxm@L68\u2016",
+          "source": "l2_tbl_4900573c2e",
+          "target": "fld_3f29fa3a92",
           "width": 1
         }
       },
@@ -2603,6 +2688,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 0,
+          "id": "l2e_c92e5ce357e7",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016f.EAST_TRANS_SEQ_NO@L156 \u2192 f@L0\u2016 \u2192 jrxkzh@L43 \u2192 east5_stzfxxb@L41",
+          "source": "l2_tbl_9636e9709c",
+          "target": "l2_tbl_4900573c2e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "filter",
           "color": "#E74C3C",
           "desc": "WHERE/JOIN ON condition",
@@ -2732,24 +2834,7 @@
           "label": "JOIN",
           "line_style": "dashed",
           "reason": "field flow (join step) \u2014 \u2016f.EAST_TRANS_SEQ_NO@L156 \u2192 \u27d0 output@L41\u2016 \u2192 jrxkzh@L43 \u2192 east5_stzfxxb@L41",
-          "source": "fld_66fc729a75",
-          "target": "l2_tbl_91e205405e",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#E91E63",
-          "desc": "JOIN key condition",
-          "edge_type": "JOIN",
-          "flow_kind": "field flow",
-          "highlight_line": 157,
-          "id": "l2e_645abd9364ea",
-          "label": "JOIN",
-          "line_style": "dashed",
-          "reason": "field flow (join step) \u2014 \u2016f.SJE_FUNCTION_SYS_CDE_17@L157 \u2192 \u27d0 output@L41\u2016 \u2192 jrxkzh@L43 \u2192 east5_stzfxxb@L41",
-          "source": "fld_5b0fa4d57d",
+          "source": "l2_tbl_9636e9709c",
           "target": "l2_tbl_91e205405e",
           "width": 2
         }
@@ -2791,51 +2876,17 @@
       {
         "data": {
           "category": "filter",
-          "color": "#E91E63",
-          "desc": "JOIN key condition",
-          "edge_type": "JOIN",
-          "flow_kind": "field flow",
-          "highlight_line": 156,
-          "id": "l2e_a004cbbadb59",
-          "label": "JOIN",
-          "line_style": "dashed",
-          "reason": "field flow (join step) \u2014 \u2016f.EAST_TRANS_SEQ_NO@L156 \u2192 BDM_ACC_INTERNAL_COUNTERPARTY@L152\u2016 \u2192 e.acct_no@L51 \u2192 stzfdxzh@L53",
-          "source": "fld_66fc729a75",
-          "target": "l2_tbl_0c8853ba1f",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#E91E63",
-          "desc": "JOIN key condition",
-          "edge_type": "JOIN",
-          "flow_kind": "field flow",
-          "highlight_line": 157,
-          "id": "l2e_c9f7df7c3cbb",
-          "label": "JOIN",
-          "line_style": "dashed",
-          "reason": "field flow (join step) \u2014 \u2016f.SJE_FUNCTION_SYS_CDE_17@L157 \u2192 BDM_ACC_INTERNAL_COUNTERPARTY@L152\u2016 \u2192 e.acct_no@L51 \u2192 stzfdxzh@L53",
-          "source": "fld_5b0fa4d57d",
-          "target": "l2_tbl_0c8853ba1f",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
           "color": "#E74C3C",
           "desc": "WHERE/JOIN ON condition",
           "edge_type": "FILTER",
           "flow_kind": "field flow",
           "highlight_line": 159,
-          "id": "l2e_41834cb1f6f5",
+          "id": "l2e_f86b8affa242",
           "label": "FILTER",
           "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016a.data_dt@L159 \u2192 BDM_ACC_INTERNAL_COUNTERPARTY@L152\u2016 \u2192 e.acct_no@L51 \u2192 stzfdxzh@L53",
+          "reason": "field flow (filter step) \u2014 \u2016a.data_dt@L159 \u2192 v_bdm_sys_ftpsje_jydsf@L155\u2016 \u2192 f.df_dfzh@L51 \u2192 stzfdxzh@L53",
           "source": "fld_8615b19e33",
-          "target": "l2_tbl_0c8853ba1f",
+          "target": "l2_tbl_9636e9709c",
           "width": 2
         }
       },
@@ -2942,7 +2993,7 @@
         }
       }
     ],
-    "filtered_nodes": 135,
+    "filtered_nodes": 137,
     "nodes": [
       {
         "data": {
@@ -3067,7 +3118,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "target",
+          "flow_role": "source",
           "id": "l2_tbl_0c8853ba1f",
           "label": "BDM_ACC_INTERNAL_COUNTERPARTY",
           "line_end": 165,
@@ -3089,6 +3140,35 @@
           "line_start": 152,
           "original_id": "a8d4598405d5ce1e",
           "table_name": "e",
+          "type": "alias_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "JOIN",
+          "id": "l2_tbl_9636e9709c",
+          "label": "v_bdm_sys_ftpsje_jydsf",
+          "line_end": 165,
+          "line_start": 155,
+          "original_id": "5c60b8a4fb92df09",
+          "table_name": "v_bdm_sys_ftpsje_jydsf",
+          "type": "source_table",
+          "variable_type": "function_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "JOIN",
+          "flow_role": "waypoint",
+          "id": "l2_tbl_4900573c2e",
+          "label": "f",
+          "line_end": 0,
+          "line_start": 0,
+          "original_id": "938503a9e72cdd88",
+          "table_name": "f",
           "type": "alias_table",
           "variable_type": "table"
         }
@@ -3368,6 +3448,7 @@
           "label": "EAST_TRANS_SEQ_NO",
           "orig_type": "column",
           "original_id": "9bc287e701b38976",
+          "parent": "l2_tbl_9636e9709c",
           "type": "field",
           "variable_type": "field"
         }
@@ -3380,6 +3461,7 @@
           "label": "SJE_FUNCTION_SYS_CDE_17",
           "orig_type": "column",
           "original_id": "e70e14c45a1a12d9",
+          "parent": "l2_tbl_9636e9709c",
           "type": "field",
           "variable_type": "field"
         }
@@ -3621,6 +3703,7 @@
           "label": "df_dfzh",
           "orig_type": "column",
           "original_id": "17b2ee7482ac0275",
+          "parent": "l2_tbl_9636e9709c",
           "type": "field",
           "variable_type": "field"
         }
@@ -3670,6 +3753,7 @@
           "label": "df_dfhm",
           "orig_type": "column",
           "original_id": "a0ce4a10eeb61ddd",
+          "parent": "l2_tbl_9636e9709c",
           "type": "field",
           "variable_type": "field"
         }
@@ -3707,6 +3791,7 @@
           "label": "df_dfxh",
           "orig_type": "column",
           "original_id": "b38eab26bb7169e4",
+          "parent": "l2_tbl_9636e9709c",
           "type": "field",
           "variable_type": "field"
         }
@@ -3744,6 +3829,7 @@
           "label": "df_dfxm",
           "orig_type": "column",
           "original_id": "3c64e797bea1ec0e",
+          "parent": "l2_tbl_9636e9709c",
           "type": "field",
           "variable_type": "field"
         }
@@ -4695,8 +4781,8 @@
     "script_name": "EAST5_STZFXXB_M.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 161,
-    "total_nodes": 147
+    "total_edges": 164,
+    "total_nodes": 149
   },
   "script_name": "EAST5_STZFXXB_M.sql",
   "seed": {

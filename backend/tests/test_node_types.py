@@ -182,6 +182,23 @@ class TestVirtualTableNode:
         assert len(ctes) >= 1, "CTE node should exist"
 
 
+# ── 6b. FUNCTION_TABLE — table-valued function row source ─────────────────
+
+class TestFunctionTableNode:
+    """FUNCTION_TABLE: a table-valued function call used in FROM/JOIN."""
+
+    def test_tvf_in_from_creates_function_table(self):
+        assert _has_type(
+            "SELECT f.df_dfzh FROM v_bdm_sys_ftpsje_jydsf('$(load_date)') f",
+            VariableType.FUNCTION_TABLE)
+
+    def test_tvf_in_join_creates_function_table(self):
+        assert _has_type(
+            "SELECT a.x, f.df_dfzh FROM t a "
+            "LEFT JOIN v_bdm_sys_ftpsje_jydsf('$(load_date)') f ON a.k = f.k",
+            VariableType.FUNCTION_TABLE)
+
+
 # ── 7. COLUMN — table.column or bare column ───────────────────────────────
 
 class TestColumnNode:
@@ -431,9 +448,9 @@ class TestAllNodeTypesPresent:
     ALL_TYPE_VALUES = {t.value for t in VariableType}
 
     def test_all_types_in_enum(self):
-        """Verify all 15 types are defined in the enum."""
-        assert len(VariableType) == 15, \
-            f"Expected 15 types, got {len(VariableType)}: {[t.value for t in VariableType]}"
+        """Verify all 16 types are defined in the enum."""
+        assert len(VariableType) == 16, \
+            f"Expected 16 types, got {len(VariableType)}: {[t.value for t in VariableType]}"
 
     def test_all_base_types_reachable(self):
         """Every type must be reachable from at least one SQL test in this file."""
@@ -443,6 +460,7 @@ class TestAllNodeTypesPresent:
             "table", "view", "cte", "cte_column", "subquery", "virtual_table",
             "column", "merge_target", "union_branch",
             "aggregate", "window", "case", "transform", "expression", "literal",
+            "function_table",
         }
         missing = tested_types - self.ALL_TYPE_VALUES
         extra = self.ALL_TYPE_VALUES - tested_types

@@ -28,6 +28,7 @@ class VariableType(str, Enum):
     CTE = "cte"                       # Common Table Expression: CTE (WITH ... AS)
     SUBQUERY = "subquery"             # Subquery: SUBQUERY (in FROM / JOIN)
     VIRTUAL_TABLE = "virtual_table"   # SELECT / JOIN output: a conceptual result set
+    FUNCTION_TABLE = "function_table" # Table-valued function: a function call returning a row set (used in FROM/JOIN)
 
     # ── Column References ────────────────────────────────────────────────────
     COLUMN = "column"                 # Column reference: table.column or bare column name
@@ -68,6 +69,7 @@ _TYPE_CATEGORIES = {
     VariableType.CTE: "Data Source",
     VariableType.SUBQUERY: "Data Source",
     VariableType.VIRTUAL_TABLE: "Data Source",
+    VariableType.FUNCTION_TABLE: "Data Source",
     VariableType.COLUMN: "Column Reference",
     VariableType.CTE_COLUMN: "Column Reference",
     VariableType.MERGE_TARGET: "DML Target",
@@ -86,6 +88,7 @@ _TYPE_DISPLAY_NAMES = {
     VariableType.CTE: "CTE",
     VariableType.SUBQUERY: "Subquery",
     VariableType.VIRTUAL_TABLE: "Output",
+    VariableType.FUNCTION_TABLE: "Table Function",
     VariableType.COLUMN: "Column",
     VariableType.CTE_COLUMN: "CTE Column",
     VariableType.MERGE_TARGET: "Merge Target",

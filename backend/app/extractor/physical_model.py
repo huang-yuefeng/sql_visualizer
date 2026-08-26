@@ -55,7 +55,7 @@ from app.services.highlight_strategies import FIELD_LIKE_TYPES, get_strategy
 # compound parents (alias/subquery/CTE/VT/union/merge-target alike).
 TABLE_LIKE_TYPES = frozenset({
     "table", "view", "cte", "subquery", "virtual_table",
-    "merge_target", "union_branch",
+    "merge_target", "union_branch", "function_table",
 })
 
 # Computed-value variables use the truncated field label (label[:36]).
@@ -325,7 +325,7 @@ def build_physical_model(extraction_result,
     def _entity_key_of(v: Dict[str, Any]) -> Tuple[Any, str]:
         vt = v.get("variable_type") or ""
         name = v.get("name", "")
-        if vt in ("table", "view", "merge_target"):
+        if vt in ("table", "view", "merge_target", "function_table"):
             return name, "physical"
         if vt == "cte":
             return name, "cte"
@@ -344,7 +344,7 @@ def build_physical_model(extraction_result,
     def _add_occurrence(tbl: PhysicalTable, v: Dict[str, Any]) -> None:
         # Per-occurrence one-of typing → per-table role set.
         vt = v.get("variable_type") or ""
-        if vt in ("table", "view"):
+        if vt in ("table", "view", "function_table"):
             tbl.roles.add("read")
         elif vt == "merge_target":
             tbl.roles.add("merge_target")

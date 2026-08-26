@@ -51,6 +51,9 @@ NODE_STYLES = {
     VariableType.VIRTUAL_TABLE.value: {
         "shape": "round-rectangle", "color": "#2ECC71", "size": 55,
     },
+    VariableType.FUNCTION_TABLE.value: {
+        "shape": "rectangle", "color": "#4A90D9", "size": 50,
+    },
 }
 
 # Default style for unknown types
@@ -195,7 +198,8 @@ def build_graph_data(analysis: dict) -> dict:
                     table_name = _st[0]
                 else:
                     table_name = ""
-        elif vt in ("table", "view", "cte", "virtual_table", "subquery", "merge_target"):
+        elif vt in ("table", "view", "cte", "virtual_table", "subquery", "merge_target",
+                    "function_table"):
             table_name = name
 
         nodes.append({
@@ -277,7 +281,7 @@ def build_graph_data(analysis: dict) -> dict:
     owner_first_occ = {}
     for v in variables:
         vt = v.get("variable_type", "")
-        if vt in ("table", "view", "cte"):
+        if vt in ("table", "view", "cte", "function_table"):
             owner_first_occ.setdefault(v.get("name", ""), v["id"])
     for v in variables:
         vt = v.get("variable_type", "")

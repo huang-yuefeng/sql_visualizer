@@ -1230,7 +1230,7 @@ class _RoleBasedExtractor:
         table_like = (VariableType.TABLE, VariableType.VIEW,
                       VariableType.CTE, VariableType.SUBQUERY,
                       VariableType.VIRTUAL_TABLE, VariableType.UNION_BRANCH,
-                      VariableType.MERGE_TARGET)
+                      VariableType.MERGE_TARGET, VariableType.FUNCTION_TABLE)
         ctx_to_vt: dict[str, str] = {}
         for v in self.result.variables:
             if v.variable_type == VariableType.VIRTUAL_TABLE:
@@ -1286,7 +1286,7 @@ class _RoleBasedExtractor:
           - `_schema_candidates[].visible_tables`
         """
         table_like = (VariableType.TABLE, VariableType.VIEW,
-                      VariableType.MERGE_TARGET)
+                      VariableType.MERGE_TARGET, VariableType.FUNCTION_TABLE)
         for v in self.result.variables:
             # 1. table-like var name → canonical physical spelling. Skip
             # alias handles: an alias is a scope-local handle (is_alias_handle
@@ -2019,6 +2019,25 @@ class _RoleBasedExtractor:
         """Register a database table and its alias."""
         name = _clean(table.name or "")
         alias = _clean(table.alias_or_name or "")
+        var_type = VariableType.TABLE
+        if not name:
+            # Table-valued function (TVF) row source — e.g.
+            # `JOIN v_bdm_sys_ftpsje_jydsf('$(load_date)') f`. sqlglot parses
+            # the call as Table(this=Anonymous(<func>, args)) so Table.name
+            # is '' (the function name lives inside Anonymous.this). Recover
+            # the function name and register the call as a FUNCTION_TABLE
+            # source. Extraction-time only: no schema is synthesized — only
+            # the columns actually referenced downstream are materialized.
+            if isinstance(table.this, exp.Func):
+                fn_name = _func_name(table.this)
+                if fn_name:
+                    name = _clean(fn_name)
+                    var_type = VariableType.FUNCTION_TABLE
+                    if not alias:
+                        # Bare TVF (`FROM fn('x')`, no alias): alias_or_name
+                        # fell back to the empty Table.name, so mirror a bare
+                        # physical table — the function is its own table name.
+                        alias = name
         if not name:
             return
         # ISSUE-4: record the physical-table identity (casefolded) for the
@@ -2059,7 +2078,7 @@ class _RoleBasedExtractor:
         # an ALIASED ref either — the alias var already carries the read
         # (source_tables=[name]); the base var stays invisible so the
         # read is represented once, not twice.
-        table_var = self._add(name, VariableType.TABLE,
+        table_var = self._add(name, var_type,
                               sql_expr=name, defined_in=defined_in,
                               context=context,
                               source_tables=[name] if (not dml and alias == name) else None,
@@ -2080,7 +2099,7 @@ class _RoleBasedExtractor:
             else:
                 want = (VariableType.CTE
                         if self._is_cte_name(name, context)
-                        else VariableType.TABLE)
+                        else var_type)
                 same_ctx = next((v.id for v in self.result.variables
                                  if v.variable_type == want
                                  and v.name.lower() == name.lower()
