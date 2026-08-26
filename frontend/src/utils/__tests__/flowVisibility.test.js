@@ -121,6 +121,61 @@ describe('applyFlowVisibility — View 1 (flow-only) / View 2 (full)', () => {
     expect(edge('e2').hidden()).toBe(true);
   });
 
+  it('flow-only with an edge-only closure derives nodes from the closure edges (H-F1)', () => {
+    // flowOnly truthy + empty flowNodeIds + non-empty flowEdgeIds must NOT
+    // short-circuit to "show the full graph" — the node set is derived from
+    // the closure edges' source/target endpoints.
+    const cy = makeFakeCy(graph);
+    applyFlowVisibility(cy, {
+      flowOnly: true,
+      flowNodeIds: [],
+      flowEdgeIds: ['e1'],
+    });
+    const node = id => cy.nodes().find(n => n.id() === id);
+    const edge = id => cy.edges().find(e => e.id() === id);
+    // endpoints of the closure edge e1 (n1→n2) are the derived closure
+    expect(node('n1').hidden()).toBe(false);
+    expect(node('n2').hidden()).toBe(false);
+    expect(node('n3').hidden()).toBe(true);
+    expect(node('n4').hidden()).toBe(true);
+    expect(edge('e1').hidden()).toBe(false);
+    expect(edge('e2').hidden()).toBe(true);
+    expect(edge('e3').hidden()).toBe(true);
+  });
+
+  it('flow-only with edge-only closure derives nodes across multiple closure edges (H-F1)', () => {
+    // e1 (n1→n2) + e3 (n3→n4): the derived closure is all four nodes.
+    const cy = makeFakeCy(graph);
+    applyFlowVisibility(cy, {
+      flowOnly: true,
+      flowNodeIds: [],
+      flowEdgeIds: ['e1', 'e3'],
+    });
+    const node = id => cy.nodes().find(n => n.id() === id);
+    const edge = id => cy.edges().find(e => e.id() === id);
+    expect(node('n1').hidden()).toBe(false);
+    expect(node('n2').hidden()).toBe(false);
+    expect(node('n3').hidden()).toBe(false);
+    expect(node('n4').hidden()).toBe(false);
+    expect(edge('e1').hidden()).toBe(false);
+    expect(edge('e3').hidden()).toBe(false);
+    // e2 (n2→n3) is not in the closure — hidden
+    expect(edge('e2').hidden()).toBe(true);
+  });
+
+  it('flow-only with flowNodeIds omitted but flowEdgeIds present derives nodes (H-F1)', () => {
+    const cy = makeFakeCy(graph);
+    applyFlowVisibility(cy, {
+      flowOnly: true,
+      // flowNodeIds omitted entirely — same edge-only derivation path
+      flowEdgeIds: ['e1'],
+    });
+    expect(cy.nodes().find(n => n.id() === 'n1').hidden()).toBe(false);
+    expect(cy.nodes().find(n => n.id() === 'n2').hidden()).toBe(false);
+    expect(cy.nodes().find(n => n.id() === 'n3').hidden()).toBe(true);
+    expect(cy.nodes().find(n => n.id() === 'n4').hidden()).toBe(true);
+  });
+
   it('full: shows every element when flowOnly is false', () => {
     const cy = makeFakeCy(graph);
     // start hidden, then switch to full

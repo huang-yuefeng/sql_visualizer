@@ -109,9 +109,13 @@ _LABEL_NORM = {
 
 def _ep_key(nd):
     """Canonical endpoint key for a served node (dict). Output VTs are
-    qualified by statement so the two `output` nodes stay distinct."""
+    qualified by statement so the two `output` nodes stay distinct. The
+    statement is the `TOPn` prefix of the context — sub-branch suffixes
+    after the first `/` are ignored, mirroring `_stmt_of_node` (L-BM3)."""
     if nd.get("label") == "output":
-        return "output@" + str(nd.get("context") or "?")
+        ctx = nd.get("context") or ""
+        stmt = ctx.split("/")[0] if ctx.startswith("TOP") else "?"
+        return "output@" + stmt
     return _LABEL_NORM.get(nd.get("label"), nd.get("label"))
 
 
@@ -252,6 +256,12 @@ def _flow_covered_by_full(flow_view, full_view):
                       frozenset((d["source"], d["target"])))].append(d)
     for e in flow_view["edges"]:
         d = e["data"]
+        # L-BM2: a SELF-loop (source == target) can legitimately be absorbed
+        # by the full build (rule 4 — absorbed when the line gains another
+        # table pair), so it has no guaranteed full_merged counterpart. Only
+        # non-self pairs are guaranteed to survive; skip self-loops.
+        if d["source"] == d["target"]:
+            continue
         key = (d["highlight_line"], frozenset((d["source"], d["target"])))
         matches = full_by_pair.get(key, [])
         if not matches:

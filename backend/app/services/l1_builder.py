@@ -3,6 +3,7 @@
 Extracted from dataflow_service.py per ARCHITECTURE_REVIEW S3.
 Builds L1 pipeline view: scripts + tables + reads_from/writes_to edges.
 """
+import copy
 import json
 import uuid
 import hashlib
@@ -627,17 +628,13 @@ def _l1_graph_memo_set(key, g):
 
 
 def _l1_graph_copy(g: dict) -> dict:
-    """Shallow copy protecting the memo from caller mutation.
+    """Deep copy protecting the memo from caller mutation.
 
     Callers (`_filter_l1_by_lineage`, the level1/search routers) read the
-    graph and rebuild new node/edge lists but never mutate node/edge dicts
-    in place — a copy of the top-level dict + its list containers keeps the
-    memoized dict pristine across hits."""
-    out = dict(g)
-    for k, v in g.items():
-        if isinstance(v, list):
-            out[k] = list(v)
-    return out
+    graph and rebuild new node/edge lists, but the memo-protection guarantee
+    is that mutating the copy must never mutate the memoized original — so
+    nested node/edge dicts are copied too, not shared."""
+    return copy.deepcopy(g)
 
 
 def _build_l1_graph(ws_id: str, script_names: list[str],

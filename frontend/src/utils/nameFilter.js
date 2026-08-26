@@ -5,6 +5,14 @@
 
 const MAX = 20;
 
+// Case-insensitive comparator for autocomplete ranking — a bare .sort()
+// orders by code unit (uppercase sorts before lowercase), which makes the
+// ranking depend on the input case. sensitivity:'base' folds case (and
+// accents) so the order is stable regardless of how the names are cased.
+function ciCompare(a, b) {
+  return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+}
+
 // Levenshtein distance <= 1 (fast: length gate + bounded DP).
 export function levenshteinLe1(a, b) {
   if (a === b) return true;
@@ -29,16 +37,16 @@ export function levenshteinLe1(a, b) {
 // Filter + rank `names` against the query (case-insensitive), max 20.
 // Empty query → first 20 (alphabetical, matching backend sorted keys).
 export function filterNames(names, q) {
-  if (!q) return (names || []).slice().sort().slice(0, MAX);
+  if (!q) return (names || []).slice().sort(ciCompare).slice(0, MAX);
   const query = q.toLowerCase();
   const sub = (names || [])
     .filter((n) => n.toLowerCase().includes(query))
-    .sort();
+    .sort(ciCompare);
   if (sub.length >= 2) return sub.slice(0, MAX);
-  const exact = (names || []).filter((n) => n.toLowerCase() === query).sort();
+  const exact = (names || []).filter((n) => n.toLowerCase() === query).sort(ciCompare);
   const prefix = (names || [])
     .filter((n) => n.toLowerCase().startsWith(query))
-    .sort();
+    .sort(ciCompare);
   const seen = new Set([...exact, ...prefix].map((s) => s.toLowerCase()));
   const dist1 = (names || [])
     .filter((n) => {
@@ -46,7 +54,7 @@ export function filterNames(names, q) {
       if (seen.has(nl)) return false;
       return levenshteinLe1(nl, query);
     })
-    .sort();
+    .sort(ciCompare);
   const out = [];
   const outSeen = new Set();
   for (const k of [...sub, ...exact, ...prefix, ...dist1]) {

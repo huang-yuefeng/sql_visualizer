@@ -1221,6 +1221,14 @@ CANONICAL_NODES = {
         {"label": "data_dt", "line": 160, "kind": "field"},
         {"label": "⟐output", "line": None, "kind": "vt"},
         {"label": "rrcdm", "line": 211, "kind": "table"},
+        # M-BM1 (2026-08-26): the job-log literal output column data_dt@213
+        # is a documented closure member (SUP doc §6 item 7 "propagated
+        # field: sup.data_dt lines [160, 202, 213, 225]"), parallel to the
+        # pl seed's data_dt@254 and dl seed's data_dt@550. It was tolerated
+        # by the old ni/na node metric as an unlisted extra; the honest
+        # set-precision (M-BM1) requires every served node to be canonical.
+        {"label": "data_dt", "line": 213, "kind": "field",
+         "note": "job-log literal output column (SUP doc §6 item 7)"},
         # J12-13 requirement nodes (point 9): the statement-2 reader
         # instance + its read field (doc §4.2 LAYER-2 line 134, MISSING
         # item 4). REALIZED 2026-08-11 (point 10 -- Issue 3 landed:
@@ -1271,6 +1279,13 @@ CANONICAL_NODES = {
          "note": "stmt1 output VT -- served label 'insert' (bare-INSERT output)"},
         {"label": "⟐output", "line": None, "kind": "vt",
          "note": "stmt2 output VT -- served label 'output'"},
+        # M-BM1 (2026-08-26): charge_department@265 is a documented closure
+        # member (J12-20 / GROUND_TRUTH_BDM_ACC_LOAN_INFO.md §8.6 -- the W4
+        # co-filter sibling of the seed's WHERE clause, rendered edgeless).
+        # line=None (label-only) because the edgeless field carries no line
+        # evidence in the served payload.
+        {"label": "charge_department", "line": None, "kind": "field",
+         "note": "J12-20 documented closure member -- W4 co-filter sibling @265, edgeless"},
     ],
     # "dl" seed (2026-08-12 dl-seed round,
     # BDM_ACC_LOAN_INFO_Digitallending.sql -- the data_dt closure per
@@ -1301,6 +1316,13 @@ CANONICAL_NODES = {
          "note": "stmt1 output VT -- TOP0 (INSERT@99)"},
         {"label": "⟐output", "line": None, "kind": "vt",
          "note": "stmt2 output VT -- TOP1 (job-log INSERT@549)"},
+        # M-BM1 (2026-08-26): charge_department@561 is a documented closure
+        # member (J12-20 / GROUND_TRUTH_BDM_ACC_LOAN_INFO_Digitallending.md
+        # §8.5 -- the W4 co-filter sibling of the seed's WHERE clause,
+        # rendered edgeless). line=None (label-only) because the edgeless
+        # field carries no line evidence in the served payload.
+        {"label": "charge_department", "line": None, "kind": "field",
+         "note": "J12-20 documented closure member -- W4 co-filter sibling @561, edgeless"},
     ],
 }
 

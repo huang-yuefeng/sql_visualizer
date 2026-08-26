@@ -11,7 +11,7 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 - **Backend**: FastAPI + sqlglot (MySQL dialect), Docker `gps-sql-backend` on port 8000
 - **Frontend**: React 18 + Vite + Cytoscape.js, served from `frontend/dist/`
 - **Tests**: vitest (frontend, 167 passed across 15 files), pytest (backend, 870 passed / 5 skipped in `backend/tests/`)
-- **Version**: See `/VERSION` (currently 3.3.160)
+- **Version**: See `/VERSION` (currently 3.3.166)
 - **Service IP**: `192.168.0.66:8000` (never use `localhost`)
 
 ## File Map (Key Source Files)

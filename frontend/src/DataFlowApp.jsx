@@ -13,7 +13,7 @@ import * as api from './api/client';
 import pickAutoEdge from './utils/pickAutoEdge';
 import { resolveFlowOnly } from './utils/flowVisibility';
 import { resumeLayoutKey } from './utils/layoutPersistence';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useResizable } from './utils/useResizable';
 import './styles/resizable.css';
 
@@ -44,10 +44,12 @@ export default function DataFlowApp({
   const [currentScriptName, setCurrentScriptName] = useState('');
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [l2Result, setL2Result] = useState(null);
-  // L2 flow toggle (View 1 flow-only / View 2 full): true = flow-only
-  // (default on a matched search), false = full, null = disabled (no
-  // search seed or the search did not match — always show the full graph).
-  const [flowOnly, setFlowOnly] = useState(null);
+  // L2 view toggle (#331, four modes): 'flow' (closure — the default on a
+  // matched search), 'full' (entire script graph), 'flow-merged' and
+  // 'full-merged' (line-merged views — a distinct node+edge set, not a
+  // client-side filter). null = disabled (no search seed or the search did
+  // not match — always show the full graph).
+  const [l2ViewMode, setL2ViewMode] = useState(null);
   // L2 not-in-flow: the view's search field is not referenced in this
   // script — backend returns the FULL unfiltered script graph plus
   // search_matched:false + a message. Absence of search_matched = matched.
@@ -78,7 +80,10 @@ export default function DataFlowApp({
   const wsIdRef = useRef(null);
   wsIdRef.current = wsId; // latest wsId for the unmount cleanup
   const stateVersionRef = useRef(0);
-  const pendingLayoutRef = useRef(null);   // coalesced {level, script, positions, version}
+  // Coalesced pending saves keyed by (level, script) — L1 and L2 drags are
+  // independent: an L2 drag arriving while an L1 save is already pending
+  // must not clobber (and silently drop) the L1 save.
+  const pendingLayoutRef = useRef(new Map()); // key -> {level, script, positions, version}
   const layoutTimerRef = useRef(null);
   const openedRef = useRef(null);          // guards the open-existing effect
 
@@ -96,45 +101,62 @@ export default function DataFlowApp({
       clearTimeout(layoutTimerRef.current);
       layoutTimerRef.current = null;
     }
+    if (!wsIdRef.current) return;
     const pending = pendingLayoutRef.current;
-    if (!pending || !wsIdRef.current) return;
-    pendingLayoutRef.current = null;
-    const { level, script, positions, version } = pending;
-    try {
-      const res = await api.saveLayout(wsIdRef.current, level, script, positions, version);
-      if (res.status === 409) {
-        const body = await res.json().catch(() => null);
-        const fresh = body?.detail?.fresh;
-        if (fresh && fresh.state_version != null) {
-          setVersion(fresh.state_version);
-          if (fresh.layouts) setResumeLayouts(fresh.layouts);
-          // E-M9 (#284): overlay the just-dragged positions on the fresh
-          // state too — they are being re-applied on top of it (A-M4), so a
-          // re-open must reflect them, not the open-time snapshot.
+    if (!pending.size) return;
+    // Snapshot + clear BEFORE the awaits: a drag that lands mid-save
+    // re-coalesces into a fresh entry (and arms its own timer), so it is
+    // never lost — each (level, script) key saves independently.
+    const entries = [...pending.values()];
+    pending.clear();
+    for (const { level, script, positions, version } of entries) {
+      try {
+        const res = await api.saveLayout(wsIdRef.current, level, script, positions, version);
+        if (res.status === 409) {
+          const body = await res.json().catch(() => null);
+          const fresh = body?.detail?.fresh;
+          if (fresh && fresh.state_version != null) {
+            setVersion(fresh.state_version);
+            if (fresh.layouts) setResumeLayouts(fresh.layouts);
+            // E-M9 (#284): overlay the just-dragged positions on the fresh
+            // state too — they are being re-applied on top of it (A-M4), so a
+            // re-open must reflect them, not the open-time snapshot.
+            setResumeLayouts(prev => ({ ...prev, [resumeLayoutKey(level, script)]: positions }));
+            setToast('State changed by another user - refreshed');
+            // Re-apply the pending edit on top of the fresh state (A-M4).
+            pendingLayoutRef.current.set(
+              resumeLayoutKey(level, script),
+              { level, script, positions, version: fresh.state_version },
+            );
+            if (!layoutTimerRef.current) {
+              layoutTimerRef.current = setTimeout(() => {
+                layoutTimerRef.current = null;
+                flushLayoutSave();
+              }, 1000);
+            }
+          }
+        } else if (res.ok) {
+          const body = await res.json().catch(() => null);
+          if (body && body.state_version != null) setVersion(body.state_version);
+          // E-M9 (#284): the server CONFIRMED these positions — fold them into
+          // resumeLayouts so a later re-open/re-search re-applies the LATEST
+          // drag, never the open-time snapshot (which would undo the drag).
           setResumeLayouts(prev => ({ ...prev, [resumeLayoutKey(level, script)]: positions }));
-          setToast('State changed by another user - refreshed');
-          // Re-apply the pending edit on top of the fresh state (A-M4).
-          pendingLayoutRef.current = { level, script, positions, version: fresh.state_version };
-          layoutTimerRef.current = setTimeout(() => {
-            layoutTimerRef.current = null;
-            flushLayoutSave();
-          }, 1000);
         }
-      } else if (res.ok) {
-        const body = await res.json().catch(() => null);
-        if (body && body.state_version != null) setVersion(body.state_version);
-        // E-M9 (#284): the server CONFIRMED these positions — fold them into
-        // resumeLayouts so a later re-open/re-search re-applies the LATEST
-        // drag, never the open-time snapshot (which would undo the drag).
-        setResumeLayouts(prev => ({ ...prev, [resumeLayoutKey(level, script)]: positions }));
-      }
-      // other non-OK: silent failure (design: silent-fail handling)
-    } catch { /* silent */ }
+        // other non-OK: silent failure (design: silent-fail handling)
+      } catch { /* silent */ }
+    }
   }, [setVersion]);
 
   const scheduleLayoutSave = useCallback((level, script, positions) => {
     if (!wsIdRef.current) return;
-    pendingLayoutRef.current = { level, script, positions, version: stateVersionRef.current };
+    // Key by (level, script): repeated drags of the SAME key coalesce into
+    // the latest positions, while a DIFFERENT key (e.g. an L1 drag while an
+    // L2 save is pending) gets its own slot — never clobbered by the other.
+    pendingLayoutRef.current.set(
+      resumeLayoutKey(level, script),
+      { level, script, positions, version: stateVersionRef.current },
+    );
     if (layoutTimerRef.current) return; // a save is already pending — coalesce
     layoutTimerRef.current = setTimeout(() => {
       layoutTimerRef.current = null;
@@ -209,10 +231,10 @@ export default function DataFlowApp({
   const applyL2Result = useCallback((result) => {
     setL2Graph(result.graph);
     setL2Result(result);
-    // L2 flow toggle: default to flow-only (View 1) whenever the response
+    // L2 view toggle: default to 'flow' (the closure) whenever the response
     // carries the field-flow closure (matched search); null (disabled) when
     // there is no search seed or the search did not match.
-    setFlowOnly(resolveFlowOnly(result));
+    setL2ViewMode(resolveFlowOnly(result) === true ? 'flow' : null);
     // R25: every L2 entry path lands on a fresh graph — no stale edge
     // selection (and no reason-panel content) from a previous script.
     // R11-1: instead of leaving the reason panel stuck at "Click an edge
@@ -234,7 +256,7 @@ export default function DataFlowApp({
     setWsId(null); setFileTree(null); setSelectedScripts([]);
     setTableIndex({}); setFieldIndex({}); setFullTableIndex({}); setFullFieldIndex({});
     setIndexed(false); setViews([]); setActiveViewId(null); setL1Graph(null);
-    setL2Graph(null); setL2Result(null); setFlowOnly(null); setSqlText(''); setCurrentScriptName('');
+    setL2Graph(null); setL2Result(null); setL2ViewMode(null); setSqlText(''); setCurrentScriptName('');
     setError(null); setActiveL1Table(null); setSelectedEdge(null);
     setResolutionStats(null); setOrphanFieldSamples(null);
     setSchemaCandidates(null); setSchemaEvidence(null);
@@ -363,7 +385,7 @@ export default function DataFlowApp({
   // ── Search ────────────────────────────────────────────────────────
   const handleSearch = useCallback(async (table, field, direction) => {
     if (!wsId) return;
-    setL1Graph(null); setL2Graph(null); setL2Result(null); setFlowOnly(null);
+    setL1Graph(null); setL2Graph(null); setL2Result(null); setL2ViewMode(null);
     setL2NotInFlow(false); setL2NotInFlowMessage(null);
     setL2ParseErrors([]);
     setLoading(true); setError(null);
@@ -388,7 +410,7 @@ export default function DataFlowApp({
       setL1Graph(result.l1_graph);
       setDirection(direction);
       setGraphLevel('L1');
-      setL2Graph(null); setL2Result(null); setFlowOnly(null);
+      setL2Graph(null); setL2Result(null); setL2ViewMode(null);
       setSqlText('');
       setActiveL1Table(null);
       setSelectedEdge(null);
@@ -402,7 +424,7 @@ export default function DataFlowApp({
   // ── Open L2 (double-click on L1 script node) ──────────────────────
   const handleOpenL2 = useCallback(async (scriptId, scriptName) => {
     if (!wsId || !activeViewId) return;
-    setL2Graph(null); setL2Result(null); setFlowOnly(null);
+    setL2Graph(null); setL2Result(null); setL2ViewMode(null);
     setLoading(true);
     try {
       const viewIdForApi = parentViewIdRef.current || activeViewId;
@@ -468,7 +490,7 @@ export default function DataFlowApp({
       // so a stale parentViewIdRef (left pointing at the last-searched
       // view) must not survive into a later L1 double-click (CR6).
       parentViewIdRef.current = null;
-      setL2Graph(null); setL2Result(null); setFlowOnly(null);
+      setL2Graph(null); setL2Result(null); setL2ViewMode(null);
       try {
         const parentView = views.find(v => v.view_id === entry.parent_view_id);
         const result = await api.getLevel2Graph(wsId, entry.parent_view_id, entry.script_name, true, parentView?.direction || direction);
@@ -488,7 +510,7 @@ export default function DataFlowApp({
       parentViewIdRef.current = viewId;
       setL1Graph(entry.l1_graph_cache || { nodes: [], edges: [] });
       setGraphLevel('L1');
-      setL2Graph(null); setL2Result(null); setFlowOnly(null);
+      setL2Graph(null); setL2Result(null); setL2ViewMode(null);
       setL2NotInFlow(false); setL2NotInFlowMessage(null);
       setL2ParseErrors([]);
       setSqlText('');
@@ -581,7 +603,7 @@ export default function DataFlowApp({
   const dropToL1 = useCallback(({ clearL1 = false } = {}) => {
     if (clearL1) setL1Graph(null);
     setGraphLevel('L1');
-    setL2Graph(null); setL2Result(null); setFlowOnly(null);
+    setL2Graph(null); setL2Result(null); setL2ViewMode(null);
     setL2NotInFlow(false); setL2NotInFlowMessage(null);
     setL2ParseErrors([]);
     setSqlText(''); setCurrentScriptName('');
@@ -625,6 +647,27 @@ export default function DataFlowApp({
 
   // Top panel always shows L1 as navigation graph (per requirement §3)
   const graphData = l1Graph;
+
+  // ── #331: 4-way L2 view toggle ─────────────────────────────────────
+  // 'flow' / 'full' share the FULL payload and toggle visibility client-side
+  // (flowNodeIds/flowEdgeIds). 'flow-merged' / 'full-merged' are a DISTINCT
+  // node+edge set (the line-merged pass), so they render from their own
+  // payload — passing a different graphData rebuilds the cytoscape instance
+  // and runs layout (never a client-side filter over the full graph).
+  const isL2Merged = l2ViewMode === 'flow-merged' || l2ViewMode === 'full-merged';
+  const l2GraphData = useMemo(() => {
+    const full = (l2Result && l2Result.full_graph) || l2Graph;
+    if (!l2Result) return l2Graph;
+    const merged = l2ViewMode === 'flow-merged'
+      ? l2Result.flow_only_merged
+      : l2ViewMode === 'full-merged'
+        ? l2Result.full_merged
+        : null;
+    // Defensive: only render a merged view when it actually carries nodes
+    // (an empty/absent merged payload falls back to the full graph).
+    if (merged && Array.isArray(merged.nodes) && merged.nodes.length > 0) return merged;
+    return full;
+  }, [l2Result, l2ViewMode, l2Graph]);
 
   // Breadcrumb navigation
   const breadcrumb = [];
@@ -860,17 +903,17 @@ export default function DataFlowApp({
               </div>
             )}
             <DataFlowGraph
-              graphData={(l2Result && l2Result.full_graph) || l2Graph}
+              graphData={l2GraphData}
               level="L2"
               layoutMode={layoutMode}
               breadcrumb={[]}
               onEdgeClick={handleEdgeClick}
               onCanvasTap={clearEdgeSelection}
               selectedEdgeId={selectedEdge?.id}
-              flowNodeIds={l2Result?.flow_node_ids}
-              flowEdgeIds={l2Result?.flow_edge_ids}
-              flowOnly={flowOnly}
-              onFlowOnlyChange={setFlowOnly}
+              viewMode={l2ViewMode}
+              onViewModeChange={setL2ViewMode}
+              flowNodeIds={isL2Merged ? undefined : l2Result?.flow_node_ids}
+              flowEdgeIds={isL2Merged ? undefined : l2Result?.flow_edge_ids}
               savedPositions={resumeLayouts[resumeLayoutKey('l2', currentScriptName)]}
               onPositionsChange={(positions) => handlePositionsChange('l2', positions)}
             />

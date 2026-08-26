@@ -394,6 +394,18 @@ body { background: var(--bg-app); color: var(--ink-900); }
   background: var(--bg-surface); user-select: none; white-space: nowrap;
 }
 .flow-only-toggle input { margin: 0; cursor: pointer; }
+/* L2 4-way view toggle (#331) — toolbar select, styled like the small
+   toolbar buttons (replaces the flow-only checkbox). */
+.flow-mode-toggle {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.7rem; color: var(--ink-600); cursor: pointer;
+  padding: 2px 8px; border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg-surface); user-select: none; white-space: nowrap;
+}
+.flow-mode-toggle select.flow-mode-select {
+  margin: 0; cursor: pointer; font-size: 0.7rem; color: var(--ink-600);
+  background: var(--bg-surface); border: none; outline: none;
+}
 .graph-canvas { background: var(--bg-app); }
 .dataflow-legend {
   display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 4px 8px;

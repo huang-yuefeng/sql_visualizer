@@ -58,11 +58,30 @@ export function fitAllElements(cy, { flowOnly, flowNodeIds, flowEdgeIds } = {}, 
  */
 export function applyFlowVisibility(cy, { flowNodeIds, flowEdgeIds, flowOnly } = {}) {
   if (!cy || (typeof cy.destroyed === 'function' && cy.destroyed())) return;
-  if (!flowOnly || !Array.isArray(flowNodeIds) || flowNodeIds.length === 0) {
+  if (!flowOnly) {
     cy.elements().show();
     return;
   }
-  const nodeSet = new Set(flowNodeIds);
+  let nodeIds = Array.isArray(flowNodeIds) ? flowNodeIds : [];
+  // Edge-only closure: `flowOnly` is truthy but the node set is empty while
+  // the edge set is non-empty. The closure nodes are then derived from the
+  // closure edges' source/target endpoints (the edge set is part of the same
+  // flow closure — `resolveFlowOnly` already returns true for it, so this
+  // branch must never fall through to "show the full graph").
+  if (nodeIds.length === 0 && Array.isArray(flowEdgeIds) && flowEdgeIds.length > 0) {
+    const edgeIdSet = new Set(flowEdgeIds);
+    const derived = [];
+    cy.edges().forEach(e => {
+      const id = typeof e.id === 'function' ? e.id() : e.id;
+      if (!edgeIdSet.has(id)) return;
+      const srcId = typeof e.data === 'function' ? e.data('source') : undefined;
+      const tgtId = typeof e.data === 'function' ? e.data('target') : undefined;
+      if (srcId != null) derived.push(srcId);
+      if (tgtId != null) derived.push(tgtId);
+    });
+    nodeIds = derived;
+  }
+  const nodeSet = new Set(nodeIds);
   const edgeSet = new Set(flowEdgeIds || []);
   cy.nodes().forEach(n => {
     const id = typeof n.id === 'function' ? n.id() : n.id;

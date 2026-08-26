@@ -44,11 +44,21 @@ def _zip_bytes():
 
 @pytest.fixture(autouse=True)
 def _cleanup():
-    """Restore the in-memory session store and drop any test workspaces."""
+    """Restore the in-memory session store, the on-disk account index, and drop
+    any test workspaces.
+
+    ``delete_workspace()`` only rmtree's the directory — it leaves the creator's
+    users.json index row behind, so repeated runs of these HTTP-path tests
+    (``client.post("/api/workspace")`` → ``add_workspace_to_index``) accumulate
+    orphaned index rows and fill ``MAX_WORKSPACES_PER_USER`` → later creates
+    return 409. Snapshot/restore the account store alongside the dir sweep.
+    """
     auth_service.reset_for_tests()
     before = set(p.name for p in WORKSPACE_ROOT.iterdir())
+    users_before = auth_service.load_users()
     yield
     auth_service.reset_for_tests()
+    auth_service.save_users(users_before)
     for p in WORKSPACE_ROOT.iterdir():
         if p.is_dir() and p.name not in before:
             delete_workspace(p.name)
@@ -90,6 +100,18 @@ def test_unknown_username_rejected():
 
 def test_wrong_password_rejected(_provisioned_user):
     assert _login("alice@hsbc.com", "wrong-pw").status_code == 401
+
+
+def test_login_backoff_async_nonblocking_roundtrip(_provisioned_user):
+    # H-S1: the failed-login backoff + PBKDF2 verify run off the event loop
+    # (asyncio.to_thread / asyncio.sleep). Repeated failed logins still return
+    # 401 (the backoff sleep is awaited, not time.sleep), and a correct login
+    # still opens a session afterwards.
+    assert _login("alice@hsbc.com", "wrong-pw").status_code == 401
+    assert _login("alice@hsbc.com", "wrong-pw").status_code == 401
+    r = _login("alice@hsbc.com", "secret1")
+    assert r.status_code == 200
+    assert r.json()["username"] == "alice@hsbc.com"
 
 
 def test_username_format_validation():

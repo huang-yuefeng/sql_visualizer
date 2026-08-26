@@ -140,17 +140,24 @@ export default function DataFlowGraph(props) {
     graphData, level, layoutMode, onOpenL2,
     onEdgeClick, onToggleLayout, selectedEdgeId,
     onCanvasTap,
-    // L2 flow toggle (View 1 flow-only / View 2 full): flowNodeIds /
-    // flowEdgeIds are the target-field flow closure from the L2 response;
-    // flowOnly is the current toggle state (null = disabled, always full);
-    // onFlowOnlyChange notifies the parent.
-    flowNodeIds, flowEdgeIds, flowOnly, onFlowOnlyChange,
+    // L2 flow toggle (#331, four modes): flowNodeIds / flowEdgeIds are the
+    // target-field flow closure from the L2 response (used only by the
+    // 'flow' mode's client-side filter); viewMode selects the view —
+    // 'flow' | 'full' | 'flow-merged' | 'full-merged' | null (disabled);
+    // onViewModeChange notifies the parent.
+    flowNodeIds, flowEdgeIds, viewMode, onViewModeChange,
     // R31/A-M5 layout persistence: savedPositions = {nodeId: [x,y]} re-applied
     // on a fresh graph (resume); onPositionsChange reports drag-end positions.
     savedPositions, onPositionsChange,
   } = props;
 
   const containerRef = useRef(null);
+
+  // The cytoscape hook still takes a boolean flowOnly (client-side filter
+  // over the FULL payload). 'flow' → filter to the closure, 'full' → show
+  // everything; the merged modes render a distinct payload (no filter) and
+  // so map to null.
+  const flowOnly = viewMode === 'flow' ? true : viewMode === 'full' ? false : null;
 
   // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — the
   // client-side count feeds the toggle badge + the legend note; the
@@ -285,17 +292,21 @@ export default function DataFlowGraph(props) {
             </button>
           </>
         )}
-        {level === 'L2' && flowOnly !== null && onFlowOnlyChange && (
+        {level === 'L2' && viewMode !== null && onViewModeChange && (
           <label
-            className="flow-only-toggle"
-            title="Flow only: show only the nodes/edges carrying the searched field (View 1); off = the full script graph (View 2). Positions never change."
+            className="flow-mode-toggle"
+            title="L2 view: Flow only (closure) / Full (entire script) toggle positions without re-layout; the merged views render one SQL line per edge."
           >
-            <input
-              type="checkbox"
-              checked={flowOnly === true}
-              onChange={(e) => onFlowOnlyChange(e.target.checked)}
-            />
-            Flow only
+            <select
+              className="flow-mode-select"
+              value={viewMode}
+              onChange={(e) => onViewModeChange(e.target.value)}
+            >
+              <option value="flow">Flow only</option>
+              <option value="full">Full</option>
+              <option value="flow-merged">Flow only (merged)</option>
+              <option value="full-merged">Full (merged)</option>
+            </select>
           </label>
         )}
       </div>

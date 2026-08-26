@@ -1063,6 +1063,9 @@ def compute_field_flow(graph_data, target_table, target_field,
                                         continue
                                     for _vid in _fld.occurrence_ids:
                                         if _vid not in visited:
+                                            if __import__("os").environ.get("TRACE_FLOW"):
+                                                _vo = occ(_vid) or {}
+                                                print(f"[TRACE-contcols] DML fwd target={nid} add {_vid} {_vo.get('name')!r}/{_vo.get('variable_type')!r}@{_vo.get('line_start')} ctx={_vo.get('context')!r}")
                                             visited.add(_vid)
                                             changed = True
                                             _register(_vid)
@@ -1104,6 +1107,9 @@ def compute_field_flow(graph_data, target_table, target_field,
                 else:
                     admit = False  # NEVER types and anything unknown
                 if admit:
+                    if __import__("os").environ.get("TRACE_FLOW"):
+                        _no = occ(nb) or {}
+                        print(f"[TRACE-expand] {nid} -> {nb} et={et} fwd={fwd} read={read} op={op} nb={_no.get('name')!r}/{_no.get('variable_type')!r}@{_no.get('line_start')} ctx={_no.get('context')!r}")
                     visited.add(nb)
                     changed = True
                     _register(nb)
@@ -1161,6 +1167,9 @@ def compute_field_flow(graph_data, target_table, target_field,
                     holder = _pick_occurrence(pm, owner, st[0],
                                               o.get("context") or "", occ)
                 if holder and holder not in visited:
+                    if __import__("os").environ.get("TRACE_FLOW"):
+                        _ho = occ(holder) or {}
+                        print(f"[TRACE-ownerholder] for {nid} add holder {holder} {_ho.get('name')!r}/{_ho.get('variable_type')!r}@{_ho.get('line_start')}")
                     visited.add(holder)
                     changed = True
                     _register(holder)
@@ -1175,6 +1184,9 @@ def compute_field_flow(graph_data, target_table, target_field,
                             tv = _pick_occurrence(pm, hkey, hst[0],
                                                   ho.get("context") or "", occ)
                             if tv and tv not in visited:
+                                if __import__("os").environ.get("TRACE_FLOW"):
+                                    _tvo = occ(tv) or {}
+                                    print(f"[TRACE-phystable] for {nid} add {tv} {_tvo.get('name')!r}/{_tvo.get('variable_type')!r}@{_tvo.get('line_start')}")
                                 visited.add(tv)
                                 changed = True
                                 _register(tv)
@@ -1184,6 +1196,9 @@ def compute_field_flow(graph_data, target_table, target_field,
                 if seg.startswith("CTE{") and "}" in seg:
                     cte_id = _cte_occurrence(pm, seg[4:seg.index("}")], occ)
                     if cte_id and cte_id not in visited:
+                        if __import__("os").environ.get("TRACE_FLOW"):
+                            _co = occ(cte_id) or {}
+                            print(f"[TRACE-cte] for {nid} add cte {cte_id} {_co.get('name')!r}/{_co.get('variable_type')!r}@{_co.get('line_start')}")
                         visited.add(cte_id)
                         changed = True
                         _register(cte_id)
@@ -1241,6 +1256,9 @@ def compute_field_flow(graph_data, target_table, target_field,
                             break
                 if not scoped:
                     continue
+                if __import__("os").environ.get("TRACE_FLOW"):
+                    _bo = occ(nid) or {}
+                    print(f"[TRACE-bare] add {nid} {_bo.get('name')!r}/{_bo.get('variable_type')!r}@{_bo.get('line_start')}")
                 visited.add(nid)
                 changed = True
                 _register(nid)

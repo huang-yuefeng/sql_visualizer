@@ -49,7 +49,7 @@ from app.models.variable import VariableDefinition, VariableType
 # physical table keeps its own scope-local case instead of folding to the
 # physical majority spelling (which would merge the alias node into the
 # physical source_table node in L2).
-EXTRACTOR_VERSION = "2026-08-25.3"
+EXTRACTOR_VERSION = "2026-08-26.1"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
@@ -730,6 +730,7 @@ class _RoleBasedExtractor:
         self._schema_candidates: list[dict] = []  # {field, visible_tables, loc, contexts}
         self._candidate_keys: set = set()         # (field, tuple(visible)) dedup
         self._derived_aliases: dict[str, set[str]] = {}  # scope → {casefolded derived alias}
+        self._alias_names: dict[str, set[str]] = {}  # scope → {casefolded table alias} (M-E3b)
         # Pre-tokenize SQL for accurate position lookups (Bug 4 fix)
         try:
             self._tokens = list(sqlglot.Tokenizer().tokenize(sql_text))
@@ -1313,10 +1314,19 @@ class _RoleBasedExtractor:
                     else t
                     for t in v.source_tables
                 ]
-            # 3. qualified column var name qualifier
+            # 3. qualified column var name qualifier — M-E3b: only fold a
+            # qualifier that is a KNOWN PHYSICAL table in this var's scope.
+            # A scope-local alias/CTE/derived qualifier whose casefold
+            # collides with a physical table elsewhere must NOT be relabeled
+            # (`SELECT a.x FROM t1 a; SELECT * FROM A;` must keep `a.x`, not
+            # fold it to `A.x`) — mirror of step 2's guard, plus the alias
+            # registry (aliases are already resolved out of source_tables).
             if v.variable_type == VariableType.COLUMN and "." in (v.name or ""):
                 qual, _, col = (v.name or "").partition(".")
-                if qual.casefold() in self._physical_table_names:
+                if (qual.casefold() in self._physical_table_names
+                        and not self._is_cte_name(qual, v.context)
+                        and not self._is_derived_alias(qual, v.context)
+                        and not self._is_alias_name(qual, v.context)):
                     v.name = f"{self._canonical_spelling(qual)}.{col}"
         # 4. script_schemas keys (merge case-folded duplicates, first-wins)
         merged: dict[str, dict] = {}
@@ -2104,6 +2114,12 @@ class _RoleBasedExtractor:
                 scope.tables.append((_clean(table.db or ""), name))
             if alias:
                 scope.aliases[alias] = name
+                if alias != name:
+                    # M-E3b: only a REAL alias (AS a, alias != table) is a
+                    # scope-local handle; a bare reference has alias_or_name
+                    # == table name and must NOT enter the alias registry.
+                    self._alias_names.setdefault(
+                        self._scope_top(context), set()).add(alias.casefold())
 
     # ── Task B: LATERAL VIEW / VALUES / UNNEST alias registration ────
     # The audit found three table-like constructs whose table var/alias
@@ -2505,6 +2521,10 @@ class _RoleBasedExtractor:
     def _is_derived_alias(self, name: str, context: str | None = None) -> bool:
         """True when `name` is a derived-table alias in `context`'s scope."""
         return name.casefold() in self._derived_aliases.get(self._scope_top(context), set())
+
+    def _is_alias_name(self, name: str, context: str | None = None) -> bool:
+        """True when `name` is a table alias in `context`'s scope (M-E3b)."""
+        return name.casefold() in self._alias_names.get(self._scope_top(context), set())
 
     def _canonical_spelling(self, name: str) -> str:
         """Majority spelling of a physical-table name from the token vote."""
@@ -3008,6 +3028,8 @@ class _RoleBasedExtractor:
                 # canonically (`tgt.id` → evidence under "customers", never
                 # under the alias spelling).
                 merge_scope.aliases[alias] = target_name
+                self._alias_names.setdefault(
+                    self._scope_top(context), set()).add(alias.casefold())
             self._physical_table_names.add(target_name.casefold())
 
         # Source (USING)

@@ -827,6 +827,23 @@ def node_realized(c_label, c_line, nodes, inc):
     return False
 
 
+def served_node_realizes_any(nid, nd, canon_nodes, inc):
+    """True when served node `nid` realizes ≥1 canonical node (label + line
+    evidence). M-BM1: true set precision needs |realizer served nodes| / |served
+    nodes| — a merged served node realizes several same-label canonical
+    entries, so counting canonical ENTRIES overcounts the intersection and can
+    push precision past 1.0 (masking a junk served node)."""
+    for c in canon_nodes:
+        if _norm(nd["label"]) != _norm(c["label"]):
+            continue
+        c_line = c.get("line")
+        if c_line is None or c_line == 0:
+            return True
+        if c_line in inc[nid]:
+            return True
+    return False
+
+
 def dml_phantom_field_dups(nodes):
     """R11-2 regression guard (Round 12, 2026-08-10) + J12-10 stage 3.
 
@@ -881,25 +898,38 @@ def compute_case(seed, script, direction):
     canon_nodes = _canon_nodes(seed, script, direction)
     realized = [c for c in canon_nodes
                 if node_realized(c["label"], c["line"], nodes, inc)]
+    realized_served = [nid for nid, nd in nodes.items()
+                       if served_node_realizes_any(nid, nd, canon_nodes, inc)]
     hl_a = {e["highlight_line"] for e in edges if e["highlight_line"] >= 1}
     hl_b = {e["anchor"] for e in rows}
     counts = {
-        "nodes": (len(nodes), len(canon_nodes), len(realized)),
+        "nodes": (len(nodes), len(canon_nodes), len(realized_served)),
         "edges": (len(edges), len(rows), len(matched)),
         "highlights": (len(hl_a), len(hl_b), len(hl_a & hl_b)),
     }
+    recall_num = {
+        "nodes": len(realized),
+        "edges": len(matched),
+        "highlights": len(hl_a & hl_b),
+    }
     # J12-12 (2026-08-11): the two-sided pair replaces the Jaccard score.
     # recall = |A∩B|/|B|, precision = |A∩B|/|A|; A = B ⟺ both = 1.0
-    # (genuine set equality, never a size check). Counts unchanged —
-    # ni is the realized/matched/intersection count, so a direction may
-    # exceed 1.0 (one response node realizes several same-label canonical
-    # entries); the floor is "at least 1.0".
+    # (genuine set equality, never a size check).
+    # M-BM1 (2026-08-26): recall and precision use DIFFERENT numerators for
+    # nodes. recall = canonical nodes realized / |canonical nodes| (coverage
+    # of B). precision = realizer served nodes / |served nodes| (coverage of
+    # A) — a merged served node realizes several same-label canonical
+    # entries, so counting canonical ENTRIES overcounts and pushes precision
+    # past 1.0, which the old `>= 1.0` floor then could not distinguish from
+    # an extra junk node. `counts` now carries the true set intersection
+    # (realizer nodes) in its third slot; `recall_num` holds the recall
+    # numerator per feature.
     # R29 empty-closure guard (2026-08-12): a direction whose ground
     # truth projects EMPTY (B = ∅ — no writers / no readers) never
     # produces a 0/0 NaN — recall = 1.0 (nothing lost) and precision =
     # 1.0 iff A is empty too (a non-empty A scores 0.0 precision and the
     # test adds the explicit empty-closure violation problem string).
-    scores = {f: {"recall": ni / nb if nb else 1.0,
+    scores = {f: {"recall": recall_num[f] / nb if nb else 1.0,
                   "precision": ni / na if na else 1.0}
               for f, (na, nb, ni) in counts.items()}
     return {

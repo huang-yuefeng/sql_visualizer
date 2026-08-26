@@ -356,3 +356,18 @@ class TestCaseSensitivePhysicalTableIdentity:
         assert alias_names == {"v"}, alias_names
         # the INSERT alias keeps its own spelling, sourced to its target T
         assert tables["v"].source_tables == ["T"], tables["v"].source_tables
+
+    def test_alias_qualifier_not_folded_to_physical_spelling(self):
+        """A qualified column whose qualifier is a scope-local ALIAS keeps
+        its own spelling — it is never folded to a colliding physical
+        table's majority spelling (M-E3b)."""
+        sql = ("SELECT a.x FROM t1 a;\n"
+               "SELECT * FROM A;\n"
+               "SELECT * FROM A;\n"
+               "SELECT * FROM A;")
+        r = extract_variables_from_sql(sql, "case_alias_qual")
+        cols = {v.name for v in r.variables
+                if v.variable_type == VariableType.COLUMN}
+        # a.x keeps the alias spelling; it is NOT folded to A.x
+        assert "a.x" in cols, cols
+        assert "A.x" not in cols, cols

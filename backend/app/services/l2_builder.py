@@ -1901,6 +1901,8 @@ def build_line_merged_edges(edges: list, nodes: list) -> list:
             continue  # rule 5 — no SQL-line reference
         src = parent_of.get(ed.get("source"), ed.get("source"))
         tgt = parent_of.get(ed.get("target"), ed.get("target"))
+        if not src or not tgt:
+            continue  # L-E6 — malformed edge with no endpoint; cannot promote
         by_line.setdefault(line, []).append((src, tgt))
 
     merged = []
@@ -1920,13 +1922,16 @@ def build_line_merged_edges(edges: list, nodes: list) -> list:
                 pairs[key]["dirs"].add((src, tgt))
 
         non_self = [k for k, rec in pairs.items() if not rec["self"]]
-        self_loops = [k for k, rec in pairs.items() if rec["self"]]
 
         for (a, b), rec in sorted(pairs.items()):
             if rec["self"]:
-                # rule 4 — kept ONLY as the line's sole edge (no other
-                # table pair, and no second self-loop table on the line).
-                if non_self or len(self_loops) > 1:
+                # rule 4 — kept ONLY as the line's sole edge (absorbed into
+                # the line's non-self edge(s) when any exist). A line of only
+                # self-loops keeps EVERY self-loop: two distinct self-loops
+                # (T1→T1 + T2→T2) are each their own table's sole edge and
+                # must both survive (L-E5 — the old `len(self_loops) > 1`
+                # check dropped them both).
+                if non_self:
                     continue
                 source = target = a
                 bidirectional = False

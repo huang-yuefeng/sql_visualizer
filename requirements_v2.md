@@ -68,7 +68,7 @@ autocomplete of §2) is limited to:
 ---
 
 ### Amendment (2026-08-25) — code-review decisions: access model + security hardening
-(walkthrough of `wiki/CODE_REVIEW_2026-08-24.md`, one-by-one; implementation queued, awaiting GO)
+(walkthrough of `wiki/CODE_REVIEW_2026-08-24.md`, one-by-one; IMPLEMENTED — v3.3.165)
 
 Decisions taken during the 2026-08-25 review walkthrough. Coding reference for the pending
 implementation batch — tasks #303 (H1), #308 (M-S1), #309 (M-L1), #310 (M-L2), #315 (M-Po3),
@@ -106,6 +106,8 @@ removal). Traceability rows: see `wiki/REQUIREMENTS_TRACEABILITY.md` "Code-revie
 ---
 
 ### Amendment (2026-08-25) — L2 line-merged views (flow-only + full)
+
+> **Status:** IMPLEMENTED — v3.3.166 (#329/#330).
 
 §3 amended: L2 gains **two line-merged views** on top of the existing flow-only / full
 closures. They simplify the **edge** layer only — the **node set is identical** to the

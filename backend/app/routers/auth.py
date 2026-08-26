@@ -5,8 +5,8 @@ wiki/R31_IMPLEMENTATION.md (§2.5). All endpoints require a valid session
 except login itself (and health, which lives in main.py).
 """
 
+import asyncio
 import os
-import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -58,11 +58,14 @@ async def login(request: Request, body: dict):
     if not auth_service.verify_username_format(username):
         raise HTTPException(status_code=401, detail="account not provisioned")
     ip = _client_ip(request)
-    token = auth_service.login(username, password, ip)
+    # H-S1: PBKDF2 (600k iterations) is CPU-bound — run it off the event loop
+    # so a few failed logins can't stall every other request (self-DoS).
+    token = await asyncio.to_thread(auth_service.login, username, password, ip)
     if token is None:
         # #303 H1: exponential backoff on failed login — per-username primary
-        # + per-IP secondary, NO account lockout.
-        time.sleep(auth_service.record_failed_login(username, ip))
+        # + per-IP secondary, NO account lockout. Sleep async (not time.sleep)
+        # so the backoff itself never blocks the event loop either.
+        await asyncio.sleep(auth_service.record_failed_login(username, ip))
         raise HTTPException(status_code=401, detail="invalid username or password")
     auth_service.clear_failed_logins(username, ip)
     resp = JSONResponse({"username": username, "ip": ip})

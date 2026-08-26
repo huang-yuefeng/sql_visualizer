@@ -31,8 +31,17 @@ describe('filterNames', () => {
     'stzfxxb_bak',
   ];
 
-  it('returns first 20 (alphabetical) for empty query', () => {
-    expect(filterNames(names, '')).toEqual([...names].sort());
+  it('returns first 20 (alphabetical, case-insensitive) for empty query', () => {
+    // A bare .sort() would put 'LENDING_REF'/'STZFJE_A' (uppercase) first;
+    // the ranking must be stable regardless of case.
+    expect(filterNames(names, '')).toEqual([
+      'east5_stzfxxb',
+      'east5_stzfxxb_old',
+      'LENDING_REF',
+      'stzfje',
+      'STZFJE_A',
+      'stzfxxb_bak',
+    ]);
   });
 
   it('substring primary: two hits → no typo fallback', () => {

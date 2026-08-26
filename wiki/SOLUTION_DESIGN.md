@@ -1804,36 +1804,38 @@ removed (no caller passes it).
 
 ---
 
-# Multi-user identity & workspace collaboration — local accounts + IP audit + layout resume (2026-08-19, design settled — awaiting go)
+# Multi-user identity & workspace collaboration — local accounts + IP audit + layout resume (2026-08-19, SHIPPED v3.3.162 — follow-ups through v3.3.166)
 
 > Full decision log: `wiki/USER_IDENTITY_AND_WORKSPACE_EMAILS.md`. This section records the
-> **solution architecture**. No code changed.
+> **solution architecture as shipped** (see `wiki/R31_IMPLEMENTATION.md` for the implementation
+> log and `wiki/REQUIREMENTS_TRACEABILITY.md` R31 for the 2026-08-24/25 follow-ups).
 
 ## 1. The problem it solves
 The service is single-user today (no auth). New requirement: multi-user sharing of **workspaces**
 by id, with identity, an audit trail, and **layout persistence** so manual L1/L2 layout work
 survives resume. Email was the original vehicle for login + memos but is **unusable** on the target
-network (no mail path, verified) — everything moved **in-app**: local accounts, an in-app
-notification inbox, and a per-workspace activity log.
+network (no mail path, verified) — everything moved **in-app**: local accounts and a per-workspace
+activity log.
 
 ## 2. Entities & stores
 | Entity | Store | Fields |
 |--------|-------|--------|
 | User account | `data/users.json` | `username` (`*@hsbc.com`, enforced), `salt`, `password_hash` (PBKDF2), `created_at`, `last_login_ip`, `workspaces:[{ws_id, role, first_opened, last_opened}]` |
-| Notification inbox | `data/notifications/{username}.json` (one file per user, kept forever) | `{id, kind: memo|alert, title, body, read, created_at}` |
 | Workspace | `WORKSPACE_ROOT/{ws_id}/` | existing scripts + `cache/views.json` (search/filter result **payloads**) |
 | Workspace meta | `…/{ws_id}/meta.json` | `creator_username`, `created_at`, `state_version`, last-search **ref** (exactly one L1) + opened-L2 registry with per-view `{node_id:[x,y]}` positions — lightweight state only; the payloads stay in `cache/views.json` |
-| Activity log | `…/{ws_id}/activity.json` (append-only) | `{username, ip, ts, action, detail}` |
-| Session (in-memory) | `sessions` | token → `{username, ip, last_active}`; 30-min idle TTL |
-| Open visits (in-memory) | `open_visits` | `username → {ws_id → {opened_at, last_active}}` (multi-tab) |
+| Activity log | `…/{ws_id}/activity.json` (append-only, `0600`) | `{username, ip, ts, action, detail}` |
+| Session (in-memory) | `sessions` | token → `{username, ip}`; **zero expiry** (#279 — lives until logout or restart) |
 
-## 3. Auth / session / visit flow
-- **Login entrance page gates every page** (all endpoints except health). Login = `*@hsbc.com` +
-  password; unknown username **self-registers**; `HttpOnly` cookie session; client IP recorded.
-- **Password recovery = re-register** (replaces the account's inbox + index; workspaces untouched).
-- A **visit** = one user on one workspace; ends on **close / logout / 30-min idle expiry**. Several
-  visits may be open at once (tabs). On visit end → memo to the visitor + (if visitor ≠ creator)
-  alert to the creator, written to the in-app inboxes.
+## 3. Auth / session flow
+- Login lives **in the data-flow debugger's left panel** (#293) and gates only the Data Flow
+  Debugger; SQL Analysis is public. Login = `*@hsbc.com` + password; accounts are
+  **pre-provisioned from CONFIG** (`PROVISIONED_USERS`) — unknown usernames rejected, **no
+  self-registration** (#269); `HttpOnly` + SameSite=Lax session cookie; client IP recorded.
+- **Password recovery = admin-mediated reset** (re-provision from config, force-synced at startup);
+  no HTTP register/reset endpoint (#269).
+- Sessions have **zero expiry** (#279): a SESSION cookie (no max_age), the in-memory session lives
+  until logout or server restart. Per-user visit logging was **dropped** (#285) — no visit
+  memos / creator alerts.
 
 ## 4. Shared workspace state + layout
 - Shared, **current-state-only**: one L1 (last search) + opened L2s; **last-writer-wins**; a
@@ -1842,11 +1844,12 @@ notification inbox, and a per-workspace activity log.
   backend stores **current positions only** per view (file never grows). Resume reapplies positions,
   skipping ids that no longer exist.
 
-## 5. Activity log + notifications
+## 5. Activity log (audit)
 - Every workspace op → `activity.json` `{username, ip, ts, action, detail}` (the "who modified
-  this" audit, readable by any opener).
-- Notifications per user; title `[SQL Data Flow Visualizer] Workspace {ws_id} · {time}`; **pull**
-  model (unread badge + inbox on next login).
+  this" audit, readable by any opener); the client IP is captured (#316 M-Po4).
+- The in-app **notification subsystem is removed** (#322): no per-user inbox, no
+  `/api/notifications` endpoints — no producers remained after per-user visit logging was dropped
+  (#285).
 
 ## 6. Quota / removal / delete
 - Quota: `MAX_WORKSPACES_PER_USER` (default 10) on the per-user index; at the cap, opening a new
@@ -1861,17 +1864,16 @@ notification inbox, and a per-workspace activity log.
   a new one during a run → HTTP 409 "system busy — please wait".
 
 ## 8. API surface (additions)
-`POST /api/workspace` (create), `/api/auth/{register,login,logout}`, `/api/auth/me`,
+`POST /api/workspace` (create), `/api/auth/{login,logout}`, `/api/auth/me`,
 `/api/workspaces` (index + cap), `/api/workspace/{id}/{close,activity,resume}`,
 `DELETE /api/workspace/{id}` (creator), `DELETE /api/workspaces/{id}` (own history),
-`/api/workspace/{id}/views/{vid}/layout` (PUT ≤1/s), `/api/notifications` +
-`/notifications/{id}/read`. All behind login; health stays public. The existing
+`/api/workspace/{id}/views/{vid}/layout` (PUT ≤1/s). All behind login; health stays public. The existing
 `POST /api/workspace/{id}/search` runs under the one global heavy-op gate together with
 `/analyze` + `/analyze_multi` (HTTP 409 "system busy — please wait").
 
 ## 9. Frontend (additions)
-Login entrance page (self-register + re-register), **My workspaces dashboard** (quota meter,
-Remove-from-list, creator Delete), workspace-id resume box, history panel, notification bell,
+Login form in the data-flow debugger left panel (#293), **My workspaces** section (quota meter,
+Remove-from-list, creator Delete), workspace-id resume box, history panel,
 "state changed by X" toast, "system busy" message, close-workspace control, opened-L2 strip,
 layout autosave (≤1/s + final on close).
 
@@ -1883,7 +1885,7 @@ with endpoint gating (one release, never an unreachable app). Verify existing e2
 
 # L2 line-merged views — one SQL line ≈ one edge (2026-08-25)
 
-> **Status:** Requirement recorded (R32.1/R32.2/R32.3). Design; no source change yet.
+> **Status:** IMPLEMENTED — v3.3.166 (R32.1/R32.2/R32.3 shipped; #329/#330).
 
 ## 1. The requirement
 

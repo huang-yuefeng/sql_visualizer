@@ -5035,7 +5035,7 @@ deploy proceeds normally. No internet-connecting command added (offline rule int
 
 ---
 
-## ISSUE-4 · Case-split table index → uppercase `EAST5_STZFXXB` search shows only `p_dt` (2026-08-25, OPEN)
+## ISSUE-4 · Case-split table index → uppercase `EAST5_STZFXXB` search shows only `p_dt` (2026-08-25, IMPLEMENTED — v3.3.166)
 
 **Symptom (user report, 2026-08-25):** in the Data Flow Debugger, selecting the table
 `EAST5_STZFXXB` (uppercase — the spelling used by the script's operation-log
@@ -5175,10 +5175,9 @@ Consequences for the fix:
    a false regression.
 3. Frontend: search uppercase `EAST5_STZFXXB` → dropdown shows 36 fields.
 
-**Status: OPEN** (plan ready — awaiting user testing + command to implement; no-source-changes
-division of labor).
+**Status: IMPLEMENTED — v3.3.166** (shipped).
 
-## ISSUE-5 · Jaccard benchmark label comparison must be case-insensitive (2026-08-25, OPEN — pre-req of ISSUE-4)
+## ISSUE-5 · Jaccard benchmark label comparison must be case-insensitive (2026-08-25, IMPLEMENTED — v3.3.166; pre-req of ISSUE-4)
 
 **Context.** ISSUE-4's fix canonicalizes table-name spelling at the extractor (frequency-based,
 case-insensitive identity). The Jaccard benchmark compares the served L2 output against canonical
@@ -5218,6 +5217,10 @@ def _norm(label):
 differ only by case are the same identifier in this domain, so folding cannot introduce a false
 match.
 
+**NOTE — not shipped:** this fully case-folding `_norm` was NOT shipped — the shipped design folds
+only the map-key lookup (case-insensitive `NORMALIZE_MAP` key match); the returned value keeps its
+canonical spelling.
+
 **No floor change.** The comparison change is monotonic in the safe direction: it can only raise
 |A∩B| (fewer false mismatches), so recall and precision can only increase or stay equal — every
 existing `FLOORS[seed][feat]` still holds. No `FLOORS` edit.
@@ -5232,14 +5235,13 @@ case-consistent, so the raw key stays correct. No change there.
    — all seeds/directions still at their floors (no false `REGRESSION` flags).
 2. Sanity: with a deliberately re-cased emitted label, `_norm("EAST5_STZFXXB") == _norm("east5_stzfxxb")`.
 
-**Status: OPEN** (plan ready — no-source-changes; implement together with ISSUE-4, or before it
-so the gate is case-blind first).
+**Status: IMPLEMENTED — v3.3.166** (shipped; see NOTE above — only the map-key lookup is folded).
 
 ---
 
 ## ISSUE-6 — L2 line-merged views (new requirement, 2026-08-25)
 
-**Status: OPEN** (design recorded; implementation queued as #329/#330)
+**Status: IMPLEMENTED — v3.3.166** (#329/#330 shipped).
 
 **Requirement (user, 2026-08-25):** two new L2 views — `flow-only-merged` and
 `full-merged` — that simplify the *edge* layer so that **one SQL line ≈ one edge**.

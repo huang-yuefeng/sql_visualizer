@@ -84,6 +84,7 @@ def save_users(users: dict) -> None:
     path = _users_path()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(users))
+    tmp.chmod(0o600)
     tmp.replace(path)
 
 
@@ -240,6 +241,11 @@ _failed_users: dict[str, int] = {}
 _failed_ips: dict[str, int] = {}
 BACKOFF_BASE_SECONDS = 0.05
 BACKOFF_CAP_SECONDS = 5.0
+# Cap on the failed-login counters: bounds per-username/per-IP state against
+# unbounded growth from attackers behind shared NATs / spoofed IPs. The delay
+# is already capped by BACKOFF_CAP_SECONDS (reached at ~8 failures), so this
+# cap changes no observable backoff behavior.
+_FAILED_LOGIN_CAP = 10
 
 
 def _backoff_delay(failures: int) -> float:
@@ -255,11 +261,11 @@ def record_failed_login(username: str, ip: str) -> float:
     the username counter. Callers sleep this before returning 401.
     """
     with _lock:
-        user_failures = _failed_users.get(username, 0) + 1
+        user_failures = min(_failed_users.get(username, 0) + 1, _FAILED_LOGIN_CAP)
         _failed_users[username] = user_failures
         failures = user_failures
         if ip:
-            ip_failures = _failed_ips.get(ip, 0) + 1
+            ip_failures = min(_failed_ips.get(ip, 0) + 1, _FAILED_LOGIN_CAP)
             _failed_ips[ip] = ip_failures
             failures = max(failures, ip_failures)
         return _backoff_delay(failures)

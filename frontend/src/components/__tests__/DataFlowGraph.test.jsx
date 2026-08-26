@@ -295,16 +295,16 @@ describe('DataFlowGraph — VT output(X) display label decoration', () => {
   });
 });
 
-// ── L2 flow toggle (View 1 flow-only / View 2 full) ──────────────────
-describe('DataFlowGraph — L2 flow-only toggle', () => {
+// ── #331: L2 4-way view toggle (flow / full / flow-merged / full-merged) ──
+describe('DataFlowGraph — L2 4-way view toggle', () => {
   const flowProps = {
     flowNodeIds: ['n1', 'n2'],
     flowEdgeIds: ['e1'],
-    flowOnly: true,
-    onFlowOnlyChange: vi.fn(),
+    viewMode: 'flow',
+    onViewModeChange: vi.fn(),
   };
 
-  it('passes the flow closure ids + toggle state into the cytoscape hook', () => {
+  it('passes the flow closure ids + derived flowOnly into the cytoscape hook (flow mode)', () => {
     render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} />);
     const options = lastHookOptions();
     expect(options.flowNodeIds).toEqual(['n1', 'n2']);
@@ -312,45 +312,55 @@ describe('DataFlowGraph — L2 flow-only toggle', () => {
     expect(options.flowOnly).toBe(true);
   });
 
-  it('renders the toggle and defaults to checked (flow-only ON) on a matched result', () => {
+  it('derives flowOnly=false for full mode and null for the merged modes', () => {
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} viewMode="full" />);
+    expect(lastHookOptions().flowOnly).toBe(false);
+
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} viewMode="flow-merged" />);
+    expect(lastHookOptions().flowOnly).toBe(null);
+
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} viewMode="full-merged" />);
+    expect(lastHookOptions().flowOnly).toBe(null);
+  });
+
+  it('renders the 4-option select, defaulting to "Flow only" on a matched result', () => {
     render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} />);
-    const cb = screen.getByRole('checkbox');
-    expect(cb).toBeInTheDocument();
-    expect(cb).toBeChecked();
+    const sel = screen.getByRole('combobox');
+    expect(sel).toBeInTheDocument();
+    expect(sel.value).toBe('flow');
+    expect(Array.from(sel.options).map(o => o.textContent)).toEqual([
+      'Flow only', 'Full', 'Flow only (merged)', 'Full (merged)',
+    ]);
   });
 
-  it('does not render the toggle when flowOnly is null (no seed / not matched)', () => {
-    render(<DataFlowGraph graphData={graphData} level="L2" flowOnly={null} onFlowOnlyChange={vi.fn()} />);
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  it('does not render the select when viewMode is null (no seed / not matched)', () => {
+    render(<DataFlowGraph graphData={graphData} level="L2" viewMode={null} onViewModeChange={vi.fn()} />);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
-  it('does not render the toggle for L1', () => {
+  it('does not render the select for L1', () => {
     render(<DataFlowGraph graphData={graphData} level="L1" {...flowProps} />);
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
-  it('unchecking calls onFlowOnlyChange(false) and does NOT call relayout', () => {
+  it('changing the mode calls onViewModeChange(value) and does NOT call relayout', () => {
     const onChange = vi.fn();
     render(<DataFlowGraph graphData={graphData} level="L2" layoutMode="snake"
-      {...flowProps} onFlowOnlyChange={onChange} />);
-    // the layoutMode effect fires relayout once on mount — clear it so the
-    // assertion below isolates the toggle click
+      {...flowProps} onViewModeChange={onChange} />);
     relayoutMock.mockClear();
-    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'full' } });
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith(false);
-    // the toggle is client-side .hide()/.show() — never a layout
+    expect(onChange).toHaveBeenCalledWith('full');
+    // mode switching is driven by the parent (payload swap / visibility) —
+    // the graph component never re-layouts on its own
     expect(relayoutMock).not.toHaveBeenCalled();
   });
 
-  it('checking (turning flow-only back ON) calls onFlowOnlyChange(true) without relayout', () => {
+  it('selecting a merged mode calls onViewModeChange with the merged value', () => {
     const onChange = vi.fn();
-    render(<DataFlowGraph graphData={graphData} level="L2" layoutMode="snake"
-      {...flowProps} flowOnly={false} onFlowOnlyChange={onChange} />);
-    relayoutMock.mockClear();
-    fireEvent.click(screen.getByRole('checkbox'));
-    expect(onChange).toHaveBeenCalledWith(true);
-    expect(relayoutMock).not.toHaveBeenCalled();
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} onViewModeChange={onChange} />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'full-merged' } });
+    expect(onChange).toHaveBeenCalledWith('full-merged');
   });
 });
 

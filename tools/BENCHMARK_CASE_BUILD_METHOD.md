@@ -82,7 +82,8 @@ Add the case's canonical rows to `backend/tests/jaccard_canonical.py`:
 `CANONICAL_ROWS` (edge rows: seed, endpoints, kind, anchor), `CANONICAL_NODES` /
 `CANONICAL_NODES_DIR` (per-direction node entries), and any `NORMALIZE_MAP` entries
 (alias → canonical table, and label folds). Keep the label identity case rule in
-mind — see ISSUE-5 (`_norm` case-folds; the canonical spelling must be the
+mind — see ISSUE-5 (`_norm` case-folds only the `NORMALIZE_MAP` key lookup; the
+fallback label keeps its source case, so the canonical spelling must be the
 frequency-voted physical name).
 
 ## Step 5 — register the case in the harness
