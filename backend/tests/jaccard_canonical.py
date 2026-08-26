@@ -1093,6 +1093,16 @@ CANONICAL_EDGES = [
     #    E5D7 the stmt2 WHERE filter p_dt@190 → east5_stzfxxb@190 (F1
     #    mirror). Served closure probe-verified (2026-08-25): 5 nodes /
     #    7 edges / 4 highlights {41,179,189,190}.
+    #    RE-PIN (2026-08-26, OCR-repair round): E5D4/RDE3 `stmt` moved
+    #    TOP7 → TOP11. The OCR-repaired sample (tasks #359-362) added three
+    #    partition ALTERs missing from the prior reconstruction (GTRF_GTE /
+    #    OPS_MBS / WPB_RBB @171-173) and fixed a parse gap that dropped the
+    #    WPB_CDT_Digitallending ALTER @175 — the rrcdm INSERT @179 shifted
+    #    from statement TOP7 to TOP11. The closure CONTENT is unchanged
+    #    (5 nodes / 7 edges / 4 highlights); only the write-leg statement
+    #    identity re-pins. Verified by probing the extractor's statement
+    #    contexts on the repaired sample: TOP11 = lines 179-191 (the
+    #    rrcdm job-log INSERT).
     {"row": "E5D1", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
      "src": "⟐output@0", "dst": "east5_stzfxxb@41", "type": "TABLE_FLOW", "anchor": 41, "spec": "anchor_rel_ep", "stmt": "TOP0"},
     {"row": "E5D2", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
@@ -1100,7 +1110,7 @@ CANONICAL_EDGES = [
     {"row": "E5D3", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
      "src": "p_dt@41", "dst": "⟐output@0", "type": "REF", "anchor": 41, "spec": "anchor_rel_ep"},
     {"row": "E5D4", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
-     "src": "⟐output@0", "dst": "rrcdm@179", "type": "TABLE_FLOW", "anchor": 179, "spec": "anchor_rel_ep", "stmt": "TOP7"},
+     "src": "⟐output@0", "dst": "rrcdm@179", "type": "TABLE_FLOW", "anchor": 179, "spec": "anchor_rel_ep", "stmt": "TOP11"},
     {"row": "E5D5", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
      "src": "p_dt@190", "dst": "east5_stzfxxb@189", "type": "REF", "anchor": 189, "spec": "anchor_rel_ep"},
     {"row": "E5D6", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
@@ -1126,7 +1136,7 @@ CANONICAL_EDGES = [
     {"row": "RDE2", "seed": "rrcdm", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
      "src": "⟐output@0", "dst": "data_dt@180", "type": "SCHEMA", "anchor": 180, "spec": "anchor_rel_ep", "pending": True},
     {"row": "RDE3", "seed": "rrcdm", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
-     "src": "⟐output@0", "dst": "rrcdm@179", "type": "TABLE_FLOW", "anchor": 179, "spec": "anchor_rel_ep", "stmt": "TOP7"},
+     "src": "⟐output@0", "dst": "rrcdm@179", "type": "TABLE_FLOW", "anchor": 179, "spec": "anchor_rel_ep", "stmt": "TOP11"},
     #    rrcdm↑EAST5 (data_dt upstream): the same literal write chain
     #    (URS mirror). 3 nodes / 3 edges / 2 highlights {179,180}.
     {"row": "RUE1", "seed": "rrcdm", "script": "EAST5_STZFXXB_M.sql", "direction": "upstream",

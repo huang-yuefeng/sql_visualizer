@@ -19,7 +19,7 @@ SET odps.sql.decimal.odps2=true;
 INSERT OVERWRITE TABLE bdm_acc_loan_info PARTITION(data_dt='${load_date}',CHARGE_DEPARTMENT='OPS_CLBS_PLoan');
 --PLOAN 部分贷款
 SELECT distinct a.acnw AS LENDING_REF,  -- 借据号
-NULL AS PCBACCT_NO,  -- 表内账号
+NULL AS PCB_ACCT_NO,  -- 表内账号
 a.acnw AS APPLY_NO,  -- 申请号
 a.acnw AS LIMIT_NO,  -- 额度号
 a.acnw AS CONTRACT_NO,  -- 合同号
@@ -28,40 +28,40 @@ a.ctcd||a.gmab||LPAD(a.acb,3,'0') AS BRANCH_CODE,  -- 网点机构号
 a.khtybh AS CUST_NO,  -- 客户号
 p2.cb_pointer AS ITEM_CODE,  -- 科目号
 p2.lrr_key AS LRR_KEY_ITEM_CODE,  -- LRR Key 科目号
-'172206' AS HUB_ITEM_CODE,  -- HUB科目号
-p2.account AS NOMINAL_ACCT,  -- COA核算账号
+'A17200' AS HUB_ITEM_CODE,  -- HUB科目号
+p2.account AS NOMINAL_ACC,  -- COA核算账号
 p2.product AS FTP_PRODUCT_CODE,  -- FTP 产品代码
-'102029902' AS BUSINESS_TYPE,  -- 业务种类
+'02029902' AS BUSINESS_TYPE,  -- 业务种类
 NULL AS ACCT_NO,  -- 账号
 NULL AS BILL_NO,  -- 借据号
 'A09' AS FUND_SOURCE,  -- 资金来源
-'AGLL' AS STGR_CHANNEL,  -- 存储渠道
-'01' AS LOAN_ORIGIN_TYPE,  -- 贷款发起类型
-NULL AS SRC_LOAN_ORIGIN_TYPE,  -- 来源贷款发起类型
+'A01' AS SIGN_CHANNEL,  -- 存储渠道
+'01' AS LOAN_ORIGI_TYPE,  -- 贷款发起类型
+NULL AS SRC_LOAN_ORIGI_TYPE,  -- 来源贷款发起类型
 CASE WHEN a.fkfs='自主支付' THEN '01' WHEN a.fkfs='受托支付' THEN '02' END AS PAY_MODE,  -- 支付方式
 NULL AS SRC_PAY_MODE,  -- 来源支付方式
 a.cycd AS CCY_CODE,  -- 币种
 a.ctba AS LOAN_AMT,  -- 贷款金额
 CASE WHEN a.dkzt='核销' THEN '01' ELSE a.dkye END AS LOAN_BAL,  -- 贷款余额
 NULL AS RESERVE,  -- 备用
-CASE WHEN a.dkwjf1='正常' THEN '01' WHEN a.dkwjf1='次级' THEN '02' WHEN a.dkwjf1='关注' THEN '03' WHEN a.dkwjf1='可疑' THEN '04' WHEN a.dkwjf1='损失' THEN '05' END AS LOAN_GRADE,  -- 贷款五级分类
+CASE WHEN a.dkwjfl='正常' THEN '01' WHEN a.dkwjfl='次级' THEN '02' WHEN a.dkwjfl='关注' THEN '03' WHEN a.dkwjfl='可疑' THEN '04' WHEN a.dkwjfl='损失' THEN '05' END AS LOAN_GRADE,  -- 贷款五级分类
 NULL AS ACCT_OPEN_DT,  -- 账户开户日期
 NULL AS SRC_ACCT_OPEN_DT,  -- 来源账户开户日期
 TO_CHAR(TO_DATE(a.idat,'YYYYMMDD'),'YYYY-MM-DD') AS ISSUE_DT,  -- 借据发放日期
 TO_CHAR(TO_DATE(a.idat,'YYYYMMDD'),'YYYY-MM-DD') AS SRC_ISSUE_DT,  -- 来源借据发放日期
-TO_CHAR(TO_DATE(a.dkdara,'YYYYMMDD'),'YYYY-MM-DD') AS LOAN_ORI_MATURITY_DT,  -- 贷款到期日期
-TO_CHAR(TO_DATE(a.dkdara,'YYYYMMDD'),'YYYY-MM-DD') AS LOAN_MATURITY_DT,  -- 贷款到期日期
-TO_CHAR(TO_DATE(a.ja,'YYYYMMDD'),'YYYY-MM-DD') AS SETTLE_DT,  -- 结清日期
+TO_CHAR(TO_DATE(a.dkdqrq,'YYYYMMDD'),'YYYY-MM-DD') AS LOAN_ORI_MATURITY_DT,  -- 贷款到期日期
+TO_CHAR(TO_DATE(a.dkdqrq,'YYYYMMDD'),'YYYY-MM-DD') AS LOAN_MATURITY_DT,  -- 贷款到期日期
+TO_CHAR(TO_DATE(a.zjrq,'YYYYMMDD'),'YYYY-MM-DD') AS SETTLE_DT,  -- 结清日期
 NULL AS ACCT_CLOSE_DT,  -- 账户关闭日期
-'UF' AS RATE_FLOAT_TYPE,  -- 利率浮动方式
+'F' AS RATE_FLOAT_TYPE,  -- 利率浮动方式
 NULL AS RATE_FLOAT_FREQ,  -- 利率浮动频率
-'TB88' AS BASE_RATE_TYPE,  -- 基准利率类型
+'TR08' AS BASE_RATE_TYPE,  -- 基准利率类型
 NULL AS BASE_RATE,  -- 基准利率
-'a.sjlv' AS ACTUAL_RATE,  -- 实际利率
+a.sjlv AS ACTUAL_RATE,  -- 实际利率
 TO_CHAR(TO_DATE(a.htdqrq, 'YYYYMMDD'), 'YYYY-MM-DD') AS NEXT_RATE_CHANGE_DT,  -- 下次利率调整日期
-'83' AS PRI_PAY_METHOD,  -- 本金偿还方式
+'03' AS PRI_PAY_METHOD,  -- 本金偿还方式
 NULL AS SRC_PRI_PAY_METHOD,  -- 来源本金偿还方式
-'83' AS INT_PAY_METHOD,  -- 利息偿还方式
+'03' AS INT_PAY_METHOD,  -- 利息偿还方式
 NULL AS SRC_INT_PAY_METHOD,  -- 来源利息偿还方式
 a.cycd AS INT_CCY_CODE,  -- 利息币种
 NULL AS INTEREST,  -- 利息
@@ -84,13 +84,13 @@ NULL AS REPAY_BANK_NAME,  -- 还款行名
 'CHN' AS LOAN_PURPOSE_COUNTRY_CODE,  -- 贷款用途国家
 T_BRANCH.ORG_AREA_CODE AS LOAN_PURPOSE_DIST,  -- 贷款用途地区
 NULL AS LOAN_PURPOSE_INDU,  -- 贷款用途行业
-NULL AS LOAN_PURPOSE_ISSUE,  -- 贷款用途分类
+NULL AS LOAN_PURPOSE_SNI,  -- 贷款用途分类
 NULL AS LOAN_PURPOSE_CUL,  -- 贷款用途文化
 NULL AS LOAN_PURPOSE_IND_UPDATE_FLAG,  -- 贷款用途行业更新标识
-a.sydkyt AS PURPOSE,  -- 贷款用途
+a.jjdkyt AS PURPOSE,  -- 贷款用途
 NULL AS ABROAD_LOAN_PURPOSE,  -- 境外贷款用途
 NULL AS SYNDICATED_LOAN_FLAG,  -- 银团贷款标识
-NULL AS TS_OUTSHEET,  -- 表外标识
+NULL AS IS_OUTSHEET,  -- 表外标识
 CASE WHEN a.dkzt='正常' THEN '01' WHEN a.dkzt='逾期' THEN '02' ELSE '03' END AS LOAN_STATUS,  -- 贷款状态
 NULL AS SRC_LOAN_STATUS,  -- 来源贷款状态
 NULL AS LOAN_ACCT_STATUS,  -- 贷款账户状态
@@ -102,58 +102,58 @@ NULL AS SRC_SETTLE_MODE,  -- 来源结清方式
 NULL AS ACCT_STATUS,  -- 账户状态
 NULL AS SRC_ACCT_STATUS,  -- 来源账户状态
 CASE WHEN NVL(c.jbrgh,'')='' THEN 'EXITSTAFF' ELSE c.jbrgh END AS CREDITOR_NO,  -- 客户经理
-TO_CHAR(TO_DATE(a.abza,'YYYYMMDD'),'YYYY-MM-DD') AS PRIN_OD_DT,  -- 本金逾期日期
+TO_CHAR(TO_DATE(a.qbrq,'YYYYMMDD'),'YYYY-MM-DD') AS PRIN_OD_DT,  -- 本金逾期日期
 a.qbje AS PRIN_OD_AMT,  -- 本金逾期金额
-TO_CHAR(TO_DATE(a.qxxa,'YYYYMMDD'),'YYYY-MM-DD') AS INT_OD_DT,  -- 利息逾期日期
-a.bnaxye AS INT_OD_AMT,  -- 利息逾期金额
-a.bwaxye AS INTEREST_BALANCE,  -- 表内欠息
-NULL AS PENALTY_INT_AMT,  -- 罚息金额
-NULL AS COMPOUND_INT_AMT,  -- 复利金额
+TO_CHAR(TO_DATE(a.gxrq,'YYYYMMDD'),'YYYY-MM-DD') AS INT_OD_DT,  -- 利息逾期日期
+a.bnqxye AS INT_OD_AMT,  -- 利息逾期金额
+a.bwqxye AS INTEREST_BALANCE2,  -- 表内欠息
+NULL AS PENALTYINT_AMT,  -- 罚息金额
+NULL AS COMPOUNDINT_AMT,  -- 复利金额
 NULL AS MITIGATE,  -- 缓释
 NULL AS EXTRA_FEE,  -- 额外费用
 NULL AS CURR_NON_TRADING_ADJ_AMT,  -- 当期非交易调整金额
-NULL AS CAPITAL_RATIO,  -- 资本占比
+NULL AS CAPTIAL_RATIO,  -- 资本占比
 NULL AS COOPER_NAME,  -- 合作方名称
 NULL AS INT_SUBSIDY,  -- 利息补贴
 NULL AS SRC_INT_SUBSIDY,  -- 来源利息补贴
 NULL AS INDUSTRI_STRUCT_TYPE,  -- 产业结构类型
 NULL AS UPGRADE_FLAG,  -- 升级标识
-'N' AS TS_INTERNET_LOAN,  -- 互联网贷款标识
-'N' AS TS_TECHNOLOGY_LOAN,  -- 科技贷款标识
-'N' AS TS_GREEN_LOAN,  -- 绿色贷款标识
-NULL AS GREEN_LOAN_TYPE,  -- 绿色贷款类型
-NULL AS TS_GREEN_TRANS_FIN,  -- 绿色转型金融标识
-NULL AS GREEN_TRANS_FIN_TYPE,  -- 绿色转型金融类型
-NULL AS TS_GREEN_CONSUME,  -- 绿色消费标识
+'N' AS IS_INTERNET_LOAN,  -- 互联网贷款标识
+'N' AS IS_TECHNOLOGY_LOAN,  -- 科技贷款标识
+'N' AS IS_GREENLOAN,  -- 绿色贷款标识
+NULL AS GREENLOAN_TYPE,  -- 绿色贷款类型
+NULL AS IS_GREEN_TRANSFINA,  -- 绿色转型金融标识
+NULL AS GREEN_TRANSFINA_TYPE,  -- 绿色转型金融类型
+NULL AS IS_GREEN_CONSUME,  -- 绿色消费标识
 NULL AS GREEN_CONSUME_TYPE,  -- 绿色消费类型
-NULL AS TS_VIR_CTR,  -- 虚拟柜台标识
+NULL AS IS_VTR_GTR,  -- 虚拟柜台标识
 NULL AS FIRST_LOAN_FLG,  -- 首贷标识
 NULL AS IS_FARMERS_INSUR,  -- 涉农保险标识
-NULL AS OTHER_PY_GUARWAY,  -- 其他担保方式
-NULL AS VIR_CTR_TYPE,  -- 虚拟柜台类型
-NULL AS SRC_VIR_CTR_TYPE,  -- 来源虚拟柜台类型
+NULL AS OTHRE_PY_GUARWAY,  -- 其他担保方式
+NULL AS VTR_GTR_TYPE,  -- 虚拟柜台类型
+NULL AS SRC_VTR_GTR_TYPE,  -- 来源虚拟柜台类型
 NULL AS ENVSAFE_ENPR_LOAN,  -- 环境安全企业贷款
-'N' AS TS_AGRIC_LOAN,  -- 涉农贷款标识
-'N' AS TS_PRAT_TV_HITNEY_LOAN,  -- 普惠电视惠农贷款标识
-NULL AS POUPER_AMT,  -- 扶贫金额
+'N' AS IS_AGRIC_LOAN,  -- 涉农贷款标识
+'N' AS IS_PRATTWHITNEY_LOAN,  -- 普惠电视惠农贷款标识
+NULL AS PGUPER_AMT,  -- 扶贫金额
 NULL AS EXT_DEBT_NO,  -- 外部借据号
-NULL AS LOAN_EXG_NO,  -- 贷款交换号
+NULL AS LOAN_EX_GU_NO,  -- 贷款交换号
 NULL AS CFEO_GUD_APPROVAL_NO,  -- 跨境担保业务核准件号
 NULL AS CFEO_GUD_APPROVAL_CCY_CODE,  -- 跨境担保业务核准币种
 NULL AS CFEO_GUD_APPROVAL_AMT,  -- 跨境担保业务核准金额
 NULL AS BAD_LOAN_RELEASE_TYPE,  -- 不良贷款释放类型
 NULL AS SRC_BAD_LOAN_RELEASE_TYPE,  -- 来源不良贷款释放类型
-NULL AS TS_COVERED_ASSET,  -- 抵债资产标识
+NULL AS IS_COVERED_ASSET,  -- 抵债资产标识
 NULL AS COLL_RES_MATURITY,  -- 担保物到期日
 NULL AS OVERDUE_TYPE,  -- 逾期类型
-NULL AS USE_OF_FUNDS_TYPE,  -- 资金用途类型
+NULL AS USEOFUNDS_TYPE,  -- 资金用途类型
 NULL AS REMARK,  -- 备注
 NULL AS SYS_SRC_CODE,  -- 系统来源代码
 NULL AS business_line,
 NULL AS tag_country,
 NULL AS tag_entity,
 NULL AS tag_branch,
-NULL AS tag_gbaf,
+NULL AS tag_gbgf,
 NULL AS tag_reserve,
 'WPB_Ploan' AS tag_primary_accountable_party,
 'OPS_CLBS_PLoan' AS tag_responsible_party,
@@ -216,7 +216,7 @@ NULL AS com_reserved_5,
 NULL AS com_reserved_6,
 NULL AS dm_flag1,
 NULL AS dm_flag2,
-'T' AS loan_purpose_onoff_flag  --贷款用途标识
+'I' AS loan_purpose_onoff_flag  --贷款用途标识
 FROM (select *,row_number() over (partition by acnw) as rn from ODS_CUPD_PLOAN_ACCTM_NEW5 where p_dt='${load_date}') a
 LEFT JOIN ODS_CUPD_PLOAN_APS_CREDINF5 c ON c.sxxyh = a.acnw AND c.p_dt = '${load_date}'
 --ODS_CUPD_PLOAN_APS_CREDINF5 信贷信息
@@ -236,7 +236,7 @@ WHERE SUBSTR(glbl_source_chartfield,1,3)='ACR'
 AND data_dt='${load_date}'
 AND exists (select 1
 from ODS_CDP_GDC_TABLE_COA_LIST cl
-where cl.p_dt=(select max(p_dt) from ODS_CDP_GDC_TABLE_COA_LIST where p_dt<=TO_DATE(LAST_DAY(TO_DATE('${load_date}','yyyy-mm-dd'))))
+where cl.p_dt=(select max(p_dt) from ODS_CDP_GDC_TABLE_COA_LIST where p_dt<=TO_DATE(LASTDAY(TO_DATE('${load_date}','yyyy-mm-dd'))))
 and cl.source_chartfield='ACR'
 and cl.value2='loan'
 and bi.account=cl.nominal_accounts)

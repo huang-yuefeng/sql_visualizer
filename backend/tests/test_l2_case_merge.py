@@ -147,7 +147,15 @@ def test_t1_alias_case_twin_not_folded(twin_ws):
 def test_t2_insert_write_columns_on_target(east5_ws):
     """#289: the phantom-sourced INSERT SELECT projections render ON the
     east5 target; columns the extractor sourced to a real table render on
-    their model owner (bdm_acc_loan_info), not on east5."""
+    their model owner, not on east5.
+
+    The fixed EAST5 sample declares alias `a` = bdm_acc_entrusted_payment
+    (``FROM bdm_acc_entrusted_payment a``), so the a.-qualified projections
+    (bz / TAG_* / CHARGE_DEPARTMENT / COM_RESERVED_1 / RESERVED_2/4/6 /
+    PRIMARY_SRC_SYSTEM) render on bdm_acc_entrusted_payment — their real
+    model owner — instead of phantom-sourcing to east5. The
+    expression-sourced projection dis_bank_id (``nvl(b.dis_bank_id, ...)``)
+    stays phantom and renders on the east5 write target."""
     res = _build_l2_graph(east5_ws, EAST5, EAST5_PATH.read_text(),
                           "", "", False)
     nodes = _nodes_by(res)
@@ -156,14 +164,25 @@ def test_t2_insert_write_columns_on_target(east5_ws):
     bdm_id = _table_id(nodes, "bdm_acc_loan_info")
     assert bdm_id is not None, "bdm_acc_loan_info table not found"
     bdm_kids = _kids(nodes, bdm_id)
-    for wc in ("dis_bank_id", "bz", "TAG_COUNTRY", "TAG_ENTITY",
+    ep_id = _table_id(nodes, "bdm_acc_entrusted_payment")
+    assert ep_id is not None, "bdm_acc_entrusted_payment table not found"
+    ep_kids = _kids(nodes, ep_id)
+    # phantom-sourced (expression) projection still lands on the write target.
+    for wc in ("dis_bank_id",):
+        assert wc in kids, \
+            f"write column {wc} must land on the east5 target node"
+    # a.-qualified projections render on their model owner
+    # bdm_acc_entrusted_payment (alias a), not east5.
+    for wc in ("bz", "TAG_COUNTRY", "TAG_ENTITY",
                "TAG_BRANCH", "TAG_GBGF", "TAG_RESERVE",
                "TAG_PRIMARY_ACCOUNTABLE_PARTY", "TAG_RESPONSIBLE_PARTY",
                "CHARGE_DEPARTMENT", "COM_RESERVED_1",
                "RESERVED_2", "RESERVED_4", "RESERVED_6",
                "PRIMARY_SRC_SYSTEM"):
-        assert wc in kids, \
-            f"write column {wc} must land on the east5 target node"
+        assert wc not in kids, \
+            f"{wc} is sourced to bdm_acc_entrusted_payment — must NOT land on east5"
+        assert wc in ep_kids, \
+            f"{wc} must land on bdm_acc_entrusted_payment (its model owner)"
     # model-aligned: the model attributes nbjgh/xdhth/xdjjh/dkje to
     # bdm_acc_loan_info (not east5) — the display must follow the model.
     for wc in ("nbjgh", "xdhth", "xdjjh", "dkje"):
@@ -176,8 +195,10 @@ def test_t2_insert_write_columns_on_target(east5_ws):
 def test_t2_write_target_parent_at_classification(east5_ws):
     """#289: the phantom-sourced write-column → write-target association is
     made in _classify_compound_nodes (parent == write-target keeper); a
-    column with a real model owner (nbjgh → bdm_acc_loan_info) keeps that
-    owner."""
+    column with a real model owner keeps that owner. The fixed sample's
+    alias `a` = bdm_acc_entrusted_payment means the a.-qualified projections
+    (bz / TAG_COUNTRY / RESERVED_2) parent to bdm_acc_entrusted_payment, not
+    east5 — only the expression-sourced dis_bank_id stays on the target."""
     import app.services.l2_builder as l2b
     sql = EAST5_PATH.read_text()
     full_graph, _, pm = l2b._load_or_build_graph(east5_ws, EAST5, sql)
@@ -187,12 +208,21 @@ def test_t2_write_target_parent_at_classification(east5_ws):
     table_nodes, field_nodes, _alias_map, _occ = _classify_compound_nodes(
         nodes, full_graph, EAST5, target_ids, direct_ids, None, pm)
     keeper_id = _east5_keeper_id(table_nodes)
-    for probe in ("dis_bank_id", "bz", "TAG_COUNTRY", "RESERVED_2"):
+    for probe in ("dis_bank_id",):
         got = [fn for fn in field_nodes
                if fn.get("label") == probe
                and fn.get("parent") == keeper_id]
         assert got, \
             f"{probe} must be a field node parented to the east5 keeper"
+    # a.-qualified projections parent to their model owner bdm_acc_entrusted_payment.
+    ep_id = _table_id(table_nodes, "bdm_acc_entrusted_payment")
+    assert ep_id is not None, "bdm_acc_entrusted_payment table not found"
+    for probe in ("bz", "TAG_COUNTRY", "RESERVED_2"):
+        got = [fn for fn in field_nodes
+               if fn.get("label") == probe
+               and fn.get("parent") == ep_id]
+        assert got, \
+            f"{probe} must be a field node parented to bdm_acc_entrusted_payment"
     # model-aligned: nbjgh is attributed to bdm_acc_loan_info, not east5
     bdm_id = _table_id(table_nodes, "bdm_acc_loan_info")
     assert bdm_id is not None, "bdm_acc_loan_info table not found"

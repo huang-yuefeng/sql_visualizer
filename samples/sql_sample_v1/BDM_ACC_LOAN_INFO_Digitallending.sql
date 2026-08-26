@@ -107,8 +107,8 @@ A.acctnbr AS LENDING_REF --借据编号
 ,'CNHSBC900' AS ORG_NO --机构号
 ,SUBSTR(B.bank_cust_id,0,9) AS BRANCH_CODE --内部核算机构号
 ,B.bank_cust_id AS CUST_NO --客户号
-,'A17013' AS ITEM_CODE --科目号
-,NVL(km_gl.MXKMBH,km_ie.MXKMBH) AS ITEM_CODE --科目号
+--,'A17013' AS ITEM_CODE --科目号
+--,NVL(km_gl.MXKMBH,km_ie.MXKMBH) AS ITEM_CODE --科目号
 ,P3.cb_pointer AS ITEM_CODE --科目号
 ,P3.lrr_key AS LRR_KEY_ITEM_CODE --LRR Key科目号
 ,NULL AS HUB_ITEM_CODE --HUB科目号
@@ -144,7 +144,7 @@ A.acctnbr AS LENDING_REF --借据编号
 '混合支付','3',
 '1') AS SRC_PAY_MODE --源系统放款方式
 ,p1.CYCD AS CCY_CODE --币种
-,D.apply_limit AS LOAN_AMT --放款金额
+--,D.apply_limit AS LOAN_AMT --放款金额
 --,E.disbamt - F.prinamt AS LOAN_BAL --本金余额
 ,p1.HTJE AS LOAN_AMT --放款金额
 ,p1.DKYE AS LOAN_BAL --本金余额
@@ -164,7 +164,7 @@ A.acctnbr AS LENDING_REF --借据编号
 ,CASE WHEN NVL(p1.dkdqrq,'') <> NVL(p2.dkdqrq,'') THEN SUBSTR(p2.dkdqrq,1,4)||'-'||SUBSTR(p2.dkdqrq,5,2)||'-'||SUBSTR(p2.dkdqrq,7,2)
 ELSE SUBSTR(p1.dkdqrq,1,4)||'-'||SUBSTR(p1.dkdqrq,5,2)||'-'||SUBSTR(p1.dkdqrq,7,2) END AS LOAN_ORI_MATURITY_DT --贷款原始到期日期
 ,SUBSTR(p1.dkdqrq,1,4)||'-'||SUBSTR(p1.dkdqrq,5,2)||'-'||SUBSTR(p1.dkdqrq,7,2) AS LOAN_MATURITY_DT --贷款最新到期日期
-,A.payoffdate AS SETTLE_DT --实际终止日期
+--,A.payoffdate AS SETTLE_DT --实际终止日期
 ,SUBSTR(p1.ZJRQ,1,4)||'-'||SUBSTR(p1.ZJRQ,5,2)||'-'||SUBSTR(p1.ZJRQ,7,2) AS SETTLE_DT --实际终止日期
 ,SUBSTR(p1.ZJRQ,1,4)||'-'||SUBSTR(p1.ZJRQ,5,2)||'-'||SUBSTR(p1.ZJRQ,7,2) AS ACCT_CLOSE_DT --信贷账户销户日期
 ,'F' AS RATE_FLOAT_TYPE --利率类型
@@ -173,7 +173,7 @@ ELSE SUBSTR(p1.dkdqrq,1,4)||'-'||SUBSTR(p1.dkdqrq,5,2)||'-'||SUBSTR(p1.dkdqrq,7,
 'LPR','TR05',
 'TR99') AS BASE_RATE_TYPE --基准利率类型
 ,NULL AS BASE_RATE --基准利率
-,B.app_rate AS ACTUAL_RATE --实际利率
+--,B.app_rate AS ACTUAL_RATE --实际利率
 ,p1.dkll AS ACTUAL_RATE --实际利率
 ,C.datemat AS NEXT_RATE_CHANGE_DT --下一贷款利率重新定价日
 ,DECODE(p1.HKFS,
@@ -405,7 +405,7 @@ ELSE 'N' END AS IS_PRATTWHITNEY_LOAN --是否普惠型贷款
 ,NULL AS DM_FLAG1
 ,CASE WHEN SUBSTR(p1.dkrzzh,1,6) = 'CNHSBC' AND SUBSTR(p1.dkrzzh,10,1) = '9' THEN 'NI'
 WHEN EXISTS (SELECT 1 FROM BDM_ACC_INTERNAL_COUNTERPARTY WHERE data_dt = '$(load_date)' AND acct_no = p1.dkrzzh) THEN 'NI'
-WHEN SUBSTR(p1.dkrzzh,1,6) = 'CNHSBC' AND EXISTS (SELECT 1 FROM v_bdm_customer_all('$(load_date)') a WHERE a.cust_no = dsf_tm.cust_no AND a.CUST_TYPE IN ('I','3')) THEN 'I'
+WHEN SUBSTR(p1.dkrzzh,1,6) = 'CNHSBC' AND EXISTS (SELECT 1 FROM v_bdm_customer_all('$(load_date)') a WHERE a.cust_no = dsf_tm.cust_no AND a.CUST_TYPE IN ('I','J')) THEN 'I'
 WHEN SUBSTR(p1.dkrzzh,1,6) = 'CNHSBC' AND EXISTS (SELECT 1 FROM v_bdm_customer_all('$(load_date)') a WHERE a.cust_no = dsf_tm.cust_no AND a.CUST_TYPE = 'C') THEN 'NI'
 WHEN EXISTS (
 SELECT 1

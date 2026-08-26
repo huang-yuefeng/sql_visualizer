@@ -17,7 +17,7 @@
 --脚本功能：受托支付信息表数据处理
 --创建时间：2022-09-22
 --文件名：EAST5_STZFXXB_M
---作者：chenwei -- [OCR-UNCERTAIN: leading "作" not detected, OCR reads "者：chenwei"]
+--作者：chenwei
 --修改记录：
 --20240116 luowei gsfzjg字段置空
 --20240117 luowei WPB_RBB,OPS_CDT部门对手方信息字段取值修改
@@ -46,8 +46,8 @@ b.contract_no AS xdhth, --信贷合同号
 b.lending_ref AS xdjjh, --信贷借据号
 a.ccy_code AS bz, --币种
 b.loan_amt AS dkje, --贷款金额
-REPLACE(a.entd_paym_amt,"_","") As stzfje, --受托支付金额 -- [OCR-UNCERTAIN: middle '","")"' inferred from REPLACE( pattern]
-REPLACE(a.entd_paym_dt,"_","") As stzfrq, --受托支付日期 -- [OCR-UNCERTAIN: middle '","")"' inferred from REPLACE( pattern]
+REPLACE(a.entd_paym_amt,"_","") As stzfje, --受托支付金额
+REPLACE(a.entd_paym_dt,"_","") As stzfrq, --受托支付日期
 CASE WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN COALESCE(e.acct_no,a.entd_opp_acct_no,f.df_dfzh)
 ELSE a.entd_opp_acct_no
 END As stzfdxzh, --受托支付对象账号
@@ -56,11 +56,11 @@ WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN NVL(a.entd_opp_acct_name,f
 WHEN a.charge_department = "OPS_MBS" THEN REGEXP_REPLACE( --有英文字符
 trim(
 REGEXP_REPLACE(CASE WHEN a.entd_opp_acct_name not RLIKE('[A-Za-z0-9]')
-THEN replace(replace(replace(a.entd_opp_acct_name,'(',''),')',''),'-','') -- [TRUNCATED: OCR shows only "THEN replace(replace(replace(a.entd_opp_acct_name,'('," at right screen edge]
+THEN replace(replace(replace(a.entd_opp_acct_name,'(',''),')',''),'-','')
 ELSE a.entd_opp_acct_name
-END, "[~!@#$%&{}><+++/??=+?/、《》[]/I....]",'*') -- [OCR-UNCERTAIN: special-character regex class heavily garbled by OCR]
-) -- [OCR-UNCERTAIN: OCR shows 7 replace( / 2 regexp_replace( wrapper layers between trim( and this REGEXP_REPLACE( whose closing args are not legible (lines 71-81); wrappers collapsed to keep the sample parseable — the inner REGEXP_REPLACE(CASE...) unit above is verbatim from OCR]
-, "[~!@#$%&{}><+++/??=+?/、《》[]/I....]", '*') -- [OCR-UNCERTAIN: outer REGEXP_REPLACE pattern/replacement inferred = inner (legible inner unit); only a bare ")" was in OCR]
+END, "[~!@#$%&{}><+/=?、《》\[\]]",'*')
+)
+, "[~!@#$%&{}><+/=?、《》\[\]]", '*')
 ELSE TRIM(TRIM(a.entd_opp_acct_name))
 END AS stzfdxhm, --受托支付对象户名
 CASE WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN NVL(a.entd_opp_bank_no,f.df_dfxh)
@@ -71,10 +71,10 @@ CASE WHEN a.charge_department = 'GTRF_RFN' THEN a.remark
 WHEN a.TAG_PRIMARY_ACCOUNTABLE_PARTY="WSB_GTRF_CoreTrade" AND A.ccy_code<>B.ccy_code THEN '融资放款币种："'||B.ccy_code
 ELSE NULL
 END AS BBZ, --备注
-REPLACE("$(load_date)","-","") AS cjrq, --采集日期 -- [OCR-UNCERTAIN: middle '","-","")"' inferred from REPLACE( pattern]
+REPLACE("$(load_date)","-","") AS cjrq, --采集日期
 '$(load_date)' AS dis_data_date, --系统字段
 b.org_no As dis_bank_id, --系统字段
-nvl(b.dis_bank_id,'CNHSBC900Z') As dis_bank_id, --20250331 chenbinbin HBCNRDQE-3524:调整dis_bank_id取数口径 -- [OCR-UNCERTAIN: literal 'CNHSBC900Z' (OCR "cNHSBC9ooZ")]
+nvl(b.dis_bank_id,'CNHSBC900Z') As dis_bank_id, --20250331 chenbinbin HBCNRDQE-3524:调整dis_bank_id取数口径
 NULL As gsfzjg, --归属分支机构
 a.TAG_COUNTRY AS TAG_COUNTRY,
 a.TAG_ENTITY AS TAG_ENTITY,
@@ -97,10 +97,10 @@ NULL AS RESERVED_5, --备用字段5
 A.Reserved_Field18 AS RESERVED_6, --备用字段6业务区分
 CASE WHEN a.TAG_PRIMARY_ACCOUNTABLE_PARTY ="WSB_GTRF_CoreTrade"
 THEN (CASE WHEN A.Reserved_Field18 IN ('6.1:LOAN PRODUCT CODE ILAPTY=REPAY BADI','7.1-OTHER LOAN','7.2 EP_OAE_XOA')
-THEN '内部字段-贷款发放日期：'||REPLACE(B.ISSUE_DT,"-","")||'：'||"内部字段-关联支付编号："||A.Reserved_Field17 -- [OCR-UNCERTAIN: quote/pipe chars garbled]
-WHEN A.Reserved_Field18="5:PRODUCT CODE ILAPTY=CIL/YCL且ILRREF(前3位）为：IBC/YCB" -- [OCR-UNCERTAIN: closing quote inferred (truncated at screen edge)]
-THEN '内部字段-贷款发放日期：'||REPLACE(B.ISSUE_DT,'-','')||'：'||"内部字段-关联支付编号：" -- [OCR-UNCERTAIN: quote/pipe chars garbled]
-ELSE '内部字段-贷款发放日期：'||REPLACE(B.ISSUE_DT,'-','')||'：'||"内部字段-关联支付编号：" -- [OCR-UNCERTAIN: tail reconstructed to match line 120 THEN branch]
+THEN '内部字段-贷款发放日期：'||REPLACE(B.ISSUE_DT,"-","")||'：'||"内部字段-关联支付编号："||A.Reserved_Field17
+WHEN A.Reserved_Field18="5:PRODUCT CODE ILAPTY=CIL/YCL且ILRREF(前3位）为：IBC/YCB"
+THEN '内部字段-贷款发放日期：'||REPLACE(B.ISSUE_DT,'-','')||'：'||"内部字段-关联支付编号："
+ELSE '内部字段-贷款发放日期：'||REPLACE(B.ISSUE_DT,'-','')||'：'||"内部字段-关联支付编号："
 END)
 ELSE NULL
 END AS RESERVED_7, --备用字段7--贷款发放日期
@@ -138,7 +138,7 @@ NULL AS COM_RESERVED_6, --备用字段6
 NVL_WS(a.DM_FLAG1,"NI") AS DM_FLAG1, --主数据脱敏标志
 NULL AS DM_FLAG2, --非主数据脱敏标志
 A.CHARGE_DEPARTMENT AS CHARGE_DEPARTMENT --归属部门20240807增加CHARGE_DEPARTMENT自动分区
-FROM bdm_acc_entrusted_payment --受托支付信息表
+FROM bdm_acc_entrusted_payment a --受托支付信息表
 LEFT JOIN bdm_acc_loan_info b --贷款借据信息表
 ON b.data_dt ='$(load_date)'
 AND b.lending_ref = a.lending_ref
@@ -149,16 +149,16 @@ LEFT JOIN bdm_pub_branch d --机构信息表
 ON d.data_dt ='$(load_date)'
 AND d.org_no = c.parent_vir_no
 
-LEFT JOIN BDM_ACC_INTERNAL_COUNTERPARTY e -- [OCR-UNCERTAIN: alias "e" not detected in OCR, inferred from ON e.internal_key]
+LEFT JOIN BDM_ACC_INTERNAL_COUNTERPARTY e
 ON e.internal_key = a.Reserved_Field6
 AND e.DATA_DT ='$(load_date)'
-LEFT JOIN v_bdm_sys_ftpsje_jydsf('$(load_date)') f -- [OCR-UNCERTAIN: table function; OCR "v_bdm_sys_ftpsje_jydsf('s(load_date})f"]
+LEFT JOIN v_bdm_sys_ftpsje_jydsf('$(load_date)') f
 ON f.EAST_TRANS_SEQ_NO = a.Reserved_Field6
-AND f.SJE_FUNCTION_SYS_CDE_17 IN ("1C5","1C6","1JB") -- [OCR-UNCERTAIN: quote style]
+AND f.SJE_FUNCTION_SYS_CDE_17 IN ("1C5","1C6","1JB")
 
 WHERE a.data_dt ='$(load_date)'
 AND (b.loan_status <>'03'
-OR (b.loan_status ="03" AND b.settle_dt BETWEEN DATETRUNC(DATE'$(load_date)',"mm") AND "$(load_date)"))
+OR (b.loan_status ="03" AND b.settle_dt BETWEEN DATETRUNC(DATE'$(load_date)',"mm") AND "$(load_date)"));
 
 
 
@@ -168,9 +168,9 @@ ALTER TABLE east5_stzfxxb ADD IF NOT EXISTS PARTITION (P_DT='$(load_date)',charg
 ALTER TABLE east5_stzfxxb ADD IF NOT EXISTS PARTITION (P_DT='$(load_date)',charge_department='GTRF_CoreTrade_IPBL');
 ALTER TABLE east5_stzfxxb ADD IF NOT EXISTS PARTITION (P_DT='$(load_date)',charge_department='GTRF_CoreTrade_LOAN');
 ALTER TABLE east5_stzfxxb ADD IF NOT EXISTS PARTITION (P_DT='$(load_date)',charge_department='GTRF_CoreTrade_SCSAI');
-
-
-
+ALTER TABLE east5_stzfxxb ADD IF NOT EXISTS PARTITION (P_DT='$(load_date)',charge_department='GTRF_GTE');
+ALTER TABLE east5_stzfxxb ADD IF NOT EXISTS PARTITION (P_DT='$(load_date)',charge_department='OPS_MBS');
+ALTER TABLE east5_stzfxxb ADD IF NOT EXISTS PARTITION (P_DT='$(load_date)',charge_department='WPB_RBB');
 ALTER TABLE east5_stzfxxb ADD IF NOT EXISTS PARTITION (P_DT='$(load_date)',charge_department='GTRF_RFN');
 ALTER TABLE east5_stzfxxb ADD IF NOT EXISTS PARTITION (P_DT='$(load_date)',charge_department='WPB_CDT_Digitallending');
 
@@ -188,4 +188,4 @@ SELECT '$(load_date)' AS data_dt
 ,NULL AS remarks
 FROM EAST5_STZFXXB
 WHERE p_dt = '$(load_date)'
-
+;
