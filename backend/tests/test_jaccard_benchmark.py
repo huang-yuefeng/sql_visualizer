@@ -221,7 +221,7 @@ CASES = [(seed, SQL_FILES[seed], "downstream")
     # ISSUE-4 (2026-08-25) + EAST5 coverage cases. The east5 seed
     # (east5_stzfxxb.p_dt) is THE case-insensitive table-identity case:
     # the physical table is spelled 11x lowercase (INSERT@41 +
-    # ALTERs@166-175) vs 1 uppercase (FROM EAST5_STZFXXB @189);
+    # 10 ALTERs@166-175) vs 1 uppercase (FROM EAST5_STZFXXB @189);
     # ties -> lowercase -- so the canonical spelling is the
     # frequency-voted lowercase east5_stzfxxb (11 vs 1). The downstream
     # closure asserts the
@@ -349,7 +349,7 @@ FLOORS = {
     },
     # "east5" seed (2026-08-25, EAST5_STZFXXB_M.sql -- ISSUE-4 case).
     # east5_stzfxxb.p_dt: the physical table is spelled 11x lowercase
-    # (INSERT@41 + ALTERs@166-175) vs 1 uppercase (FROM@189);
+    # (INSERT@41 + 10 ALTERs@166-175) vs 1 uppercase (FROM@189);
     # ties -> lowercase; the canonical spelling is the frequency-voted
     # lowercase east5_stzfxxb. Downstream = the 5-node / 7-edge /
     # 4-highlight closure {41,179,189,190} (the no-bypass chain mirror +

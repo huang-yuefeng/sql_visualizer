@@ -158,9 +158,10 @@ def test_t2_insert_write_columns_on_target(east5_ws):
     COM_RESERVED_1 / RESERVED_2/4/6 / PRIMARY_SRC_SYSTEM) carry their real
     owner in ``source_tables`` and land on bdm_acc_entrusted_payment. The
     dis_bank_id chip on east5 comes from the SAME kind of direct
-    attribution: the model pins its transform
-    (``COALESCE(b.dis_bank_id, 'CNHSBC900Z')``) to east5_stzfxxb itself
-    (``source_tables=['east5_stzfxxb']`` — extraction-time DML-target
+    attribution: the model pins the output TRANSFORM var to east5_stzfxxb
+    itself (``source_tables=['east5_stzfxxb']``, anchored L76 —
+    ``b.org_no As dis_bank_id``; L77's ``nvl(b.dis_bank_id,
+    'CNHSBC900Z')`` collapses into it — extraction-time DML-target
     attribution), so classification resolves it through the ordinary
     source-table parent match. ``write_field_target.get()`` never fires for
     it: no EAST5 projection is phantom-sourced any more. Its twin
@@ -318,7 +319,10 @@ def test_t2_phantom_projection_renders_on_write_target(phantom_ws):
     _classify_compound_nodes), which parents the projection onto the write
     target's keeper. The sibling projection reading a REAL table (kept_amt)
     keeps its model owner real_src — the fallback never hijacks resolved
-    sources."""
+    sources. A trailing no-INSERT contrast probe re-runs the same
+    projection as a bare SELECT: with no DML-target association nothing
+    parents it, proving the write target (not the projection itself) is
+    what fires the fallback."""
     # Extraction truth first: carried_amt IS phantom-sourced — its single
     # source entry names the undeclared alias, which owns no visible node.
     import app.services.l2_builder as l2b
@@ -360,3 +364,22 @@ def test_t2_phantom_projection_renders_on_write_target(phantom_ws):
     # control: a resolvable projection keeps its real model owner
     assert _chip_owner("kept_amt") == src_id, \
         "kept_amt is sourced to real_src — the fallback must not take it"
+
+    # Contrast probe (no DML → no fallback): the SAME phantom projection in
+    # a bare SELECT (no INSERT) owns no write target — write_field_target
+    # stays empty, so NO table parents carried_amt (the chip renders
+    # parentless or is dropped). The write target is what pulls it in:
+    # genuinely #289 routing, not an accident of the projection itself.
+    noins_name = "t2_no_insert.sql"
+    noins_sql = T2B_FALLBACK_SQL.split("\n", 1)[1]
+    noins_ws = _make_ws(noins_name, noins_sql)
+    try:
+        res2 = _build_l2_graph(noins_ws, noins_name, noins_sql,
+                               "", "", False)
+        owners = {d.get("parent") for d in _nodes_by(res2).values()
+                  if d.get("type") == "field"
+                  and d.get("label") == "carried_amt"}
+        assert owners <= {None}, \
+            f"without the INSERT no table may own carried_amt, got {owners}"
+    finally:
+        delete_workspace(noins_ws)
