@@ -221,7 +221,10 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
       elements: { nodes, edges },
       layout: { name: 'preset' },
       wheelSensitivity: 0.3,
-      minZoom: 0.05,
+      // v3.3.175: 0.05 let fit shrink EAST5's full L2 to ~1px glyphs where
+      // even 2x hover emphasis gained <1 screen px (the "#377 invisible
+      // hover" trial). 0.28 keeps labels legible; pan covers the rest.
+      minZoom: 0.28,
       maxZoom: 5,
     });
 

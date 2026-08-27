@@ -99,8 +99,8 @@ emphStyles('HOVER_EMPHASIS_STYLES — hover-enlarge rule', () => {
 });
 
 describe('useCytoscapeGraph — scope guards that survive the hover change', () => {
-  it('keeps minZoom at 0.05 (the hover feature must not touch zoom limits)', () => {
-    expect(hookSource).toMatch(/minZoom:\s*0\.05\b/);
+  it('keeps minZoom at the readable 0.28 floor (v3.3.175 — labels legible pre-hover)', () => {
+    expect(hookSource).toMatch(/minZoom:\s*0\.28\b/);
   });
 
   it('still links fields to their compound table via _tableParent', () => {
