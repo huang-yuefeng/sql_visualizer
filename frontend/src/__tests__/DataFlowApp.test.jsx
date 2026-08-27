@@ -21,7 +21,6 @@ vi.mock('../components/ViewBar', () => ({ default: () => null }));
 vi.mock('../components/ResolutionReport', () => ({ default: () => null }));
 vi.mock('../components/DataFlowGraph', () => ({ default: () => null }));
 vi.mock('../components/SqlPanel', () => ({ default: () => null }));
-vi.mock('../components/EdgeReasonPanel', () => ({ default: () => null }));
 vi.mock('../components/LogPanel', () => ({ default: () => null }));
 vi.mock('../api/client', () => ({
   closeWorkspace: vi.fn(),

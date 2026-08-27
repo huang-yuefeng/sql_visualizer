@@ -14,7 +14,7 @@
  * R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow and are
  * hidden by default in the L2 view — auto-selection prefers visible
  * (flow) edges; only a graph with nothing else falls back to structure
- * edges, so the reason panel never shows a hidden edge's reason.
+ * edges, so no stale surface ever shows a hidden edge.
  *
  * Returns the edge's data object, or null when there is nothing to show.
  */

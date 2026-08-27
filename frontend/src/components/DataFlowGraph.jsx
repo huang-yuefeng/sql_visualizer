@@ -348,6 +348,25 @@ export default function DataFlowGraph(props) {
         .addClass('story-dim');
       cy.edges().filter(el => edgeIds.has(el.id())).addClass('story-active');
       cy.nodes().filter(el => nodeIds.has(el.id())).addClass('label-emph');
+      // f648 fix: a field→own-table edge has coincident endpoints — the
+      // step's own edge may render ~0px (detailed) or ~7px (merged self-
+      // loop). Its VISIBLE representation in merged views is the synthetic
+      // chrome: capL_<edgeId> loop-line + cap_<edgeId> caption. Light those
+      // too so the Filtered step is unmistakable (guard rule keeps the
+      // loop-line growing, never shrinking).
+      const chrome = [];
+      for (const id of edgeIds) {
+        const ll = cy.getElementById('capL_' + id);
+        if (ll.length) chrome.push(ll);
+        const cap = cy.getElementById('cap_' + id);
+        if (cap.length) chrome.push(cap);
+      }
+      if (chrome.length) {
+        cy.collection(chrome).forEach(el => {
+          if (el.isEdge()) el.addClass('story-active');
+          else el.addClass('story-emph');
+        });
+      }
     });
     // Classes only — no layout, no fit: stepping never moves a node.
   }, [storyFocus]);

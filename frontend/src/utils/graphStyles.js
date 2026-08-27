@@ -1253,4 +1253,16 @@ export const HOVER_EMPHASIS_STYLES = [
 export const STORY_STYLES = [
   { selector: '.story-dim', style: { opacity: 0.15 } },
   { selector: 'edge.story-active', style: { width: 5, 'z-index': 25 } },
+  // Guard (f648 finding): the Filtered step's only visible form in merged
+  // views is the filter loop-line + caption — the underlying self-loop is
+  // ~7px and the detailed FILTER edge renders 0x0 (field→own-table
+  // endpoints coincide). When a story step lights the loop-line it must
+  // GROW, never shrink (edge.story-active width 5 < loopline's 7), and the
+  // ⟂ caption must pop — later rule wins the specificity tie.
+  { selector: 'edge.filter-loopline.story-active',
+    style: { width: 9, 'z-index': 36, 'line-color': '#FF6B6B',
+             'target-arrow-color': '#FF6B6B', 'source-arrow-color': '#FF6B6B' } },
+  { selector: 'node.filter-caption.story-emph',
+    style: { 'font-size': 13, color: '#FFD700', 'z-index': 37,
+             'text-outline-color': '#0a0a1a', 'text-outline-width': 4 } },
 ];

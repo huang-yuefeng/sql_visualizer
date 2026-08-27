@@ -8,7 +8,6 @@ import ViewBar from './components/ViewBar';
 import DataFlowGraph from './components/DataFlowGraph';
 import FieldStoryBar from './components/FieldStoryBar';
 import SqlPanel from './components/SqlPanel';
-import EdgeReasonPanel from './components/EdgeReasonPanel';
 import LogPanel from './components/LogPanel';
 import ResolutionReport from './components/ResolutionReport';
 import * as api from './api/client';
@@ -51,8 +50,8 @@ export default function DataFlowApp({
   const [currentScriptName, setCurrentScriptName] = useState('');
   const [selectedEdge, setSelectedEdge] = useState(null);
   // R37: THE single SQL-highlight channel — edge AND node clicks write it,
-  // last click wins. `selectedEdge` stays edge-only (reason panel), so a
-  // node click clears it instead of leaving a mismatched reason showing.
+  // last click wins. `selectedEdge` stays edge-only, so a node click clears
+  // it instead of leaving a mismatched edge highlighted.
   const [sqlHighlightLine, setSqlHighlightLine] = useState(null);
   const [l2Result, setL2Result] = useState(null);
   // L2 view toggle (#331, four modes): 'flow' (closure — the default on a
@@ -221,14 +220,6 @@ export default function DataFlowApp({
   const [l2PanelHeight, setL2PanelHeight] = useState(420);
   const [l2PanelWidth, setL2PanelWidth] = useState(420);
   const [sqlPanelHeight, setSqlPanelHeight] = useState(250);
-  // Issue 1 (fix 2026-08-11): the flow-reason panel has a CONSTANT height
-  // in every state (empty / simple / with-evidence) until the user drags.
-  // Content-driven height changes are impossible → an edge click never
-  // changes the panel height → no flex reflow → the graph-canvas
-  // ResizeObserver never fires on click → the L2 viewport stops
-  // auto-refitting. After a drag the height is user-set — still constant
-  // across clicks (height changes only when the user drags).
-  const [reasonPanelHeight, setReasonPanelHeight] = useState(160);
 
   const leftResize = useResizable({
     direction: 'horizontal', value: leftPanelWidth, defaultValue: 260, min: 0, max: 9999,
@@ -242,15 +233,6 @@ export default function DataFlowApp({
     direction: 'vertical', value: sqlPanelHeight, defaultValue: 250, min: 0, max: 9999, invert: true,
     onResize: (v) => { setSqlPanelHeight(v); document.documentElement.style.setProperty('--sql-height', v + 'px'); },
   });
-  // Issue 1: drag-to-resize handle on the reason panel's TOP edge (between
-  // the SQL panel and the reason panel). Dragging squeezes the GRAPH (the
-  // flex-1 item that gives up space) — the same behavior as the SQL-panel
-  // handle. State not persisted (R23 clean start, like the SQL panel).
-  const reasonResize = useResizable({
-    direction: 'vertical', value: reasonPanelHeight, defaultValue: 160, min: 60, max: 9999, invert: true,
-    onResize: setReasonPanelHeight,
-  });
-
   const activeView = views.find(v => v.view_id === activeViewId)
     || views.flatMap(v => v.children || []).find(c => c.view_id === activeViewId);
 
@@ -265,9 +247,9 @@ export default function DataFlowApp({
     // or the search did not match.
     setL2ViewMode(resolveFlowOnly(result) === true ? 'flow-merged' : null);
     // R25: every L2 entry path lands on a fresh graph — no stale edge
-    // selection (and no reason-panel content) from a previous script.
-    // R11-1: instead of leaving the reason panel stuck at "Click an edge
-    // …", auto-select a sensible edge (seed-zone > chain > first).
+    // selection from a previous script.
+    // R11-1: auto-select a sensible edge (seed-zone > chain > first) so
+    // the SQL panel opens with an anchor line already highlighted.
     const autoEdge = pickAutoEdge(result);
     setSelectedEdge(autoEdge);
     // R37: the highlight line is now stateful — seed it from the auto edge
@@ -626,10 +608,9 @@ export default function DataFlowApp({
     setActiveL1Table(null);
   }, []);
 
-  // ── Edge click → SQL highlight + reason panel (R25/§8.8) ───────────
+  // ── Edge click → SQL highlight (R25/§8.8) ──────────────────────────
   // The per-edge payload (highlight_line / flow_kind / reason) is the
-  // single source of truth: the SQL panel lights exactly the anchor
-  // line and the reason panel below it shows kind + anchor + reason.
+  // single source of truth: the SQL panel lights exactly the anchor line.
   // The old response-level `highlights` and per-edge `sql_range` /
   // `sql_ranges` fields are gone from the API — nothing to pick from.
   const handleEdgeClick = useCallback((edgeData) => {
@@ -650,8 +631,8 @@ export default function DataFlowApp({
   // (TVF alias `f` anchors L0 until M-T1 — never guess); first line only
   // (single-line-highlight convention, v3.3.145); the tapped element's OWN
   // payload is read, never a label lookup (merged nodes keep their own
-  // line_start). Node click clears a stale edge selection so the reason
-  // panel can't show a mismatched edge beside a node's line.
+  // line_start). Node click clears a stale edge selection so a mismatched
+  // edge can't stay highlighted beside a node's line.
   const handleNodeClick = useCallback((nodeData) => {
     // A7: symmetric with edge clicks — see handleEdgeClick.
     setStoryActiveIndex(null);
@@ -1110,22 +1091,6 @@ export default function DataFlowApp({
           <div className="inline-l2-header">
             <h3>📄 {currentScriptName?.split('/').pop() || 'Script'} — Level 2 Detail</h3>
           </div>
-          {/* Field Story step-through bar — above the L2 graph area, only
-              when the searched field's story has steps. Clicking a step
-              lights its edges/nodes (storyFocus) and scrolls the SQL panel
-              via the R37 channel; ✕ dismisses (focus null → dim cleared). */}
-          {fieldStory && fieldStory.steps.length > 0 && (
-            <FieldStoryBar
-              steps={fieldStory.steps}
-              activeIndex={storyActiveIndex}
-              onStep={handleStoryStep}
-              onPrev={handleStoryPrev}
-              onNext={handleStoryNext}
-              autoplay={storyAutoplay}
-              onToggleAutoplay={handleStoryToggleAutoplay}
-              onDismiss={handleStoryDismiss}
-            />
-          )}
           <div className="inline-l2-graph">
             {/* A3: statement-level parse errors from the level2 response —
                 one line per statement, backend detail shown verbatim. Uses the
@@ -1179,25 +1144,25 @@ export default function DataFlowApp({
                   field={activeView?.field || ""}
                 />
               </div>
-              {/* R25/§8.8: flow reason panel BELOW the SQL panel — kind +
-                  anchor line + the reason string with the clicked edge's
-                  ‖…‖-wrapped segment emphasized; empty state when no edge
-                  is selected. R26 (2026-08-11): the R11-3 "Code evidence"
-                  block is gone — the script panel already shows the full
-                  SQL with the anchor highlighted on edge click, so the
-                  panel renders kind + anchor + reason only. R10-#18: only
-                  rendered when there is a script (sqlText) to jump to.
-                  Issue 1 (fix 2026-08-11): the panel's height is
-                  CONSTANT in every state (reasonPanelHeight, like
-                  sqlPanelHeight); it grows ONLY by dragging the handle
-                  below. */}
-              {/* Issue 1: drag-to-resize handle on the reason panel's TOP
-                  edge (between SQL panel and reason panel). */}
-              <div {...reasonResize.handleProps} />
-              <EdgeReasonPanel
-                edge={selectedEdge}
-                height={reasonPanelHeight}
-              />
+              {/* Field Story step-through bar — BELOW the SQL panel (the
+                  slot the old flow-reason panel occupied), only when the
+                  searched field's story has steps. Clicking a step lights
+                  its edges/nodes (storyFocus) and scrolls the SQL panel
+                  via the R37 channel; ✕ dismisses (focus null → dim
+                  cleared). R10-#18: only rendered when there is a script
+                  (sqlText) to scroll to. */}
+              {fieldStory && fieldStory.steps.length > 0 && (
+                <FieldStoryBar
+                  steps={fieldStory.steps}
+                  activeIndex={storyActiveIndex}
+                  onStep={handleStoryStep}
+                  onPrev={handleStoryPrev}
+                  onNext={handleStoryNext}
+                  autoplay={storyAutoplay}
+                  onToggleAutoplay={handleStoryToggleAutoplay}
+                  onDismiss={handleStoryDismiss}
+                />
+              )}
             </>
           )}
         </div>

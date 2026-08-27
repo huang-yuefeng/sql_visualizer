@@ -441,52 +441,6 @@ body { background: var(--bg-app); color: var(--ink-900); }
 }
 .line-text { white-space: pre; }
 
-/* ── Edge Reason Panel (R25/§8.8 — below the SQL panel) ───────────── */
-/* Issue 1 (fix 2026-08-11): the panel has a CONSTANT height in every
-   state (empty / simple) — height comes from state reasonPanelHeight
-   (default 160px, inline style set by DataFlowApp) until the user
-   drags. No height:auto variant exists, so an edge click never changes
-   the panel's height → no flex reflow → the graph-canvas ResizeObserver
-   never fires on click → the L2 viewport never auto-refits. Content
-   scrolls internally. */
-.edge-reason-panel {
-  flex-shrink: 0;
-  height: 160px;
-  overflow-y: auto;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-  padding: 6px 10px;
-  background: var(--bg-surface);
-  border-top: 1px solid var(--border);
-  font-size: 0.72rem;
-}
-.edge-reason-panel.edge-reason-empty { align-content: center; color: var(--ink-400); }
-.edge-reason-title {
-  font-size: 0.7rem; color: var(--ink-400); text-transform: uppercase; font-weight: bold;
-}
-.edge-reason-kind {
-  font-weight: bold;
-  padding: 1px 8px;
-  border: 1px solid;
-  border-radius: 10px;
-  font-size: 0.7rem;
-  background: rgba(0, 0, 0, 0.35);
-}
-.edge-reason-anchor { color: var(--ink-600); }
-.edge-reason-hint { color: var(--ink-400); }
-.edge-reason-text {
-  width: 100%;
-  color: var(--ink-900);
-  line-height: 1.5;
-  font-family: monospace;
-  font-size: 0.72rem;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.edge-reason-segment { font-weight: bold; }
-
 /* Buttons */
 .btn { padding: 6px 12px; border: none; border-radius: 3px; cursor: pointer; font-size: 0.78rem; }
 .btn-primary { background: var(--accent); color: var(--on-accent); font-weight: 600; }
@@ -811,10 +765,8 @@ body { background: var(--bg-app); color: var(--ink-900); }
   background: var(--bg-surface);
   border-radius: 4px;
   /* R10-#18: column flex (mirrors .dataflow-main) so the resizable SQL
-     panel absorbs the squeeze instead of clipping the reason panel.
-     Issue 1 (fix 2026-08-11): the reason panel no longer grows with
-     the code-evidence block — its height is constant (reasonPanelHeight
-     state) and grows ONLY by user drag (drag handle above it). */
+     panel absorbs the squeeze instead of clipping the field-story bar
+     below it. */
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -852,7 +804,7 @@ body { background: var(--bg-app); color: var(--ink-900); }
   /* max-height removed — user drags freely */
   overflow-y: auto;
   /* R10-#18: as the flexible flex item, it must be allowed to shrink
-     below its content height when the reason panel grows */
+     below its content height in tight windows */
   min-height: 0;
 }
 
