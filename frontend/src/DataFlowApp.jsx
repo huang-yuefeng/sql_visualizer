@@ -3,6 +3,7 @@ import WorkspacePanel from './components/WorkspacePanel';
 import MyWorkspaces from './components/MyWorkspaces';
 import FolderTree from './components/FolderTree';
 import FilterPanel from './components/FilterPanel';
+import { recoverViewSearch } from './utils/recoverViewSearch';
 import ViewBar from './components/ViewBar';
 import DataFlowGraph from './components/DataFlowGraph';
 import SqlPanel from './components/SqlPanel';
@@ -58,6 +59,14 @@ export default function DataFlowApp({
   // A3: statement-level parse errors from the level2 response
   // ({stmt_idx, detail}[]; [] when the script parses clean).
   const [l2ParseErrors, setL2ParseErrors] = useState([]);
+  // Search recovery (2026-08-27): when a PERSISTED view is opened from the
+  // tree (old workspace → L1/L2), the search panel would stay empty and the
+  // graph has no visible trace of which table.field it belongs to. The
+  // recoverViewSearch lookup resolves the target from the views.json rows
+  // (L2 rows carry it via their parent search row); the nonce makes every
+  // tree navigation re-fire the panel injection even for identical targets.
+  const [searchRecover, setSearchRecover] = useState(null);
+  const recoverNonceRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState(null);
@@ -486,6 +495,16 @@ export default function DataFlowApp({
 
     if (!entry) return;
 
+    // Search recovery: whichever view was opened, surface its searched
+    // table.field back into the search panel (L2 rows resolve through their
+    // parent search row). No-op when the tree carries no target — the panel
+    // is never cleared or guessed at.
+    const rec = recoverViewSearch(views, viewId);
+    if (rec) {
+      recoverNonceRef.current += 1;
+      setSearchRecover({ ...rec, nonce: recoverNonceRef.current });
+    }
+
     if (isL2 && entry.type === 'script') {
       // Navigate to L2 — the L2 fetch is driven by entry.parent_view_id,
       // so a stale parentViewIdRef (left pointing at the last-searched
@@ -774,6 +793,7 @@ export default function DataFlowApp({
             tableIndex={tableIndex} fieldIndex={fieldIndex}
             onSearch={handleSearch} loading={loading}
             onError={setError}
+            recover={searchRecover}
             onFilterApplied={async (filterResult) => {
               if (filterResult && filterResult.filtered) {
                 const ft = new Set(filterResult.filtered_tables || []);

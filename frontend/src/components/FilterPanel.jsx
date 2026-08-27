@@ -32,7 +32,7 @@ function saveHistory(username, h) { localStorage.setItem(histKey(username), JSON
 function loadPins(username) { try { return JSON.parse(localStorage.getItem(pinsKey(username)) || '[]'); } catch { return []; } }
 function savePins(username, p) { localStorage.setItem(pinsKey(username), JSON.stringify(p)); }
 
-export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, onSearch, loading, onFilterApplied, onError }) {
+export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, onSearch, loading, onFilterApplied, onError, recover }) {
   const [table, setTable] = useState('');
   const [field, setField] = useState('');
   const [tableSuggestions, setTableSuggestions] = useState([]);
@@ -53,6 +53,20 @@ export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, on
 
   const stRef = useRef(null);
   const tcRef = useRef(null);
+
+  // Search recovery (2026-08-27): opening a PERSISTED view (old workspace →
+  // tree → L1/L2) must show WHICH table.field it belongs to — the panel is
+  // per-session state, so the values ride in via the `recover` prop keyed by
+  // a nonce (DataFlowApp bumps it on every tree navigation). Fires ONLY on
+  // the nonce, never on value identity: an in-flight user edit is never
+  // clobbered unless a view was actually opened.
+  useEffect(() => {
+    if (!recover || !recover.nonce) return;
+    if (recover.table && recover.field) {
+      setTable(recover.table);
+      setField(recover.field);
+    }
+  }, [recover && recover.nonce]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const tableNames = Object.keys(tableIndex || {});
   const fieldNames = Object.keys(fieldIndex || {});
