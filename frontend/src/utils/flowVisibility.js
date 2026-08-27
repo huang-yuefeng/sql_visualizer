@@ -143,6 +143,13 @@ function enlargeFilterSelfLoops(cy) {
 }
 
 function removeCaptionNodes(cy) {
+  try {
+    const deadEdges = cy.edges().filter(e => {
+      const d = typeof e.data === 'function' ? e.data() : {};
+      return d && d.type === 'caption';
+    });
+    if (deadEdges.length) cy.remove(deadEdges);
+  } catch (_) {}
   const dead = cy.nodes().filter(n => {
     const d = typeof n.data === 'function' ? n.data() : {};
     return d.type === 'caption';
@@ -160,7 +167,6 @@ function upsertFilterCaptions(cy) {
       const id = 'cap_' + (typeof e.id === 'function' ? e.id() : e.id);
       // Caption text is model-space too — compensate for zoom so it stays
       // ~14 screen px (readable) at the 0.28 floor and modest when zoomed in.
-      const fs = 12; // v3.3.185: same tier as table titles ("as big as others")
       if (!cy.getElementById(id).length) {
         cy.add({
           data: { id, label, type: 'caption', synthetic: true },
@@ -170,9 +176,32 @@ function upsertFilterCaptions(cy) {
       } else {
         cy.getElementById(id).position(e.midpoint());
       }
-      const cap = cy.getElementById(id);
-      if (typeof cap.style === 'function') {
-        try { cap.style({ 'font-size': fs }); } catch (_) {}
+      // v3.3.186 — the user wants THE EDGE BIG, not the label. Node-node
+      // edges render reliably (unlike self-loop curves), so draw the loop
+      // as a thick synthetic polyline edge between two anchors parked
+      // OUTSIDE the box (model offsets zoom-compensated to ~170 screen px).
+      const src = e.source();
+      if (typeof src.position !== 'function') return;
+      const sp = src.position();
+      const z2 = (typeof cy.zoom === 'function') ? (cy.zoom() || 1) : 1;
+      const off = Math.min(620, Math.max(120, 170 / z2));
+      const aId = 'capA_' + (typeof e.id === 'function' ? e.id() : e.id);
+      const bId = 'capB_' + (typeof e.id === 'function' ? e.id() : e.id);
+      const lId = 'capL_' + (typeof e.id === 'function' ? e.id() : e.id);
+      const mk = (nid, x, y) => {
+        if (!cy.getElementById(nid).length) {
+          cy.add({ data: { id: nid, label: '', type: 'caption', synthetic: true },
+                   position: { x, y }, classes: 'filter-caption' });
+        } else {
+          cy.getElementById(nid).position({ x, y });
+        }
+      };
+      mk(aId, sp.x - off, sp.y - off * 0.7);
+      mk(bId, sp.x - off, sp.y + off * 0.7);
+      if (!cy.getElementById(lId).length) {
+        cy.add({ data: { id: lId, label: '', type: 'caption', synthetic: true,
+                         source: aId, target: bId },
+                 classes: 'filter-loopline' });
       }
     } catch (_) { /* fake cy — captions are best-effort chrome */ }
   });

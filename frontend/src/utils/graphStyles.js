@@ -1195,6 +1195,28 @@ export const FILTER_LOOP_GEOM_STYLES = [
   },
 ];
 
+// v3.3.186 — the BIG visible filter loop: a synthetic node-node edge
+// (node-node edges render reliably; self-loop curves do not) drawn outside
+// the box between two invisible caption anchors.
+export const FILTER_LOOPLINE_STYLES = [
+  {
+    selector: 'edge.filter-loopline',
+    style: {
+      'width': 7,
+      'line-color': '#E74C3C',
+      'target-arrow-color': '#E74C3C',
+      'source-arrow-color': '#E74C3C',
+      'target-arrow-shape': 'triangle',
+      'source-arrow-shape': 'triangle',
+      'arrow-scale': 1.6,
+      'curve-style': 'bezier',
+      'z-index': 30,
+      'events': 'no',
+      'label': '',
+    },
+  },
+];
+
 export const HOVER_EMPHASIS_STYLES = [
   // Generic node emphasis — ~2× the table/script-title base (12 → 24).
   {
