@@ -1089,3 +1089,25 @@ export const L2_UNIFORM_EDGE_STYLES = [
     },
   },
 ];
+
+// ══════════════════════════════════════════════════════════════════
+// Dynamic hover-enlarge (2026-08-27) — display-only emphasis.
+// Hovering a NODE adds `.label-emph` to that node PLUS every field chip
+// belonging to the same table box (fields are separate top-level nodes
+// whose parent was moved into `_tableParent`, so they carry the class
+// individually); hovering an EDGE adds it to the edge's two endpoints.
+// useCytoscapeGraph wires the mouseover/mouseout classes — the payload
+// is untouched and a label size never feeds the layout, so nothing
+// re-layouts. MUST be appended LAST in the assembled sheet (this file
+// exports it; useCytoscapeGraph spreads it after every other group) so
+// font-size/text-outline-width win the specificity tie against the
+// per-type rules (`node[type="field"]`, the table compounds, script
+// cards…): class == attribute selector specificity in cytoscape, the
+// later rule wins (same reasoning as edge.structure-hidden above).
+// ══════════════════════════════════════════════════════════════════
+export const HOVER_EMPHASIS_STYLES = [
+  {
+    selector: '.label-emph',
+    style: { 'font-size': 15, 'text-outline-width': 4, 'z-index': 30 },
+  },
+];

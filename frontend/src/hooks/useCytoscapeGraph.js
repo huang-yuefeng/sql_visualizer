@@ -20,7 +20,7 @@ cytoscape.use(fcose);
 import { NODE_STYLES, COMPOUND_STYLES, L1_PIPELINE_EDGE_STYLES, TURN_EDGE_STYLES,
   BUNDLED_EDGE_STYLES, CATEGORY_EDGE_STYLES, SCRIPT_CARD_STYLES,
   OPERATION_NODE_STYLES, L2_DETAIL_STYLES, L2_NODE_ROLE_STYLES,
-  L2_UNIFORM_EDGE_STYLES, L2_EDGE_CLASSES } from '../utils/graphStyles';
+  L2_UNIFORM_EDGE_STYLES, L2_EDGE_CLASSES, HOVER_EMPHASIS_STYLES } from '../utils/graphStyles';
 import { stripFieldParents, computeFieldRelPos, positionTableFields } from '../utils/layoutCore';
 import { TABLE_SELECTOR, FIT_PADDING } from '../config/layout';
 import { runSnakeLayout } from '../utils/snakeLayout';
@@ -116,6 +116,40 @@ async function pipelineLayout(cy, opts = {}, onFit) {
   }
 }
 
+// ── Dynamic hover-enlarge (display-only) ───────────────────────────
+/**
+ * Elements whose label enlarges while `target` is under the pointer.
+ *   - edge  → its two endpoint nodes (the pair the reader is tracing).
+ *   - node  → the node itself PLUS every field chip of its table box.
+ *     Fields are separate TOP-LEVEL nodes: their `parent` was moved into
+ *     `_tableParent` by stripFieldParents BEFORE Cytoscape ever saw them,
+ *     so `target.children()` is always empty — membership comes only from
+ *     matching `_tableParent` against the hovered box's id. data() itself
+ *     is guarded (an element always has one, but a defensive read keeps
+ *     this quiet if the payload shape drifts).
+ * Returns a collection (empty when handed anything unexpected), so the
+ * callers below can add/remove the class unconditionally.
+ */
+function hoverEmphTargets(target) {
+  const cy = target && typeof target.cy === 'function' ? target.cy() : null;
+  if (!cy || typeof target.isEdge !== 'function' || cy.destroyed()) {
+    return cy ? cy.collection() : null;
+  }
+  const members = [target];
+  if (!target.isEdge()) {
+    const d = target.data();
+    if (d && d.id !== undefined) {
+      // Field chips link UP to their box via `_tableParent` (never down via
+      // children() — see docstring), so membership is a flat id scan.
+      cy.nodes().forEach(n => {
+        const nd = n.data();
+        if (nd && nd._tableParent === d.id) members.push(n);
+      });
+    }
+  }
+  return cy.collection(members);
+}
+
 // ── Main hook ──────────────────────────────────────────────────────
 export default function useCytoscapeGraph(containerRef, graphData, options = {}) {
   const cyRef = useRef(null);
@@ -178,7 +212,12 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
 
     const cy = cytoscape({
       container: containerRef.current,
-      style: [...NODE_STYLES, ...COMPOUND_STYLES, ...edgeStyles],
+      // HOVER_EMPHASIS_STYLES composes LAST by convention (later rules win
+      // specificity ties in cytoscape): the `.label-emph` font-size must
+      // beat every per-type node rule (field chips, table compounds, script
+      // cards) that would otherwise share the tie. Pure display — a label
+      // size change never feeds any layout, so nothing re-layouts.
+      style: [...NODE_STYLES, ...COMPOUND_STYLES, ...edgeStyles, ...HOVER_EMPHASIS_STYLES],
       elements: { nodes, edges },
       layout: { name: 'preset' },
       wheelSensitivity: 0.3,
@@ -281,6 +320,30 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     // so guard on e.target === cy (tap on canvas/empty space clears the
     // edge selection; a node/edge tap must never trigger the clear).
     if (o.onBgTap) cy.on('tap', e => { if (e.target === cy) o.onBgTap(e); });
+
+    // ── Dynamic hover-enlarge (display-only) ────────────────────
+    // Hovering a node enlarges ITS label plus the labels of every field
+    // chip in that table box; hovering an edge enlarges its two endpoints.
+    // Fields are separate top-level nodes whose `parent` was stripped into
+    // `_tableParent` before Cytoscape saw them, so `children()` is always
+    // empty — hoverEmphTargets matches on `_tableParent` instead. Classes
+    // only re-render styles: a label size never feeds a layout, so no
+    // re-layout can fire from this path.
+    cy.on('mouseover', 'node, edge', e => {
+      const t = hoverEmphTargets(e.target);
+      if (!t || t.length === 0) return;
+      cy.batch(() => t.addClass('label-emph'));
+    });
+    // The main effect's cleanup destroys the instance without waiting for
+    // the pointer to leave — removing classes off a destroyed core throws,
+    // so mouseout bails instead (mirrors every other cy.destroyed() guard
+    // in this file).
+    cy.on('mouseout', 'node, edge', e => {
+      if (cy.destroyed()) return;
+      const t = hoverEmphTargets(e.target);
+      if (!t || t.length === 0) return;
+      cy.batch(() => t.removeClass('label-emph'));
+    });
 
     cyRef.current = cy;
     // Fresh graph: layout+fit must run on the FULL graph before the flow
