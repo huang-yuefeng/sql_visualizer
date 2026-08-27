@@ -91,7 +91,8 @@ export const NODE_STYLES = [
       'target-arrow-color': '#5DADE2',
       'target-arrow-shape': 'triangle',
       'curve-style': 'bezier',
-      'arrow-scale': 0.8,
+      // v3.3.182: enlarged from 0.8 — arrows were barely visible in L1.
+      'arrow-scale': 1.6,
       'label': 'data(label)',
       'font-size': 9,
       'color': '#CCC',
@@ -1052,7 +1053,9 @@ export const L2_UNIFORM_EDGE_STYLES = [
       'target-arrow-shape': 'none',
       'mid-target-arrow-shape': 'triangle',
       'mid-target-arrow-color': L2_UNIFORM_EDGE_COLOR,
-      'arrow-scale': 0.8,
+      // v3.3.182: 0.8 was sub-perceivable at the 0.28 zoom floor — 1.8 keeps
+      // the direction triangle readable (cone classes inherit it).
+      'arrow-scale': 1.8,
       // NO edge text label (supersedes R25 flow_kind mid-edge labels).
       'label': '',
     },

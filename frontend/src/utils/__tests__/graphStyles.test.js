@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NODE_STYLES, CATEGORY_EDGE_STYLES } from '../graphStyles';
+import { NODE_STYLES, CATEGORY_EDGE_STYLES, L2_UNIFORM_EDGE_STYLES } from '../graphStyles';
 
 describe('graphStyles — R25/§8.8 flow-kind edge labels', () => {
   it('every L2 edge with flow_kind renders the kind at the midpoint, in the edge color', () => {
@@ -21,5 +21,12 @@ describe('graphStyles — R25/§8.8 flow-kind edge labels', () => {
   it('the base edge rule still defaults the label to data(label) (L1 edges unaffected)', () => {
     const base = NODE_STYLES.find(r => r.selector === 'edge');
     expect(base.style['label']).toBe('data(label)');
+  });
+
+  it('edge arrows are large enough to see (v3.3.182 contract)', () => {
+    const base = NODE_STYLES.find(r => r.selector === 'edge');
+    expect(Number(base.style['arrow-scale'])).toBeGreaterThanOrEqual(1.4);
+    const uniform = L2_UNIFORM_EDGE_STYLES.find(r => r.selector.includes('uniform'));
+    expect(Number(uniform.style['arrow-scale'])).toBeGreaterThanOrEqual(1.5);
   });
 });
