@@ -1199,9 +1199,10 @@ NORMALIZE_MAP = {
     #    above. Inert for the bdm/sup/pl seeds.
     # ── "east5" seed (2026-08-25, EAST5_STZFXXB_M.sql -- ISSUE-4): NO
     #    fold entry needed. The canonical physical spelling IS the
-    #    frequency-voted lowercase east5_stzfxxb (8 lowercase identifier
-    #    tokens vs 1 uppercase EAST5_STZFXXB @189), and the ISSUE-4
-    #    extractor fold serves that same lowercase label. The uppercase
+    #    frequency-voted lowercase east5_stzfxxb (11 lowercase identifier
+    #    tokens: INSERT@41 + ALTERs@166-175, vs 1 uppercase
+    #    FROM EAST5_STZFXXB @189), and the ISSUE-4 extractor fold serves
+    #    that same lowercase label. The uppercase
     #    variant folds to it automatically via the ISSUE-5 _norm casefold
     #    (case-insensitive label identity), so the canonical spelling is
     #    asserted behaviorally -- the stmt2 read (@189/@190) folds into
@@ -1585,22 +1586,24 @@ CANONICAL_NODES_DIR = {
     ],
     # ── ISSUE-4 + EAST5 coverage cases (2026-08-25) ──
     # east5↓ -- east5_stzfxxb.p_dt downstream (ISSUE-4 case): the
-    # physical table is spelled 8× lowercase + 1× UPPERCASE; the
+    # physical table is spelled 11x lowercase (INSERT@41 +
+    # ALTERs@166-175) vs 1 uppercase (FROM EAST5_STZFXXB @189); the
     # canonical spelling is the frequency-voted lowercase east5_stzfxxb.
     # The 5-node closure asserts the stmt2 read (FROM EAST5_STZFXXB @189
     # / WHERE p_dt @190) folds into the SAME east5_stzfxxb node as the
     # stmt1 partition write @41. The two ⟐output entries are the two
-    # statements' output VTs (TOP0 @41 / TOP7 @179), separated by
-    # incident line evidence.
+    # statements' output VTs (TOP0 @41 / TOP11 @179 -- the rrcdm job-log
+    # INSERT statement; on the OCR-repaired sample TOP7 = the OPS_MBS
+    # ALTER @172), separated by incident line evidence.
     ("east5", "EAST5_STZFXXB_M.sql", "downstream"): [
         {"label": "p_dt", "line": 41, "kind": "field",
          "note": "the partition column p_dt (PARTITION(p_dt='$(load_date)')@41; also the stmt2 WHERE read p_dt @190)"},
         {"label": "east5_stzfxxb", "line": 41, "kind": "table",
-         "note": "the physical table -- canonical spelling east5_stzfxxb (frequency vote 8 lowercase vs 1 UPPERCASE; ties -> lowercase)"},
+         "note": "the physical table -- canonical spelling east5_stzfxxb (spelled 11x lowercase (INSERT@41 + ALTERs@166-175) vs 1 uppercase (FROM@189); ties -> lowercase)"},
         {"label": "⟐output", "line": None, "kind": "vt",
          "note": "stmt1 output VT (TOP0, line_start 41)"},
         {"label": "⟐output", "line": None, "kind": "vt",
-         "note": "stmt2 output VT (TOP7, line_start 179)"},
+         "note": "stmt2 output VT (TOP11, line_start 179)"},
         {"label": "rrcdm", "line": 179, "kind": "table",
          "note": "the job-log write target rrcdm_job_log_exec_par (INSERT@179)"},
     ],
@@ -1625,7 +1628,7 @@ CANONICAL_NODES_DIR = {
         {"label": "rrcdm", "line": 179, "kind": "table",
          "note": "job-log INSERT target (INSERT@179)"},
         {"label": "⟐output", "line": None, "kind": "vt",
-         "note": "log statement output VT (TOP7)"},
+         "note": "log statement output VT (TOP11)"},
     ],
     # rrcdm↑EAST5 -- the same literal write chain (URS mirror).
     ("rrcdm", "EAST5_STZFXXB_M.sql", "upstream"): [
@@ -1634,7 +1637,7 @@ CANONICAL_NODES_DIR = {
         {"label": "rrcdm", "line": 179, "kind": "table",
          "note": "job-log INSERT target (INSERT@179)"},
         {"label": "⟐output", "line": None, "kind": "vt",
-         "note": "log statement output VT (TOP7)"},
+         "note": "log statement output VT (TOP11)"},
     ],
 }
 
