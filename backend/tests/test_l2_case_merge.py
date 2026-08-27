@@ -9,14 +9,19 @@ Team C (2026-08-24), backend only:
   nids re-point through occ_to_id). Aliases/subqueries/CTEs STAY
   case-sensitive: a genuinely distinct case-twin alias (A vs a) is still
   a DIFFERENT alias node.
-* T2 (#289): INSERT SELECT-projection columns the extractor sourced to a
-  phantom alias (no real model owner) render ON the write target table
-  node. The physical model is the independent truth: a projection sourced
-  to a real table/CTE/alias renders on that source (its model owner), NOT
-  on the write target — the write-target routing is a fallback for
-  columns with no visible source parent. DML ⟐-output routing is
-  untouched (no qo_ nodes, write legs still hang off each statement's own
-  output VT).
+* T2 (#289): the write-target routing is a FALLBACK, and nothing in EAST5
+  exercises it any more. Since the sample declares alias `a` =
+  bdm_acc_entrusted_payment, every a.-qualified projection has a real
+  model owner and renders there; the dis_bank_id chip on east5 comes from
+  DIRECT extraction-time attribution (the transform the model pins to
+  east5_stzfxxb itself), not from the fallback. Because the repaired
+  sample no longer contains a phantom-sourced projection, the fallback's
+  own behavior — a SELECT projection whose only source is an undeclared
+  alias (no resolvable model owner) still rendering ON the INSERT write
+  target — is covered by the dedicated synthetic-fixture test
+  (test_t2_phantom_projection_renders_on_write_target). DML ⟐-output
+  routing is untouched (no qo_ nodes, write legs still hang off each
+  statement's own output VT).
 """
 
 import io
@@ -145,17 +150,22 @@ def test_t1_alias_case_twin_not_folded(twin_ws):
 # ── T2 (#289): INSERT write columns land on the write target ──────────
 
 def test_t2_insert_write_columns_on_target(east5_ws):
-    """#289: the phantom-sourced INSERT SELECT projections render ON the
-    east5 target; columns the extractor sourced to a real table render on
-    their model owner, not on east5.
+    """#289: nothing in EAST5 routes through the write-target fallback —
+    every projection here is DIRECTLY attributed by the model.
 
-    The fixed EAST5 sample declares alias `a` = bdm_acc_entrusted_payment
-    (``FROM bdm_acc_entrusted_payment a``), so the a.-qualified projections
-    (bz / TAG_* / CHARGE_DEPARTMENT / COM_RESERVED_1 / RESERVED_2/4/6 /
-    PRIMARY_SRC_SYSTEM) render on bdm_acc_entrusted_payment — their real
-    model owner — instead of phantom-sourcing to east5. The
-    expression-sourced projection dis_bank_id (``nvl(b.dis_bank_id, ...)``)
-    stays phantom and renders on the east5 write target."""
+    Probed truth (v3.3.170 repair): alias `a` = bdm_acc_entrusted_payment,
+    so the a.-qualified projections (bz / TAG_* / CHARGE_DEPARTMENT /
+    COM_RESERVED_1 / RESERVED_2/4/6 / PRIMARY_SRC_SYSTEM) carry their real
+    owner in ``source_tables`` and land on bdm_acc_entrusted_payment. The
+    dis_bank_id chip on east5 comes from the SAME kind of direct
+    attribution: the model pins its transform
+    (``COALESCE(b.dis_bank_id, 'CNHSBC900Z')``) to east5_stzfxxb itself
+    (``source_tables=['east5_stzfxxb']`` — extraction-time DML-target
+    attribution), so classification resolves it through the ordinary
+    source-table parent match. ``write_field_target.get()`` never fires for
+    it: no EAST5 projection is phantom-sourced any more. Its twin
+    ``b.org_no As dis_bank_id`` reads bdm_acc_loan_info and therefore shows
+    a second dis_bank_id chip there."""
     res = _build_l2_graph(east5_ws, EAST5, EAST5_PATH.read_text(),
                           "", "", False)
     nodes = _nodes_by(res)
@@ -167,22 +177,41 @@ def test_t2_insert_write_columns_on_target(east5_ws):
     ep_id = _table_id(nodes, "bdm_acc_entrusted_payment")
     assert ep_id is not None, "bdm_acc_entrusted_payment table not found"
     ep_kids = _kids(nodes, ep_id)
-    # phantom-sourced (expression) projection still lands on the write target.
+    # dis_bank_id reaches east5 through DIRECT model attribution (the
+    # transform is pinned to east5_stzfxxb at extraction time) — never via
+    # write_field_target: its b.org_no twin lands on its own reader.
     for wc in ("dis_bank_id",):
         assert wc in kids, \
             f"write column {wc} must land on the east5 target node"
+        assert wc in bdm_kids, \
+            f"{wc}'s b.org_no twin must stay on bdm_acc_loan_info (its reader)"
     # a.-qualified projections render on their model owner
     # bdm_acc_entrusted_payment (alias a), not east5.
     for wc in ("bz", "TAG_COUNTRY", "TAG_ENTITY",
                "TAG_BRANCH", "TAG_GBGF", "TAG_RESERVE",
                "TAG_PRIMARY_ACCOUNTABLE_PARTY", "TAG_RESPONSIBLE_PARTY",
-               "CHARGE_DEPARTMENT", "COM_RESERVED_1",
+               "COM_RESERVED_1",
                "RESERVED_2", "RESERVED_4", "RESERVED_6",
                "PRIMARY_SRC_SYSTEM"):
         assert wc not in kids, \
             f"{wc} is sourced to bdm_acc_entrusted_payment — must NOT land on east5"
         assert wc in ep_kids, \
             f"{wc} must land on bdm_acc_entrusted_payment (its model owner)"
+    # CHARGE_DEPARTMENT spellings are case-sensitive BY DESIGN (#288 folds
+    # only physical tables; column/alias identities keep their case), so
+    # each owner is asserted positively instead of through a case-sensitive
+    # negative:
+    #   • bdm_acc_entrusted_payment owns the UPPERCASE projection
+    #     (a.CHARGE_DEPARTMENT AS CHARGE_DEPARTMENT) and also the lowercase
+    #     a.charge_department reads inside the partition-driven CASE arms;
+    #   • east5_stzfxxb owns ONLY the lowercase partition twin — the
+    #     PARTITION(... ,charge_department) spec @41 (+ ALTER ADD
+    #     PARTITIONs), attributed directly to it as a read.
+    assert "CHARGE_DEPARTMENT" in ep_kids, \
+        "bdm_acc_entrusted_payment must own the uppercase CHARGE_DEPARTMENT projection"
+    assert "charge_department" in kids and "CHARGE_DEPARTMENT" not in kids, \
+        ("east5_stzfxxb must carry only the lowercase partition twin "
+         "'charge_department', never the uppercase CHARGE_DEPARTMENT projection")
     # model-aligned: the model attributes nbjgh/xdhth/xdjjh/dkje to
     # bdm_acc_loan_info (not east5) — the display must follow the model.
     for wc in ("nbjgh", "xdhth", "xdjjh", "dkje"):
@@ -193,12 +222,15 @@ def test_t2_insert_write_columns_on_target(east5_ws):
 
 
 def test_t2_write_target_parent_at_classification(east5_ws):
-    """#289: the phantom-sourced write-column → write-target association is
-    made in _classify_compound_nodes (parent == write-target keeper); a
-    column with a real model owner keeps that owner. The fixed sample's
-    alias `a` = bdm_acc_entrusted_payment means the a.-qualified projections
-    (bz / TAG_COUNTRY / RESERVED_2) parent to bdm_acc_entrusted_payment, not
-    east5 — only the expression-sourced dis_bank_id stays on the target."""
+    """#289 (phase-level probe): every EAST5 write column parents to its
+    MODEL owner during _classify_compound_nodes — none of them through
+    write_field_target. The dis_bank_id chip lands on the east5 keeper
+    because the extractor ALREADY pinned that transform to east5_stzfxxb
+    (``source_tables=['east5_stzfxxb']``), so classification resolves it by
+    the ordinary source-table parent match; and alias `a` =
+    bdm_acc_entrusted_payment means bz / TAG_COUNTRY / RESERVED_2 parent to
+    bdm_acc_entrusted_payment. The fallback routing itself is exercised by
+    test_t2_phantom_projection_renders_on_write_target."""
     import app.services.l2_builder as l2b
     sql = EAST5_PATH.read_text()
     full_graph, _, pm = l2b._load_or_build_graph(east5_ws, EAST5, sql)
@@ -213,7 +245,8 @@ def test_t2_write_target_parent_at_classification(east5_ws):
                if fn.get("label") == probe
                and fn.get("parent") == keeper_id]
         assert got, \
-            f"{probe} must be a field node parented to the east5 keeper"
+            f"{probe} must be a field node parented to the east5 keeper " \
+            f"(direct model attribution, not fallback routing)"
     # a.-qualified projections parent to their model owner bdm_acc_entrusted_payment.
     ep_id = _table_id(table_nodes, "bdm_acc_entrusted_payment")
     assert ep_id is not None, "bdm_acc_entrusted_payment table not found"
@@ -251,3 +284,79 @@ def test_t2_dml_qo_routing_untouched(east5_ws):
         src = nodes.get(ed["source"])
         assert src is not None and (src.get("table_name") or "").startswith("⟐ "), \
             f"write leg into east5 must route through a ⟐ output VT, got {ed}"
+
+
+# ── T2 (#289): the phantom-projection → write-target FALLBACK itself ──
+# EAST5 no longer contains a phantom-sourced projection (alias `a` resolves
+# to bdm_acc_entrusted_payment), so the fallback branch of
+# _classify_compound_nodes needs its own minimal fixture: an INSERT...SELECT
+# whose projection is qualified by an alias declared NOWHERE (`z`) — a
+# phantom with no model owner — beside one ordinary, resolvable projection.
+T2B_FALLBACK_SQL = """\
+INSERT INTO dwd_pay_detail
+SELECT z.phantom_col AS carried_amt, r.keep_col AS kept_amt
+FROM real_src r;
+"""
+T2B_SCRIPT = "t2_phantom_fallback.sql"
+
+
+@pytest.fixture
+def phantom_ws():
+    ws_id = _make_ws(T2B_SCRIPT, T2B_FALLBACK_SQL)
+    yield ws_id
+    delete_workspace(ws_id)
+
+
+def test_t2_phantom_projection_renders_on_write_target(phantom_ws):
+    """#289 BEHAVIORAL: a SELECT projection sourced to an alias with NO
+    resolvable owner still renders ON the INSERT write target.
+
+    `z` is qualified in the projection but never declared — it owns no
+    node, no physical name and no alias_map entry. Classification therefore
+    cannot resolve a parent from ``source_tables=['z']`` and falls through
+    to ``write_field_target`` (the SCHEMA-member × DML-target association of
+    _classify_compound_nodes), which parents the projection onto the write
+    target's keeper. The sibling projection reading a REAL table (kept_amt)
+    keeps its model owner real_src — the fallback never hijacks resolved
+    sources."""
+    # Extraction truth first: carried_amt IS phantom-sourced — its single
+    # source entry names the undeclared alias, which owns no visible node.
+    import app.services.l2_builder as l2b
+    full_graph, _, _pm = l2b._load_or_build_graph(
+        phantom_ws, T2B_SCRIPT, T2B_FALLBACK_SQL)
+    proj = [nd.get("data", nd) for nd in full_graph.get("nodes", [])
+            if nd.get("data", nd).get("label") == "carried_amt"]
+    assert len(proj) == 1, \
+        f"expected exactly one carried_amt var, got {len(proj)}"
+    assert proj[0].get("variable_type") == "column", \
+        f"carried_amt must be a plain column projection, got {proj[0]}"
+    assert proj[0].get("source_tables") == ["z"], \
+        ("carried_amt must be sourced to the undeclared alias z "
+         "(the phantom precondition), got "
+         f"{proj[0].get('source_tables')}")
+
+    res = _build_l2_graph(phantom_ws, T2B_SCRIPT, T2B_FALLBACK_SQL,
+                          "", "", False)
+    nodes = _nodes_by(res)
+    ghost_nodes = [d for d in nodes.values()
+                   if d.get("type") != "field"
+                   and (d.get("table_name") or d.get("label")) == "z"]
+    assert not ghost_nodes, f"`z` must own no display node, got {ghost_nodes}"
+
+    def _chip_owner(label):
+        got = {d.get("parent") for d in nodes.values()
+               if d.get("type") == "field" and d.get("label") == label}
+        assert len(got) == 1, f"{label} expected under exactly ONE parent, got {got}"
+        return got.pop()
+
+    target_id = _table_id(nodes, "dwd_pay_detail")
+    assert target_id is not None, "write target dwd_pay_detail not found"
+    src_id = _table_id(nodes, "real_src")
+    assert src_id is not None, "real_src table not found"
+    # the phantom-sourced write column renders ON THE WRITE TARGET
+    assert _chip_owner("carried_amt") == target_id, \
+        "phantom-sourced carried_amt must render on the write target " \
+        "dwd_pay_detail (the #289 fallback)"
+    # control: a resolvable projection keeps its real model owner
+    assert _chip_owner("kept_amt") == src_id, \
+        "kept_amt is sourced to real_src — the fallback must not take it"
