@@ -1091,6 +1091,46 @@ export const L2_UNIFORM_EDGE_STYLES = [
 ];
 
 // ══════════════════════════════════════════════════════════════════
+// R32: self-loop FILTER captions on the line-merged views (2026-08-27).
+//
+// WHY: the R32 merge pass promotes every absorbed field edge to its parent
+// table, so a filter whose endpoints both live on one table collapses into
+// that table's SELF-LOOP (build_line_merged_edges rule 4) — e.g.
+// `p_dt → east5` @190 becomes `east5_stzfxxb → east5_stzfxxb`. The merged
+// edge is untyped ("FLOW", label "FLOW"), so its meaning is erased on
+// screen: an unlabeled tiny arc nobody can read. The label restores it
+// client-side — DataFlowApp's l2GraphData memo recomputes WHICH fields were
+// absorbed into each self-loop from payloads it already holds and writes
+// `data.filterLabel = "⟂ <fields> (filtered @L<line>)"`; backend payloads,
+// snapshots and benchmarks are untouched.
+//
+// MUST be appended AFTER L2_UNIFORM_EDGE_STYLES in the assembled sheet
+// (useCytoscapeGraph spreads it last): the uniform rule sets an explicit
+// `'label': ''`, which would otherwise win the specificity tie against
+// this `edge[filterLabel]` attribute selector (element+attribute ==
+// element+class in cytoscape — same tie-break convention as
+// edge.structure-hidden / HOVER_EMPHASIS_STYLES above) and leave the arc
+// blank forever.
+// ══════════════════════════════════════════════════════════════════
+export const FILTER_SELFLOOP_STYLES = [
+  {
+    selector: 'edge[filterLabel]',
+    style: {
+      'label': 'data(filterLabel)',
+      'font-size': 10,
+      'color': '#ffd700',
+      'text-background-color': '#1a1a2e',
+      'text-background-opacity': 0.9,
+      'text-background-padding': 3,
+      'text-background-shape': 'roundrectangle',
+      'text-valign': 'center',
+      'text-wrap': 'wrap',
+      'text-max-width': 160,
+    },
+  },
+];
+
+// ══════════════════════════════════════════════════════════════════
 // Dynamic hover-enlarge (2026-08-27) — display-only emphasis.
 // Hovering a NODE adds `.label-emph` to that node PLUS every field chip
 // belonging to the same table box (fields are separate top-level nodes

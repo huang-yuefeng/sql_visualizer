@@ -714,7 +714,36 @@ export default function DataFlowApp({
       const merged = l2Result.full_merged;
       // Defensive: only render a merged view when it actually carries nodes
       // (an empty/absent merged payload falls back to the full graph).
-      if (merged && Array.isArray(merged.nodes) && merged.nodes.length > 0) return merged;
+      if (merged && Array.isArray(merged.nodes) && merged.nodes.length > 0) {
+        // R32 self-loop captions: re-derive, from payloads already in hand,
+        // which merged self-loops are absorbed FILTER field edges and name
+        // them (`⟂ p_dt (filtered @L190)`). Pure client-side projection —
+        // the payload returned by the API is untouched; only THIS memo's
+        // result is a shallow copy whose `edges` array carries an extra
+        // `filterLabel` on matching self-loops (the styling rule
+        // FILTER_SELFLOOP_STYLES renders it — graphStyles.js). Untouched
+        // edges keep their object references, so nothing else can drift.
+        const captions = selfLoopFilterLabels(
+          merged.nodes,
+          (l2Result.graph && l2Result.graph.edges) || [],
+        );
+        if (captions.size === 0) return merged;
+        return {
+          ...merged,
+          edges: (merged.edges || []).map(ed => {
+            const d = ed && ed.data;
+            // Only self-loops can be promoted field edges; anything else
+            // (and any edge with no caption for its line) passes through.
+            if (!d || d.source !== d.target) return ed;
+            const names = captions.get(`${d.highlight_line}|${d.source}`);
+            if (!names) return ed;
+            return {
+              ...ed,
+              data: { ...d, filterLabel: `⟂ ${names} (filtered @L${d.highlight_line})` },
+            };
+          }),
+        };
+      }
     }
     return full;
   }, [l2Result, isL2Merged, l2Graph]);
@@ -1024,6 +1053,80 @@ export default function DataFlowApp({
       {wsId && showLog && <LogPanel wsId={wsId} visible={true} onClose={() => setShowLog(false)} />}
     </div>
   );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// R32 (display-only): captions for line-merged SELF-LOOP edges.
+//
+// In a merged view a filter edge whose endpoints BOTH promote to the same
+// table — e.g. `⟂ p_dt → east5` @190 where p_dt sits on east5_stzfxxb —
+// becomes that table's self-loop `east5_stzfxxb → east5_stzfxxb` (backend
+// build_line_merged_edges rule 4: kept as the line's sole edge). The merge
+// pass erases the mechanism AND the field (`edge_type:"FLOW"`, label
+// "FLOW"), so today it renders as an unlabeled tiny arc with no meaning.
+// The information is NOT lost — it is recoverable from two payloads the
+// client already holds: the merged NODE list (types + parents intact, never
+// stripped at this layer) and the DETAILED closure edges (`l2Result.graph`
+// .edges), which still name the absorbed field edges.
+//
+// Pure lookup, no fetches: for every detailed closure edge both of whose
+// endpoints resolve to one table id while at least one endpoint IS a field,
+// record that field's label under key `${highlight_line}|${tableId}` — but
+// only when at least one such edge carries `edge_type === "FILTER"` (non-
+// FILTER self-loops keep their uniform anonymity; only filters were judged
+// meaningless without the caption). Returns Map(key → sorted comma-joined
+// field labels); an empty Map for absent/malformed input — never a guess.
+// ══════════════════════════════════════════════════════════════════
+export function selfLoopFilterLabels(fullNodes, closureEdges) {
+  const out = new Map();
+  if (!Array.isArray(fullNodes) || !Array.isArray(closureEdges)) return out;
+
+  // id → payload node data. fullNodes is the SERVED list, so parents are
+  // present here — stripFieldParents happens later, inside Cytoscape prep.
+  const byId = new Map();
+  for (const n of fullNodes) {
+    const d = n && n.data;
+    if (d && d.id !== undefined) byId.set(d.id, d);
+  }
+  // Endpoint → {table, field, label}: a field promotes to its parent table
+  // (merge rule 1); a parent-LESS field keeps its own id — exactly what the
+  // backend does for those classifier-gap endpoints — and everything else
+  // is already table-level.
+  const endpoint = (id) => {
+    const nd = byId.get(id);
+    if (nd && nd.type === 'field') {
+      return { table: nd.parent || id, field: true, label: nd.label };
+    }
+    return { table: id, field: false, label: null };
+  };
+
+  // key → {labels:Set, filter:boolean} — per (line, table) absorption site.
+  const seen = new Map();
+  for (const e of closureEdges) {
+    const ed = e && e.data;
+    if (!ed || ed.source === undefined || ed.target === undefined) continue;
+    const line = Number(ed.highlight_line);
+    if (!Number.isInteger(line) || line < 1) continue;
+    const src = endpoint(ed.source);
+    const tgt = endpoint(ed.target);
+    if (src.table !== tgt.table) continue;   // different tables → normal arc
+    if (!src.field && !tgt.field) continue;  // no promotion happened here
+    const key = `${line}|${src.table}`;
+    let rec = seen.get(key);
+    if (!rec) seen.set(key, (rec = { labels: new Set(), filter: false }));
+    for (const side of [src, tgt]) {
+      if (side.field && side.label != null) rec.labels.add(String(side.label));
+    }
+    if (ed.edge_type === 'FILTER') rec.filter = true;
+  }
+
+  for (const [key, rec] of seen) {
+    // Only FILTER-kind absorptions get a caption, and only when a field
+    // label was actually collected — otherwise the text would read "⟂ "
+    // with nothing between it and "(filtered…)".
+    if (rec.filter && rec.labels.size > 0) out.set(key, [...rec.labels].sort().join(', '));
+  }
+  return out;
 }
 
 function collectSqlFiles(tree) {

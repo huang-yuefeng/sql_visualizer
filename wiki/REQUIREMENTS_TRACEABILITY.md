@@ -325,6 +325,15 @@
 | R36.1 | `release.sh` rebuilds frontend and syncs `dist → backend/app/static` before docker build | ✅ | Stage 0.5: npm build, stamp VERSION into dist/index.html, sync elk.bundled.js, `git add backend/app/static`. Root cause: the image serves PREBUILT static — v3.3.171–173 shipped v3.3.170's bundle while /api/health reported new versions |
 | R36.2 | Deployment truth-test = artifact hash parity, not commit history | ✅ | v3.3.177 race (build predated the recovery commit; history looked inclusive) caught by deterministic-build hash diff; v3.3.178 redeployed with local sha256 == deployed sha256 |
 
+## R39 — Merged self-loop filter labels + Flow-line invariants (v3.3.181)
+
+| ID | Requirement | Status | Notes |
+|----|-------------|--------|-------|
+| R39.1 | A merged-view SELF-LOOP (a field→table FILTER edge after R32 promotion, e.g. `east5→east5 @L190`) carries a readable label `⟂ <fields> (filtered @L<line>)` computed CLIENT-side from the detailed closure — payload/snapshots/benchmarks untouched | ✅ | v3.3.181 — `selfLoopFilterLabels` + `edge[filterLabel]` style, composed after the uniform `label:''` rule |
+| R39.2 | INV-1: every DML line referencing the searched field carries ≥1 closure edge | ✅ | `backend/tests/test_flow_line_invariants.py` — DML carve-out checked both ways (uncovered DML line OR newly-covered DDL line → red) |
+| R39.3 | INV-2: every closure edge is assigned a SQL line (integer ≥1) | ✅ | same gate |
+| R39.4 | DDL `ALTER … ADD PARTITION (P_DT=…)` lines stay OUT of the value-flow closure (metadata-only) — codified as INV-1's documented exception, drift fails loudly | ✅ | EAST5 L166–175 verified excluded; L41/L190 covered |
+
 ## R37 — L2 node click scrolls the SQL panel to the node's definition line (requirement change, 2026-08-27)
 | ID | Requirement | Status | Notes |
 |----|------------|--------|-------|

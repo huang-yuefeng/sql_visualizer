@@ -185,6 +185,14 @@ curl -s http://192.168.0.66:8000/api/health       # health check
     runs downstream. Persisted direction values are deliberately ignored — one
     direction, one mental model: "where does this field's value go". Provenance
     questions remain answerable in the full view.
+30. **Merged self-loop filter labels + flow-line invariants (v3.3.181, R39)**:
+    R32 promotion turns absorbed FILTER edges into unlabeled self-loops; the
+    frontend re-attaches `⟂ <fields> (filtered @L<line>)` client-side
+    (`selfLoopFilterLabels` over the detailed closure; backend payloads
+    untouched). Two standing gates in `test_flow_line_invariants.py`: INV-1
+    every DML field-line has ≥1 closure edge (DDL ADD PARTITION lines are the
+    documented exception — new coverage there fails the test); INV-2 every
+    closure edge carries a SQL line.
 28. **L2 node click → SQL definition line (v3.3.179, R37)**: tapping a node
     feeds its `data.line_start` into the SINGLE `sqlHighlightLine` channel
     (shared with edge clicks; last wins; `SqlPanel` unchanged). Line

@@ -20,7 +20,8 @@ cytoscape.use(fcose);
 import { NODE_STYLES, COMPOUND_STYLES, L1_PIPELINE_EDGE_STYLES, TURN_EDGE_STYLES,
   BUNDLED_EDGE_STYLES, CATEGORY_EDGE_STYLES, SCRIPT_CARD_STYLES,
   OPERATION_NODE_STYLES, L2_DETAIL_STYLES, L2_NODE_ROLE_STYLES,
-  L2_UNIFORM_EDGE_STYLES, L2_EDGE_CLASSES, HOVER_EMPHASIS_STYLES } from '../utils/graphStyles';
+  L2_UNIFORM_EDGE_STYLES, L2_EDGE_CLASSES, HOVER_EMPHASIS_STYLES,
+  FILTER_SELFLOOP_STYLES } from '../utils/graphStyles';
 import { stripFieldParents, computeFieldRelPos, positionTableFields } from '../utils/layoutCore';
 import { TABLE_SELECTOR, FIT_PADDING } from '../config/layout';
 import { runSnakeLayout } from '../utils/snakeLayout';
@@ -236,7 +237,14 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
       // beat every per-type node rule (field chips, table compounds, script
       // cards) that would otherwise share the tie. Pure display — a label
       // size change never feeds any layout, so nothing re-layouts.
-      style: [...NODE_STYLES, ...COMPOUND_STYLES, ...edgeStyles, ...HOVER_EMPHASIS_STYLES],
+      style: [...NODE_STYLES, ...COMPOUND_STYLES, ...edgeStyles,
+        ...HOVER_EMPHASIS_STYLES,
+        // R32 self-loop FILTER captions — spread LAST so the rule beats
+        // L2_UNIFORM_EDGE_STYLES' explicit `'label': ''` on the same
+        // specificity tie (later rule wins; same convention as the hover
+        // block above). Only edges carrying `data.filterLabel` match —
+        // everything else renders exactly as before.
+        ...FILTER_SELFLOOP_STYLES],
       elements: { nodes, edges },
       layout: { name: 'preset' },
       wheelSensitivity: 0.3,
