@@ -119,7 +119,8 @@ async function pipelineLayout(cy, opts = {}, onFit) {
 // ── Dynamic hover-enlarge (display-only) ───────────────────────────
 /**
  * Elements whose label enlarges while `target` is under the pointer.
- *   - edge  → its two endpoint nodes (the pair the reader is tracing).
+ *   - edge  → its two endpoint nodes PLUS every field chip of each endpoint
+ *     table box (the chips, not just the title, are what the reader traces).
  *   - node  → the node itself PLUS every field chip of its table box.
  *     Fields are separate TOP-LEVEL nodes: their `parent` was moved into
  *     `_tableParent` by stripFieldParents BEFORE Cytoscape ever saw them,
@@ -140,7 +141,20 @@ function hoverEmphTargets(target) {
   // itself, but edges carry no visible label — so hovering an edge changed
   // nothing on screen. Enlarge the two ENDPOINT nodes (edge included
   // harmlessly, for future edge styling).
-  if (target.isEdge()) return target.connectedNodes().union(target);
+  // v3.3.177: endpoint TABLES must bring their FIELD CHIPS along — a title
+  // alone is not the caption the reader traces; the chips are the payload
+  // (same `_tableParent` flat scan the node branch uses, applied to every
+  // connected node, so CTE/alias endpoints without chips are unaffected).
+  if (target.isEdge()) {
+    const ends = target.connectedNodes();
+    ends.forEach(n => members.push(n));
+    const ids = new Set(ends.map(n => n.id()));
+    cy.nodes().forEach(n => {
+      const nd = n.data();
+      if (nd && nd._tableParent && ids.has(nd._tableParent)) members.push(n);
+    });
+    return cy.collection(members);
+  }
   {
     const d = target.data();
     if (d && d.id !== undefined) {

@@ -208,15 +208,15 @@ export function applyLayout(cy, tablePositions, fieldRel, tableInfo, fitPadding 
   // Bug 1+4 fix: defer fit with setTimeout so Cytoscape completes positioning.
   // requestAnimationFrame (16ms) is too early — Cytoscape's internal layout
   // cycle may not have flushed batch updates yet. 100ms is reliable.
-  // Bug 4: adaptive padding — L2 panel is ~420px, FIT_PADDING=60
-  // leaves just 20px of content → zoom clamped to minZoom=0.05.
+  // Bug 4: adaptive padding — L2 spends the window on content: 5% of panel
+  // width, floored at 16 (synced with useCytoscapeGraph + DataFlowGraph).
   setTimeout(() => {
     if (!cy || cy.destroyed()) return;
     const level = (cy.container()?.closest?.('[data-level]')?.dataset?.level) || 'L1';
     const panelW = cy.container()?.offsetWidth || 800;
-    // L2: 7% of panel width (≈30px on 420px), L1: use full fitPadding
+    // L2: 5% of panel width, L1: use full fitPadding
     const effectivePadding = level === 'L2'
-      ? Math.max(30, Math.floor(panelW * 0.07))
+      ? Math.max(16, Math.floor(panelW * 0.05))
       : fitPadding;
     if (level === 'L2') {
       cy.fit(undefined, effectivePadding);

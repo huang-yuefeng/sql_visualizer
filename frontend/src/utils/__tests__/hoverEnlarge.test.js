@@ -106,6 +106,10 @@ describe('useCytoscapeGraph — scope guards that survive the hover change', () 
   it('still links fields to their compound table via _tableParent', () => {
     expect(hookSource).toContain('_tableParent');
   });
+
+  it('edge hover enlarges the ENDPOINT nodes (not the bare edge)', () => {
+    expect(hookSource).toMatch(/isEdge\(\)\)[\s\S]{0,400}?connectedNodes\(\)/);
+  });
 });
 
 hoverHook('useCytoscapeGraph — hover-enlarge wiring', () => {
