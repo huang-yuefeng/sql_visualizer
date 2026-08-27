@@ -27,6 +27,22 @@ fi
 cd ..
 echo -e "${GREEN}✅ Pre-flight OK${NC}"
 
+# ── 0.5 Frontend build + static sync (the image serves PREBUILT
+#      backend/app/static — without this stage a release silently ships the
+#      previous UI; v3.3.171-173 shipped v3.3.170's bundle this way).
+echo "=== Frontend build + static sync ==="
+( cd frontend && npm run build > /dev/null )
+VERSION_SED=$(printf '%s' "$VERSION" | sed 's/[&\\|]/\\&/g')
+sed -i -E "s|(<meta name=\"version\" content=\")[^\"]*(\")|\\1${VERSION_SED}\\2|" frontend/dist/index.html
+grep -qF -- "name=\"version\" content=\"${VERSION}\"" frontend/dist/index.html || {
+    echo -e "${RED}❌ VERSION stamp failed into dist/index.html${NC}"; exit 1
+}
+cp frontend/node_modules/elkjs/lib/elk.bundled.js backend/app/static/elk.bundled.js
+rm -rf backend/app/static && mkdir -p backend/app/static
+cp -r frontend/dist/. backend/app/static/
+git add backend/app/static
+echo -e "${GREEN}✅ Static synced from frontend/dist (index-*.js hash ensures cache-bust)${NC}"
+
 # ── 1. Build Docker image ───────────────────────────────────────────
 echo "=== Building Docker image v$VERSION ==="
 docker build -t gps-sql-visualizer:latest .

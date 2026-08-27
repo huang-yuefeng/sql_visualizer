@@ -99,7 +99,7 @@ function applySavedPositions(cy, savedPositions, fieldRel) {
   if (!cy.destroyed()) {
     const level = (cy.container()?.closest?.('[data-level]')?.dataset?.level) || 'L1';
     const panelW = cy.container()?.offsetWidth || 800;
-    const pad = level === 'L2' ? Math.max(30, Math.floor(panelW * 0.07)) : FIT_PADDING;
+    const pad = level === 'L2' ? Math.max(16, Math.floor(panelW * 0.05)) : FIT_PADDING;
     cy.fit(undefined, pad);
   }
 }
