@@ -3,7 +3,7 @@ import useCytoscapeGraph from '../hooks/useCytoscapeGraph';
 import DataFlowLegend from './DataFlowLegend';
 import { FIT_PADDING } from '../config/layout';
 import { countStructureEdges } from '../utils/structureEdges';
-import { L2_EDGE_CLASSES } from '../utils/graphStyles';
+import { L2_EDGE_CLASSES, STORY_STYLES } from '../utils/graphStyles';
 
 /**
  * R30/#222 — click-edge flow cone (L2 only).
@@ -154,6 +154,11 @@ export default function DataFlowGraph(props) {
     // R31/A-M5 layout persistence: savedPositions = {nodeId: [x,y]} re-applied
     // on a fresh graph (resume); onPositionsChange reports drag-end positions.
     savedPositions, onPositionsChange,
+    // Field Story step-through: { active, edgeIds, nodeIds } for the ACTIVE
+    // story step (null/absent = inactive). Effect below lights the step's
+    // edges (story-active) + nodes (label-emph) and dims everything else
+    // (story-dim) — classes only, never a layout.
+    storyFocus,
   } = props;
 
   const containerRef = useRef(null);
@@ -199,7 +204,9 @@ export default function DataFlowGraph(props) {
       onEdgeClick?.(edgeData);
       // R30/#222: L2 edge click highlights its flow cone (upstream green,
       // downstream blue, pivot red, rest dimmed). L1 is untouched.
-      if (level === 'L2') {
+      if (level === 'L2' && !(storyFocus && storyFocus.active)) {
+        // A7: while the field story is playing, the cone stays off —
+        // both features dim with the same value and would fight.
         applyFlowCone(cyRef.current, graphData, edgeData.id);
       }
     },
@@ -291,6 +298,59 @@ export default function DataFlowGraph(props) {
       if (edge.length) edge.addClass('highlighted');
     }
   }, [selectedEdgeId]);
+
+  // ── Field Story focus (step-through bar) ──────────────────────────
+  // STORY_STYLES is appended to the LIVE stylesheet HERE (not in
+  // useCytoscapeGraph) so the hook needs no new import — appended rules
+  // compose after every group in the initial sheet, winning the usual
+  // specificity ties (edge.story-active width vs .l2-uniform's 2). The
+  // ref guards against re-appending on re-renders; a recreated cy
+  // (graphData change) re-arms it, and the append is idempotent anyway.
+  const storyStyledCyRef = useRef(null);
+  React.useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || cy.destroyed()) return;
+    if (storyStyledCyRef.current !== cy) {
+      storyStyledCyRef.current = cy;
+      cy.style().append(STORY_STYLES).update();
+    }
+    const active = !!(storyFocus && storyFocus.active);
+    const edgeIds = new Set(
+      active && Array.isArray(storyFocus.edgeIds) ? storyFocus.edgeIds : []);
+    const nodeIds = new Set(
+      active && Array.isArray(storyFocus.nodeIds) ? storyFocus.nodeIds : []);
+    // A5 exemptions: synthetic chrome (caption nodes, filter loop-line /
+    // self-loop edges) is deleted and re-created by every visibility
+    // pass — classes never survive there and dimming would ghost the
+    // ⟂ filter caption that IS a step's only visible form. The seed box
+    // + its chips ride exemptNodeIds from DataFlowApp.
+    const exemptIds = new Set(
+      active && Array.isArray(storyFocus.exemptNodeIds) ? storyFocus.exemptNodeIds : []);
+    const isExempt = (el) => {
+      if (exemptIds.has(el.id())) return true;
+      const d = (typeof el.data === 'function' ? el.data() : null) || {};
+      if (d.type === 'caption' || d.synthetic === true) return true;
+      return el.isEdge && el.isEdge()
+        && (el.hasClass('filter-selfloop') || el.hasClass('filter-loopline'));
+    };
+    cy.batch(() => {
+      // Reset first — step transitions and dismiss both land here.
+      cy.elements().removeClass('story-dim story-active label-emph');
+      if (!active) return;
+      // Dim every element the step does NOT involve (nodes AND edges),
+      // then light the involved edges and enlarge the involved node
+      // labels. Field chips are top-level nodes (parent stripped into
+      // _tableParent), so the story's nodeIds already include the parent
+      // tables — applied as given, no reconstruction. Exempt elements
+      // (A5) are never dimmed and never class-tagged.
+      cy.elements()
+        .filter(el => !nodeIds.has(el.id()) && !edgeIds.has(el.id()) && !isExempt(el))
+        .addClass('story-dim');
+      cy.edges().filter(el => edgeIds.has(el.id())).addClass('story-active');
+      cy.nodes().filter(el => nodeIds.has(el.id())).addClass('label-emph');
+    });
+    // Classes only — no layout, no fit: stepping never moves a node.
+  }, [storyFocus]);
 
   return (
     <div className="dataflow-graph-container" data-level={level}>

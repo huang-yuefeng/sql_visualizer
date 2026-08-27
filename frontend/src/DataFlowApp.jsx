@@ -6,12 +6,14 @@ import FilterPanel from './components/FilterPanel';
 import { recoverViewSearch } from './utils/recoverViewSearch';
 import ViewBar from './components/ViewBar';
 import DataFlowGraph from './components/DataFlowGraph';
+import FieldStoryBar from './components/FieldStoryBar';
 import SqlPanel from './components/SqlPanel';
 import EdgeReasonPanel from './components/EdgeReasonPanel';
 import LogPanel from './components/LogPanel';
 import ResolutionReport from './components/ResolutionReport';
 import * as api from './api/client';
 import pickAutoEdge from './utils/pickAutoEdge';
+import { buildFieldStory } from './utils/fieldStory';
 import { resolveFlowOnly } from './utils/flowVisibility';
 import { resumeLayoutKey } from './utils/layoutPersistence';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
@@ -67,6 +69,15 @@ export default function DataFlowApp({
   // A3: statement-level parse errors from the level2 response
   // ({stmt_idx, detail}[]; [] when the script parses clean).
   const [l2ParseErrors, setL2ParseErrors] = useState([]);
+  // ── Field Story step-through bar ──────────────────────────────────
+  // storyActiveIndex: null = inactive (the bar still renders when steps
+  // exist, but nothing on the graph is lit); a number = that step's
+  // edges/nodes are lit and everything else dimmed (storyFocus below →
+  // DataFlowGraph). storyAutoplay drives FieldStoryBar's 3s interval.
+  // Both reset on EVERY L2 entry path (applyL2Result) — a fresh script
+  // never inherits the previous story's focus or clock.
+  const [storyActiveIndex, setStoryActiveIndex] = useState(null);
+  const [storyAutoplay, setStoryAutoplay] = useState(false);
   // Search recovery (2026-08-27): when a PERSISTED view is opened from the
   // tree (old workspace → L1/L2), the search panel would stay empty and the
   // graph has no visible trace of which table.field it belongs to. The
@@ -273,6 +284,10 @@ export default function DataFlowApp({
     setL2NotInFlowMessage(notInFlow ? (result.message || null) : null);
     // A3: parse_errors is a top-level array ({stmt_idx, detail}) — [] when none.
     setL2ParseErrors(result.parse_errors || []);
+    // Field Story: every L2 entry path lands here — start each story
+    // inactive (no stale dimming from the previous script) and paused.
+    setStoryActiveIndex(null);
+    setStoryAutoplay(false);
   }, []);
 
   // ── R31: full reset of debugger state (no workspace lifecycle calls —
@@ -288,6 +303,7 @@ export default function DataFlowApp({
     setL2NotInFlow(false); setL2NotInFlowMessage(null); setL2ParseErrors([]);
     setProgress(null); setVersion(0); setResumeLayouts({});
     setShowLog(true);
+    setStoryActiveIndex(null); setStoryAutoplay(false);
   }, [setVersion]);
 
   // ── Upload (create) & Analyze ─────────────────────────────────────
@@ -617,6 +633,11 @@ export default function DataFlowApp({
   // The old response-level `highlights` and per-edge `sql_range` /
   // `sql_ranges` fields are gone from the API — nothing to pick from.
   const handleEdgeClick = useCallback((edgeData) => {
+    // A7 focus exclusivity: a manual edge click while the story plays
+    // EXITS the story — one focus mode at a time, and the R37
+    // last-click-wins channel stops fighting the autoplay ticker.
+    setStoryActiveIndex(null);
+    setStoryAutoplay(false);
     setSelectedEdge(edgeData);
     const ln = edgeData && edgeData.highlight_line;
     setSqlHighlightLine(Number.isInteger(ln) && ln >= 1 ? ln : null);
@@ -632,6 +653,9 @@ export default function DataFlowApp({
   // line_start). Node click clears a stale edge selection so the reason
   // panel can't show a mismatched edge beside a node's line.
   const handleNodeClick = useCallback((nodeData) => {
+    // A7: symmetric with edge clicks — see handleEdgeClick.
+    setStoryActiveIndex(null);
+    setStoryAutoplay(false);
     setSelectedEdge(null);
     const ln = nodeData && nodeData.line_start;
     setSqlHighlightLine(Number.isInteger(ln) && ln >= 1 ? ln : null);
@@ -758,6 +782,118 @@ export default function DataFlowApp({
     return l2Result?.flow_edge_ids;
   }, [isL2Merged, l2Result]);
 
+  // ── Field Story (step-through bar) ────────────────────────────────
+  // Target resolution mirrors the breadcrumb: an L2 child row carries no
+  // table/field of its own — its PARENT search row does. No target (or a
+  // row without both halves) → no story, never a guess.
+  const storyTarget = useMemo(() => {
+    if (!activeView) return null;
+    const parentView = activeView.parent_view_id
+      ? views.find(v => v.view_id === activeView.parent_view_id)
+      : null;
+    const displayView = parentView || activeView;
+    if (!displayView.table || !displayView.field) return null;
+    return { table: displayView.table, field: displayView.field };
+  }, [activeView, views]);
+
+  // Steps come from the builder (utils/fieldStory) over the detailed L2
+  // closure. Null whenever an input is missing, the builder throws, or it
+  // returns no steps array — the bar renders only when steps exist.
+  const fieldStory = useMemo(() => {
+    if (!l2Result || !storyTarget) return null;
+    try {
+      const story = buildFieldStory({
+        graph: l2Result.graph,
+        fullGraph: l2Result.full_graph,
+        // A1: the merged payload whose l2m_* ids the default view renders.
+        mergedGraph: l2Result.full_merged,
+        table: storyTarget.table,
+        field: storyTarget.field,
+      });
+      return story && Array.isArray(story.steps) ? story : null;
+    } catch { /* no story rather than a broken debugger */ return null; }
+  }, [l2Result, storyTarget]);
+
+  // The L2 graph's focus: the active step's edge/node ids. null covers
+  // inactive (storyActiveIndex === null), L1, and out-of-range indices.
+  const storyFocus = useMemo(() => {
+    if (graphLevel !== 'L2' || storyActiveIndex == null || !fieldStory) return null;
+    const step = fieldStory.steps[storyActiveIndex];
+    if (!step) return null;
+    // A6: merged and detailed views render DISJOINT edge-id namespaces —
+    // pick the list that exists in the view actually on screen, and
+    // re-derive on every view flip (deps include isL2Merged/l2Result).
+    const edgeIds = (isL2Merged
+      ? (step.mergedEdgeIds || [])
+      : (step.edgeIds || []));
+    // A5: never dim the story's anchor — the seed chip, its owning table
+    // box, and that box's chips (the visible anchor in merged views,
+    // where the chip itself is hidden when edge-less).
+    const exempt = new Set();
+    const nodes = (l2Result && l2Result.graph && l2Result.graph.nodes) || [];
+    if (fieldStory.seedNodeId) {
+      exempt.add(fieldStory.seedNodeId);
+      let parentId = null;
+      for (const n of nodes) {
+        const d = n && n.data ? n.data : n;
+        if (d && d.id === fieldStory.seedNodeId) { parentId = d.parent; break; }
+      }
+      if (parentId) {
+        exempt.add(parentId);
+        for (const n of nodes) {
+          const d = n && n.data ? n.data : n;
+          if (d && d.parent === parentId && d.id) exempt.add(d.id);
+        }
+      }
+    }
+    return { active: true, edgeIds, nodeIds: step.nodeIds || [], exemptNodeIds: Array.from(exempt) };
+  }, [graphLevel, storyActiveIndex, fieldStory, isL2Merged, l2Result]);
+
+  // Shared applicator: index + the R37 single SQL-highlight channel —
+  // stepping the story scrolls the SQL panel exactly like an edge/node
+  // click does (integer ≥ 1 guard, same as every other writer).
+  const applyStoryStep = useCallback((i) => {
+    const step = fieldStory && fieldStory.steps[i];
+    if (!step) return;
+    setStoryActiveIndex(i);
+    const ln = step.line;
+    setSqlHighlightLine(Number.isInteger(ln) && ln >= 1 ? ln : null);
+  }, [fieldStory]);
+
+  // Chip click — manual inspection intent: jump AND stop the clock (the
+  // autoplay interval advances via onNext/onPrev, which never touch it,
+  // so stopping here cannot fight the ticker).
+  const handleStoryStep = useCallback((i) => {
+    setStoryAutoplay(false);
+    applyStoryStep(i);
+  }, [applyStoryStep]);
+
+  // ◀ — no-op before the first step (button is disabled there too).
+  const handleStoryPrev = useCallback(() => {
+    if (storyActiveIndex == null || storyActiveIndex <= 0) return;
+    applyStoryStep(storyActiveIndex - 1);
+  }, [storyActiveIndex, applyStoryStep]);
+
+  // ▶ — from inactive (null) it STARTS the story at step 0; otherwise it
+  // advances, clamped at the last step (autoplay stops there, no wrap).
+  const handleStoryNext = useCallback(() => {
+    const steps = fieldStory?.steps || [];
+    if (!steps.length) return;
+    const nextIdx = storyActiveIndex == null ? 0
+      : Math.min(steps.length - 1, storyActiveIndex + 1);
+    applyStoryStep(nextIdx);
+  }, [storyActiveIndex, fieldStory, applyStoryStep]);
+
+  // ✕ — dismiss the focus only: null index clears the graph dimming via
+  // storyFocus; the bar itself stays mounted while steps exist.
+  const handleStoryDismiss = useCallback(() => {
+    setStoryActiveIndex(null);
+  }, []);
+
+  const handleStoryToggleAutoplay = useCallback(() => {
+    setStoryAutoplay(v => !v);
+  }, []);
+
   // Breadcrumb navigation
   const breadcrumb = [];
   if (activeView) {
@@ -790,6 +926,9 @@ export default function DataFlowApp({
         if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
         setGraphLevel("L1");
         setSelectedEdge(null); setSqlHighlightLine(null);
+        // A8: the L2 panel unmounts on Escape — kill the story clock or
+        // its interval keeps writing a highlight nothing renders.
+        setStoryActiveIndex(null); setStoryAutoplay(false);
       }
     };
     window.addEventListener("keydown", handler);
@@ -971,6 +1110,22 @@ export default function DataFlowApp({
           <div className="inline-l2-header">
             <h3>📄 {currentScriptName?.split('/').pop() || 'Script'} — Level 2 Detail</h3>
           </div>
+          {/* Field Story step-through bar — above the L2 graph area, only
+              when the searched field's story has steps. Clicking a step
+              lights its edges/nodes (storyFocus) and scrolls the SQL panel
+              via the R37 channel; ✕ dismisses (focus null → dim cleared). */}
+          {fieldStory && fieldStory.steps.length > 0 && (
+            <FieldStoryBar
+              steps={fieldStory.steps}
+              activeIndex={storyActiveIndex}
+              onStep={handleStoryStep}
+              onPrev={handleStoryPrev}
+              onNext={handleStoryNext}
+              autoplay={storyAutoplay}
+              onToggleAutoplay={handleStoryToggleAutoplay}
+              onDismiss={handleStoryDismiss}
+            />
+          )}
           <div className="inline-l2-graph">
             {/* A3: statement-level parse errors from the level2 response —
                 one line per statement, backend detail shown verbatim. Uses the
@@ -1007,6 +1162,7 @@ export default function DataFlowApp({
               flowEdgeIds={flowEdgeIds}
               savedPositions={resumeLayouts[resumeLayoutKey('l2', currentScriptName)]}
               onPositionsChange={(positions) => handlePositionsChange('l2', positions)}
+              storyFocus={storyFocus}
             />
           </div>
           {/* Resize handle: L2 graph | SQL panel */}
