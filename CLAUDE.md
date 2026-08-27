@@ -179,3 +179,10 @@ curl -s http://192.168.0.66:8000/api/health       # health check
     before docker build. Deployment truth-test = artifact hash parity (local
     dist sha256 == deployed sha256), never commit history — v3.3.177's race
     shipped a stale bundle while history looked inclusive.
+28. **L2 node click → SQL definition line (v3.3.179, R37)**: tapping a node
+    feeds its `data.line_start` into the SINGLE `sqlHighlightLine` channel
+    (shared with edge clicks; last wins; `SqlPanel` unchanged). Line
+    semantics = server contract: ⟐ VT → statement anchor, physical table →
+    first occurrence, alias/CTE → FROM/JOIN line. Guards: integer `≥1` else
+    silent no-op (TVF alias `f`@L0 no-ops until M-T1), first line only, L2
+    only, own-payload lookup (never label matching).

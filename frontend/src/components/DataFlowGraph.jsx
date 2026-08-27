@@ -140,6 +140,10 @@ export default function DataFlowGraph(props) {
     graphData, level, layoutMode, onOpenL2,
     onEdgeClick, onToggleLayout, selectedEdgeId,
     onCanvasTap,
+    // R37: L2 node tap → SQL definition line (node data carries line_start —
+    // the same value the @L suffix renders). Gated to L2 here; the handler
+    // owns the line-validity guard.
+    onNodeClick,
     // L2 flow toggle (#331, four modes): flowNodeIds / flowEdgeIds are the
     // target-field flow closure from the L2 response (used by the flow-only
     // members' client-side filter — flowNodeIds is shared by both pairs, the
@@ -190,6 +194,12 @@ export default function DataFlowGraph(props) {
       if (level === 'L2') {
         applyFlowCone(cyRef.current, graphData, edgeData.id);
       }
+    },
+    // R37: node taps feed the same SQL-highlight channel as edge taps.
+    // L2-only (L1 script nodes would need cross-script SQL loading); the
+    // handler in DataFlowApp owns the line_start validity guard.
+    onNodeTap: (e) => {
+      if (level === 'L2') onNodeClick?.(e.target.data());
     },
     onBgTap: () => {
       onCanvasTap?.();

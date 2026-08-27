@@ -44,6 +44,10 @@ export default function DataFlowApp({
   const [sqlText, setSqlText] = useState('');
   const [currentScriptName, setCurrentScriptName] = useState('');
   const [selectedEdge, setSelectedEdge] = useState(null);
+  // R37: THE single SQL-highlight channel — edge AND node clicks write it,
+  // last click wins. `selectedEdge` stays edge-only (reason panel), so a
+  // node click clears it instead of leaving a mismatched reason showing.
+  const [sqlHighlightLine, setSqlHighlightLine] = useState(null);
   const [l2Result, setL2Result] = useState(null);
   // L2 view toggle (#331, four modes): 'flow' (closure — the default on a
   // matched search), 'full' (entire script graph), 'flow-merged' and
@@ -249,7 +253,14 @@ export default function DataFlowApp({
     // selection (and no reason-panel content) from a previous script.
     // R11-1: instead of leaving the reason panel stuck at "Click an edge
     // …", auto-select a sensible edge (seed-zone > chain > first).
-    setSelectedEdge(pickAutoEdge(result));
+    const autoEdge = pickAutoEdge(result);
+    setSelectedEdge(autoEdge);
+    // R37: the highlight line is now stateful — seed it from the auto edge
+    // exactly as the old derived value did.
+    {
+      const ln = autoEdge && autoEdge.highlight_line;
+      setSqlHighlightLine(Number.isInteger(ln) && ln >= 1 ? ln : null);
+    }
     // Contract: search_matched === false → the search field is not in this
     // script (graph is the full unfiltered one); field absent from the
     // response means the search target matched (or none exists).
@@ -267,7 +278,7 @@ export default function DataFlowApp({
     setTableIndex({}); setFieldIndex({}); setFullTableIndex({}); setFullFieldIndex({});
     setIndexed(false); setViews([]); setActiveViewId(null); setL1Graph(null);
     setL2Graph(null); setL2Result(null); setL2ViewMode(null); setSqlText(''); setCurrentScriptName('');
-    setError(null); setActiveL1Table(null); setSelectedEdge(null);
+    setError(null); setActiveL1Table(null); setSelectedEdge(null); setSqlHighlightLine(null);
     setResolutionStats(null); setOrphanFieldSamples(null);
     setSchemaCandidates(null); setSchemaEvidence(null);
     setL2NotInFlow(false); setL2NotInFlowMessage(null); setL2ParseErrors([]);
@@ -423,7 +434,7 @@ export default function DataFlowApp({
       setL2Graph(null); setL2Result(null); setL2ViewMode(null);
       setSqlText('');
       setActiveL1Table(null);
-      setSelectedEdge(null);
+      setSelectedEdge(null); setSqlHighlightLine(null);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -535,7 +546,7 @@ export default function DataFlowApp({
       setL2ParseErrors([]);
       setSqlText('');
       setActiveL1Table(null);
-      setSelectedEdge(null);
+      setSelectedEdge(null); setSqlHighlightLine(null);
     }
   }, [views, wsId, direction]);
 
@@ -604,15 +615,29 @@ export default function DataFlowApp({
   // `sql_ranges` fields are gone from the API — nothing to pick from.
   const handleEdgeClick = useCallback((edgeData) => {
     setSelectedEdge(edgeData);
+    const ln = edgeData && edgeData.highlight_line;
+    setSqlHighlightLine(Number.isInteger(ln) && ln >= 1 ? ln : null);
+  }, []);
+
+  // R37: L2 node click → scroll the SQL panel to the node's definition
+  // line. Line semantics = server contract: ⟐ output VT → statement anchor
+  // (INSERT/ALTER), physical table → first occurrence (R22 keeper), alias/
+  // CTE → its FROM/JOIN/WITH line. Guards: integer ≥ 1 else silent no-op
+  // (TVF alias `f` anchors L0 until M-T1 — never guess); first line only
+  // (single-line-highlight convention, v3.3.145); the tapped element's OWN
+  // payload is read, never a label lookup (merged nodes keep their own
+  // line_start). Node click clears a stale edge selection so the reason
+  // panel can't show a mismatched edge beside a node's line.
+  const handleNodeClick = useCallback((nodeData) => {
+    setSelectedEdge(null);
+    const ln = nodeData && nodeData.line_start;
+    setSqlHighlightLine(Number.isInteger(ln) && ln >= 1 ? ln : null);
   }, []);
 
   const clearEdgeSelection = useCallback(() => {
     setSelectedEdge(null);
+    setSqlHighlightLine(null);
   }, []);
-
-  // Single anchor line for the SQL panel — derived from the selection.
-  const sqlHighlightLine = (selectedEdge && Number.isInteger(selectedEdge.highlight_line)
-    && selectedEdge.highlight_line >= 1) ? selectedEdge.highlight_line : null;
 
   // ── Clear edge selection ────────────────────────────────────────────
   // ── Delete view ───────────────────────────────────────────────────
@@ -627,7 +652,7 @@ export default function DataFlowApp({
     setL2NotInFlow(false); setL2NotInFlowMessage(null);
     setL2ParseErrors([]);
     setSqlText(''); setCurrentScriptName('');
-    setSelectedEdge(null);
+    setSelectedEdge(null); setSqlHighlightLine(null);
     setActiveViewId(null);
   }, []);
 
@@ -732,7 +757,7 @@ export default function DataFlowApp({
       if (e.key === "Escape") {
         if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
         setGraphLevel("L1");
-        setSelectedEdge(null);
+        setSelectedEdge(null); setSqlHighlightLine(null);
       }
     };
     window.addEventListener("keydown", handler);
@@ -941,6 +966,7 @@ export default function DataFlowApp({
               layoutMode={layoutMode}
               breadcrumb={[]}
               onEdgeClick={handleEdgeClick}
+              onNodeClick={handleNodeClick}
               onCanvasTap={clearEdgeSelection}
               selectedEdgeId={selectedEdge?.id}
               viewMode={l2ViewMode}

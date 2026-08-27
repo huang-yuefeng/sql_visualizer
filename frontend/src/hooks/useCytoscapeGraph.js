@@ -335,6 +335,10 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     // ── Event wiring ────────────────────────────────────────────
     const o = optsRef.current;
     if (o.onTap) cy.on('tap', 'node', e => o.onTap(e));
+    // R37: L2 node tap → SQL definition line. DataFlowGraph gates this to
+    // level === 'L2' and guards the line in its handler; the hook stays a
+    // plain pass-through like onEdgeTap.
+    if (o.onNodeTap) cy.on('tap', 'node', e => o.onNodeTap(e));
     if (o.onDblTap) cy.on('dbltap', 'node', e => o.onDblTap(e));
     if (o.onHoverEnter) cy.on('mouseover', 'node', e => o.onHoverEnter(e));
     if (o.onEdgeTap) cy.on('tap', 'edge', e => o.onEdgeTap(e));

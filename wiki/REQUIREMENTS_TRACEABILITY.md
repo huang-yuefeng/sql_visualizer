@@ -325,6 +325,14 @@
 | R36.1 | `release.sh` rebuilds frontend and syncs `dist → backend/app/static` before docker build | ✅ | Stage 0.5: npm build, stamp VERSION into dist/index.html, sync elk.bundled.js, `git add backend/app/static`. Root cause: the image serves PREBUILT static — v3.3.171–173 shipped v3.3.170's bundle while /api/health reported new versions |
 | R36.2 | Deployment truth-test = artifact hash parity, not commit history | ✅ | v3.3.177 race (build predated the recovery commit; history looked inclusive) caught by deterministic-build hash diff; v3.3.178 redeployed with local sha256 == deployed sha256 |
 
+## R37 — L2 node click scrolls the SQL panel to the node's definition line (requirement change, 2026-08-27)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R37.1 | Tapping an L2 node scrolls + highlights the SQL line where that node is defined | ✅ | Node `data.line_start` (the same source that renders the `@L…` suffix) feeds the SINGLE existing `sqlHighlightLine` channel — node and edge clicks share it, last click wins; `SqlPanel.scrollToLine` unchanged (the edge path already proved the channel) |
+| R37.2 | Line semantics follow the server contract | ✅ | `intermediate_table` (⟐ output VT) → its statement's anchor line (INSERT/ALTER); physical `source_table` → first occurrence (keeper-by-construction, R22); `alias_table`/`cte` → their FROM/JOIN/WITH line. The tapped element's OWN payload is read — never a label lookup (merged/dedup'd nodes each keep their own `line_start`) |
+| R37.3 | Guards | ✅ | Scroll only when `line_start` is an integer ≥ 1 — else silent no-op (TVF alias `f` anchors L0, ledger M-T1: no-ops until fixed, never guesses). First line only (statement spans would need new node payloads — deferred). L2 only (L1 cross-script SQL is different machinery). Node click clears any stale edge reason-panel selection |
+| R37.4 | Every table node's line number audited against the sample SQL | ✅ | EAST5 full view: all 25 table nodes checked (physical → line mentions the table; ⟐ VT → statement anchor keyword; alias → FROM/JOIN + alias token). Result: 24/25 exact; 1 known gap = TVF alias `f` at L0 (M-T1, pre-existing) — see audit table in the v3.3.179 commit message |
+
 ## Code-review decisions (2026-08-25) — queued, awaiting GO
 
 One-by-one walkthrough of `wiki/CODE_REVIEW_2026-08-24.md`. Decisions recorded; implementation
