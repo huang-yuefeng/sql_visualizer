@@ -181,7 +181,7 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
   // cy.ready→layout+fit has finished (see cy.ready + the effect below).
   const layoutDoneRef = useRef(false);
 
-  const { level, layoutMode, flowOnly, flowNodeIds, flowEdgeIds } = options;
+  const { level, layoutMode, flowOnly, flowNodeIds, flowEdgeIds, mergedView } = options;
 
   useEffect(() => {
     if (!containerRef.current || !graphData) return;
@@ -439,8 +439,10 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     const cy = cyRef.current;
     if (!cy || cy.destroyed()) return;
     if (!layoutDoneRef.current) return; // initial layout not done yet
-    applyFlowVisibility(cy, { flowOnly, flowNodeIds, flowEdgeIds });
-  }, [flowOnly, flowNodeIds, flowEdgeIds]);
+    applyFlowVisibility(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedView });
+    // mergedView rides along (#376): only the line-merged members prune their
+    // edgeless field chips — switching detailed ↔ merged re-runs this effect.
+  }, [flowOnly, flowNodeIds, flowEdgeIds, mergedView]);
 
   const fit = useCallback((p = undefined) => {
     const cy = cyRef.current;
@@ -455,6 +457,7 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
         flowOnly: o.flowOnly,
         flowNodeIds: o.flowNodeIds,
         flowEdgeIds: o.flowEdgeIds,
+        mergedView: o.mergedView,
       }, p !== undefined ? p : 50);
     } else {
       cy.fit(undefined, p !== undefined ? p : 50);

@@ -27,6 +27,11 @@ export function resolveFlowOnly(result) {
   return (hasNodes || hasEdges) ? true : null;
 }
 
+// #376 (v3.3.180): SCHEMA structure/containment edges are permanently
+// display-hidden (useCytoscapeGraph adds this class; graphStyles resolves it
+// to display:none). An edge carrying it can never connect a chip on screen.
+const STRUCTURE_HIDDEN_CLASS = 'structure-hidden';
+
 /**
  * E-M8 (#283): fit the FULL graph (closure + non-closure) and then restore
  * the flow-only visibility.
@@ -37,11 +42,12 @@ export function resolveFlowOnly(result) {
  * off-screen. This helper shows everything, fits, and re-applies the flow
  * visibility — never a layout, so node positions stay byte-identical.
  */
-export function fitAllElements(cy, { flowOnly, flowNodeIds, flowEdgeIds } = {}, padding = 50) {
+export function fitAllElements(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedView } = {},
+  padding = 50) {
   if (!cy || (typeof cy.destroyed === 'function' && cy.destroyed())) return;
   cy.elements().show();
   cy.fit(undefined, padding);
-  applyFlowVisibility(cy, { flowOnly, flowNodeIds, flowEdgeIds });
+  applyFlowVisibility(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedView });
 }
 
 /**
@@ -53,13 +59,62 @@ export function fitAllElements(cy, { flowOnly, flowNodeIds, flowEdgeIds } = {}, 
  * always connects closure nodes, but a hidden-table sibling must never
  * leak an edge). `flowOnly` falsy → show everything.
  *
- * Pure visibility — calls only cytoscape `.show()` / `.hide()`, never a
- * layout, so positions are preserved across toggles.
+ * `mergedView` truthy → the displayed payload is a line-merged one
+ * ('flow-merged'/'full-merged'); after the show/hide above, field chips with
+ * no visible incident edge are hidden as well (#376 — merged edges are all
+ * table-level, so an untouched field node would render as a floating orphan).
+ * Detailed views never pass it: their field-level edges stay untouched.
+ *
+ * Pure visibility — calls only cytoscape `.show()` / `.hide()` (+`.batch()`),
+ * never a layout, so positions are preserved across toggles.
  */
-export function applyFlowVisibility(cy, { flowNodeIds, flowEdgeIds, flowOnly } = {}) {
+/**
+ * #376 (v3.3.180) — hide the field chips that no visible merged edge touches.
+ *
+ * MERGED view modes only ('flow-merged' / 'full-merged'). The line-merged
+ * pass (`build_line_merged_edges`) promotes every field endpoint to its
+ * parent table before collapsing same-line duplicates, while the NODE set is
+ * passed through untouched (R32). Result: the merged edge set is entirely
+ * table-level, so a field chip carried in `flow_node_ids` renders with ZERO
+ * visible edges — a floating orphan (the searched seed chip is exactly this
+ * case). Hiding such chips repairs the rendering without touching any
+ * backend payload: the chip's membership context stays readable through its
+ * owning TABLE box, which is always shown and always connected.
+ *
+ * Tables/CTEs/aliases are never hidden here — only nodes with
+ * `data.type === "field"`. A chip with ≥1 visible incident edge stays: in the
+ * rare parentless-field case the promotion map skips the endpoint, so that
+ * chip keeps its merged edge and must keep rendering. Pure visibility — no
+ * positions are read or written.
+ */
+function hideEdgelessFieldChips(cy) {
+  // Collect the endpoints of every edge actually on screen. Stylesheet-hidden
+  // edges (the `.structure-hidden` SCHEMA lines) can never connect anything.
+  const linked = new Set();
+  const touch = id => { if (id != null) linked.add(id); };
+  cy.edges().forEach(e => {
+    const structurallyHidden = typeof e.hasClass === 'function'
+      && e.hasClass(STRUCTURE_HIDDEN_CLASS);
+    if (structurallyHidden || (typeof e.hidden === 'function' && e.hidden())) return;
+    touch(typeof e.data === 'function' ? e.data('source') : undefined);
+    touch(typeof e.data === 'function' ? e.data('target') : undefined);
+  });
+  const prune = () => {
+    cy.nodes().forEach(n => {
+      const d = typeof n.data === 'function' ? n.data() : undefined;
+      if (!d || d.type !== 'field') return;
+      const id = typeof n.id === 'function' ? n.id() : n.id;
+      if (!linked.has(id)) n.hide();
+    });
+  };
+  if (typeof cy.batch === 'function') cy.batch(prune); else prune();
+}
+
+export function applyFlowVisibility(cy, { flowNodeIds, flowEdgeIds, flowOnly, mergedView } = {}) {
   if (!cy || (typeof cy.destroyed === 'function' && cy.destroyed())) return;
   if (!flowOnly) {
     cy.elements().show();
+    if (mergedView) hideEdgelessFieldChips(cy);
     return;
   }
   let nodeIds = Array.isArray(flowNodeIds) ? flowNodeIds : [];
@@ -99,4 +154,7 @@ export function applyFlowVisibility(cy, { flowNodeIds, flowEdgeIds, flowOnly } =
       && !cy.getElementById(tgtId).hidden();
     if (edgeSet.has(id) && srcVisible && tgtVisible) e.show(); else e.hide();
   });
+  // #376: merged views additionally drop the field chips the promoted edge
+  // set can no longer connect (see hideEdgelessFieldChips).
+  if (mergedView) hideEdgelessFieldChips(cy);
 }

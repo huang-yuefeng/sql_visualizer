@@ -356,6 +356,20 @@ describe('DataFlowGraph — L2 4-way view toggle', () => {
     expect(relayoutMock).not.toHaveBeenCalled();
   });
 
+  it('derives mergedView per mode — #376: only merged modes prune edgeless chips', () => {
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} />);
+    expect(lastHookOptions().mergedView).toBe(true);
+
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} viewMode="full-merged" />);
+    expect(lastHookOptions().mergedView).toBe(true);
+
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} viewMode="flow" />);
+    expect(lastHookOptions().mergedView).toBe(false);
+
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} viewMode="full" />);
+    expect(lastHookOptions().mergedView).toBe(false);
+  });
+
   it('selecting a merged mode calls onViewModeChange with the merged value', () => {
     const onChange = vi.fn();
     render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} onViewModeChange={onChange} />);

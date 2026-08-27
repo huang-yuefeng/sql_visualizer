@@ -166,6 +166,13 @@ export default function DataFlowGraph(props) {
   const flowOnly = (viewMode === 'flow' || viewMode === 'flow-merged') ? true
     : (viewMode === 'full' || viewMode === 'full-merged') ? false : null;
 
+  // #376 (v3.3.180): only the line-merged members of each pair hide field
+  // chips that no visible edge connects — a merged payload promotes every
+  // field endpoint to its parent table, so an untouched field node would
+  // render as a floating orphan. Display-layer only; detailed views pass
+  // false and keep their field-level edges.
+  const mergedView = viewMode === 'flow-merged' || viewMode === 'full-merged';
+
   // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — the
   // client-side count feeds the toggle badge + the legend note; the
   // edges stay in the graph model (payload untouched, nothing re-fetches).
@@ -180,6 +187,7 @@ export default function DataFlowGraph(props) {
     flowNodeIds,
     flowEdgeIds,
     flowOnly,
+    mergedView,
     // R31/A-M5: resume re-applies saved positions; drag-ends report positions.
     savedPositions,
     onPositionsChange,
