@@ -178,13 +178,27 @@ function upsertFilterCaptions(cy) {
       }
       // v3.3.186 — the user wants THE EDGE BIG, not the label. Node-node
       // edges render reliably (unlike self-loop curves), so draw the loop
-      // as a thick synthetic polyline edge between two anchors parked
-      // OUTSIDE the box (model offsets zoom-compensated to ~170 screen px).
+      // as a thick synthetic polyline edge.
+      // v3.3.187 FIX (user-reported "a red line separately on the screen"):
+      // the anchors used to park at sp.x - off — a detached floating bar with
+      // no visual tie to the table. Anchor the line to the table's LEFT
+      // BORDER instead: x = box.x1 - gap (~12 screen px), y spanning the
+      // node's vertical center and clamped to the box height — a bracket
+      // that visibly belongs to the table at any zoom (model-space anchor,
+      // so it never drifts on pan/zoom between upserts).
       const src = e.source();
       if (typeof src.position !== 'function') return;
       const sp = src.position();
       const z2 = (typeof cy.zoom === 'function') ? (cy.zoom() || 1) : 1;
-      const off = Math.min(620, Math.max(120, 170 / z2));
+      let half = Math.min(620, Math.max(120, 170 / z2)) * 0.7;
+      const gap = Math.max(6, 12 / z2);
+      let bx1 = sp.x, by1 = sp.y, by2 = sp.y;
+      try {
+        const nb = src.boundingBox({ includeLabels: false });
+        bx1 = nb.x1; by1 = nb.y1; by2 = nb.y2;
+      } catch (_) { /* fake/bare node — fall back to the position */ }
+      const boxH = Math.max(0, by2 - by1);
+      if (boxH > 0) half = Math.min(half, boxH * 0.45);
       const aId = 'capA_' + (typeof e.id === 'function' ? e.id() : e.id);
       const bId = 'capB_' + (typeof e.id === 'function' ? e.id() : e.id);
       const lId = 'capL_' + (typeof e.id === 'function' ? e.id() : e.id);
@@ -196,8 +210,8 @@ function upsertFilterCaptions(cy) {
           cy.getElementById(nid).position({ x, y });
         }
       };
-      mk(aId, sp.x - off, sp.y - off * 0.7);
-      mk(bId, sp.x - off, sp.y + off * 0.7);
+      mk(aId, bx1 - gap, sp.y - half);
+      mk(bId, bx1 - gap, sp.y + half);
       if (!cy.getElementById(lId).length) {
         cy.add({ data: { id: lId, label: '', type: 'caption', synthetic: true,
                          source: aId, target: bId },

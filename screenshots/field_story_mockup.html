@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Field Story — design mockup (east5_stzfxxb.p_dt)</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#12131a; color:#e8eaf0; font:14px/1.5 system-ui, sans-serif; margin:0; padding:24px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:#8b93a7; margin:0 0 18px; font-size:13px; }
+  .storybar { display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap; }
+  .step { border:1px solid #2a2f3d; border-radius:8px; padding:8px 12px; background:#171923;
+          cursor:pointer; min-width:150px; }
+  .step.active { border-color:#FFD700; background:#20242f; box-shadow:0 0 0 1px #FFD70055; }
+  .step .n { color:#FFD700; font-size:11px; letter-spacing:.08em; }
+  .step .t { font-weight:600; }
+  .step .l { color:#8b93a7; font-size:12px; }
+  .stage { display:flex; gap:16px; align-items:stretch; }
+  .graph { flex:1.6; border:1px solid #2a2f3d; border-radius:10px; background:#0e0f15;
+           min-height:330px; position:relative; }
+  .sql { flex:1; border:1px solid #2a2f3d; border-radius:10px; background:#0e0f15; padding:12px;
+         font:12px/1.7 ui-monospace, monospace; }
+  .sql .ln { color:#5b6478; display:inline-block; width:2.2em; }
+  .sql .hl { background:#FFD70022; outline:1px solid #FFD70066; border-radius:3px; display:block; }
+  .legend { margin-top:14px; color:#8b93a7; font-size:12px; }
+  .badge { display:inline-block; border:1px solid #2a2f3d; border-radius:4px; padding:0 6px;
+           margin-right:8px; }
+  svg text { font:11px system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<h1>Field Story — step-through mockup</h1>
+<p class="sub">Searched field: <b style="color:#FFD700">east5_stzfxxb.p_dt</b> · script EAST5_STZFXXB_M.sql ·
+the bar below walks the field's life; the active step highlights its edges, dims the rest, and
+scrolls the SQL panel to the line. Click a step.</p>
+
+<div class="storybar" id="bar"></div>
+
+<div class="stage">
+  <div class="graph">
+    <svg id="svg" viewBox="0 0 640 330" width="100%" height="330"></svg>
+  </div>
+  <div class="sql" id="sql"></div>
+</div>
+
+<p class="legend">
+  <span class="badge" style="border-color:#2ECC71">solid green</span>value write&nbsp;
+  <span class="badge" style="border-color:#E74C3C">solid red</span>predicate / filter&nbsp;
+  <span class="badge" style="border-color:#7f8c9d">grey</span>dimmed (not in this step)&nbsp;
+  <span class="badge" style="border-color:#FFD700">gold</span>the searched field
+</p>
+
+<script>
+const STEPS = [
+  { t:'① Birth',        l:'L41 · partition binding', line:41,
+    sql:'INSERT OVERWRITE TABLE east5_stzfxxb PARTITION(p_dt=\'$(load_date)\',charge_department)',
+    edges:['pdt-out'], nodes:['east5','out41','pdt'] },
+  { t:'② Written',      l:'L41 · persisted into east5', line:41,
+    sql:'-- same statement — the write leg: output → east5_stzfxxb',
+    edges:['out-east'], nodes:['east5','out41','pdt'] },
+  { t:'③ Read',         l:'L189 · FROM EAST5_STZFXXB', line:189,
+    sql:'FROM EAST5_STZFXXB',
+    edges:['east-out179'], nodes:['east5','out179'] },
+  { t:'④ Filtered',     l:'L190 · WHERE p_dt = …', line:190,
+    sql:"WHERE p_dt = '$(load_date)'",
+    edges:['filt'], nodes:['east5','pdt'] },
+  { t:'⑤ Consumed',     l:'L179 · COUNT(1) → rrcdm', line:179,
+    sql:'INSERT INTO TABLE rrcdm_job_log_exec_par( data_dt ,object_domain ,… ) ,COUNT(1) AS total_rows',
+    edges:['out179-rrcdm'], nodes:['out179','rrcdm','east5'] },
+];
+
+const N = {
+  east5:  { x:120, y:120, w:150, h:150, label:'east5_stzfxxb', gold:true },
+  out41:  { x:340, y:60,  w:120, h:44,  label:'output@L41' },
+  out179: { x:340, y:210, w:120, h:44,  label:'output@L179' },
+  rrcdm:  { x:540, y:210, w:90,  h:44,  label:'rrcdm_…exec_par' },
+  pdt:    { chip:true, x:120, y:120, label:'p_dt' },       // chip inside east5
+};
+const E = {
+  'pdt-out':    { from:'pdt',  to:'out41',   color:'#7f8c9d', dash:'',  lbl:'register' },
+  'out-east':   { from:'out41',to:'east5',   color:'#2ECC71', dash:'',  lbl:'write' },
+  'east-out179':{ from:'east5',to:'out179',  color:'#2ECC71', dash:'',  lbl:'read' },
+  'filt':       { from:'pdt',  to:'east5',   color:'#E74C3C', dash:'',  lbl:'WHERE p_dt', self:true },
+  'out179-rrcdm':{from:'out179',to:'rrcdm', color:'#2ECC71', dash:'',  lbl:'write' },
+};
+
+const bar = document.getElementById('bar'), svg = document.getElementById('svg'),
+      sqlEl = document.getElementById('sql');
+const SQL_FULL = [
+  [41,  "INSERT OVERWRITE TABLE east5_stzfxxb PARTITION(p_dt='$(load_date)',charge_department)"],
+  [179, 'INSERT INTO TABLE rrcdm_job_log_exec_par( data_dt ,object_domain ,… )'],
+  [189, 'FROM EAST5_STZFXXB'],
+  [190, "WHERE p_dt = '$(load_date)'"],
+];
+let cur = -1;
+
+function anchor(id){ const n=N[id];
+  if(n.chip) return { x:n.x+18, y:n.y+30 };
+  return { x:n.x+(id==='east5'?n.w:n.w/2), y:n.y+n.h/2, bx:n.x, by:n.y, bw:n.w, bh:n.h }; }
+
+function render(i){
+  cur = i;
+  [...bar.children].forEach((el,k)=>el.classList.toggle('active',k===i));
+  const active = i>=0 ? STEPS[i] : null;
+  const dim = id => active && !active.nodes.includes(id);
+  const dEdge = id => active && !active.edges.includes(id);
+
+  let s='';
+  for(const [id,n] of Object.entries(N)){
+    const o = dim(id)?0.18:1;
+    if(n.chip){
+      s+=`<circle cx="${n.x+18}" cy="${n.y+30}" r="7" fill="${dim(id)?'#666':'#FFD700'}" opacity="${dim(id)?0.3:1}"/>`;
+      s+=`<text x="${n.x+30}" y="${n.y+34}" fill="${dim(id)?'#666':'#FFD700'}" opacity="${o}">${n.label}</text>`;
+    } else {
+      s+=`<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="8" fill="#1b2233" stroke="${dim(id)?'#333a4a':'#4A90D9'}" stroke-width="${dim(id)?1:2}" opacity="${o}"/>`;
+      s+=`<text x="${n.x+10}" y="${n.y+18}" fill="#cdd6ea" opacity="${o}">${n.label}</text>`;
+      if(id==='east5') for(let k=1;k<=4;k++)
+        s+=`<line x1="${n.x+8}" x2="${n.x+n.w-8}" y1="${n.y+18+k*22}" y2="${n.y+18+k*22}" stroke="#26304a" opacity="${o}"/>`;
+    }
+  }
+  for(const [id,e] of Object.entries(E)){
+    const off = dEdge(id)?0.15:1, w = dEdge(id)?1.5:3.5;
+    const a=anchor(e.from), b=anchor(e.to);
+    if(e.self){ // bracket hugging the east5 left border (v3.3.187 anchored)
+      s+=`<line x1="${a.bx-8}" y1="${a.by+40}" x2="${a.bx-8}" y2="${a.by+110}" stroke="${e.color}" stroke-width="${w}" opacity="${off}" stroke-linecap="round"/>`;
+      s+=`<text x="${a.bx-14}" y="${a.by+130}" fill="${e.color}" opacity="${off}" text-anchor="middle" transform="rotate(-90 ${a.bx-14} ${a.by+130})">${e.lbl} @L190</text>`;
+    } else {
+      s+=`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${e.color}" stroke-width="${w}" opacity="${off}"/>`;
+      s+=`<text x="${(a.x+b.x)/2}" y="${(a.y+b.y)/2-6}" fill="#8b93a7" opacity="${off}" text-anchor="middle">${e.lbl}</text>`;
+    }
+  }
+  svg.innerHTML=s;
+
+  sqlEl.innerHTML = SQL_FULL.map(([ln,txt])=>{
+    const hl = active && active.line===ln;
+    return `<span class="${hl?'hl':''}"><span class="ln">${ln}</span>${txt}</span>`;
+  }).join('') + (active?`<p style="color:#8b93a7;margin-top:10px">▸ ${active.t} ${active.l}</p>`:'');
+}
+
+STEPS.forEach((st,k)=>{
+  const d=document.createElement('div'); d.className='step';
+  d.innerHTML=`<div class="n">STEP ${k+1}</div><div class="t">${st.t}</div><div class="l">${st.l}</div>`;
+  d.onclick=()=>render(k); bar.appendChild(d);
+});
+render(0);
+</script>
+</body>
+</html>
