@@ -140,7 +140,7 @@ function enlargeFilterSelfLoops(cy) {
       const isSelf = d.source != null && d.source === d.target;
       if (!isSelf || (typeof e.hidden === 'function' && e.hidden())) return;
       e.style({
-        'control-point-distances': [String(dist)],
+        'control-point-distances': [dist],
         'width': 5,
         'z-index': 20,
       });
@@ -194,13 +194,23 @@ function upsertFilterCaptions(cy) {
  */
 function centerOnSeed(cy) {
   try {
-    const seeds = cy.nodes().filter(n => {
+    // Prefer the filter caption (it sits at the loop, inside the seed zone);
+    // fall back to the seed chip itself.
+    const cap = cy.nodes().filter(n => {
       const d = typeof n.data === 'function' ? n.data() : {};
-      return d && d.is_target === true;
+      return d && d.type === 'caption';
     });
-    const first = seeds && typeof seeds.eq === 'function'
-      ? seeds.eq(0)
-      : (Array.isArray(seeds) ? seeds[0] : null);
+    let first = null;
+    if (cap.length) first = typeof cap.eq === 'function' ? cap.eq(0) : cap[0];
+    if (!first) {
+      const seeds = cy.nodes().filter(n => {
+        const d = typeof n.data === 'function' ? n.data() : {};
+        return d && d.is_target === true;
+      });
+      first = seeds && typeof seeds.eq === 'function'
+        ? seeds.eq(0)
+        : (Array.isArray(seeds) ? seeds[0] : null);
+    }
     if (!first) return;
     if (typeof cy.stop === 'function') cy.stop(true);
     if (typeof cy.center === 'function') cy.center(first);
