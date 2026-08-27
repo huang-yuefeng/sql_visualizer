@@ -1073,9 +1073,10 @@ CANONICAL_EDGES = [
      "src": "sup@223", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 223, "spec": "anchor_rel_ep"},
     # ── ISSUE-4 case-insensitive physical-table identity (2026-08-25,
     #    EAST5_STZFXXB_M.sql). The physical table east5_stzfxxb is
-    #    spelled 8× lowercase (INSERT OVERWRITE @41, ALTER @166-175) and
-    #    1× UPPERCASE (FROM EAST5_STZFXXB @189); the canonical spelling
-    #    is the frequency-voted majority -- east5_stzfxxb (8 vs 1; ties →
+    #    spelled 11x lowercase (INSERT OVERWRITE@41 + ALTERs@166-175 --
+    #    10 partition ALTERs on the OCR-repaired sample) vs 1 uppercase
+    #    (FROM EAST5_STZFXXB @189); the canonical spelling
+    #    is the frequency-voted majority -- east5_stzfxxb (11 vs 1; ties →
     #    lowercase per ISSUE-4 _majority_spelling). The extractor folds
     #    the uppercase identifier BEFORE attribution, so the stmt2 read
     #    (FROM @189 / WHERE p_dt @190) folds into the SAME
