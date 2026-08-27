@@ -208,7 +208,7 @@ export function applyLayout(cy, tablePositions, fieldRel, tableInfo, fitPadding 
   // Bug 1+4 fix: defer fit with setTimeout so Cytoscape completes positioning.
   // requestAnimationFrame (16ms) is too early — Cytoscape's internal layout
   // cycle may not have flushed batch updates yet. 100ms is reliable.
-  // Bug 4: adaptive padding — L2 panel is ~420px, FIT_PADDING=200
+  // Bug 4: adaptive padding — L2 panel is ~420px, FIT_PADDING=60
   // leaves just 20px of content → zoom clamped to minZoom=0.05.
   setTimeout(() => {
     if (!cy || cy.destroyed()) return;

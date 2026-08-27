@@ -4,7 +4,11 @@
  */
 
 // ── Cytoscape fit ──────────────────────────────────────────────────
-export const FIT_PADDING = 200;
+// 200 left a huge empty band around the fitted graph (the poster shrank to
+// make room for a margin nobody asked for). 60 keeps breathing room while
+// spending the window on content. L2 additionally adapts down via
+// Math.max(30, panelW*0.07) in the callers — unchanged.
+export const FIT_PADDING = 60;
 
 // ── Compound node sizing (tables contain fields) ───────────────────
 export const TABLE_HDR_H = 26;

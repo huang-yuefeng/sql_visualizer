@@ -234,7 +234,7 @@ export default function DataFlowGraph(props) {
       t = setTimeout(() => {
         if (cyRef.current && !cyRef.current.destroyed()) {
           // Bug 4 fix: adaptive padding — L2 panel (~420px) collapses
-          // with FIT_PADDING=200. Use 7% panel width for small panels.
+          // with the FIT_PADDING constant. Use 7% panel width for small panels.
           const panelW = el.offsetWidth || 800;
           const pad = panelW < 600
             ? Math.max(30, Math.floor(panelW * 0.07))
