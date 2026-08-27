@@ -1159,7 +1159,10 @@ export const FILTER_CAPTION_STYLES = [
       'width': 4, 'height': 4,
       'background-opacity': 0, 'border-width': 0,
       'label': 'data(label)',
-      'font-size': 14, 'font-weight': 'bold',
+      // v3.3.190: zoom-compensated via data (upsertFilterCaptions computes
+      // it; 14 model px rendered ~4px at the zoom floor — unreadable).
+      'font-size': 'data(caption_font)',
+      'font-weight': 'bold',
       'color': '#FF6B6B',
       'text-valign': 'center', 'text-halign': 'center',
       'text-background-color': '#111',

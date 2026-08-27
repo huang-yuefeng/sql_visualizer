@@ -163,18 +163,24 @@ function upsertFilterCaptions(cy) {
       const d = (typeof e.data === 'function' ? e.data() : e.data) || {};
       const label = d.filterLabel;
       if (!label || (typeof e.hidden === 'function' && e.hidden())) return;
+      const z2 = (typeof cy.zoom === 'function') ? (cy.zoom() || 1) : 1;
       if (typeof e.midpoint !== 'function') return; // fake edge — skip
       const id = 'cap_' + (typeof e.id === 'function' ? e.id() : e.id);
       // Caption text is model-space too — compensate for zoom so it stays
       // ~14 screen px (readable) at the 0.28 floor and modest when zoomed in.
+      // v3.3.190 (ruling B2): font-size is MODEL-space — 14px at the 0.28
+      // zoom floor renders ~4px. Carry a zoom-compensated size in data
+      // (runtime e.style() is a no-op; the stylesheet maps it) so the
+      // caption never renders below ~11 screen px.
+      const capFont = Math.max(14, Math.round(11 / z2));
       if (!cy.getElementById(id).length) {
         cy.add({
-          data: { id, label, type: 'caption', synthetic: true },
+          data: { id, label, type: 'caption', synthetic: true, caption_font: capFont },
           position: e.midpoint(),
           classes: 'filter-caption',
         });
       } else {
-        cy.getElementById(id).position(e.midpoint());
+        cy.getElementById(id).position(e.midpoint()).data('caption_font', capFont);
       }
       // v3.3.186 — the user wants THE EDGE BIG, not the label. Node-node
       // edges render reliably (unlike self-loop curves), so draw the loop
@@ -189,9 +195,11 @@ function upsertFilterCaptions(cy) {
       const src = e.source();
       if (typeof src.position !== 'function') return;
       const sp = src.position();
-      const z2 = (typeof cy.zoom === 'function') ? (cy.zoom() || 1) : 1;
       let half = Math.min(620, Math.max(120, 170 / z2)) * 0.7;
-      const gap = Math.max(6, 12 / z2);
+      // v3.3.190 (diagnostic ruling B1): a 12px screen gap READS as
+      // detached — clamp to ~2px so the bracket visually touches the
+      // border.
+      const gap = Math.max(2, 2.5 / z2);
       let bx1 = sp.x, by1 = sp.y, by2 = sp.y;
       try {
         const nb = src.boundingBox({ includeLabels: false });

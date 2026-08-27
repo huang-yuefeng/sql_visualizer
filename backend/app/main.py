@@ -278,4 +278,18 @@ app.include_router(logs.router, prefix="/api", tags=["logs"])
 # Serve the built frontend as static files (production mode).
 # In dev, use `npm run dev` for hot-reload; this is for offline/deploy use.
 if STATIC_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")
+    # v3.3.190 (diagnostic ruling A): with NO Cache-Control, browsers apply
+    # RFC 7234 heuristic freshness to index.html (~10% x age) and keep
+    # serving a WHOLE OLD BUNDLE across deploys — the "feature still not
+    # visible" class of reports. HTML must always revalidate (ETag still
+    # gives 304s); content-hashed assets are immutable forever.
+    class _VersionedStatic(StaticFiles):
+        async def get_response(self, path, scope):
+            resp = await super().get_response(path, scope)
+            if path.startswith("assets/"):
+                resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            else:
+                resp.headers["Cache-Control"] = "no-cache"
+            return resp
+
+    app.mount("/", _VersionedStatic(directory=str(STATIC_DIR), html=True), name="frontend")
