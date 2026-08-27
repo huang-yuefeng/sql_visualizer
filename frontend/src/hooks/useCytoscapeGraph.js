@@ -21,6 +21,7 @@ import { NODE_STYLES, COMPOUND_STYLES, L1_PIPELINE_EDGE_STYLES, TURN_EDGE_STYLES
   BUNDLED_EDGE_STYLES, CATEGORY_EDGE_STYLES, SCRIPT_CARD_STYLES,
   OPERATION_NODE_STYLES, L2_DETAIL_STYLES, L2_NODE_ROLE_STYLES,
   L2_UNIFORM_EDGE_STYLES, L2_EDGE_CLASSES, HOVER_EMPHASIS_STYLES,
+  FILTER_CAPTION_STYLES,
   FILTER_SELFLOOP_STYLES } from '../utils/graphStyles';
 import { stripFieldParents, computeFieldRelPos, positionTableFields } from '../utils/layoutCore';
 import { TABLE_SELECTOR, FIT_PADDING } from '../config/layout';
@@ -62,6 +63,7 @@ function collectPositions(cy) {
   const out = {};
   cy.nodes().forEach(n => {
     if (n.data('type') === 'field') return;
+    if (n.data('synthetic')) return; // v3.3.183 caption nodes are view chrome
     const p = n.position();
     if (p) out[n.id()] = [Math.round(p.x), Math.round(p.y)];
   });
@@ -239,6 +241,7 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
       // size change never feeds any layout, so nothing re-layouts.
       style: [...NODE_STYLES, ...COMPOUND_STYLES, ...edgeStyles,
         ...HOVER_EMPHASIS_STYLES,
+        ...FILTER_CAPTION_STYLES,
         // R32 self-loop FILTER captions — spread LAST so the rule beats
         // L2_UNIFORM_EDGE_STYLES' explicit `'label': ''` on the same
         // specificity tie (later rule wins; same convention as the hover

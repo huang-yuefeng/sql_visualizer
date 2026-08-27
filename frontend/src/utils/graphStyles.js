@@ -1148,6 +1148,30 @@ export const FILTER_SELFLOOP_STYLES = [
 // cards…): class == attribute selector specificity in cytoscape, the
 // later rule wins (same reasoning as edge.structure-hidden above).
 // ══════════════════════════════════════════════════════════════════
+// v3.3.183 — merged-view filter caption node: a tiny transparent NODE that
+// carries the `⟂ field (filtered @L…)` text ABOVE the box fill (edge labels
+// paint beneath nodes and were unreadable). `events: 'no'` keeps it
+// click-through; `synthetic` keeps it out of layout persistence.
+export const FILTER_CAPTION_STYLES = [
+  {
+    selector: 'node[type="caption"]',
+    style: {
+      'width': 4, 'height': 4,
+      'background-opacity': 0, 'border-width': 0,
+      'label': 'data(label)',
+      'font-size': 14, 'font-weight': 'bold',
+      'color': '#FF6B6B',
+      'text-valign': 'center', 'text-halign': 'center',
+      'text-background-color': '#111',
+      'text-background-opacity': 0.85,
+      'text-background-padding': 3,
+      'text-background-shape': 'round-rectangle',
+      'z-index': 40,
+      'events': 'no',
+    },
+  },
+];
+
 export const HOVER_EMPHASIS_STYLES = [
   // Generic node emphasis — ~2× the table/script-title base (12 → 24).
   {

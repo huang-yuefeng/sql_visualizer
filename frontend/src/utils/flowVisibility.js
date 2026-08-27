@@ -110,11 +110,116 @@ function hideEdgelessFieldChips(cy) {
   if (typeof cy.batch === 'function') cy.batch(prune); else prune();
 }
 
+/**
+ * v3.3.183 — make absorbed FILTER edges BIG and readable in merged views.
+ *
+ * R32 promotion collapses `p_dt ──FILTER──► east5` into an `east5→east5`
+ * self-loop that renders ~5x5 px at the zoom floor, and cytoscape paints
+ * edge labels BENEATH node fills — so the single most important edge of a
+ * search was effectively invisible (user-verified three times). Fix, purely
+ * client-side:
+ *   1. Enlarge every visible merged self-loop (control-point-distances),
+ *      thicken it, and give its label an above-box text treatment.
+ *   2. Pin a CAPTION NODE at the loop midpoint — nodes paint above
+ *      everything, so the caption is deterministically visible. The node is
+ *      `synthetic`: non-interactive (`events: 'no'`), excluded from layout
+ *      persistence (collectPositions skips type 'caption'), and removed/
+ *      re-created on every visibility pass so it can never leak.
+ */
+function enlargeFilterSelfLoops(cy) {
+  // v3.3.183 user bar: the loop must read BIGGER than several field-chip
+  // rows at ANY zoom. Control-point distance is model-space, so compensate
+  // by 1/zoom and clamp — ~130 screen px of arc at every zoom level.
+  const z = (typeof cy.zoom === 'function')
+    ? (cy.zoom() || 1)
+    : 1;
+  const dist = -Math.round(Math.min(560, Math.max(90, 130 / z)));
+  cy.edges().forEach(e => {
+    try {
+      const d = (typeof e.data === 'function' ? e.data() : e.data) || {};
+      const isSelf = d.source != null && d.source === d.target;
+      if (!isSelf || (typeof e.hidden === 'function' && e.hidden())) return;
+      e.style({
+        'control-point-distances': [String(dist)],
+        'width': 5,
+        'z-index': 20,
+      });
+    } catch (_) { /* fake cy in unit tests lacks .style — styling is best-effort */ }
+  });
+}
+
+function removeCaptionNodes(cy) {
+  const dead = cy.nodes().filter(n => {
+    const d = typeof n.data === 'function' ? n.data() : {};
+    return d.type === 'caption';
+  });
+  if (dead.length) cy.remove(dead);
+}
+
+function upsertFilterCaptions(cy) {
+  cy.edges().forEach(e => {
+    try {
+      const d = (typeof e.data === 'function' ? e.data() : e.data) || {};
+      const label = d.filterLabel;
+      if (!label || (typeof e.hidden === 'function' && e.hidden())) return;
+      if (typeof e.midpoint !== 'function') return; // fake edge — skip
+      const id = 'cap_' + (typeof e.id === 'function' ? e.id() : e.id);
+      // Caption text is model-space too — compensate for zoom so it stays
+      // ~14 screen px (readable) at the 0.28 floor and modest when zoomed in.
+      const z = (typeof cy.zoom === 'function') ? (cy.zoom() || 1) : 1;
+      const fs = Math.max(13, Math.min(60, Math.round(14 / z)));
+      if (!cy.getElementById(id).length) {
+        cy.add({
+          data: { id, label, type: 'caption', synthetic: true },
+          position: e.midpoint(),
+          classes: 'filter-caption',
+        });
+      } else {
+        cy.getElementById(id).position(e.midpoint());
+      }
+      const cap = cy.getElementById(id);
+      if (typeof cap.style === 'function') {
+        cap.style({ 'font-size': fs, 'text-background-padding': Math.round(fs / 4) });
+      }
+    } catch (_) { /* fake cy — captions are best-effort chrome */ }
+  });
+}
+
+/**
+ * v3.3.183 — after the flow show/hide, re-center the viewport on the SEED
+ * (the searched field and its owning box). Fit bottoms out at the zoom
+ * floor for tall scripts, and the seed zone sat at negative Y — above the
+ * canvas (the "I still cannot see L190" clipping). Centering on the seed
+ * puts what the user searched for on-screen first; panning reveals the rest.
+ */
+function centerOnSeed(cy) {
+  try {
+    const seeds = cy.nodes().filter(n => {
+      const d = typeof n.data === 'function' ? n.data() : {};
+      return d && d.is_target === true;
+    });
+    const first = seeds && typeof seeds.eq === 'function'
+      ? seeds.eq(0)
+      : (Array.isArray(seeds) ? seeds[0] : null);
+    if (!first) return;
+    if (typeof cy.stop === 'function') cy.stop(true);
+    if (typeof cy.center === 'function') cy.center(first);
+  } catch (_) {
+    // best-effort: a fake cy (unit tests) or a torn-down instance must never
+    // break the visibility pass — centering is a viewport nicety.
+  }
+}
+
 export function applyFlowVisibility(cy, { flowNodeIds, flowEdgeIds, flowOnly, mergedView } = {}) {
   if (!cy || (typeof cy.destroyed === 'function' && cy.destroyed())) return;
+  removeCaptionNodes(cy);
   if (!flowOnly) {
     cy.elements().show();
-    if (mergedView) hideEdgelessFieldChips(cy);
+    if (mergedView) {
+      hideEdgelessFieldChips(cy);
+      enlargeFilterSelfLoops(cy);
+      upsertFilterCaptions(cy);
+    }
     return;
   }
   let nodeIds = Array.isArray(flowNodeIds) ? flowNodeIds : [];
@@ -156,5 +261,10 @@ export function applyFlowVisibility(cy, { flowNodeIds, flowEdgeIds, flowOnly, me
   });
   // #376: merged views additionally drop the field chips the promoted edge
   // set can no longer connect (see hideEdgelessFieldChips).
-  if (mergedView) hideEdgelessFieldChips(cy);
+  if (mergedView) {
+    hideEdgelessFieldChips(cy);
+    enlargeFilterSelfLoops(cy);
+    upsertFilterCaptions(cy);
+  }
+  centerOnSeed(cy);
 }
