@@ -127,24 +127,18 @@ function hideEdgelessFieldChips(cy) {
  *      re-created on every visibility pass so it can never leak.
  */
 function enlargeFilterSelfLoops(cy) {
-  // v3.3.183 user bar: the loop must read BIGGER than several field-chip
-  // rows at ANY zoom. Control-point distance is model-space, so compensate
-  // by 1/zoom and clamp — ~130 screen px of arc at every zoom level.
-  const z = (typeof cy.zoom === 'function')
-    ? (cy.zoom() || 1)
-    : 1;
-  const dist = -Math.round(Math.min(560, Math.max(90, 130 / z)));
+  // v3.3.185: runtime e.style() is a silent no-op — tag the edge and let the
+  // stylesheet (FILTER_SELFLOOP_STYLES, data-driven segment-points) draw a
+  // big polygonal loop OUTSIDE the box.
   cy.edges().forEach(e => {
     try {
       const d = (typeof e.data === 'function' ? e.data() : e.data) || {};
       const isSelf = d.source != null && d.source === d.target;
       if (!isSelf || (typeof e.hidden === 'function' && e.hidden())) return;
-      e.style({
-        'control-point-distances': [dist],
-        'width': 5,
-        'z-index': 20,
-      });
-    } catch (_) { /* fake cy in unit tests lacks .style — styling is best-effort */ }
+      const pts = [[-460, -330], [-580, 0], [-460, 330]];
+      if (typeof e.data === 'function') e.data('segp', pts);
+      if (typeof e.addClass === 'function') e.addClass('filter-selfloop');
+    } catch (_) { /* fake cy in unit tests — best-effort */ }
   });
 }
 
@@ -166,8 +160,7 @@ function upsertFilterCaptions(cy) {
       const id = 'cap_' + (typeof e.id === 'function' ? e.id() : e.id);
       // Caption text is model-space too — compensate for zoom so it stays
       // ~14 screen px (readable) at the 0.28 floor and modest when zoomed in.
-      const z = (typeof cy.zoom === 'function') ? (cy.zoom() || 1) : 1;
-      const fs = Math.max(13, Math.min(60, Math.round(14 / z)));
+      const fs = 12; // v3.3.185: same tier as table titles ("as big as others")
       if (!cy.getElementById(id).length) {
         cy.add({
           data: { id, label, type: 'caption', synthetic: true },
@@ -179,7 +172,7 @@ function upsertFilterCaptions(cy) {
       }
       const cap = cy.getElementById(id);
       if (typeof cap.style === 'function') {
-        cap.style({ 'font-size': fs, 'text-background-padding': Math.round(fs / 4) });
+        try { cap.style({ 'font-size': fs }); } catch (_) {}
       }
     } catch (_) { /* fake cy — captions are best-effort chrome */ }
   });

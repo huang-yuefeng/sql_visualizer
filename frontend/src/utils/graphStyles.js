@@ -1172,6 +1172,29 @@ export const FILTER_CAPTION_STYLES = [
   },
 ];
 
+// v3.3.185 — the enlarged filter self-loop. Runtime e.style() is a silent
+// no-op in this cytoscape build, so the geometry rides the STYLESHEET via
+// per-edge data: useCytoscapeGraph adds class `filter-selfloop` and sets
+// `data.segp` (segment points in endpoint-relative model units) on every
+// merged FILTER self-loop; this rule draws it as a big, obvious polygon
+// OUTSIDE the box (edges paint under node fills, so the points reach well
+// past the border).
+export const FILTER_LOOP_GEOM_STYLES = [
+  {
+    selector: 'edge.filter-selfloop',
+    style: {
+      'curve-style': 'segments',
+      'segment-points': 'data(segp)',
+      'width': 6,
+      'line-color': '#E74C3C',
+      'target-arrow-color': '#E74C3C',
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 1.6,
+      'z-index': 30,
+    },
+  },
+];
+
 export const HOVER_EMPHASIS_STYLES = [
   // Generic node emphasis — ~2× the table/script-title base (12 → 24).
   {
