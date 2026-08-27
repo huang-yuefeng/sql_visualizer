@@ -75,15 +75,26 @@ emphStyles('HOVER_EMPHASIS_STYLES — hover-enlarge rule', () => {
   });
 
   it('targets exactly the emphasis class the hook toggles', () => {
-    expect(graphStylesModule.HOVER_EMPHASIS_STYLES[0].selector).toBe('.label-emph');
+    // The sheet carries one generic emphasis rule (tables/scripts) plus a
+    // tier rule for field chips — every entry must use the class.
+    for (const entry of graphStylesModule.HOVER_EMPHASIS_STYLES)
+      expect(entry.selector).toContain('.label-emph');
+    expect(graphStylesModule.HOVER_EMPHASIS_STYLES.some(
+      e => e.selector === 'node.label-emph')).toBe(true);
+    expect(graphStylesModule.HOVER_EMPHASIS_STYLES.some(
+      e => e.selector.includes('[type="field"]'))).toBe(true);
   });
 
-  it('enlarges the label and raises the element above the graph', () => {
-    const style = graphStylesModule.HOVER_EMPHASIS_STYLES[0].style || {};
-    expect(Object.keys(style)).toEqual(expect.arrayContaining(['font-size', 'z-index']));
-    // Deliberately value-open: only "meaningfully bigger than the 10px field
-    // chip label" is contractual, not the exact number Team A picked.
-    expect(Number(style['font-size'])).toBeGreaterThan(10);
+  it('enlarges the label ~2× per tier and raises the element above the graph', () => {
+    const find = sel =>
+      graphStylesModule.HOVER_EMPHASIS_STYLES.find(e => e.selector === sel) || {};
+    // Generic: tables/script titles base is 12 → doubled expectation ≥ 20.
+    const generic = find('node.label-emph').style || {};
+    expect(Object.keys(generic)).toEqual(expect.arrayContaining(['font-size', 'z-index']));
+    expect(Number(generic['font-size'])).toBeGreaterThanOrEqual(20);
+    // Field chips: base 10 → doubled ≈ 20; outranks generic via attribute.
+    const chip = find('node.label-emph[type="field"]').style || {};
+    expect(Number(chip['font-size'])).toBeGreaterThanOrEqual(18);
   });
 });
 

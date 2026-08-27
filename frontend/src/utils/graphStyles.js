@@ -1106,8 +1106,17 @@ export const L2_UNIFORM_EDGE_STYLES = [
 // later rule wins (same reasoning as edge.structure-hidden above).
 // ══════════════════════════════════════════════════════════════════
 export const HOVER_EMPHASIS_STYLES = [
+  // Generic node emphasis — ~2× the table/script-title base (12 → 24).
   {
-    selector: '.label-emph',
-    style: { 'font-size': 15, 'text-outline-width': 4, 'z-index': 30 },
+    selector: 'node.label-emph',
+    style: { 'font-size': 24, 'text-outline-width': 5, 'z-index': 30 },
+  },
+  // Field chips sit on a smaller base (10), so their emphasis is pinned
+  // separately to keep the user-requested "twice the usual size" honest
+  // per tier (10 → 20). The attribute+class rule outranks the generic
+  // class rule above, so chips get this one.
+  {
+    selector: 'node.label-emph[type="field"]',
+    style: { 'font-size': 20, 'text-outline-width': 4, 'z-index': 30 },
   },
 ];
