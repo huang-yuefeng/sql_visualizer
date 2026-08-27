@@ -1232,3 +1232,25 @@ export const HOVER_EMPHASIS_STYLES = [
     style: { 'font-size': 20, 'text-outline-width': 4, 'z-index': 30 },
   },
 ];
+
+// ══════════════════════════════════════════════════════════════════
+// Field Story step-through bar (2026-08-27) — display-only classes.
+//
+// FieldStoryBar steps through the searched field's story; DataFlowGraph
+// receives the active step as `storyFocus` and, inside one cy.batch,
+// adds `story-active` to the step's edges, `label-emph` (the existing
+// hover-emphasis class — same enlarged-label read) to the step's nodes,
+// and `story-dim` to EVERY element the step does not involve. Classes
+// only: nothing here feeds a layout, so stepping never re-layouts.
+//
+// This array is NOT composed by useCytoscapeGraph — DataFlowGraph
+// appends it to the LIVE stylesheet at runtime
+// (`cy.style().append(...).update()`, once per cy instance), which
+// composes it AFTER every group above so it wins the usual specificity
+// ties: `edge.story-active`'s width beats `.l2-uniform`'s 2, and
+// `.story-dim`'s opacity matches the `.dimmed`/cone-dim 0.15 convention.
+// ══════════════════════════════════════════════════════════════════
+export const STORY_STYLES = [
+  { selector: '.story-dim', style: { opacity: 0.15 } },
+  { selector: 'edge.story-active', style: { width: 5, 'z-index': 25 } },
+];
