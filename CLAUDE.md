@@ -179,6 +179,12 @@ curl -s http://192.168.0.66:8000/api/health       # health check
     before docker build. Deployment truth-test = artifact hash parity (local
     dist sha256 == deployed sha256), never commit history — v3.3.177's race
     shipped a stale bundle while history looked inclusive.
+29. **Direction toggle removed — downstream only (v3.3.180, R38 ruling)**: the
+    Upstream/Downstream switch in the search panel is gone; every search (and
+    every L2 fetch, including old views whose rows persist `direction: upstream`)
+    runs downstream. Persisted direction values are deliberately ignored — one
+    direction, one mental model: "where does this field's value go". Provenance
+    questions remain answerable in the full view.
 28. **L2 node click → SQL definition line (v3.3.179, R37)**: tapping a node
     feeds its `data.line_start` into the SINGLE `sqlHighlightLine` channel
     (shared with edge clicks; last wins; `SqlPanel` unchanged). Line

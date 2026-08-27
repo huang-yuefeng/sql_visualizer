@@ -118,21 +118,38 @@ describe('FilterPanel — two-area layout + direction', () => {
     expect(screen.queryByText('Narrow Index (optional)')).not.toBeInTheDocument();
   });
 
-  it('renders the direction toggle with Upstream selected by default', () => {
-    mountPanel();
-    const upstream = screen.getByRole('button', { name: /Upstream/ });
-    const downstream = screen.getByRole('button', { name: /Downstream/ });
-    expect(upstream).toBeInTheDocument();
-    expect(downstream).toBeInTheDocument();
-    expect(upstream.className).toContain('btn-active');
-    expect(downstream.className).not.toContain('btn-active');
+  it('search click calls onSearch with downstream (R38: the only direction)', () => {
+    const onSearch = vi.fn();
+    render(
+      <FilterPanel
+        wsId="ws1"
+        username="alice@hsbc.com"
+        tableIndex={{ orders: { fields: ['amount'] } }}
+        fieldIndex={{ amount: { tables: ['orders'] } }}
+        onSearch={onSearch}
+        loading={false}
+      />
+    );
+    fireEvent.change(screen.getByPlaceholderText(/Type table name/), { target: { value: 'orders' } });
+    fireEvent.change(screen.getByPlaceholderText(/Type field name/), { target: { value: 'amount' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(onSearch).toHaveBeenCalledWith('orders', 'amount', 'downstream');
   });
 
-  it('places the direction toggle inside the Search area', () => {
-    mountPanel();
-    const searchArea = screen.getByTestId('search-area');
-    expect(within(searchArea).getByRole('button', { name: /Upstream/ })).toBeInTheDocument();
-    expect(within(searchArea).getByRole('button', { name: /Downstream/ })).toBeInTheDocument();
+  it('R38: renders NO direction toggle — downstream is the only direction', () => {
+    render(
+      <FilterPanel
+        wsId="ws1"
+        username="alice@hsbc.com"
+        tableIndex={{}}
+        fieldIndex={{}}
+        onSearch={() => {}}
+        loading={false}
+      />
+    );
+    expect(screen.queryByRole('button', { name: /Upstream/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Downstream/ })).toBeNull();
+    expect(screen.queryByText('Direction')).toBeNull();
   });
 });
 
@@ -171,7 +188,7 @@ describe('FilterPanel — username-namespaced localStorage (E-M2/#277)', () => {
     fireEvent.change(screen.getByPlaceholderText(/Type field name/), { target: { value: 'amount' } });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
-    expect(onSearch).toHaveBeenCalledWith('orders', 'amount', 'upstream');
+    expect(onSearch).toHaveBeenCalledWith('orders', 'amount', 'downstream');
     const stored = JSON.parse(window.localStorage.getItem('df_search_history:alice@hsbc.com'));
     expect(stored).toHaveLength(1);
     expect(stored[0]).toMatchObject({ table: 'orders', field: 'amount' });

@@ -37,8 +37,12 @@ export default function DataFlowApp({
   const parentViewIdRef = useRef(null);
   const [graphLevel, setGraphLevel] = useState('L1');
   const [layoutMode, setLayoutMode] = useState('snake'); // 'snake' or 'pipeline'
-  // R29: query direction — 'upstream' (writing flow, default) or 'downstream' (reading flow)
-  const [direction, setDirection] = useState('upstream');
+  // R38 ruling (2026-08-27): the direction toggle is removed — downstream is
+  // the ONLY direction (reading flow: "where does this field's value go").
+  // Constant, not state. Persisted view rows may still carry
+  // direction:'upstream' from R29-era searches; those values are deliberately
+  // IGNORED — one direction everywhere (see the two getLevel2Graph call sites).
+  const direction = 'downstream';
   const [l1Graph, setL1Graph] = useState(null);
   const [l2Graph, setL2Graph] = useState(null);
   const [sqlText, setSqlText] = useState('');
@@ -429,7 +433,6 @@ export default function DataFlowApp({
       setActiveViewId(result.view_id);
       parentViewIdRef.current = result.view_id;
       setL1Graph(result.l1_graph);
-      setDirection(direction);
       setGraphLevel('L1');
       setL2Graph(null); setL2Result(null); setL2ViewMode(null);
       setSqlText('');
@@ -451,7 +454,7 @@ export default function DataFlowApp({
       const viewIdForApi = parentViewIdRef.current || activeViewId;
       // R29: L2 is the zoom-in of L1 — fetch in the parent view's direction
       const searchView = views.find(v => v.view_id === viewIdForApi);
-      const result = await api.getLevel2Graph(wsId, viewIdForApi, scriptName, true, searchView?.direction || direction);
+      const result = await api.getLevel2Graph(wsId, viewIdForApi, scriptName, true, /* R38: persisted direction ignored */ direction);
       applyL2Result(result);
       setSqlText(result.sql_text || '');
       setCurrentScriptName(scriptName);
@@ -487,7 +490,7 @@ export default function DataFlowApp({
     } finally {
       setLoading(false);
     }
-  }, [wsId, activeViewId, views, direction]);
+  }, [wsId, activeViewId, views]);
 
   // ── View Tree navigation ──────────────────────────────────────────
   const handleViewTreeClick = useCallback(async (viewId) => {
@@ -524,7 +527,7 @@ export default function DataFlowApp({
       setL2Graph(null); setL2Result(null); setL2ViewMode(null);
       try {
         const parentView = views.find(v => v.view_id === entry.parent_view_id);
-        const result = await api.getLevel2Graph(wsId, entry.parent_view_id, entry.script_name, true, parentView?.direction || direction);
+        const result = await api.getLevel2Graph(wsId, entry.parent_view_id, entry.script_name, true, /* R38: persisted direction ignored */ direction);
         applyL2Result(result);
         setSqlText(result.sql_text || '');
         setCurrentScriptName(entry.script_name);
@@ -548,7 +551,7 @@ export default function DataFlowApp({
       setActiveL1Table(null);
       setSelectedEdge(null); setSqlHighlightLine(null);
     }
-  }, [views, wsId, direction]);
+  }, [views, wsId]);
 
   // ── Remove from my history (R31 A-M1/A-M2) ────────────────────────
   // ONE role-dependent action — the backend decides: creator → physical

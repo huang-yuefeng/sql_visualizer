@@ -48,8 +48,9 @@ export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, on
   const [searchHistory, setSearchHistory] = useState(() => loadHistory(username));
   const [pinnedSearches, setPinnedSearches] = useState(() => loadPins(username));
   const [showHistory, setShowHistory] = useState(false);
-  // R29: query direction — upstream (writing flow, DEFAULT) / downstream (reading flow)
-  const [direction, setDirection] = useState('upstream');
+  // R38 ruling (2026-08-27): the direction toggle is REMOVED — every search
+  // runs downstream (reading flow), the only direction. The onSearch signature
+  // keeps its third argument so the DataFlowApp contract is untouched.
 
   const stRef = useRef(null);
   const tcRef = useRef(null);
@@ -120,7 +121,7 @@ export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, on
     const newHistory = [entry, ...searchHistory.filter(h => !(h.table === t && h.field === f))];
     setSearchHistory(newHistory);
     saveHistory(username, newHistory);
-    onSearch(t, f, direction);
+    onSearch(t, f, 'downstream');
   };
 
   // Enter key in field input triggers search
@@ -295,22 +296,6 @@ export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, on
           </div>
         )}
       </div>
-
-          {/* R29: direction — under table/field and BEFORE Search so it
-              cannot be skipped; upstream (writing flow) is the default. */}
-          <div className="direction-group">
-            <span className="direction-label">Direction</span>
-            <button className={`btn btn-sm ${direction === 'upstream' ? 'btn-active' : 'btn-outline'}`}
-              onClick={() => setDirection('upstream')}
-              title="Upstream — show what writes this table.field (writing flow)">
-              ↑ Upstream
-            </button>
-            <button className={`btn btn-sm ${direction === 'downstream' ? 'btn-active' : 'btn-outline'}`}
-              onClick={() => setDirection('downstream')}
-              title="Downstream — show what reads this table.field (reading flow)">
-              ↓ Downstream
-            </button>
-          </div>
 
           <div className="search-actions">
             <button className="btn btn-primary" disabled={!canSearch || loading}

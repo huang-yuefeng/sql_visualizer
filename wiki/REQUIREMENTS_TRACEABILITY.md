@@ -58,7 +58,7 @@
 | R4.10 | Minimap toggle | ✅ | 🗺 button |
 | R4.11 | L1 = the queried field's data flow — same field-level semantic as L2 — at cross-script scale (scripts + tables between scripts, no fields) | ✅ | R29 (2026-08-12) — implemented v3.3.153 |
 | R4.12 | No table-level inclusion: scripts/tables that only read or write the queried TABLE are excluded | ✅ | R29 (2026-08-12) — v3.3.153 — e.g. SUP_M for a BNQXYE search |
-| R4.13 | Direction = query panel setting (upstream = writing, default / downstream = reading); L1 renders the flow in that direction; no L1 panel control | ✅ | R29 (2026-08-12) — v3.3.153 |
+| R4.13 | ~~Direction = query panel setting (upstream = writing, default / downstream = reading)~~ **AMENDED R38 (2026-08-27): toggle REMOVED — every search runs downstream (reading flow), the only direction** | ✅ | R29 v3.3.153 → R38 ruling |
 
 ## R5 — L2 Graph: Table/Field-level Data Flow (from requirements_v2.md §4-5)
 | ID | Requirement | Status | Notes |
@@ -71,7 +71,7 @@
 | R5.6 | Click edge → highlight SQL segment | ✅ | Edge click sets sqlHighlightRange |
 | R5.7 | Target field node (gold highlight) | ✅ | is_target with gold border |
 | R5.8 | CTE table nodes (dashed green) | ✅ | cte_table style |
-| R5.9 | L2 follows the query direction automatically — zoom-in of L1's directional flow, no separate control | ✅ | R29 (2026-08-12) — v3.3.153 |
+| R5.9 | L2 follows the query direction automatically — zoom-in of L1's directional flow, no separate control **(R38: that direction is now always downstream)** | ✅ | R29 v3.3.153 → R38 ruling |
 | R5.10 | **#288 L2 physical tables merge CASE-INSENSITIVELY into one compound node** — east5_stzfxxb / EAST5_STZFXXB previously split into 2 nodes | ✅ | #288 (2026-08-24) — Team C backend — the physical-table merge key is case-folded (one keeper, merged-away nids re-point via occ_to_id, edges re-pointed); aliases / CTEs / subqueries stay case-sensitive — a case-twin alias (A vs a) is still a DIFFERENT alias node. Tests: `tests/test_l2_case_merge.py` |
 | R5.11 | **#289 INSERT write-alias columns render ON the write target node** — but only as a FALLBACK: a SELECT-projection column sourced to a phantom alias (no real model owner) lands on the write target; a projection sourced to a real table/CTE/alias renders on that source (its physical-model owner), keeping the display a pure projection of the model | ✅ | #289 (2026-08-24, Team C) + Team E correction 2026-08-24 — each statement's ⟐-output SCHEMA members (its SELECT projections) re-parent onto that statement's DML write target's keeper compound ONLY when the projection has no visible source parent; the physical model is the independent truth — write columns sourced to a real table render on that owner, not on the target (nbjgh→bdm_acc_loan_info, internal_key→loan_final, LENDING_REF→ods_ccb_cb_loan_acctloan), while phantom-sourced projections (bz, TAG_*, RESERVED_*, PRIMARY_SRC_SYSTEM) render on the target. DML ⟐-output routing untouched (no qo_ nodes, write legs still hang off each statement's own output VT). Tests: `tests/test_l2_case_merge.py` |
 
