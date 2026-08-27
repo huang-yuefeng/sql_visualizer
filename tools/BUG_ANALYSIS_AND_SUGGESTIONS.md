@@ -5102,7 +5102,9 @@ is the essential source of truth; the indexer inherits canonical names with no r
   literal at line 183; comments are tokenizer-skipped).
   - Note: `process_statement` (line 1280-1297) does NOT walk `ALTER`, so the 7
     `ALTER TABLE east5_stzfxxb` statements never register a table — counting from
-    `_register_table` would tie 1:1. The token stream sees 8 lowercase (1 INSERT + 7 ALTER)
+    `_register_table` would tie 1:1. The token stream sees 11 lowercase in the repaired sample (1 INSERT + 10
+ALTERs @166-175; pre-repair file: 8 = 1 INSERT + 7 ALTERs, WPB_CDT_
+Digitallending @175 was dropped by a parse gap)
     vs 1 uppercase (op-log `FROM`) → lowercase wins.
 - **Canonicalization post-pass:** new `_canonicalize_table_names()` (alongside
   `_attribute_output_containers` / `_finalize_schema_candidates`). For each registered
@@ -5120,8 +5122,10 @@ is the essential source of truth; the indexer inherits canonical names with no r
 key (36 f); `a` (23 f) + `A` (10 f) → one `a` key (33 f).
 
 **Out of scope (separate follow-up):** resolving the undeclared `a`/`A` qualifier **to**
-`bdm_acc_entrusted_payment` (base table line 141 has no `AS a` in the source — OCR/authoring
-gap). This change collapses `a`+`A` to one spelling but does not map them to the physical
+`bdm_acc_entrusted_payment` (v3.3.170 UPDATE: the repaired sample DOES declare
+`FROM bdm_acc_entrusted_payment a` at L141 — the qualifier resolves to the
+physical table at extraction time, so this follow-up is RESOLVED; the
+premise below was true only of the pre-repair file). This change collapses `a`+`A` to one spelling but does not map them to the physical
 table.
 
 **Clarification (user follow-up, 2026-08-25) — alias scope:** the user confirmed that SQL may

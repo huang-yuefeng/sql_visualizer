@@ -43,7 +43,9 @@ stmt1 (L19, TOP0):  INSERT OVERWRITE TABLE bdm_acc_loan_info
                 bdm_acc_loan_info. [The ~130-column SELECT below is the
                 NEXT statement — it does NOT write bdm_acc_loan_info.]
 stmt2 (L21-251, TOP1):  standalone SELECT distinct ... (~130 output
-                columns: LENDING_REF, PCBACCT_NO, ..., loan_purpose_onoff_flag)
+                columns: LENDING_REF, PCB_ACCT_NO (v3.3.170 repair; was the
+                OCR-garbled PCBACCT_NO — sibling-corroborated spelling,
+                sample L22), ..., loan_purpose_onoff_flag)
                 FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY acnw) AS rn
                       FROM ODS_CUPD_PLOAN_ACCTM_NEW5
                       WHERE p_dt='${load_date}') a            (L220)

@@ -10,8 +10,8 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 
 - **Backend**: FastAPI + sqlglot (MySQL dialect), Docker `gps-sql-backend` on port 8000
 - **Frontend**: React 18 + Vite + Cytoscape.js, served from `frontend/dist/`
-- **Tests**: vitest (frontend, 167 passed across 15 files), pytest (backend, 870 passed / 5 skipped in `backend/tests/`)
-- **Version**: See `/VERSION` (currently 3.3.166)
+- **Tests**: vitest (frontend, 214 passed across 21 files), pytest (backend, 1040 passed / 5 skipped in `backend/tests/`)
+- **Version**: See `/VERSION` (currently 3.3.178)
 - **Service IP**: `192.168.0.66:8000` (never use `localhost`)
 
 ## File Map (Key Source Files)
@@ -160,3 +160,22 @@ curl -s http://192.168.0.66:8000/api/health       # health check
     ExtractionResult, stamped into graph caches + level2 response, and rendered as a
     banner (reusing `.no-match-banner`) — never silently skipped, never auto-fixed
     (user ruling: report in the diagnostic panel, ask the human to fix).
+24. **Dynamic hover label emphasis (v3.3.171–177)**: hovering a node enlarges its
+    label plus every field chip of its box (chips are top-level nodes linked by
+    `_tableParent` — `children()` is always empty); hovering an edge enlarges both
+    endpoints AND their chips. Pure display: `.label-emph` composed LAST in the
+    cytoscape sheet, per-tier 2× sizes (titles 24, chips 20), classes never feed
+    layout. `minZoom` floor is 0.28 (0.05 made any multiplier sub-pixel).
+25. **Fit spends the window on content (v3.3.172/175/177)**: `FIT_PADDING=24`,
+    L2 small-panel adaptive floor 16px/5% — kept in sync in BOTH
+    `useCytoscapeGraph` and `layoutCore.applyLayout` (initial-fit path).
+26. **View-open search-params recovery (v3.3.178)**: clicking an L1/L2 view in the
+    tree restores its `table`/`field` into the search panel via
+    `recoverViewSearch` (row or `parent_view_id` search row; null → panel
+    untouched, never guessed). R23 clean-start on page load is untouched.
+27. **Release pipeline ships the current frontend (v3.3.174, R36)**: the image
+    serves PREBUILT `backend/app/static/`; `release.sh` stage 0.5 rebuilds the
+    frontend, stamps VERSION into dist/index.html, and syncs `dist → static`
+    before docker build. Deployment truth-test = artifact hash parity (local
+    dist sha256 == deployed sha256), never commit history — v3.3.177's race
+    shipped a stale bundle while history looked inclusive.

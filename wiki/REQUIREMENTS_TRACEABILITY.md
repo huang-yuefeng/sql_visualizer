@@ -1,7 +1,7 @@
-# Requirements Traceability Matrix — V3.3.166
+# Requirements Traceability Matrix — V3.3.178
 
 > Maps all requirements from REQUIREMENTS.md to implementation status.
-> Last updated: 2026-08-26 (R32.1–R32.3 flipped ⏸ → ✅ — line-merged views shipped v3.3.166; R1.8 #308 + R31.2 M-Po4 flipped 📝 → ✅ — closed v3.3.165; R31.1 annotated superseded by #293; R31.9 annotated deleted by #322; version bumped to 3.3.166. Prior 2026-08-25: R31 status markers reconciled with shipped code — 8 previously-📝 rows flipped to ✅ against verified implementation; summary recounted: 169 implemented / 1 partial (R31.2 IP audit, pending M-Po4); version bumped to 3.3.164. Prior 2026-08-24: #288/#289 L2 graph backend fixes — case-insensitive physical-table merge shipped; #289 INSERT write-column routing corrected to be a model-following fallback (write columns land on their physical-model owner; only phantom-sourced columns land on the write target); #286 R31 regression fixed — dashboard folder upload restored; R31 status → released v3.3.162, E-series review fixes pending)
+> Last updated: 2026-08-27 (R33–R36 added ✅ — hover label emphasis, view-open search-params recovery, fit readability margins + zoom floor, release pipeline static-sync guard; shipped v3.3.171–v3.3.178. Prior 2026-08-26 (R32.1–R32.3 flipped ⏸ → ✅ — line-merged views shipped v3.3.166; R1.8 #308 + R31.2 M-Po4 flipped 📝 → ✅ — closed v3.3.165; R31.1 annotated superseded by #293; R31.9 annotated deleted by #322; version bumped to 3.3.166. Prior 2026-08-25: R31 status markers reconciled with shipped code — 8 previously-📝 rows flipped to ✅ against verified implementation; summary recounted: 169 implemented / 1 partial (R31.2 IP audit, pending M-Po4); version bumped to 3.3.164. Prior 2026-08-24: #288/#289 L2 graph backend fixes — case-insensitive physical-table merge shipped; #289 INSERT write-column routing corrected to be a model-following fallback (write columns land on their physical-model owner; only phantom-sourced columns land on the write target); #286 R31 regression fixed — dashboard folder upload restored; R31 status → released v3.3.162, E-series review fixes pending)
 
 ## Legend
 - ✅ Implemented & verified
@@ -300,6 +300,31 @@
 | R32.2 | **L2 full-merged view** — same merge rule as R32.1 applied over the full graph | ✅ | #329 — SHIPPED v3.3.166 (2026-08-26) |
 | R32.3 | **Benchmark for the line-merged views** — canonical merged edges derived independently from SQL (one SQL line ≈ one edge); recall = precision = 1.0 for nodes/edges/highlights | ✅ | #330 — SHIPPED v3.3.166 (2026-08-26) |
 
+## R33 — Dynamic hover label enlargement in L1/L2 graphs (requirement change, 2026-08-27)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R33.1 | Hovering a node enlarges its label + all field chips of its table box | ✅ | `hoverEmphTargets` flat `_tableParent` scan (chips are top-level; `children()` is always empty); `.label-emph` composed LAST in the sheet; v3.3.171/173 |
+| R33.2 | Hovering an edge enlarges both endpoint nodes AND their field chips | ✅ | Edge branch returns `connectedNodes()` (was the bare edge — no visible label, invisible no-op; fixed v3.3.176) plus each endpoint's chips via the same `_tableParent` scan (v3.3.177) |
+| R33.3 | Per-tier 2× sizing | ✅ | Titles 12→24, field chips 10→20 (`node.label-emph[type="field"]` attribute rule); contract tests pin per-tier minimums |
+
+## R34 — View-open search-params recovery (requirement change, 2026-08-27)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R34.1 | Opening an L1/L2 view from the tree restores table+field into the search panel | ✅ | `recoverViewSearch` (pure) resolves the row or its `parent_view_id` search row; nonce-gated fill so in-flight edits are clobbered only on explicit view open; R23 clean-start on page load untouched; v3.3.178 |
+| R34.2 | Never guess | ✅ | Unrecoverable/corrupt rows → `null`, panel left untouched |
+
+## R35 — L2 fit readability: minimal margins + legible zoom floor (requirement change, 2026-08-27)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R35.1 | Fit spends the window on content | ✅ | `FIT_PADDING` 200→60→24; L2 small-panel adaptive 30/7%→16/5% in BOTH the hook and `layoutCore.applyLayout` (the initial-fit path was missed first, synced v3.3.177) |
+| R35.2 | Labels legible before hover | ✅ | `minZoom` 0.05→0.28 — at 0.05 a 2× emphasis gained <1 screen px; screen-verified via Playwright class+pixel assertions |
+
+## R36 — Release pipeline ships the current frontend (build hygiene, 2026-08-27)
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R36.1 | `release.sh` rebuilds frontend and syncs `dist → backend/app/static` before docker build | ✅ | Stage 0.5: npm build, stamp VERSION into dist/index.html, sync elk.bundled.js, `git add backend/app/static`. Root cause: the image serves PREBUILT static — v3.3.171–173 shipped v3.3.170's bundle while /api/health reported new versions |
+| R36.2 | Deployment truth-test = artifact hash parity, not commit history | ✅ | v3.3.177 race (build predated the recovery commit; history looked inclusive) caught by deterministic-build hash diff; v3.3.178 redeployed with local sha256 == deployed sha256 |
+
 ## Code-review decisions (2026-08-25) — queued, awaiting GO
 
 One-by-one walkthrough of `wiki/CODE_REVIEW_2026-08-24.md`. Decisions recorded; implementation
@@ -326,7 +351,7 @@ the full design.
 | ✅ Implemented | 174 (all) — 90 R1–R16 + 17 R17–R20 + 16 R26–R28 + 8 R29 (R29.1–R29.6 + R29.7 #193 + R29.8 #252) + 11 R30 (R30.1–R30.5 flow cone + R30.6–R30.10 v3.3.159/160 amendments + R30.11 ROW_FLOW) — R5.10/R5.11 = #288/#289 (2026-08-24, Team C) + 29 R31 (R31.1–R31.29) + 3 R32 (R32.1–R32.3, v3.3.166) |
 | 📝 Partial — in progress | 0 — none (R31.2 IP audit + R1.8 search scope both closed v3.3.165) |
 | ⏸ Awaiting GO — code-review batch (2026-08-25) | 11 tasks — #303, #308–#310, #315–#320, #322 (see "Code-review decisions" table; requirements_v2.md amendment is the coding reference) |
-| Version | 3.3.166 |
+| Version | 3.3.178 |
 
 ## Key Fixes since V3.2.1
 | Fix | Description |

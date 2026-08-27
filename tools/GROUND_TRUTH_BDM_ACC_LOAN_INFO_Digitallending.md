@@ -45,6 +45,17 @@ below are filled by the probe run; the REQUIREMENT lines themselves
 commented, L544 WHERE, L545 `;`, stmt2 L549-562; the file parses with
 sqlglot mysql (verified 2026-08-12: 3 statements = SET + 2 DML). The
 risky-spot flags resolved as follows:
+0. **RE-RECONCILIATION ADDENDUM (2026-08-27, v3.3.170 sample repair):** the
+   file was replaced by the cross-corroborated reconstruction — now 21,439
+   bytes (was 21,411), still 562 lines, statement structure UNCHANGED (L99
+   INSERT OVERWRITE, CTEs L58-77/L78-97, L544 WHERE, L545 `;`, stmt2 L549-562).
+   Superseded evidence in this doc: the byte-size/`MATCH EXACTLY` certificate
+   above refers to the pre-repair file; **L110-111 (`NVL(km_gl.MXKMBH,
+   km_ie.MXKMBH)`), L147 (D.apply_limit), L167 (B.app_rate), L176
+   (A.payoffdate) are now COMMENTED OUT** (duplicate-projection cleanup) —
+   any pin citing them as active code must be re-derived. `CUST_TYPE`
+   literal `('I','3')` → `('I','J')` (corroborated by RFN @1069). §4.2/§4.3
+   REQUIREMENT anchors (data_dt/bdm/rrcdm) re-verified holding.
 1. **L77 `),` own line — VERIFIED MATCH** (file L77; CTE2 name at L78).
 2. **L407 internal-counterparty branch — VERIFIED MATCH**: file L407
    `WHEN EXISTS (SELECT 1 FROM BDM_ACC_INTERNAL_COUNTERPARTY WHERE
