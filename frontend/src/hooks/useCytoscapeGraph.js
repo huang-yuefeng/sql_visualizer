@@ -136,7 +136,12 @@ function hoverEmphTargets(target) {
     return cy ? cy.collection() : null;
   }
   const members = [target];
-  if (!target.isEdge()) {
+  // v3.3.176 FIX (user-verified defect): the edge branch returned the EDGE
+  // itself, but edges carry no visible label — so hovering an edge changed
+  // nothing on screen. Enlarge the two ENDPOINT nodes (edge included
+  // harmlessly, for future edge styling).
+  if (target.isEdge()) return target.connectedNodes().union(target);
+  {
     const d = target.data();
     if (d && d.id !== undefined) {
       // Field chips link UP to their box via `_tableParent` (never down via
