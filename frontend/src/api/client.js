@@ -185,6 +185,30 @@ export async function scanWorkspace(wsId) {
   return res.json();
 }
 
+// ── G3 (2026-08-29): read-only twins of the creator-only scan/index pair ──
+// A participant opening a shared workspace must NOT trigger a scan or an
+// index (both rewrite shared workspace state — the #272/#380 creator-only
+// rule returns 403 to them). G3 serves the already-built tree/index over GET:
+//
+//   getWorkspaceTree  — GET /workspace/{id}/tree. Returns NULL on any non-OK
+//     (404 endpoint-not-there-yet, 409 the workspace has no tree yet, 403…):
+//     the caller decides what a missing tree means for ITS role and falls
+//     back, so the client stays silent here.
+//   getWorkspaceIndex — GET /workspace/{id}/index. Throws on non-OK with the
+//     server's detail — an index that cannot be read is a real failure for a
+//     participant (there is no second way to get it) and must surface.
+export async function getWorkspaceTree(wsId) {
+  const res = await gatedFetch(`/api/workspace/${wsId}/tree`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function getWorkspaceIndex(wsId) {
+  const res = await gatedFetch(`/api/workspace/${wsId}/index`);
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return res.json();
+}
+
 
 export async function getWorkspaceStatus(wsId) {
   const res = await gatedFetch(`/api/workspace/${wsId}/status`);

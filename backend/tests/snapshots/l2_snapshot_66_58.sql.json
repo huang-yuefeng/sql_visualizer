@@ -1457,6 +1457,57 @@
           "desc": "WHERE/JOIN ON condition",
           "edge_type": "FILTER",
           "flow_kind": "field flow",
+          "highlight_line": 14,
+          "id": "l2e_8c33118a2565",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016date_dim.d_date@L14 \u2192 \u27d0 subq1@L9\u2016",
+          "source": "l2_tbl_e5411b463e",
+          "target": "l2_tbl_16eb8b751c",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 30,
+          "id": "l2e_7b68d5bffcb0",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016date_dim.d_date@L30 \u2192 \u27d0 subq3@L25\u2016",
+          "source": "l2_tbl_e5411b463e",
+          "target": "l2_tbl_e76648b5a5",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 46,
+          "id": "l2e_a759907aa325",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016date_dim.d_date@L46 \u2192 \u27d0 subq5@L41\u2016",
+          "source": "l2_tbl_e5411b463e",
+          "target": "l2_tbl_46196a0866",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
           "highlight_line": 51,
           "id": "l2e_5b45e44f9b8c",
           "label": "FILTER",
@@ -2470,7 +2521,7 @@
     "script_name": "58.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 87,
+    "total_edges": 90,
     "total_nodes": 103
   },
   "script_name": "58.sql",

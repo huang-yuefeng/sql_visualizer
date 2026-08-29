@@ -112,7 +112,9 @@ export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, on
   // closed it, but only once the user clicked elsewhere. Once the typed name
   // RESOLVES to an index key (exact spelling or unique case-variant) the
   // suggestions have nothing left to offer — close it then; the next edit
-  // (onChange) or focus reopens it, so browsing alternatives still works.
+  // (onChange) reopens it, so browsing alternatives still works. Focus does
+  // not: the render gate is `!resolvedTable`/`!resolvedField`, so refocusing
+  // a RESOLVED name shows no dropdown to reopen.
   useEffect(() => {
     if (resolvedTable) setShowTableDrop(false);
   }, [resolvedTable]);
@@ -152,6 +154,15 @@ export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, on
   const fieldMissing = field.length > 0 && !resolvedField && getFieldOptions().length === 0;
 
   const canSearch = Boolean(resolvedTable && resolvedField);
+
+  // R3 finding 5: the ☆ pin pins and compares the CANONICAL index key, not the
+  // raw typed string (`?? table` — a name that resolves to nothing has no
+  // canonical form, so it pins as typed exactly as before). Pinning the typed
+  // string let one search produce two pins: ☆ on the typed casing, then the
+  // search echoes the canonical spelling into the inputs (doSearch below) and
+  // a second ☆ stored the same pair again under a different key.
+  const pinTable = resolvedTable ?? table;
+  const pinField = resolvedField ?? field;
 
   // Search trigger — adds to history, updates pins
   const doSearch = (t, f) => {
@@ -365,10 +376,10 @@ export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, on
               {loading ? 'Searching...' : 'Search'}
             </button>
             {table && field && (
-              <button className={`btn btn-sm ${isPinned(table, field) ? 'btn-active' : 'btn-outline'}`}
-                onClick={() => togglePin(table, field)}
-                title={isPinned(table, field) ? 'Unpin this search' : 'Pin this search for quick access'}>
-                {isPinned(table, field) ? '★' : '☆'}
+              <button className={`btn btn-sm ${isPinned(pinTable, pinField) ? 'btn-active' : 'btn-outline'}`}
+                onClick={() => togglePin(pinTable, pinField)}
+                title={isPinned(pinTable, pinField) ? 'Unpin this search' : 'Pin this search for quick access'}>
+                {isPinned(pinTable, pinField) ? '★' : '☆'}
               </button>
             )}
           </div>

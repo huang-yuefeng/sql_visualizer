@@ -27,7 +27,9 @@ Defects fixed (SUP_M / RFN evidence):
   stamped as an auto-named fragment so no write-side twin is minted from it.
 """
 
+import io
 import sys
+import zipfile
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -86,7 +88,11 @@ class TestSupMOwnerScope:
     def test_no_town_outside_the_not_in_subquery_scope(self):
         """The NOT-IN body (closes @58) must not claim @59's GROUP BY."""
         res = _extract(SUP_M, "BDM_ACC_LOAN_INFO_SUP_M")
-        for twin in _twins(res, "lending_ref"):
+        # R4 L (2026-08-29): the negative loop below is vacuous when no twin
+        # exists at all — a broken extractor that mints nothing would pass.
+        twins = _twins(res, "lending_ref")
+        assert twins, "no lending_ref occurrence twins — the guard is vacuous"
+        for twin in twins:
             assert not (
                 twin.source_tables
                 and twin.source_tables[0].casefold() == "bdm_evt_loan_trans"
@@ -141,20 +147,38 @@ class TestRfnBirthLines:
 
     def test_birth_lines_reach_the_flow_closure(self):
         from app.services.l2_builder import _build_l2_graph
+        from app.services.workspace_service import (
+            create_workspace,
+            delete_workspace,
+        )
         sql = RFN.read_text(encoding="utf-8")
         res = extract_variables_from_sql(sql, RFN.stem)
         build_dependency_graph(res, sql)
-        for field, line in (("repay_acct_no", 364),       # column rename birth
-                            ("is_internet_loan", 687),    # derived passthrough
-                            ("tag_branch", 721)):         # expression birth
-                l2 = _build_l2_graph("probe", RFN.name, sql,
-                                     "TEMP_BDM_ACC_LOAN_INFO_02", field,
-                                     direction="downstream")
-                g = l2.get("graph") if isinstance(l2.get("graph"), dict) else l2
-                lines = {e["data"].get("highlight_line") for e in g["edges"]}
-                assert line in lines, (
-                    f"{field}'s derivation line {line} is dark: "
-                    f"{sorted(l for l in lines if isinstance(l, int) and abs(l - line) <= 6)}")
+        # R4 M (2026-08-29): this used to call `_build_l2_graph("probe", …)`
+        # — a workspace id that never existed, so the builder wrote its
+        # graph caches into the SHARED /tmp/workspaces/probe and left them
+        # there forever: every run of the suite reused whatever the first
+        # run had written, and every concurrent test/reader of that
+        # directory saw them. A unique id, deleted in `finally`, keeps the
+        # fixture self-contained (the `_ws` pattern the sibling tests use).
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(RFN.name, sql)
+        ws_id = create_workspace(buf.getvalue())
+        try:
+            for field, line in (("repay_acct_no", 364),       # column rename birth
+                                ("is_internet_loan", 687),    # derived passthrough
+                                ("tag_branch", 721)):         # expression birth
+                    l2 = _build_l2_graph(ws_id, RFN.name, sql,
+                                         "TEMP_BDM_ACC_LOAN_INFO_02", field,
+                                         direction="downstream")
+                    g = l2.get("graph") if isinstance(l2.get("graph"), dict) else l2
+                    lines = {e["data"].get("highlight_line") for e in g["edges"]}
+                    assert line in lines, (
+                        f"{field}'s derivation line {line} is dark: "
+                        f"{sorted(l for l in lines if isinstance(l, int) and abs(l - line) <= 6)}")
+        finally:
+            delete_workspace(ws_id)
 
 
 class TestFragmentFieldGuard:

@@ -21,8 +21,10 @@ F-G adds that module-level constant to `app/extractor/lineage.py` (W1's
 home; `app/services/l2_builder.py` is accepted as a fallback location) and
 gates the alias-key union on it. This one constant serves three purposes:
 
-  1. skip switch — the whole module is `skipif`-guarded on it, so the suite
-     is GREEN today and flips to real red/green the moment F-G lands;
+  1. skip switch — every gated class here is `skipif`-guarded on it, so the
+     suite is GREEN today and flips to real red/green the moment F-G lands
+     (it HAS landed: `TestSentinel` pins the sentinel itself, ungated, so
+     removing it can never turn this file into a silent skip again);
   2. kill switch — `test_inflow_closures_byte_identical` flips it OFF to
      prove the feature is additive-only for searches that already work
      (so the constant has to BE the gate, not a decorative flag next to an
@@ -127,7 +129,12 @@ def _find_feature_module():
     for modname in ("app.extractor.lineage", "app.services.l2_builder"):
         try:
             mod = importlib.import_module(modname)
-        except Exception:  # pragma: no cover — a broken tree skips, not errors
+        except (ImportError, ModuleNotFoundError):  # pragma: no cover
+            # R4 M (2026-08-29): only a MISSING module may be tolerated —
+            # that is the "feature not landed" state this module skips on.
+            # Anything else (SyntaxError, an import-time crash in a real
+            # module, ...) is a broken tree and must fail loudly, never
+            # masquerade as a skip.
             continue
         if getattr(mod, "_ALIAS_SEED_EXPANSION", False):
             return mod
@@ -137,10 +144,31 @@ def _find_feature_module():
 FEATURE_MODULE = _find_feature_module()
 _FEATURE_PRESENT = FEATURE_MODULE is not None
 
-pytestmark = pytest.mark.skipif(
+# R4 M (2026-08-29): the skip is PER-CLASS, never module-wide. A module-wide
+# `pytestmark` would also swallow the sentinel guard below, so deleting the
+# sentinel from lineage.py would turn this whole file into a silent skip —
+# the one outcome a sentinel cannot be allowed to produce.
+_NEEDS_FEATURE = pytest.mark.skipif(
     not _FEATURE_PRESENT,
     reason="#399 option b' not landed: no _ALIAS_SEED_EXPANSION sentinel in "
            "app.extractor.lineage (F-G)")
+
+
+class TestSentinel:
+    """NOT gated on the feature — this is the test that says the gate
+    itself still exists."""
+
+    def test_feature_sentinel_is_present(self):
+        """The skip above is only honest while the sentinel it keys on is
+        real. If `_ALIAS_SEED_EXPANSION` disappears from
+        `app/extractor/lineage.py`, every gated class here silently skips
+        and the #399 contract loses all its coverage with a GREEN suite —
+        this test is the tripwire against exactly that."""
+        assert _FEATURE_PRESENT, (
+            "sentinel removed — restore lineage.py:_ALIAS_SEED_EXPANSION "
+            "or delete this file")
+        assert FEATURE_MODULE is not None
+        assert getattr(FEATURE_MODULE, "_ALIAS_SEED_EXPANSION") is True
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -309,6 +337,7 @@ def _set_switch(monkeypatch, value):
 # 1. the gate
 # ════════════════════════════════════════════════════════════════════════
 
+@_NEEDS_FEATURE
 class TestGate:
     def test_gate_fires_only_when_no_entity_named_the_search(self):
         """`a` is an alias of real_t on line 6, but a REAL table named `a`
@@ -359,6 +388,7 @@ class TestGate:
 # 2-4. the expansion target is the OWNING ENTITY, whatever its kind
 # ════════════════════════════════════════════════════════════════════════
 
+@_NEEDS_FEATURE
 class TestExpansionTargets:
     def test_alias_seed_expands_to_owning_physical(self):
         """`a.x` with no entity named `a`: the seed must be the field the
@@ -468,6 +498,7 @@ class TestExpansionTargets:
 # 5-6. ambiguity: seed ALL owning entities (union), never pick none
 # ════════════════════════════════════════════════════════════════════════
 
+@_NEEDS_FEATURE
 class TestAmbiguity:
     def test_ambiguity_seeds_union_or_keeps_full_graph(self):
         """One alias name, two owning entities, ONE statement (the RFN
@@ -530,6 +561,7 @@ class TestAmbiguity:
 # 7. additivity: an in-flow search keeps its closure byte-identical
 # ════════════════════════════════════════════════════════════════════════
 
+@_NEEDS_FEATURE
 class TestAdditivity:
     def test_inflow_closures_byte_identical(self, monkeypatch):
         """The feature is gated, therefore additive: a PHYSICAL-table search
@@ -572,6 +604,7 @@ FLAGSHIP = [
 ]
 
 
+@_NEEDS_FEATURE
 class TestFlagshipCorpus:
     @pytest.mark.parametrize("script,table,field,pattern", FLAGSHIP)
     def test_alias_target_search_matched(self, script, table, field, pattern):
@@ -618,8 +651,11 @@ class TestFlagshipCorpus:
             res = get_level2_graph(ws_id, sr["view_id"], script, table, field)
 
             # The S1 miss becomes a matched closure — never the full-graph
-            # fallback with its not-in-flow banner.
-            assert res.get("search_matched") is not False, (
+            # fallback with its not-in-flow banner. R4 L (2026-08-29): the
+            # served level2 response writes `search_matched` ONLY as False
+            # (absent ⇒ matched), so the old `is not False` could never fail;
+            # the honest form asserts the matched default explicitly.
+            assert res.get("search_matched", True) is True, (
                 f"{script} {table}.{field}: still not in flow "
                 f"({res.get('message')})")
             graph = res.get("graph") or {}

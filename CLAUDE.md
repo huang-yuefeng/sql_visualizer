@@ -364,3 +364,17 @@ curl -s http://192.168.0.66:8000/api/health       # health check
     snapshot regeneration is the remaining step (R44.3, still ⏳ —
     snapshot failures are expected rebaselines). Row-level record:
     `wiki/REQUIREMENTS_TRACEABILITY.md` §"R44".
+
+44. **Identifier folding is two conventions, provably equivalent here
+    (AD2-E, 2026-08-29)**: the extraction/graph side
+    (`variable_extractor_v2`, `dependency_graph`, `l1_builder`,
+    `l2_builder`) folds with `.casefold()`; the index/lineage side
+    (`lineage`, `folder_index_service`, `filter_service`) folds with
+    `.lower()`. The two agree on every identifier this corpus can
+    produce — measured: **0 divergent identifiers across the 338-file
+    sample corpus** (a divergence needs a non-`iff`-foldable character
+    pair, i.e. ß/ς/ﬁ-class). Do NOT "fix" either side per-site: if a
+    corpus ever contains such a pair, the authority is the DB
+    collation and the fix is ONE shared `fold_ident()` helper that both
+    sides call — never a sprinkling of local `.lower()`/`.casefold()`
+    rewrites, which is how the two conventions drift apart again.

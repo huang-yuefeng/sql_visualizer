@@ -162,6 +162,11 @@ def test_full_http_journey(journey_ws):
     # not occur is not an occurrence. Each of the 8 remaining twins sits on
     # a line where its field textually occurs, in the clause its
     # `defined_in` names — SQL-true, verified per script.
+    # 52 = 26 source reads + 16 write twins (stg_orders ×5,
+    # stg_customers ×4, analytics_orders ×6, daily_summary ×1)
+    # + 2 GROUP BY twins + 8 occurrence twins — re-derived from the tree
+    # 2026-08-29 (R4 L): every bucket counted off the extracted vars, and
+    # the write-twin per-target split matches the list above.
     assert rs["total_columns"] == 52, rs                # 5 fixed scripts
     assert rs["resolved"] + rs["unresolved"] == rs["total_columns"], rs
     assert rs["unresolved"] == 0, rs

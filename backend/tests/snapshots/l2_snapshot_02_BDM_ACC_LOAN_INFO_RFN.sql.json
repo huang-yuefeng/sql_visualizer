@@ -3165,6 +3165,23 @@
       },
       {
         "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 1392,
+          "id": "l2e_514ad4bb1107",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016bdm_acc_loan_info@L768 \u2192 bdm_acc_loan_info.acct_no@L1392\u2016",
+          "source": "l2_tbl_2a2a3ba1c1",
+          "target": "fld_90c4ea9d93",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "filter",
           "color": "#C0392B",
           "desc": "HAVING\u2192SELECT match",
@@ -4953,8 +4970,8 @@
     "script_name": "BDM_ACC_LOAN_INFO_RFN.sql",
     "search_matched": true,
     "target": "ods_gdc_split_fg_rating_temp.cust_no",
-    "total_edges": 207,
-    "total_nodes": 120
+    "total_edges": 208,
+    "total_nodes": 121
   },
   "full": {
     "edges": [
@@ -100556,23 +100573,6 @@
           "desc": "Column reference",
           "edge_type": "REF",
           "flow_kind": "read",
-          "highlight_line": 242,
-          "id": "l2e_f91511d60466",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016ODS_HUB_SSCUSTP.ZGCTCD@L243 \u2192 ODS_IFAI_IA_CUSTP@L242\u2016 \u2192 LPAD(B.ZGDCS, 6, '0')@L1126 \u2192 A@L211 \u2192 TEMP_03@L199 \u2192 LPAD(B.ZGDCS, 6, '0')@L1126 \u2192 bdm_acc_loan_info@L1168",
-          "source": "l2_tbl_6febd6545d",
-          "target": "l2_tbl_2af42da969",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
           "highlight_line": 228,
           "id": "l2e_c881083a4cbf",
           "label": "REF",
@@ -100624,40 +100624,6 @@
           "desc": "Column reference",
           "edge_type": "REF",
           "flow_kind": "read",
-          "highlight_line": 457,
-          "id": "l2e_2a0b039949ff",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016TEMP_RFN.BZ@L458 \u2192 P5@L457\u2016 \u2192 TEMP_BDM_ACC_LOAN_INFO_01@L290 \u2192 LPAD(B.ZGDCS, 6, '0')@L1126 \u2192 bdm_acc_loan_info@L1168",
-          "source": "l2_tbl_0cce020cce",
-          "target": "l2_tbl_2a0d6f687a",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 470,
-          "id": "l2e_db5fe600642b",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016TEMP_RFN.IGNBA@L491 \u2192 ods_ifai_iacurinp@L470\u2016 \u2192 p7.iacrco@L471 \u2192 TEMP_BDM_ACC_LOAN_INFO_01@L290 \u2192 LPAD(B.ZGDCS, 6, '0')@L1126 \u2192 bdm_acc_loan_info@L1168",
-          "source": "l2_tbl_0cce020cce",
-          "target": "l2_tbl_7422a30ddc",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
           "highlight_line": 809,
           "id": "l2e_2fc9be4248ef",
           "label": "REF",
@@ -100682,40 +100648,6 @@
           "reason": "read \u2014 \u2016TEMP_BDM_ACC_LOAN_INFO_01.CONTRACT_NO@L609 \u2192 TEMP_BDM_ACC_LOAN_INFO_02@L495\u2016 \u2192 A.IGNDA@L906 \u2192 LOAN_ORI_MATURITY_DT@L901",
           "source": "l2_tbl_b66a5c69b4",
           "target": "l2_tbl_b2e898e75e",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 495,
-          "id": "l2e_1136714f0ee5",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016TEMP_JGXX.ORG_NO@L754 \u2192 TEMP_BDM_ACC_LOAN_INFO_02@L495\u2016 \u2192 A.IGNDA@L906 \u2192 LOAN_ORI_MATURITY_DT@L901",
-          "source": "l2_tbl_0e6c46b258",
-          "target": "l2_tbl_b2e898e75e",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 781,
-          "id": "l2e_52ef86f8d6b3",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016TEMP_JGXX.ORG_NO@L783 \u2192 ODS_HUB_SSSTDPP@L781\u2016 \u2192 P10.YHDS50@L648 \u2192 A.IGNDA@L906 \u2192 LOAN_ORI_MATURITY_DT@L901",
-          "source": "l2_tbl_0e6c46b258",
-          "target": "l2_tbl_7b3fec9a4f",
           "width": 1
         }
       },
@@ -100777,30 +100709,13 @@
           "desc": "Column reference",
           "edge_type": "REF",
           "flow_kind": "read",
-          "highlight_line": 774,
-          "id": "l2e_a889afff1c9d",
+          "highlight_line": 495,
+          "id": "l2e_970c067a4fde",
           "label": "REF",
           "line_style": "solid",
-          "reason": "read \u2014 \u2016TEMP_BDM_ACC_LOAN_INFO_01.LOAN_IN_BANK_NO@L775 \u2192 P6@L774\u2016 \u2192 A.IGNDA@L906 \u2192 LOAN_ORI_MATURITY_DT@L901",
-          "source": "l2_tbl_b66a5c69b4",
-          "target": "l2_tbl_9f569130a0",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 776,
-          "id": "l2e_ec139ae14fac",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016TEMP_BDM_ACC_LOAN_INFO_01.REPAY_ACCT_NO@L777 \u2192 P8@L776\u2016 \u2192 A.IGNDA@L906 \u2192 LOAN_ORI_MATURITY_DT@L901",
-          "source": "l2_tbl_b66a5c69b4",
-          "target": "l2_tbl_b1460cb15b",
+          "reason": "read \u2014 \u2016TEMP_JGXX.ORG_NAME@L642 \u2192 TEMP_BDM_ACC_LOAN_INFO_02@L495\u2016 \u2192 A.IGNDA@L906 \u2192 LOAN_ORI_MATURITY_DT@L901",
+          "source": "l2_tbl_0e6c46b258",
+          "target": "l2_tbl_b2e898e75e",
           "width": 1
         }
       },
@@ -100828,64 +100743,13 @@
           "desc": "Column reference",
           "edge_type": "REF",
           "flow_kind": "read",
-          "highlight_line": 804,
-          "id": "l2e_fd1fb7722c3e",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016TEMP_BDM_ACC_LOAN_INFO_01.FTP_KEY@L840 \u2192 gdc_wjfl@L804\u2016 \u2192 A.IGNDA@L906 \u2192 LOAN_ORI_MATURITY_DT@L901",
-          "source": "l2_tbl_b66a5c69b4",
-          "target": "l2_tbl_a85af8f6c6",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 1128,
-          "id": "l2e_2419eb246d51",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016TEMP_BDM_ACC_LOAN_INFO_02.LENDING_REF@L1129 \u2192 C@L1128\u2016 \u2192 LPAD(B.ZGDCS, 6, '0')@L1126 \u2192 bdm_acc_loan_info@L1168",
-          "source": "l2_tbl_b2e898e75e",
-          "target": "l2_tbl_a9640fd803",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
           "highlight_line": 867,
-          "id": "l2e_f585255c1105",
+          "id": "l2e_355fddac703e",
           "label": "REF",
           "line_style": "solid",
-          "reason": "read (read into output) \u2014 \u2016TEMP_BDM_ACC_LOAN_INFO_02.LENDING_REF@L905 \u2192 \u27d0 output@L867\u2016 \u2192 LPAD(B.ZGDCS, 6, '0')@L1126 \u2192 bdm_acc_loan_info@L1168",
+          "reason": "read (read into output) \u2014 \u2016TEMP_BDM_ACC_LOAN_INFO_02.ORG_NO@L874 \u2192 \u27d0 output@L867\u2016 \u2192 LPAD(B.ZGDCS, 6, '0')@L1126 \u2192 bdm_acc_loan_info@L1168",
           "source": "l2_tbl_b2e898e75e",
           "target": "l2_tbl_00356d3a9a",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 1147,
-          "id": "l2e_30f602dbc333",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016TEMP_BDM_ACC_LOAN_INFO_02.repay_acct_no@L1158 \u2192 bdm_pub_hsbc_acct_branch@L1147\u2016 \u2192 t_branch2.org_name@L1226 \u2192 COALESCEt_branch2.org_name,_A@L0",
-          "source": "l2_tbl_b2e898e75e",
-          "target": "l2_tbl_87a88a9a47",
           "width": 1
         }
       }
@@ -101837,7 +101701,7 @@
         "data": {
           "context": "CTE{TEMP_BDM_ACC_LOAN_INFO_01}",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "source",
           "id": "l2_tbl_7422a30ddc",
           "label": "ods_ifai_iacurinp",
           "line_end": 866,
@@ -101999,7 +101863,7 @@
         "data": {
           "context": "CTE{TEMP_BDM_ACC_LOAN_INFO_02}",
           "defined_in": "JOIN",
-          "flow_role": "target",
+          "flow_role": "waypoint",
           "id": "l2_tbl_9f569130a0",
           "label": "P6@774",
           "line_end": 866,
@@ -102014,7 +101878,7 @@
         "data": {
           "context": "CTE{TEMP_BDM_ACC_LOAN_INFO_02}",
           "defined_in": "JOIN",
-          "flow_role": "target",
+          "flow_role": "waypoint",
           "id": "l2_tbl_b1460cb15b",
           "label": "P8@776",
           "line_end": 866,
@@ -102206,7 +102070,7 @@
         "data": {
           "context": "CTE{TEMP_BDM_ACC_LOAN_INFO_02}",
           "defined_in": "JOIN",
-          "flow_role": "target",
+          "flow_role": "waypoint",
           "id": "l2_tbl_a85af8f6c6",
           "label": "gdc_wjfl@804",
           "line_end": 866,
@@ -102543,7 +102407,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "target",
+          "flow_role": "waypoint",
           "id": "l2_tbl_a9640fd803",
           "label": "C@1128",
           "line_end": 1131,
@@ -115709,7 +115573,7 @@
     "script_name": "BDM_ACC_LOAN_INFO_RFN.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 5643,
+    "total_edges": 5634,
     "total_nodes": 1953
   },
   "script_name": "BDM_ACC_LOAN_INFO_RFN.sql",

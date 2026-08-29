@@ -13953,40 +13953,6 @@
           "target": "l2_tbl_e086dd9cb4",
           "width": 1
         }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 537,
-          "id": "l2e_33d64f53b5d6",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016ods_ccb_ap_app_main_info.bank_cust_id@L538 \u2192 BDM_CUS_ICUSTOMER@L537\u2016 \u2192 p4.reserved_field9@L235 \u2192 loan_purpose_onoff_flag@L425",
-          "source": "l2_tbl_fb7a1c4b90",
-          "target": "l2_tbl_c9bcad26d9",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 541,
-          "id": "l2e_58dc554a664c",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016ODS_CUPD_CLD_ACCTMASTER_NEW.dkrzzh@L542 \u2192 BDM_ACC_DEPOSIT_ACCT@L541\u2016 \u2192 dsf_tm.cust_no@L409 \u2192 DM_FLAG2@L424",
-          "source": "l2_tbl_46209df8e6",
-          "target": "l2_tbl_66e775d9cd",
-          "width": 1
-        }
       }
     ],
     "filtered_nodes": 481,
@@ -14889,7 +14855,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "source",
           "id": "l2_tbl_c9bcad26d9",
           "label": "BDM_CUS_ICUSTOMER",
           "line_end": 548,
@@ -20774,7 +20740,7 @@
     "script_name": "BDM_ACC_LOAN_INFO_Digitallending.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 781,
+    "total_edges": 779,
     "total_nodes": 604
   },
   "script_name": "BDM_ACC_LOAN_INFO_Digitallending.sql",

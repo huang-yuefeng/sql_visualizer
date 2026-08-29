@@ -249,12 +249,39 @@ export default function DataFlowGraph(props) {
     return () => window.removeEventListener('keydown', h);
   }, [fit]);
 
-  // Resize → auto-fit
+  // Resize → cy.resize() + auto-fit + banner-slot publish
+  // AD2-D follow-up: the canvas height is FLEX now — it depends on the SQL
+  // panel height, the legend's wrapped row count and the L1/L2 panel widths,
+  // none of which fire a window resize. Cytoscape only re-measures its
+  // container on a window resize or an explicit cy.resize(), so a box change
+  // left the canvas bitmap at the old size (drawn content clipped or floating
+  // in dead space). The ResizeObserver below is on the canvas element itself,
+  // i.e. exactly the box that flex re-sizes — notify the core synchronously,
+  // then re-fit (debounced) so the viewport tracks the new box.
+  //
+  // The same observer publishes the MEASURED chrome height (toolbar + legend,
+  // the container's children that precede the canvas) as `--graph-chrome-h`
+  // on the graph's HOST — the element the absolutely-positioned not-in-flow /
+  // no-match banners are anchored to (.panel-center for L1, .inline-l2-graph
+  // for L2). app.css puts the top-slot banner just below that variable, so
+  // the banner tracks the real chrome in every view mode and panel width
+  // instead of a hard-coded guess.
   React.useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    const col = el.parentElement; // .dataflow-graph-container
+    const chrome = col ? Array.from(col.children).filter(c => c !== el) : [];
+    const host = el.closest('.panel-center, .inline-l2-graph');
     let t;
-    const ro = new ResizeObserver(() => {
+    const sync = () => {
+      if (host) {
+        const h = chrome.reduce((sum, c) => sum + (c.offsetHeight || 0), 0);
+        if (h > 0) host.style.setProperty('--graph-chrome-h', `${h}px`);
+      }
+      // Synchronous: the canvas bitmap must match the new box before the
+      // debounced fit runs (and before the next paint), or one frame renders
+      // the old viewport into the new box.
+      if (cyRef.current && !cyRef.current.destroyed()) cyRef.current.resize();
       clearTimeout(t);
       t = setTimeout(() => {
         if (cyRef.current && !cyRef.current.destroyed()) {
@@ -267,7 +294,8 @@ export default function DataFlowGraph(props) {
           fit(pad);
         }
       }, 200);
-    });
+    };
+    const ro = new ResizeObserver(sync);
     ro.observe(el);
     return () => { ro.disconnect(); clearTimeout(t); };
   }, [fit]);
@@ -435,8 +463,11 @@ export default function DataFlowGraph(props) {
           </div>
         )}
       />
-      <div ref={containerRef} className="graph-canvas"
-        style={{ width: '100%', height: 'calc(100% - 80px)' }} />
+      {/* AD2-D: the canvas is the flexible member of the container's flex
+          column (app.css .graph-canvas) — no inline height. The old
+          `calc(100% - 80px)` encoded a chrome budget the real toolbar+legend
+          overran, clipping the graph's bottom band under the SQL panel. */}
+      <div ref={containerRef} className="graph-canvas" style={{ width: '100%' }} />
     </div>
   );
 }

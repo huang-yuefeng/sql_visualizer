@@ -3,7 +3,7 @@
 set -e
 cd "$(dirname "$0")"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; NC='\033[0m'
 
 # ── Config ──────────────────────────────────────────────────────────
 IMAGE_DIR="docker_image"
@@ -14,16 +14,33 @@ COMMIT_MSG="${1:-[release] v$VERSION}"
 SMOKE_PORT="${SMOKE_PORT:-8000}"   # smoke container port — must differ from a running prod gps-sql (8000)
 
 # ── 0. Pre-flight: run pytest suite ─────────────────────────────────
+# R4 M (2026-08-29): a release must never ship "pre-flight skipped". The
+# suite runs where it can — a host venv when present, otherwise the dev
+# container (docker exec is local, so the offline rule holds; the mounts
+# serve THIS working tree's app/ + tests/, so it tests what is about to
+# ship). No runner at all → hard fail with instructions.
 echo "=== Pre-flight: pytest ==="
 cd backend
+PREFLIGHT_RUN=0
 if [ -d venv ]; then
     venv/bin/python -m pytest tests/ -q --tb=short || {
         echo -e "${RED}❌ Tests failed — aborting release${NC}"
         exit 1
     }
-else
-    # No venv — skip but warn
-    echo -e "${RED}⚠️  No venv found, skipping pytest. Run tests manually before release.${NC}"
+    PREFLIGHT_RUN=1
+elif docker ps --format '{{.Names}}' | grep -qx 'gps-sql-backend'; then
+    echo "  no host venv — running the suite in gps-sql-backend (mounted working tree)"
+    docker exec -w /app/backend gps-sql-backend python3 -m pytest tests/ -q --tb=short || {
+        echo -e "${RED}❌ Tests failed (container pre-flight) — aborting release${NC}"
+        exit 1
+    }
+    PREFLIGHT_RUN=1
+fi
+if [ "$PREFLIGHT_RUN" -eq 0 ]; then
+    echo -e "${RED}❌ No test runner available — aborting release.${NC}"
+    echo "   Create a host venv (python3 -m venv backend/venv && backend/venv/bin/pip install -r backend/requirements.txt)"
+    echo "   or start the dev container (docker compose -f docker-compose.yml up -d gps-sql-backend), then re-run."
+    exit 1
 fi
 cd ..
 echo -e "${GREEN}✅ Pre-flight OK${NC}"
@@ -54,21 +71,45 @@ docker rm -f gps-test 2>/dev/null || true
 docker run -d --pull=never -p ${SMOKE_PORT}:8000 --name gps-test gps-sql-visualizer:latest
 
 echo -n "  Waiting for healthy..."
+READY=0
 for i in $(seq 1 20); do
     sleep 1
     if docker exec gps-test python3 -c "import socket;r=socket.socket().connect_ex(('127.0.0.1',8000));exit(r)" 2>/dev/null; then
         echo " ready"
+        READY=1
         break
     fi
     echo -n "."
 done
+# R4 M: a container that never opened its port is a FAILED smoke, not a
+# pause — say so and stop, instead of curl-ing into a dead port.
+if [ "$READY" -eq 0 ]; then
+    echo -e "\n${RED}❌ gps-test never became ready after 20s — aborting release${NC}"
+    docker logs --tail 40 gps-test 2>&1 || true
+    docker rm -f gps-test >/dev/null 2>&1 || true
+    exit 1
+fi
 
-curl -sf --noproxy '*' http://127.0.0.1:${SMOKE_PORT}/api/health && echo ""
+# R4 M: the smoke gate is a gate. A failed health check removes the smoke
+# container (a dangling gps-test blocks the next run's `docker run --name`)
+# and aborts, instead of exporting an unhealthy image.
+curl -sf --noproxy '*' http://127.0.0.1:${SMOKE_PORT}/api/health || {
+    echo ""
+    echo -e "${RED}❌ Smoke health check FAILED (GET /api/health) — aborting release${NC}"
+    docker logs --tail 40 gps-test 2>&1 || true
+    docker rm -f gps-test >/dev/null 2>&1 || true
+    exit 1
+}
+echo ""
 
 # Run pytest in container
 echo "=== Pytest (container) ==="
-docker exec gps-test python3 -m pytest tests/ -q --tb=short || {
-    echo -e "${YELLOW}⚠️  Some tests failed — continuing anyway (check manually)${NC}"
+# R4 M: the container suite is the same gate as the pre-flight — a failure
+# must stop the release, never print a warning and ship anyway.
+docker exec -w /app/backend gps-test python3 -m pytest tests/ -q --tb=short || {
+    echo -e "${RED}❌ Container pytest FAILED — aborting release${NC}"
+    docker rm -f gps-test >/dev/null 2>&1 || true
+    exit 1
 }
 
 docker stop gps-test 2>/dev/null || true
@@ -92,6 +133,9 @@ PIECE_COUNT=$(ls "$IMAGE_DIR"/part_* | wc -l)
 (cd "$IMAGE_DIR" && md5sum part_* > checksums.md5)
 
 # Release manifest (target_deploy.sh version guard)
+# COMMIT records the PRE-release-commit HEAD — the tree the image was built
+# from, before `git commit` below creates the release commit (same
+# convention as v3.3.190; target_deploy.sh compares it against origin).
 {
     echo "VERSION=$VERSION"
     echo "COMMIT=$(git rev-parse HEAD)"

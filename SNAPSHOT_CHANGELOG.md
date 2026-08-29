@@ -8,6 +8,43 @@ self-consistency only — a repin proves the new baseline reproduces, NOT that i
 is correct; each baseline also needs a one-time human sanity check (see the
 module docstring in `test_l2_snapshot.py`).
 
+Entries read NEWEST-FIRST; "How to add an entry" is the last section.
+
+## 2026-08-29 — G1 adjudicated batch (fix team G1, `EXTRACTOR_VERSION 2026-08-28.9`): 48 of 109 repinned
+
+**NOT snapshot-neutral, contrary to the adjudication forecast — measured, not assumed.** Attribution
+(re-ran the gate with each fix disabled): **Fix A stage 1 alone shifts 49** — the tightened
+derived-product holder gate (`_holder_is_derived_single`) stops the round from admitting a field
+occurrence through a derived container that is not a single-source product of the searched table, so
+every script whose closure leaned on that over-admission changes. Fix B, the Fix D ancestry
+tie-break and Fix E are snapshot-neutral in themselves (48 with all three on). Two fixes are
+WITHHELD, both because they break the jaccard set-equality gate on
+`lending_ref/BDM_ACC_LOAN_INFO_SUP_M/downstream` (edges recall 0.7905, 22 canonical edges unmatched,
+nodes precision 0.8491 — measured with cold caches):
+
+* Fix A stage 2 — the provenance REF edge container output column → same-named reader column. It
+  does light RFN's `REPAY_ACCT_NO`@364, but it re-routes SUP_M's fold carriers and grows the
+  lending_ref closure past its canonical set. Deferred to the SCHEMA-fold design item; pinned in
+  `tests/test_g1_adjudicated_fixes.py::TestFixAStage2ProvenanceEdge`.
+* Fix D part 2 — the anchor-token paren depth for `_paren_scope_bound` (bounds a same-line nested
+  body by its own `)`). Moves occurrence twins corpus-wide. Pinned as an open item in
+  `TestFixDScopeOwner::test_open_item_same_line_body_still_swallows_the_parent_line`.
+
+Landed: Fix A stage 1 (derived-container holders gated, physical/CTE holders keep the scope-presence
+rule — gating those empties the SUP_M lending_ref closure, 21 → 0 nodes), Fix B (twins stamp the
+clause of their own line), Fix D part 1 (ancestry scope-owner tie-break), Fix E (MERGE phantom
+writes), Fix F (paren-balance reports script lines). Sanity check of the 48: occurrence twins re-anchor
+on their own line, ambiguous derived-container columns leave the closure, MERGE targets stop minting
+unwritten columns. jaccard 20/20 at recall AND precision 1.0000 with cold caches; regen run +
+independent verify run both `109 passed`.
+
+**Known trap (bit this session):** the graph caches under `/tmp/workspaces/<id>/cache` are stamped
+with `EXTRACTOR_VERSION`, so an in-flight extractor edit that does not bump the version serves the
+previous code's graph from cache — including one team reading another team's mid-flight caches. A
+mid-session jaccard run reported edges recall 0.7905 for a tree that was actually 20/20, and a
+snapshot run passed on caches that were not its own build. Clear `workspaces/*/cache` (and
+`analysis_cache/*.json`) before believing any cross-run comparison.
+
 ## 2026-08-29 — unified rebaseline wave 2 (108 of 109 snapshots, `EXTRACTOR_VERSION 2026-08-28.8`)
 
 **Executed 2026-08-29 after every driver below landed and the jaccard gate reached set equality
@@ -25,7 +62,18 @@ plan below).
 | K3 sample repairs (RFN +2 parens restored, PL stray `;` @L19 removed) | PL full view 543→368 nodes / 750→399 edges (187 phantom nodes gone); RFN full 1921→2156 nodes (missing-paren region re-scoped, real edges recovered) |
 | #399 alias-aware seed expansion (option b′) + LFS108 folded-carrier preference | none — evidenced three ways: snapshot failure set identical with the carrier rule on/off, in-flow controls byte-identical, 20-closure digest changed by exactly one edge |
 
-The wave-1 plan below (kept for the record) lists the driver table this wave executed.
+(The wave-1 entry below is kept for the record; the table above is that same
+driver set as it finally landed.)
+
+## 2026-08-28 — unified regeneration wave 1 (v3.3.191 staged): R43 DDL-drop + RFN + R44 occurrence coverage
+
+> Superseded by the wave-2 entry above — the drivers that landed after this
+> regen re-reddened the baselines.
+
+All 109 L2 snapshots regenerated together (L2_SNAPSHOT_UPDATE=1, 109/109 green post-regen):
+- **R43** removes the ten EAST5 ALTER-partition ⟐ VT frames and their 20 edges (display-layer; closures untouched — jaccard 1.0000).
+- **#370 RFN** repairs (21 markers → 0, restored rrcdm INSERT @L1396) — delta audited 1:1 by the RFN team (1134→1140n pre-R44).
+- **R44** (EXTRACTOR_VERSION 2026-08-28.3): write-side/derived-read twins + PL statement merge + L-E4 VIEW/CTAS scoping — sample deltas: DL 444→481n, PL 303→505n, RFN 1140→1142n, SUP 204→219n, EAST5 129→137n (= −10 R43 +18 twins); 36/41 non-sample snapshots byte-identical.
 
 ## 2026-08-28 (task #370 — RFN OCR re-derivation, unreleased)
 
@@ -65,7 +113,7 @@ TOGETHER at the next release — R43's partition-DDL frame drop (EAST5 129→119
 nodes / 168→148 edges pre-regen), this RFN repair, and any R44 walker effects
 land in one rebaseline wave. Until then, snapshot-test failures against the
 committed baselines are EXPECTED rebaselines, not regressions; do not "fix"
-them by reverting the drivers.
+them by reverting the drivers. (Executed by wave 1, then wave 2, above.)
 
 ## v3.3.170 (commit `7f335c4`)
 
@@ -98,18 +146,9 @@ auditable fact is that these three files changed in `0bc0b54`.)
 
 ## How to add an entry
 
-When you rebaseline one or more snapshots, append a dated section ABOVE this
-section (dated entries read newest-first), listing the exact snapshot file(s)
-and a one-line rationale (the feature/fix that changed the output, or
-"regenerated for <version>" when the change is a pure repin). Keep rationales
-honest — never fabricate dates or bug numbers.
-
-## 2026-08-28 — unified regeneration wave 1 (v3.3.191 staged): R43 DDL-drop + RFN + R44 occurrence coverage
-
-> Superseded by the DRAFT/PENDING wave-2 entry at the top of this file — the
-> drivers that landed after this regen re-redden the baselines.
-
-All 41 L2 snapshots regenerated together (L2_SNAPSHOT_UPDATE=1, 109/109 green post-regen):
-- **R43** removes the ten EAST5 ALTER-partition ⟐ VT frames and their 20 edges (display-layer; closures untouched — jaccard 1.0000).
-- **#370 RFN** repairs (21 markers → 0, restored rrcdm INSERT @L1396) — delta audited 1:1 by the RFN team (1134→1140n pre-R44).
-- **R44** (EXTRACTOR_VERSION 2026-08-28.3): write-side/derived-read twins + PL statement merge + L-E4 VIEW/CTAS scoping — sample deltas: DL 444→481n, PL 303→505n, RFN 1140→1142n, SUP 204→219n, EAST5 129→137n (= −10 R43 +18 twins); 36/41 non-sample snapshots byte-identical.
+When you rebaseline one or more snapshots, add a dated section ABOVE the oldest
+entry here (dated entries read NEWEST-FIRST, so the newest goes at the top of
+the list and this section stays LAST), listing the exact snapshot file(s) and a
+one-line rationale (the feature/fix that changed the output, or "regenerated for
+<version>" when the change is a pure repin). Keep rationales honest — never
+fabricate dates or bug numbers.

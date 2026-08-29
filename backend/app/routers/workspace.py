@@ -1,4 +1,6 @@
 """Workspace router — zip upload, workspace CRUD, R31 lifecycle."""
+import json
+
 from fastapi import APIRouter, HTTPException, UploadFile, File, Request
 
 from app.config import REQUIRE_LOGIN
@@ -207,6 +209,104 @@ async def resume_workspace(request: Request, ws_id: str):
     }
 
 
+# ── #380 (AD2-A, 2026-08-29): participant-readable workspace artifacts ──────
+# #380 made POST /scan + POST /index creator-only (correct — both rewrite
+# shared workspace state), but they were the ONLY endpoints serving the file
+# tree and the table/field indexes, so a participant clicking Open on a
+# shared workspace 403'd and the workspace never opened (AD2 verified live:
+# /resume, /views, /autocomplete already 200 for a participant). The fix is
+# the read-only half: index_scripts persists the tree it covered and the
+# derived index report, and the two GETs below serve those artifacts to ANY
+# session — same gates as /resume (_session_ctx 401, malformed id 400,
+# unknown workspace 404), NO creator check, no state written.
+
+_INDEX_REPORT_KEYS = (
+    "script_count", "errors", "orphan_field_count", "orphan_field_samples",
+    "resolution_stats", "schema_candidates_summary", "schema_evidence",
+)
+
+
+@router.get("/workspace/{ws_id}/tree")
+def get_workspace_tree(request: Request, ws_id: str):
+    """Serve the file tree the last index covered (cache/file_tree.json).
+
+    #380 (AD2-A): the participant half of Open — the tree includes the A1
+    `file_class` (schema vs script) because index_scripts persists the
+    scan_folder result it actually indexed, not a re-scan.
+
+    No membership side effect: /resume is what lands a workspace in the
+    opener's index as a participant; these reads are read-only and add
+    nothing.
+    """
+    _username, _token = _session_ctx(request)
+    if not is_valid_ws_id(ws_id):
+        raise HTTPException(status_code=400, detail="Invalid workspace id")
+    if get_workspace(ws_id) is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    path = get_workspace_dir(ws_id) / "cache" / "file_tree.json"
+    if not path.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=("This workspace has no stored file tree yet — "
+                    "the creator needs to open it once"))
+    try:
+        tree = json.loads(path.read_text())
+    except Exception:
+        # corrupt cache — never 500; indistinguishable from "no tree" to a
+        # reader, so the same 409 applies.
+        raise HTTPException(
+            status_code=409,
+            detail=("This workspace has no stored file tree yet — "
+                    "the creator needs to open it once"))
+    return tree
+
+
+@router.get("/workspace/{ws_id}/index")
+def get_workspace_index(request: Request, ws_id: str):
+    """Serve the persisted index (cache/table_index.json + field_index.json)
+    plus the derived index report (cache/index_report.json).
+
+    #380 (AD2-A): participants read the index instead of triggering a
+    re-index. A missing or corrupt index cache reads as {} — never 500 (the
+    same convention as /autocomplete); a workspace that was never indexed
+    simply reports `indexed.indexed: false` with empty indexes. The report
+    fields (resolution_stats, schema_candidates_summary, schema_evidence, …)
+    come from index_report.json so a participant's ResolutionReport is not
+    blank.
+
+    E4 (item 2): plain `def`, not `async def` — index JSON is large; the
+    parse runs in the threadpool, not on the event loop (matches
+    /autocomplete and the #380-era convention).
+    """
+    _username, _token = _session_ctx(request)
+    if not is_valid_ws_id(ws_id):
+        raise HTTPException(status_code=400, detail="Invalid workspace id")
+    if get_workspace(ws_id) is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    cache_dir = get_workspace_dir(ws_id) / "cache"
+
+    def _read_json(name: str):
+        path = cache_dir / name
+        if not path.exists():
+            return {}
+        try:
+            data = json.loads(path.read_text())
+        except Exception:
+            return {}  # corrupt index cache — never 500
+        return data if isinstance(data, dict) else {}
+
+    body = {
+        "table_index": _read_json("table_index.json"),
+        "field_index": _read_json("field_index.json"),
+        "indexed": get_index_status(ws_id),
+    }
+    for key in _INDEX_REPORT_KEYS:
+        value = _read_json("index_report.json").get(key)
+        if value is not None:
+            body[key] = value
+    return body
+
+
 @router.post("/workspace/{ws_id}/close")
 async def close_workspace(request: Request, ws_id: str):
     """R31 (#285): per-user visit logging is dropped, so closing a workspace
@@ -400,7 +500,6 @@ def autocomplete(ws_id: str, type: str = "table", q: str = ""):
     in the threadpool, not on the event loop.
     """
     from app.services.folder_index_service import autocomplete as ac
-    import json
 
     ws = get_workspace(ws_id)
     if not ws:

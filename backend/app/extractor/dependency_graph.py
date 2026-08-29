@@ -440,6 +440,21 @@ def build_dependency_graph(
                          "REFERENCE")
                 break
 
+    # R44 Fix A stage 2 (2026-08-28.9): WITHHELD. The provenance REF edge
+    # container output column → same-named reader column (the reader is a
+    # bare handle read attributed to the container and carries no
+    # source_columns, so Phase 3 has nothing else to wire it with) is
+    # semantically right and does light RFN's REPAY_ACCT_NO@364, but every
+    # container scope tried (all containers, CTE-only) also re-routes the
+    # SUP_M fold carriers and grows the ods_hub_lsacmsp.lending_ref closure
+    # past its canonical set — jaccard lending_ref/SUP_M/downstream edges
+    # recall 0.7905, 22 canonical edges unmatched, nodes precision 0.8491.
+    # The gate is the project's set-equality bar, so the edge is deferred to
+    # the SCHEMA-fold design item: it needs a rule that says whether a
+    # display-provenance edge may join the flow walk. See
+    # tests/test_g1_adjudicated_fixes.py::TestFixAStage2ProvenanceEdge and
+    # SNAPSHOT_CHANGELOG.md (G1 2026-08-29).
+
     # ══════════════════════════════════════════════════════════════════
     # Phase 4: SCHEMA — column belongs to table / CTE / VT
     # ══════════════════════════════════════════════════════════════════

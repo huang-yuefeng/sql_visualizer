@@ -758,23 +758,6 @@
           "desc": "Column reference",
           "edge_type": "REF",
           "flow_kind": "read",
-          "highlight_line": 31,
-          "id": "l2e_37bfbcaeda80",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read (read into output) \u2014 \u2016\u27d0 ms.ss_customer_sk@L33 \u2192 ms@L31\u2016",
-          "source": "l2_tbl_0b5185b155",
-          "target": "l2_tbl_8faa01543b",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
           "highlight_line": 17,
           "id": "l2e_1878bf995577",
           "label": "REF",
@@ -867,6 +850,23 @@
           "reason": "field flow (filter step) \u2014 \u2016ss_customer_sk@L29 \u2192 \u27d0 output@L2\u2016",
           "source": "l2_tbl_8faa01543b",
           "target": "l2_tbl_ab3720c927",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 33,
+          "id": "l2e_0bad24fddffb",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016\u27d0 ms.ss_customer_sk@L33 \u2192 ms@L31\u2016",
+          "source": "l2_tbl_0b5185b155",
+          "target": "l2_tbl_8faa01543b",
           "width": 2
         }
       }

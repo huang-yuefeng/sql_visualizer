@@ -37,40 +37,6 @@
       },
       {
         "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "field flow",
-          "highlight_line": 4,
-          "id": "l2e_240fcc9d3522",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "field flow (value copy) \u2014 \u2016ca_city@L4 \u2192 bought_city@L12\u2016",
-          "source": "l2_tbl_3ef399d8a3",
-          "target": "fld_97d96d7954",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 4,
-          "id": "l2e_1cbd69ee8d66",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L2 \u2192 ca_city@L4\u2016",
-          "source": "l2_tbl_d31f8c3c76",
-          "target": "fld_6e9c52213d",
-          "width": 1
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -83,23 +49,6 @@
           "reason": "structure \u2014 \u2016\u27d0 output@L2 \u2192 bought_city@L5\u2016",
           "source": "l2_tbl_d31f8c3c76",
           "target": "fld_efc24b55a7",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 12,
-          "id": "l2e_911fce0180d2",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 dn@L10 \u2192 bought_city@L12\u2016",
-          "source": "l2_tbl_5b9ffe9592",
-          "target": "fld_97d96d7954",
           "width": 1
         }
       },
@@ -138,7 +87,7 @@
         }
       }
     ],
-    "filtered_nodes": 7,
+    "filtered_nodes": 5,
     "nodes": [
       {
         "data": {
@@ -199,34 +148,6 @@
       {
         "data": {
           "field_group": "direct",
-          "id": "fld_97d96d7954",
-          "is_target": true,
-          "label": "bought_city",
-          "line_start": 12,
-          "orig_type": "column",
-          "original_id": "b5f2fb0c0c4899df",
-          "parent": "l2_tbl_5b9ffe9592",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "direct",
-          "id": "fld_6e9c52213d",
-          "is_target": false,
-          "label": "ca_city",
-          "line_start": 4,
-          "orig_type": "column",
-          "original_id": "eb3e718f28501f1f",
-          "parent": "l2_tbl_3ef399d8a3",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "direct",
           "id": "fld_efc24b55a7",
           "is_target": true,
           "label": "bought_city",
@@ -242,8 +163,8 @@
     "script_name": "46.sql",
     "search_matched": true,
     "target": "dn.bought_city",
-    "total_edges": 8,
-    "total_nodes": 8
+    "total_edges": 5,
+    "total_nodes": 6
   },
   "full": {
     "edges": [
@@ -1249,6 +1170,23 @@
           "target": "l2_tbl_3ef399d8a3",
           "width": 2
         }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 39,
+          "id": "l2e_fb467ab1d7c2",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016\u27d0 dn.ss_customer_sk@L39 \u2192 dn@L36\u2016",
+          "source": "l2_tbl_5b9ffe9592",
+          "target": "l2_tbl_e9968c518b",
+          "width": 2
+        }
       }
     ],
     "filtered_nodes": 40,
@@ -1819,7 +1757,7 @@
     "script_name": "46.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 59,
+    "total_edges": 60,
     "total_nodes": 49
   },
   "script_name": "46.sql",

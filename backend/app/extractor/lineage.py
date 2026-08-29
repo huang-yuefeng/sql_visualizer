@@ -510,6 +510,81 @@ def _occ_identity(o) -> str:
     return o.get("table_name") or o.get("name") or ""
 
 
+def _ctx_within(inner: str, outer: str) -> bool:
+    """True when context `inner` is `outer` itself or nested inside it —
+    the equal / '/'-nested / ':'-nested relation the scope checks use."""
+    return (inner == outer or inner.startswith(outer + "/")
+            or inner.startswith(outer + ":"))
+
+
+_DERIVED_CONTAINER_TYPES = ("subquery", "virtual_table")
+
+
+def _holder_is_derived_single(pm, occ, holder_id: str, target_lower: str,
+                              memo: dict | None = None) -> bool:
+    """True when `holder_id` is a DERIVED PRODUCT of the searched table.
+
+    R44 Fix A (2026-08-28.9), stage 1: the derived-product round may admit
+    a field occurrence only when its holder actually delivers the searched
+    table's value. Two holders can:
+
+      1. the read itself — an occurrence whose physical identity IS the
+         target (`_occ_identity(_ho) == target`), the alias read / the
+         derived pass-through's own holder;
+      2. a derived container (SUBQUERY / VIRTUAL_TABLE) whose scope reads
+         EXACTLY ONE original physical TABLE/VIEW and that read's identity
+         is the target — the extractor's own `derived_single` rule, mirrored
+         here so the closure admits exactly the values the family-2 twins
+         were minted for.
+
+    A container with two or zero sources — or one whose single source is a
+    DIFFERENT table — must not lend its scope to a same-named column of the
+    searched table. Callers gate on this for DERIVED-CONTAINER holders only
+    (see the round comment for why a physical/CTE holder stays on the
+    scope-presence rule).
+
+    Scope = the holder's own context plus its '/'- and ':'-nested bodies.
+    An EXISTS/NOT-EXISTS body under the holder is row-SELECTION, not a row
+    source — its reads never make the container multi-source (PL's `p2`
+    wraps bdm_fin_lrr_key_base_info and filters through
+    `exists (select 1 from ODS_CDP_GDC_TABLE_COA_LIST …)`).
+
+    Memoized per holder id + target for the length of one closure
+    computation (the fixpoint re-enters the round on every round).
+    """
+    if memo is None:
+        memo = {}
+    key = (holder_id, target_lower)
+    cached = memo.get(key)
+    if cached is not None:
+        return cached
+    ho = occ(holder_id) or {}
+    result = False
+    if ho.get("variable_type") in _DERIVED_CONTAINER_TYPES:
+        hctx = ho.get("context") or ""
+        phys = set()
+        for _vid, o in pm.occurrences.items():
+            if o.get("variable_type") not in ("table", "view"):
+                continue
+            # originals only — an alias occurrence carries st[0] = another
+            # table's name; a physical read carries its own name (I2
+            # self-attribution) or nothing at all.
+            _st = o.get("source_tables") or []
+            if _st and _st[0].casefold() != (o.get("name") or "").casefold():
+                continue
+            tctx = o.get("context") or ""
+            if not _ctx_within(tctx, hctx):
+                continue
+            rel = tctx[len(hctx):].lstrip("/:")
+            if any(sg.startswith("exists")
+                   for sg in rel.replace("/", ":").split(":") if sg):
+                continue
+            phys.add(_occ_identity(o).casefold())
+        result = len(phys) == 1 and target_lower in phys
+    memo[key] = result
+    return result
+
+
 def _pick_occurrence(pm, owner_key: str, label: str, ctx: str, occ):
     """Model mirror of the retired display-side _find_labeled: the owner
     entity's occurrence labeled `label` whose context is `ctx`, else the
@@ -982,6 +1057,10 @@ def compute_field_flow(graph_data, target_table, target_field,
     # column — their write targets carry the effect (the carry rule).
     _effect_cols = {}
     _sel_stmts = set()
+    # R44 Fix A stage 1: per-closure memo for `_holder_is_derived_single` —
+    # the fixpoint re-enters the derived-product round every round, and the
+    # holder's physical-source scan is the round's only real cost.
+    _holder_memo: dict = {}
     changed = True
     rounds = 0
     while changed and rounds < 100:
@@ -1429,7 +1508,43 @@ def compute_field_flow(graph_data, target_table, target_field,
                             holder2 = _hv   # first non-DML fallback
                 if holder2 is None:
                     continue
-                hctx = (occ(holder2) or {}).get("context") or ""
+                # Fix A stage 1 (2026-08-28.9): a holder that is itself a
+                # DERIVED CONTAINER qualifies only when it actually delivers
+                # the searched table's value — its scope must read EXACTLY
+                # ONE original physical table and that table must be the
+                # searched one (`_holder_is_derived_single`, the extractor's
+                # own family-2 `derived_single` rule mirrored on
+                # occurrences). The old test was scope PRESENCE only, so a
+                # container over TWO sources (or over a different table
+                # altogether) lent its scope to a same-named column of the
+                # searched table.
+                #
+                # ADAPTED from the adjudicated spec (see the report): the
+                # gate is applied to DERIVED-CONTAINER holders only
+                # (subquery | virtual_table). A physical/CTE holder keeps
+                # the scope-presence rule, because the canonical closures
+                # depend on it structurally — SUP_M's
+                # ods_hub_lsacmsp.lending_ref seeds ZERO PhysicalField
+                # occurrences (the searched name is a derived alias's
+                # source, never a var's owner), so the round's admissions
+                # are the ONLY entry point into that closure and every one
+                # of them hangs off a plain physical-table holder
+                # (`bdm_acc_loan_info`@16 in CTE{rollover_loan_info}, …).
+                # Gating those on the holder's own identity empties the
+                # closure (measured: 21 -> 0 nodes, jaccard
+                # lending_ref/SUP_M/downstream nodes precision 0.8491) —
+                # the same shape as the false positive the gate is meant
+                # for (PL's `c.p_dt`), so no occurrence-level test
+                # separates them; the derived-container shapes are the part
+                # that is provably decidable, and that is what is gated
+                # here.
+                _ho = occ(holder2) or {}
+                if (_occ_identity(_ho).casefold() != _tl2
+                        and _ho.get("variable_type") in _DERIVED_CONTAINER_TYPES
+                        and not _holder_is_derived_single(pm, occ, holder2,
+                                                          _tl2, _holder_memo)):
+                    continue
+                hctx = _ho.get("context") or ""
                 if not hctx:
                     continue
                 for tv, to in _tgt_occs:

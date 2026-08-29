@@ -356,12 +356,22 @@ def index_scripts(ws_id: str, script_paths: list[str],
     TOCTOU). Direct callers pass neither and keep the scan-inside default;
     semantics stay faithful to `script_paths` (no merge, no auto-complete).
 
-    Returns: {table_index, field_index, script_count, precomputed_count,
-              resolution_stats} — resolution_stats carries the R20 coverage
-              numbers aggregated from per-script extraction + the S4b
-              cross-script schema pass (plus `ambiguous` — fields claimed
-              by ≥2 DIFFERENT owners across scripts: never attributed,
-              revoked from the index, counted and reported).
+    #380 (AD2-A): the tree covered (the caller's, or the fallback scan) is
+    persisted as cache/file_tree.json and the derived report fields as
+    cache/index_report.json — the two artifacts the participant-readable
+    GET /workspace/{ws_id}/tree and GET /workspace/{ws_id}/index serve,
+    since POST /scan + /index are creator-only.
+
+    Returns: {table_index, field_index, precomputed_count,
+              star_expanded_fields, script_count, errors,
+              orphan_field_count, orphan_field_samples, resolution_stats,
+              schema_candidates_summary, schema_evidence} — the report
+              fields are exactly the persisted index_report.json payload;
+              resolution_stats carries the R20 coverage numbers aggregated
+              from per-script extraction + the S4b cross-script schema pass
+              (plus `ambiguous` — fields claimed by ≥2 DIFFERENT owners
+              across scripts: never attributed, revoked from the index,
+              counted and reported).
     """
     from app.extractor.adapter import run_full_analysis
 
@@ -416,11 +426,32 @@ def index_scripts(ws_id: str, script_paths: list[str],
     # dedup by path). Evidence loss would change S4b resolution, so
     # discovery/analysis failures are surfaced in `errors`, never silent.
     schema_evidence_paths = set()
-    try:
-        schema_evidence_paths = set(_collect_schema_files(
-            ws_id, parsed_cache, tree=tree))
-    except Exception as e:
-        errors.append({"script": "(schema discovery)", "error": str(e)})
+    # #380 (AD2-A): resolve the tree THIS index covered up front, so the
+    # same object can be persisted as cache/file_tree.json for
+    # participant reads. When the caller threaded a tree (#257 router
+    # path) it is used as-is; otherwise the fallback scan happens HERE
+    # instead of inside _collect_schema_files — same single scan, same
+    # parsed_cache exports (C-13(a) one-parse-per-script is unchanged),
+    # and the result is no longer discarded.
+    covered_tree = tree
+    if covered_tree is None:
+        try:
+            covered_tree = scan_folder(ws_id, parsed_cache=parsed_cache)
+        except Exception as e:
+            errors.append({"script": "(schema discovery)", "error": str(e)})
+    if covered_tree is not None:
+        try:
+            schema_evidence_paths = set(_collect_schema_files(
+                ws_id, parsed_cache, tree=covered_tree))
+        except Exception as e:
+            errors.append({"script": "(schema discovery)", "error": str(e)})
+    else:
+        # scan_folder itself failed — the discovery below cannot run
+        # without a tree; surface it rather than silently skipping (a
+        # second failing scan inside _collect_schema_files would only
+        # duplicate the error entry).
+        errors.append({"script": "(schema discovery)",
+                       "error": "workspace scan failed — no file tree"})
     for _rel in sorted(schema_evidence_paths):
         _process_schema_evidence(ws_id, _rel, m_ws,
                                  schema_evidence_by_script, errors)
@@ -970,6 +1001,18 @@ def index_scripts(ws_id: str, script_paths: list[str],
     (cache_dir / "table_index.json").write_text(json.dumps(table_index, indent=2))
     (cache_dir / "field_index.json").write_text(json.dumps(field_index, indent=2))
 
+    # #380 (AD2-A, participant reads): persist the tree THIS index covered —
+    # the same scan_folder shape the create path returns inline (name/path/
+    # type/is_sql + A1 file_class). POST /scan and POST /index are
+    # creator-only since #380, and they were the only sources of the tree, so
+    # a participant opening a shared workspace had no way to obtain it. This
+    # write is the read-only half of the fix: GET /workspace/{ws_id}/tree
+    # serves this file to any session. Skipped only when the scan itself
+    # failed (already surfaced in `errors`) — no tree, nothing to serve.
+    if covered_tree is not None:
+        (cache_dir / "file_tree.json").write_text(
+            json.dumps(covered_tree, indent=2))
+
     # ── R20: orphan resolution coverage report (supersedes Bug 54) ──
     # Post-S4 orphans = fields with no table attribution. The report is the
     # RESIDUAL layer of the resolution pipeline (S1–S4): only fields the
@@ -1054,27 +1097,16 @@ def index_scripts(ws_id: str, script_paths: list[str],
                             r6_total=r6_collision_total,
                             owner_lines=s4b_owner_lines)
 
-    # Update workspace meta
-    ws_dir = get_workspace_dir(ws_id)
-    meta = json.loads((ws_dir / "meta.json").read_text())
-    meta["indexed"] = True
-    # A1: only pipeline scripts — schema files are evidence-only, never
-    # part of the workspace's script list.
-    meta["indexed_scripts"] = pipeline_paths
-    meta["indexed_at"] = __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
-    (ws_dir / "meta.json").write_text(json.dumps(meta, indent=2))
-
-    _set_progress(ws_id, total, total, "done")
-    return {
-        "table_index": table_index,
-        "field_index": field_index,
+    # ── #380 (AD2-A, participant reads): persist the derived report ──
+    # The ORPHAN RESOLUTION REPORT above goes to the live SSE stream only,
+    # and these fields exist nowhere on disk (orphan_fields.json carries the
+    # orphan set, meta.json the indexed flag) — so a participant reading the
+    # caches saw a blank ResolutionReport. One dict, two consumers: the
+    # index_scripts return and cache/index_report.json (served by
+    # GET /workspace/{ws_id}/index). Same values as the return — never a
+    # divergent copy.
+    index_report = {
         "script_count": script_count,
-        "precomputed_count": precomputed,
-        # C-5: number of (script, table, column) entries added by the
-        # post-loop star expansion (SELECT */INSERT…SELECT * over
-        # schema-evidence tables). 0 when no unqualified star has schema
-        # evidence — no padding.
-        "star_expanded_fields": star_expanded_fields,
         "errors": errors,
         "orphan_field_count": len(orphan_fields),
         "orphan_field_samples": list(sorted(orphan_fields))[:20],
@@ -1089,13 +1121,38 @@ def index_scripts(ws_id: str, script_paths: list[str],
             "unique_owner": s4b_unique_owners,
             "r6_collision": r6_collision_total,
         },
-        # A1: schema-evidence report — pure facts from the merged M_ws
-        # (present = at least one table has column evidence). No advice.
         "schema_evidence": {
             "present": len(m_ws) > 0,
             "tables": len(m_ws),
             "columns": sum(len(c) for c in m_ws.values()),
         },
+    }
+    (cache_dir / "index_report.json").write_text(
+        json.dumps(index_report, indent=2))
+
+    # Update workspace meta
+    ws_dir = get_workspace_dir(ws_id)
+    meta = json.loads((ws_dir / "meta.json").read_text())
+    meta["indexed"] = True
+    # A1: only pipeline scripts — schema files are evidence-only, never
+    # part of the workspace's script list.
+    meta["indexed_scripts"] = pipeline_paths
+    meta["indexed_at"] = __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
+    (ws_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+
+    _set_progress(ws_id, total, total, "done")
+    return {
+        "table_index": table_index,
+        "field_index": field_index,
+        "precomputed_count": precomputed,
+        # C-5: number of (script, table, column) entries added by the
+        # post-loop star expansion (SELECT */INSERT…SELECT * over
+        # schema-evidence tables). 0 when no unqualified star has schema
+        # evidence — no padding.
+        "star_expanded_fields": star_expanded_fields,
+        # #380 (AD2-A): the persisted index_report — identical values, so
+        # the HTTP return and cache/index_report.json can never diverge.
+        **index_report,
     }
 
 

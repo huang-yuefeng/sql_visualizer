@@ -158,7 +158,57 @@ from app.models.variable import VariableDefinition, VariableType
 #      derivation's birth line (RFN `SUBSTR(P1.BRANCH_CODE,-3) AS
 #      tag_branch` @721) is no longer anchored away by a later occurrence's
 #      carrier (@1030), so the line is lit again (Item 2a; L364/L687 hold).
-EXTRACTOR_VERSION = "2026-08-28.8"
+# 2026-08-28.9 (post-v3.3.191 adjudicated batch, fix team G1) — five fixes:
+#   Fix A (HIGH, two stages that must land together) —
+#     A1. lineage R44 derived-product round: a holder that is itself a
+#         DERIVED CONTAINER (subquery | virtual_table) now qualifies only
+#         when its physical identity IS the searched table, or when it is a
+#         derived product of exactly one physical table and that table is
+#         the searched one (`_holder_is_derived_single` — the extractor's
+#         own derived_single rule mirrored on occurrences, EXISTS bodies
+#         excluded, memoized). ADAPTED from the adjudicated spec, which
+#         gated every holder kind: a physical/CTE holder keeps the
+#         scope-presence rule, because the canonical closures depend on it
+#         structurally — SUP_M's ods_hub_lsacmsp.lending_ref seeds ZERO
+#         PhysicalField occurrences, the round's admissions are that
+#         closure's only entry point, and every one of them hangs off a
+#         plain physical-table holder (gating them: closure 21 -> 0 nodes,
+#         jaccard lending_ref/SUP_M/downstream nodes precision 0.8491).
+#         See the round comment and tests/test_g1_adjudicated_fixes.py.
+#     A2. WITHHELD (dependency_graph Phase 3 provenance edge container
+#         output column → same-named reader column): the edge is
+#         semantically right and lights RFN's REPAY_ACCT_NO@364, but it
+#         re-routes SUP_M's fold carriers and grows the
+#         ods_hub_lsacmsp.lending_ref closure past its canonical set
+#         (jaccard lending_ref/SUP_M/downstream edges recall 0.7905). It is
+#         deferred to the SCHEMA-fold design item, together with a rule that
+#         says whether a display-provenance edge may join the flow walk.
+#   Fix B — occurrence twins stamp the CLAUSE OF THEIR OWN LINE
+#     (`_LINE_CLAUSE_TO_DEFINED_IN` re-spells the raw line clause into the
+#     walker's `defined_in` spelling: raw `on` → `JOIN ON`, which Phase
+#     6/6b's `{"JOIN ON"}` gate is the only thing that reads). The collapsed
+#     occurrence's clause was a GROUP fact (walk order) while the line
+#     handout is textual — the two could be crossed. `_twin_group_admits`
+#     stays (53 twins still take their only predicate edge through it).
+#   Fix D — `_scope_line_owner` tie-breaks overlapping ranges by real
+#     ANCESTRY (a context that contains the other is the outer one), not by
+#     context-string length. Part 2 WITHHELD: reading `_paren_scope_bound`'s
+#     depth at the context's own anchor TOKEN (the same-line nested body
+#     bound) moves the occurrence twins corpus-wide and takes the canonical
+#     SUP_M lending_ref closure past its set — deferred with A2.
+#   Fix E — MERGE phantom writes: `dml_targets_by_ctx` skips ALIAS
+#     occurrences (an alias handle is not a write target), and a MERGE
+#     context mints `{target}.{col}` write-twins only for the columns its
+#     WHEN clauses actually write (WHEN MATCHED UPDATE SET left-hand
+#     targets + WHEN NOT MATCHED INSERT column list). INSERT/UPDATE/DELETE
+#     keep the projection-list behavior.
+#   Fix F — paren-balance diagnostics report SCRIPT lines: `_preprocess_sql`
+#     returns `(clean_sql, kept_lines)` and `_paren_balance_errors`
+#     tokenizes the PARSED text (so the split index IS the statement index)
+#     and translates the reported line back through `kept_lines` — a
+#     dropped SET line no longer shifts both the statement index and the
+#     reported line.
+EXTRACTOR_VERSION = "2026-08-28.9"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
@@ -549,18 +599,27 @@ def _detect_dialect(sql_text: str) -> str:
     return best
 
 
-def _preprocess_sql(sql_text: str) -> str:
+def _preprocess_sql(sql_text: str) -> tuple[str, list[int]]:
     """Strip SET statements and other non-SQL configuration lines.
     Also handles MaxCompute/ODPS/Hive-specific syntax.
+
+    Returns `(clean_sql, kept_lines)` — K4 Fix F: `kept_lines[i]` is the
+    ORIGINAL 1-based script line of `clean_sql`'s i-th line. Every line
+    number that comes out of the CLEAN text (a tokenizer line, a parse
+    error line) can be translated back to the script the user wrote; the
+    paren-balance diagnostic is the consumer (a SET statement dropped
+    above a broken statement used to shift the reported line by the whole
+    dropped prefix).
     """
     import re
     lines = sql_text.split('\n')
     cleaned = []
+    kept_lines: list[int] = []
     # E3a/1: a "SET"-prefixed line is only a config statement when it is
     # NOT the SET clause of a multi-line UPDATE/MERGE/DELETE/INSERT — the
     # DML keyword line opens the statement, the first ';' closes it.
     in_dml = False
-    for line in lines:
+    for line_no, line in enumerate(lines, start=1):
         stripped = line.strip()
         # Skip pure comments
         if stripped.startswith('--'):
@@ -576,7 +635,8 @@ def _preprocess_sql(sql_text: str) -> str:
         if stripped.endswith(';'):
             in_dml = False
         cleaned.append(line)
-    return '\n'.join(cleaned)
+        kept_lines.append(line_no)
+    return '\n'.join(cleaned), kept_lines
 
 
 def _split_hive_multi_inserts(clean_sql: str) -> dict[int, list[tuple[int, exp.Expression]]]:
@@ -651,7 +711,7 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
     result = ExtractionResult(script_name=script_name)
 
     # Strip SET statements, comment lines
-    clean_sql = _preprocess_sql(sql_text)
+    clean_sql, kept_lines = _preprocess_sql(sql_text)
 
     # Detect dialect and parse
     dialect_used = _detect_dialect(clean_sql)
@@ -697,7 +757,8 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
     # One record per statement — a statement already covered by an existing
     # parse error is not reported twice.
     _reported_stmts = {e.get("stmt_idx") for e in result.parse_errors}
-    for _pe in _paren_balance_errors(sql_text, dialect_used, len(parsed)):
+    for _pe in _paren_balance_errors(clean_sql, dialect_used, len(parsed),
+                                     kept_lines):
         if _pe["stmt_idx"] in _reported_stmts:
             continue
         result.parse_errors.append(_pe)
@@ -826,8 +887,15 @@ def _failed_stmt_detail(clean_sql: str, stmt_idx: int) -> str:
     return "parse error"
 
 
-def _paren_balance_errors(sql_text: str, dialect: str, stmt_count: int) -> list[dict]:
-    """Structural paren-balance check over the ORIGINAL script (K4 ruling 3).
+def _paren_balance_errors(sql_text: str, dialect: str, stmt_count: int,
+                          kept_lines: list[int] | None = None) -> list[dict]:
+    """Structural paren-balance check over the PARSED script (K4 ruling 3).
+
+    `sql_text` is the text that was actually parsed — the CLEAN sql, i.e.
+    the preprocessed one (SET/config lines and comment-only lines dropped).
+    Callers that tokenize a raw script (the unit tests) pass no
+    `kept_lines`, and the reported line is then the tokenized text's own
+    line.
 
     ErrorLevel.IGNORE recovers a partial tree from almost anything, so a
     genuinely broken script (a ')' missing three statements up) still parses
@@ -836,7 +904,7 @@ def _paren_balance_errors(sql_text: str, dialect: str, stmt_count: int) -> list[
     before its OCR repair and reported a clean extraction).
 
     The tokenizer is the independent structural check: ONE pass over the
-    original text (string literals and comments are token-aware, so a paren
+    parsed text (string literals and comments are token-aware, so a paren
     inside either never counts), split at `;` TOKENS, net depth per
     statement. A statement that still has `(` open at its end is reported —
     extraction NEVER rejects (the recovered tree still walks; the detail
@@ -844,14 +912,19 @@ def _paren_balance_errors(sql_text: str, dialect: str, stmt_count: int) -> list[
     here: a dangling close leaves a real hole in sqlglot's statement list,
     which the walk loop records as a None-hole parse error already.
 
-    split-index → parse stmt_idx mapping: both lists come from the same `;`
-    delimiters, so the counts line up unless preprocessing dropped leading
-    statements (SET/config lines). The offset is the tail alignment
-    (len(splits) - stmt_count); splits mapping to a negative stmt_idx are
-    skipped (no parsed statement to attach the diagnostic to), and a
-    negative offset is clamped to 0 so the identity mapping survives an
-    under-count (sqlglot synthesizing statements the tokenizer did not
-    split).
+    split-index → parse stmt_idx mapping: the parse ran on THIS text, so
+    the split index IS the statement index (K4 Fix F — tokenizing the
+    pre-preprocessed script made every split after a dropped SET line land
+    one statement early). The tail alignment (len(splits) - stmt_count)
+    only survives for a caller that skipped preprocessing: a negative
+    offset is still clamped to 0 (sqlglot synthesizing statements the
+    tokenizer did not split), and a split mapping to a negative stmt_idx
+    is skipped (no parsed statement to attach the diagnostic to).
+
+    Reported line: the split's first-token line in the PARSED text is
+    translated back to the script through `kept_lines[clean_line - 1]`
+    (`_preprocess_sql`'s kept-line map) so the diagnostic names the line
+    the user wrote, not the line the parser read.
 
     Tokenizer failure → [] (benign: a diagnostic helper never raises; the
     parse path already reports what it can).
@@ -894,12 +967,17 @@ def _paren_balance_errors(sql_text: str, dialect: str, stmt_count: int) -> list[
         idx = i - offset
         if idx < 0 or net <= 0:
             continue
+        # K4 Fix F: the tokenizer ran over the PARSED text — translate its
+        # line back to the script the user wrote. A line outside the kept
+        # map (a caller without preprocessing) is reported as-is.
+        script_line = (kept_lines[line - 1]
+                       if kept_lines and 1 <= line <= len(kept_lines) else line)
         errors.append({
             "stmt_idx": idx,
             "detail": (
                 "unbalanced parentheses: %d '(' left open at statement end "
                 "(script line %d) — sqlglot recovered a partial tree; the "
-                "graph may be incomplete" % (net, line)),
+                "graph may be incomplete" % (net, script_line)),
         })
     return errors
 
@@ -988,6 +1066,33 @@ _DEFINED_IN_CLAUSES: tuple[tuple[str, str], ...] = (
     ("merge", "merge"),
     ("create", "create"),
 )
+
+# R45 Fix B (2026-08-28.9): line-clause → the `defined_in` spelling the
+# WALKER uses for that clause. A family-3 twin's clause now comes from the
+# LINE it was anchored on (`_line_clauses`, the raw lowercase keys here),
+# and dependency_graph's Phase 6/6b gates read the WALKER's spelling
+# (`{"JOIN ON"}`, `{"WHERE", "HAVING", "QUALIFY"}`) — so the raw line
+# clause must be re-spelled, not passed through (`OCCURRENCE on` matches
+# nothing; the twin would silently lose its JOIN edge). One map, one
+# spelling authority; `_DEFINED_IN_CLAUSES` above stays the reverse
+# direction for `_occurrence_clause`.
+_LINE_CLAUSE_TO_DEFINED_IN = {
+    "where": "WHERE",
+    "having": "HAVING",
+    "qualify": "QUALIFY",
+    "on": "JOIN ON",
+    "select": "SELECT expr",
+    "group": "GROUP BY",
+    "order": "ORDER BY",
+    "set": "UPDATE SET",
+    "using": "USING",
+    "partition": "PARTITION",
+    "insert": "INSERT",
+    "update": "UPDATE",
+    "delete": "DELETE",
+    "merge": "MERGE",
+    "create": "CREATE",
+}
 
 
 def _occurrence_clause(defined_in: str | None) -> str | None:
@@ -1187,6 +1292,14 @@ class _RoleBasedExtractor:
         # `_register_flow_occurrence_twins` re-anchors them as
         # occurrence-side twins.
         self._collapsed_occurrences: list[dict] = []
+        # R45 Fix E (2026-08-28.9): per-context columns a MERGE actually
+        # WRITES — the WHEN MATCHED UPDATE SET left-hand targets plus the
+        # WHEN NOT MATCHED INSERT column list (casefolded; SQL identifiers
+        # are case-insensitive). `_register_flow_occurrence_twins` family 1
+        # gates its write-twin mint on this for MERGE contexts: a MERGE's
+        # write slots are exactly what its WHEN clauses name, never the
+        # USING subquery's projections.
+        self._merge_written: dict[str, set[str]] = defaultdict(set)
 
     def _next_id(self, key: str) -> str:
         self._counter[key] = self._counter.get(key, 0) + 1
@@ -1467,7 +1580,7 @@ class _RoleBasedExtractor:
         except Exception:
             return (0, 0)
 
-    def _paren_scope_bound(self, anchor: int) -> int:
+    def _paren_scope_bound(self, anchor: int, context: str = "") -> int:
         """Last line of the paren scope `anchor` sits in (token-stream, I1).
 
         R45 Fix C: a subquery / derived-table body's line range must stop at
@@ -1481,6 +1594,17 @@ class _RoleBasedExtractor:
         enclosing subquery whose source is bdm_acc_loan_info, but the
         NOT-IN subquery that closes at L58 handed the line to its own
         bdm_evt_loan_trans group).
+
+        R45 Fix D (2026-08-28.9): WITHHELD — reading the scope depth at the
+        context's own anchor TOKEN instead of at its anchor line's first
+        token (the adjudicated same-line-nested-body correction) moved the
+        occurrence twins of the whole corpus, and with them the canonical
+        SUP_M ods_hub_lsacmsp.lending_ref closure (jaccard
+        lending_ref/SUP_M/downstream recall 0.7905, 22 canonical edges
+        unmatched). The line-based read is what the repinned baselines
+        encode, so it stays; the same-line correction needs its own
+        baseline wave. The scope-OWNER tie-break half of Fix D did land
+        (see `_scope_line_owner`).
 
         Depth 0 at the anchor (a top-level statement) has no enclosing
         paren to close → 10**9 (the "next statement" bound then rules
@@ -1506,6 +1630,22 @@ class _RoleBasedExtractor:
                 return tokens[i].line
         return 10**9
 
+    @staticmethod
+    def _ctx_is_ancestor(outer: str, inner: str) -> bool:
+        """True when context `outer` is a strict ancestor-or-equal scope of
+        `inner` (the context tree's '/'-segment and ':join:' nesting).
+
+        R45 Fix D: the scope-owner tie-break. String LENGTH said nothing
+        about nesting (`CTE{x}` is longer than `TOP0` yet the two are
+        different statements; `TOP0/a` vs `TOP0/abc` orders by name length),
+        and two contexts anchored on the SAME line resolved by whichever
+        spelling happened to be longer — a same-line subquery's parent lost
+        its own continuation lines to it. Ancestry is the real relation: of
+        two contexts claiming one line, the DESCENDANT is the innermost.
+        """
+        return inner == outer or inner.startswith(outer + "/") \
+            or inner.startswith(outer + ":")
+
     def _scope_line_owner(self) -> dict[int, str]:
         """line → innermost RECORDED context whose range covers it.
 
@@ -1515,17 +1655,27 @@ class _RoleBasedExtractor:
         claim it (`_occurrence_lines` skips such lines), otherwise a
         nested scope's textual occurrence is handed to the enclosing
         group's twin and the twin lands on the wrong table's line.
+
+        R45 Fix D (2026-08-28.9): overlapping ranges resolve by ANCESTRY,
+        not by context-string length — a context that contains the other
+        is the outer one, so the descendant wins its own lines; when
+        neither contains the other (sibling statements), the LATER anchor
+        line wins (the closer statement start); equal anchors fall back to
+        the longest spelling (the old tie-break, last resort only).
         """
         innermost: dict[int, str] = {}
         for ctx, line in self._stmt_anchor_lines.items():
             if line <= 0:
                 continue
             end = min(self._next_anchor_after(line, ctx),
-                      self._paren_scope_bound(line),
+                      self._paren_scope_bound(line, ctx),
                       self._token_last_line + 1)
             for ln in range(line, end):
                 cur = innermost.get(ln)
-                if cur is None or len(ctx) > len(cur):
+                if cur is None or self._ctx_is_ancestor(cur, ctx):
+                    innermost[ln] = ctx
+                elif not self._ctx_is_ancestor(ctx, cur) and line > (
+                        self._stmt_anchor_lines.get(cur, 0)):
                     innermost[ln] = ctx
         return innermost
 
@@ -1919,8 +2069,19 @@ class _RoleBasedExtractor:
            carries the occurrence.
         """
         # ── index 1: per-context DML write targets ──
+        # R45 Fix E (2026-08-28.9): ALIAS occurrences are not write targets.
+        # Both branches used to take every var's NAME, so an alias handle
+        # (`MERGE INTO tgt_table tgt`, `UPDATE tgt t SET`) registered the
+        # ALIAS spelling as a write target of its own — and family 1 then
+        # minted `{alias}.{output}` fields on a table that does not exist
+        # (`tgt_table.*`/`tgt.sid` from a projection that never names it).
+        # An original carries an empty source_tables, or its own name (I2
+        # self-attribution); an alias carries ANOTHER table's name.
         dml_targets_by_ctx: dict[str, list[str]] = {}
         for v in self.result.variables:
+            st = v.source_tables or []
+            if st and st[0].casefold() != v.name.casefold():
+                continue
             if v.variable_type == VariableType.MERGE_TARGET:
                 dml_targets_by_ctx.setdefault(v.context or "TOP",
                                               []).append(v.name)
@@ -1929,6 +2090,20 @@ class _RoleBasedExtractor:
                 if any(kw in di for kw in ("INSERT", "UPDATE", "DELETE")):
                     dml_targets_by_ctx.setdefault(v.context or "TOP",
                                                   []).append(v.name)
+        # R45 Fix E: the MERGE targets per context — a MERGE's written
+        # columns are EXACTLY the ones its WHEN clauses name, so family 1's
+        # projection-list rule (right for INSERT/UPDATE/DELETE, whose
+        # projections are the write) over-mints for MERGE: the USING
+        # subquery's projections are the SOURCE's reads, never the target's
+        # write slots.
+        merge_targets_by_ctx: dict[str, set[str]] = defaultdict(set)
+        for v in self.result.variables:
+            if v.variable_type != VariableType.MERGE_TARGET:
+                continue
+            st = v.source_tables or []
+            if st and st[0].casefold() != v.name.casefold():
+                continue
+            merge_targets_by_ctx[v.context or "TOP"].add(v.name)
 
         # ── index 2: derived containers with exactly ONE physical source ──
         # A SUBQUERY/VIRTUAL_TABLE occurrence owns every physical read
@@ -2016,6 +2191,17 @@ class _RoleBasedExtractor:
                 if (v.source_tables
                         and v.source_tables[0].casefold() == tname.casefold()):
                     continue  # already attributed to the write target
+                # R45 Fix E: a MERGE writes only the columns its WHEN
+                # clauses name. A projection of the USING subquery is the
+                # SOURCE's read, not the target's write slot — minting
+                # `{target}.{projection}` for it invented write-twins for
+                # every source column (AD1's `t.*` phantom / `tgt_table.sid`
+                # twin). INSERT/UPDATE/DELETE keep the projection-list
+                # behavior: there the projection IS the write.
+                if tname in merge_targets_by_ctx.get(vctx, set()):
+                    if alias.casefold() not in self._merge_written.get(
+                            vctx, set()):
+                        continue
                 # source_columns stays EMPTY on purpose: the twin is the
                 # write slot, not a read — copying the projection's read
                 # columns would let dependency_graph Phase 3's bare-name
@@ -2187,7 +2373,8 @@ class _RoleBasedExtractor:
                 line = assigned.get(id(occ))
                 if line is not None:
                     self._mint_occurrence_twin(base, line,
-                                               occ["defined_in"])
+                                               occ["defined_in"],
+                                               clause_by_line)
 
     def _base_var_for(self, ident: str,
                       context: str) -> VariableDefinition | None:
@@ -2225,7 +2412,9 @@ class _RoleBasedExtractor:
         return None
 
     def _mint_occurrence_twin(self, base: VariableDefinition, line: int,
-                              defined_in: str) -> None:
+                              defined_in: str,
+                              clause_by_line: dict[int, str] | None = None
+                              ) -> None:
         """Register one occurrence-side twin at `line`.
 
         Mirrors the R44 families: same owner, same context, not an output
@@ -2234,6 +2423,17 @@ class _RoleBasedExtractor:
         dependency_graph wires the copy/READ edge at the twin's line. `_add`
         is bypassed deliberately: the twin is a SECOND node for a (name,
         type, context) that already exists, which is the whole point.
+
+        R45 Fix B (2026-08-28.9): the stamped clause is the LINE's clause —
+        `clause_by_line` (the group's `_line_clauses` map) names the clause
+        the twin's own line belongs to, spelled through
+        `_LINE_CLAUSE_TO_DEFINED_IN` (the walker's spelling: raw `on` must
+        become `JOIN ON`, or Phase 6/6b's `{"JOIN ON"}` gate would never
+        see it). The COLLAPSED occurrence's clause was only ever a group
+        fact — `_add` records collapses in walk order while the line
+        handout is textual, so the two could be crossed (F-E1). A line with
+        no clause at all (a context-shaped anchor line) falls back to the
+        collapsed occurrence's clause, exactly as before.
         """
         if not base.source_tables:
             return  # never guess an owner
@@ -2249,7 +2449,12 @@ class _RoleBasedExtractor:
         # 4d-gb precedent — without it the twin trips column_connectivity)
         # and (b) still see the clause the occurrence was collected in for
         # FILTER/JOIN typing (`_clause_of` strips the marker there).
-        clause = (defined_in or base.defined_in or "").strip()
+        line_clause = _LINE_CLAUSE_TO_DEFINED_IN.get(
+            (clause_by_line or {}).get(line, ""))
+        if line_clause:
+            clause = line_clause
+        else:
+            clause = (defined_in or base.defined_in or "").strip()
         self.result.variables.append(VariableDefinition(
             id=twin_id, name=f"{owner}.{col}",
             variable_type=VariableType.COLUMN,
@@ -4223,6 +4428,10 @@ class _RoleBasedExtractor:
                         continue
                     lhs = e.this
                     if isinstance(lhs, exp.Column):
+                        # R45 Fix E: record the write slot (both spellings
+                        # of a qualified LHS write the same column).
+                        self._merge_written[context].add(
+                            _clean(lhs.name or "").casefold())
                         if _clean(lhs.table or ""):
                             # qualified LHS (target.a = …) — S1 chain
                             self._register_column(lhs, context,
@@ -4255,6 +4464,10 @@ class _RoleBasedExtractor:
                         if isinstance(col, exp.Column):
                             cname = _clean(col.name or "")
                             if cname:
+                                # R45 Fix E: the INSERT column list is a
+                                # write slot too.
+                                self._merge_written[context].add(
+                                    cname.casefold())
                                 self._add(cname, VariableType.COLUMN,
                                           sql_expr=_sql(col),
                                           defined_in="MERGE INSERT",

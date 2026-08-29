@@ -16,6 +16,7 @@ referenced only UNQUALIFIED still never enters table_index (no fields,
 no scripts — nothing to search).
 """
 
+import asyncio
 import io
 import json
 import sys
@@ -25,6 +26,7 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
+from app.services.dataflow_service import create_search  # noqa: E402
 from app.services.workspace_service import (
     create_workspace,
     delete_workspace,
@@ -136,7 +138,10 @@ class TestF2CteIndexAttribution:
         already attributed."""
         r, ws_id = _index({"cte.sql": CTE_UNQUALIFIED_SQL})
         try:
+            # R4 L (2026-08-29): without this guard the negative assert below
+            # is vacuous — an index that returned nothing at all passed it.
             ti = r["table_index"]
+            assert ti, f"empty table_index — the negative guard is vacuous: {r}"
             assert "c" not in ti, "CTE name leaked into table_index"
         finally:
             delete_workspace(ws_id)
@@ -150,8 +155,31 @@ class TestF2CteIndexAttribution:
                 "INSERT INTO other (x) SELECT b.x FROM src2 b;\n"),
         })
         try:
-            for tname, tdata in r["table_index"].items():
+            # R4 L (2026-08-29): same vacuity guard — the loop needs an
+            # index to iterate, and it must actually contain the entries the
+            # fixture exists to produce.
+            ti = r["table_index"]
+            assert ti, f"empty table_index — the invariant loop never ran: {r}"
+            assert "temp_rfn" in ti, ti.keys()
+            for tname, tdata in ti.items():
                 assert not (tdata["fields"] and not tdata["scripts"]), \
                     "fields-without-scripts entry: %s" % tname
+        finally:
+            delete_workspace(ws_id)
+
+    def test_cte_field_search_through_create_search(self):
+        """End to end through the user-facing entry: create_search's
+        `field_scripts ∩ table_scripts` is the match the F2 fix makes
+        non-empty, so a search for the CTE-qualified pair must return the
+        defining script (the .get() mirrors above assert the halves; this
+        asserts the intersection the search actually computes)."""
+        r, ws_id = _index({"cte.sql": CTE_QUALIFIED_SQL})
+        try:
+            ti, fi = r["table_index"], r["field_index"]
+            assert ti and fi, r
+            sr = asyncio.run(create_search(ws_id, "temp_rfn", "dkjjbm",
+                                           ti, fi, direction="downstream"))
+            assert sr["script_ids"] == ["cte.sql"], sr
+            assert sr["match_mode"] == "exact", sr
         finally:
             delete_workspace(ws_id)

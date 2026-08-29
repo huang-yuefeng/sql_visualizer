@@ -358,8 +358,17 @@ export default function DataFlowApp({
   }, [resetWorkspaceState]);
 
   // ── R31: open an existing workspace (dashboard Open / shared ?ws= link) ──
-  // resume → scan → index. state_version + saved layouts come from resume so
+  // resume → tree → index. state_version + saved layouts come from resume so
   // the CAS save and saved-position re-application start from the shared state.
+  //
+  // AD2-A (2026-08-29): the open path is role-split. Scan and index are
+  // CREATOR-only (#272/#380 — both rewrite shared workspace state), so a
+  // participant opening a shared link used to 403 mid-open and land on an
+  // empty debugger. Now: the tree comes from G3's GET /tree when it exists
+  // (scan stays the fallback — the creator's pre-G3 path is byte-identical),
+  // and the index comes from GET /index for a participant, POST /index for
+  // the creator. `progress` is creator-only too: GET /index is a single read,
+  // so an "analyzing…" spinner would be a lie for a participant.
   const handleOpenExisting = useCallback(async (targetWsId) => {
     resetWorkspaceState();
     setLoading(true);
@@ -368,12 +377,28 @@ export default function DataFlowApp({
       setVersion(resume.state_version || 0);
       setResumeLayouts(resume.layouts || {});
       setWsId(targetWsId);
-      const tree = await api.scanWorkspace(targetWsId);
+      const isCreator = !!username && resume.creator_username === username;
+      let tree = await api.getWorkspaceTree(targetWsId);
+      if (!tree) {
+        // No served tree (pre-G3 backend, or the workspace was never indexed).
+        // Only the creator can build one — a participant gets the reason, not
+        // a raw 403 from the creator-only scan.
+        if (!isCreator) {
+          throw new Error(
+            'This workspace has no file index yet - its creator must open it once to build one.');
+        }
+        tree = await api.scanWorkspace(targetWsId);
+      }
       setFileTree(tree);
       const scripts = collectSqlFiles(tree);
       setSelectedScripts(scripts);
-      setProgress({ current: 0, total: scripts.length, phase: 'analyzing' });
-      const idxResult = await api.indexWorkspace(targetWsId, scripts);
+      let idxResult;
+      if (isCreator) {
+        setProgress({ current: 0, total: scripts.length, phase: 'analyzing' });
+        idxResult = await api.indexWorkspace(targetWsId, scripts);
+      } else {
+        idxResult = await api.getWorkspaceIndex(targetWsId);
+      }
       setTableIndex(idxResult.table_index || {});
       setFieldIndex(idxResult.field_index || {});
       setFullTableIndex(idxResult.table_index || {});
@@ -399,7 +424,7 @@ export default function DataFlowApp({
     } finally {
       setLoading(false);
     }
-  }, [resetWorkspaceState, setVersion]);
+  }, [resetWorkspaceState, setVersion, username]);
 
   // ── R31: open-existing entry — runs once when the workspace id arrives
   //     (dashboard Open or a shared ?ws= link). Guarded by openedRef so it
@@ -481,7 +506,15 @@ export default function DataFlowApp({
     setL2Graph(null); setL2Result(null); setL2ViewMode(null);
     setLoading(true);
     try {
-      const viewIdForApi = parentViewIdRef.current || activeViewId;
+      // R3 finding 1: `parentViewIdRef` is the fast path, but it is nulled by
+      // every tree navigation to an L2 child — an entry opened from the
+      // not-in-flow strip while that child is active used to fall through to
+      // the CHILD id, so POST .../children addressed a script row as a parent
+      // (404, swallowed) and the new child view was orphaned. Resolve the
+      // search view from the tree instead: a child row names its parent, a
+      // top-level row is its own parent.
+      const viewIdForApi = parentViewIdRef.current
+        || (activeView ? (activeView.parent_view_id || activeView.view_id) : activeViewId);
       // R29: L2 is the zoom-in of L1 — fetch in the parent view's direction
       const searchView = views.find(v => v.view_id === viewIdForApi);
       const result = await api.getLevel2Graph(wsId, viewIdForApi, scriptName, true, /* R38: persisted direction ignored */ direction);
@@ -563,10 +596,21 @@ export default function DataFlowApp({
     return parent && parent.type === 'search' ? parent : null;
   }, [activeView, views]);
 
+  // R3 finding 1 (3a): the strip diffs against the PARENT SEARCH VIEW's own
+  // graph — `l1_graph_cache` is the exact L1 that view rendered — never the
+  // global `l1Graph`, which belongs to WHATEVER view was rendered last (while
+  // an L2 child is active the left-panel L1 stays mounted, but `l1Graph` can
+  // hold another search's graph after navigating the tree). Rows carry the
+  // cache; the live graph is only the fallback for a row without one.
+  const l1SearchGraph = useMemo(
+    () => (l1SearchView && l1SearchView.l1_graph_cache) || l1Graph,
+    [l1SearchView, l1Graph],
+  );
+
   const inFlowScriptNames = useMemo(() => {
     const names = new Set();
-    if (l1Graph && Array.isArray(l1Graph.nodes)) {
-      for (const n of l1Graph.nodes) {
+    if (l1SearchGraph && Array.isArray(l1SearchGraph.nodes)) {
+      for (const n of l1SearchGraph.nodes) {
         const d = (n && n.data) || n || {};
         if (d.type !== 'script_node') continue;
         const nm = d.script_name || d.label;
@@ -574,23 +618,22 @@ export default function DataFlowApp({
       }
     }
     return names;
-  }, [l1Graph]);
+  }, [l1SearchGraph]);
 
   const outOfFlowScripts = useMemo(() => {
     // no_flow / no_matches own the #400 banner above — never this strip.
-    if (!l1SearchView || !l1Graph) return [];
+    if (!l1SearchView || !l1SearchGraph) return [];
     if (l1SearchView.match_mode === 'no_flow' || l1SearchView.match_mode === 'no_matches') return [];
     const ids = Array.isArray(l1SearchView.script_ids)
       ? l1SearchView.script_ids.filter(Boolean)
       : [];
     if (ids.length === 0 || inFlowScriptNames.size === 0) return [];
-    // script_ids are workspace rel_paths; an L1 script node carries the same
-    // rel_path in `script_name`. Basename matching only covers payload shapes
-    // that dropped the directories — never a substitute for a real match.
-    const base = p => String(p).split('/').pop();
-    const byBase = new Set([...inFlowScriptNames].map(base));
-    return ids.filter(s => !inFlowScriptNames.has(s) && !byBase.has(base(s)));
-  }, [l1SearchView, l1Graph, inFlowScriptNames]);
+    // script_ids are workspace rel_paths and an L1 script node carries the
+    // same rel_path in `script_name` — one exact string comparison, no
+    // basename fallback (R3 finding 3b: a basename hit can only HIDE a script
+    // that really is missing from the rendered flow).
+    return ids.filter(s => !inFlowScriptNames.has(s));
+  }, [l1SearchView, l1SearchGraph, inFlowScriptNames]);
 
   // ── View Tree navigation ──────────────────────────────────────────
   const handleViewTreeClick = useCallback(async (viewId) => {
@@ -953,13 +996,23 @@ export default function DataFlowApp({
 
   // Shared applicator: index + the R37 single SQL-highlight channel —
   // stepping the story scrolls the SQL panel exactly like an edge/node
-  // click does (integer ≥ 1 guard, same as every other writer).
+  // click does (integer ≥ 1 guard, same as every other writer). R3 finding
+  // 4: a step whose line IS valid also clears a stale "no SQL line" notice —
+  // the notice self-clears on every other valid writer of the channel, and a
+  // story step is one of them.
   const applyStoryStep = useCallback((i) => {
     const step = fieldStory && fieldStory.steps[i];
     if (!step) return;
     setStoryActiveIndex(i);
     const ln = step.line;
-    setSqlHighlightLine(Number.isInteger(ln) && ln >= 1 ? ln : null);
+    if (Number.isInteger(ln) && ln >= 1) {
+      setSqlHighlightLine(ln);
+      setSqlLineNotice(null);
+    } else {
+      // Story steps are INV-2 gated (only valid highlight_lines build a
+      // step) — this branch is defensive and never sets a notice of its own.
+      setSqlHighlightLine(null);
+    }
   }, [fieldStory]);
 
   // Chip click — manual inspection intent: jump AND stop the clock (the

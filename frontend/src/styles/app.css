@@ -376,10 +376,23 @@ body { background: var(--bg-app); color: var(--ink-900); }
 .btn-delete:hover { color: var(--accent-hover); }
 
 /* Graph */
-.dataflow-graph-container { width: 100%; height: 100%; position: relative; }
+/* AD2-D (2026-08-29): the container is a flex COLUMN — toolbar + legend are
+   fixed-size rows and the canvas absorbs whatever is left. The old contract
+   (`height:100%` container + a canvas hard-coded to `calc(100% - 80px)`) put
+   the 80px budget in ONE place while the real chrome above the canvas is
+   ~104-126px (toolbar 44 + a legend that wraps 60-82px), so the canvas
+   overflowed its container and the bottom band was clipped under the SQL
+   panel — 23-45px in every view mode. With the flex column the canvas always
+   ends exactly at the container edge: 0px clipped, no px budget to keep in
+   sync. `min-height:0` is what lets the canvas shrink instead of overflowing. */
+.dataflow-graph-container {
+  width: 100%; height: 100%; position: relative;
+  display: flex; flex-direction: column;
+}
 .graph-toolbar {
   display: flex; align-items: center; gap: 8px; padding: 4px 8px;
   background: var(--bg-surface); border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
 }
 .graph-level-badge {
   background: var(--success); color: var(--on-success); padding: 2px 8px;
@@ -406,11 +419,20 @@ body { background: var(--bg-app); color: var(--ink-900); }
   margin: 0; cursor: pointer; font-size: 0.7rem; color: var(--ink-600);
   background: var(--bg-surface); border: none; outline: none;
 }
-.graph-canvas { background: var(--bg-app); }
+/* AD2-D: the flexible member of the graph column (see .dataflow-graph-
+   container above) — its height is whatever the toolbar + legend leave, so
+   the inline `height: calc(100% - 80px)` guess is gone with it. */
+.graph-canvas {
+  background: var(--bg-app);
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
 .dataflow-legend {
   display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 4px 8px;
   background: var(--bg-surface); border-bottom: 1px solid var(--border);
   font-size: 0.65rem; align-items: center;
+  flex: 0 0 auto;
 }
 .legend-item {
   display: inline-flex; align-items: center; gap: 3px;
@@ -559,12 +581,16 @@ body { background: var(--bg-app); color: var(--ink-900); }
 .fw-ignored { margin-top: 3px; color: var(--warning); }
 
 /* ── No-match search notice (R3/F1) ── */
+/* AD2-D follow-up (b): the graph chrome the top-slot banner must clear is no
+   longer a constant — the flex canvas (see .dataflow-graph-container) gets
+   whatever the toolbar + legend leave, and the legend's wrapped row count
+   depends on the panel width. DataFlowGraph publishes the MEASURED chrome
+   height as `--graph-chrome-h` on the banner's own host (.panel-center /
+   .inline-l2-graph); the px below is only the pre-measurement fallback. */
+.panel-center,
+.inline-l2-graph { --graph-chrome-h: 104px; }
 .no-match-banner {
-  /* F-B2 (S4 t47): the banner is an OVERLAY on the graph, so it must start
-     BELOW the graph's own chrome — toolbar (~32px) + legend (the 80px the
-     canvas already reserves via `height: calc(100% - 80px)`) — or a wrapping
-     message paints straight over "Per-Script Detail"/Fit/view-select. */
-  top: 84px;
+  top: calc(var(--graph-chrome-h, 104px) + 4px);
   position: absolute; left: 50%; transform: translateX(-50%);
   background: var(--warning-soft);
   border: 1px solid var(--warning); color: var(--warning);
@@ -577,9 +603,10 @@ body { background: var(--bg-app); color: var(--ink-900); }
   max-height: 40%; overflow-y: auto;
 }
 /* F-B2: the SECOND banner on screen (A3 parse errors, or the "no SQL line"
-   notice) takes the bottom slot — a stacked top offset would have to guess
-   the first banner's wrapped height. When BOTH bottom-slot banners render at
-   once, the sibling rule below separates them. */
+   notice) takes the bottom slot. The flex canvas ends exactly at the host's
+   bottom edge, so `bottom` measures from the canvas's own bottom line — no
+   chrome reserve involved. When BOTH bottom-slot banners render at once, the
+   sibling rule below separates them. */
 .no-match-banner.banner-bottom {
   top: auto; bottom: 8px;
 }
@@ -612,9 +639,10 @@ body { background: var(--bg-app); color: var(--ink-900); }
   font-weight: 600;
 }
 /* V2-N4 (2026-08-29): the matched-but-not-in-flow strip on an L1 view that
-   DOES render a flow. Same top slot as the no-match banner (the chrome ends
-   at ~80px), but a slim left-aligned row of per-script continuations instead
-   of a centered warning — an exact-match view is not an error state. */
+   DOES render a flow. Same top slot as the no-match banner (the measured
+   `--graph-chrome-h` slot — see .no-match-banner), but a slim left-aligned
+   row of per-script continuations instead of a centered warning — an
+   exact-match view is not an error state. */
 .no-match-banner.banner-strip {
   left: 12px; right: auto; transform: none;
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
@@ -632,7 +660,7 @@ body { background: var(--bg-app); color: var(--ink-900); }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;
 }
 .no-match-banner.banner-strip .banner-open-script { background: var(--bg-surface); }
-/* V2-N2 companion: the top banner is centered at `top:84px`, which is where
+/* V2-N2 companion: the top banner is centered in the top chrome slot, where
    the legend row (and the Fit/Export controls living at its right end) sits
    once a narrow panel wraps the legend. Cap the centered banner's width so it
    stops ~84px short of the panel edge — the controls' band — instead of

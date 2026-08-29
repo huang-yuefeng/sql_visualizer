@@ -784,23 +784,6 @@
           "desc": "Column reference",
           "edge_type": "REF",
           "flow_kind": "read",
-          "highlight_line": 35,
-          "id": "l2e_5c55a72fed38",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read (read into output) \u2014 \u2016\u27d0 dj.ss_customer_sk@L37 \u2192 dj@L35\u2016",
-          "source": "l2_tbl_5546b22aae",
-          "target": "l2_tbl_f1085ba7ce",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
           "highlight_line": 15,
           "id": "l2e_5ce2f1fe1955",
           "label": "REF",
@@ -843,6 +826,40 @@
           "source": "l2_tbl_f1085ba7ce",
           "target": "l2_tbl_3f5ccf500f",
           "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 37,
+          "id": "l2e_23f4d3c6e6d7",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016\u27d0 dj.ss_customer_sk@L37 \u2192 dj@L35\u2016",
+          "source": "l2_tbl_5546b22aae",
+          "target": "l2_tbl_f1085ba7ce",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 35,
+          "id": "l2e_5c55a72fed38",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016\u27d0 dj.ss_customer_sk@L35 \u2192 dj@L35\u2016",
+          "source": "l2_tbl_5546b22aae",
+          "target": "l2_tbl_f1085ba7ce",
+          "width": 1
         }
       }
     ],
@@ -1291,7 +1308,7 @@
     "script_name": "73.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 37,
+    "total_edges": 38,
     "total_nodes": 36
   },
   "script_name": "73.sql",

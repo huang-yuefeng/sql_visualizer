@@ -134,7 +134,16 @@ class TestSupMPredicateTwins:
                 f"got {anchor.variable_type.value}@{anchor.line_start}")
             # Own-line anchoring: a FILTER edge is kind "field flow", so the
             # payload anchor is the SOURCE's line — the twin's own line.
-            assert twin.line_start == line
+            # R4 L (2026-08-29): the old closing assert
+            # (`assert twin.line_start == line`) could NEVER fail — the
+            # twins were selected by that very line two statements above —
+            # and VariableDependency carries no anchor payload to assert
+            # instead (the anchor is derived at L2 build time, not stored on
+            # the edge). The claim this comment makes is pinned where the
+            # payload really lives: `test_predicate_lines_reach_the_l2_
+            # flow_closure` below asserts {37, 113} ⊆ the served closure's
+            # highlight lines. Nothing is asserted here in its place.
+            assert not filt[0].containment
 
     def test_predicate_lines_reach_the_l2_flow_closure(self):
         """End to end: the flow-only closure for ods_hub_lsacmsp.podtao must

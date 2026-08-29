@@ -393,6 +393,83 @@ describe('FilterPanel — F5: case-insensitive search + inline missing message',
   });
 });
 
+// R3 finding 5 (2026-08-29): the ☆ pin pinned the RAW TYPED strings, so one
+// search could produce two pins — ☆ on the typed casing, then doSearch echoes
+// the canonical spelling into the inputs and a second ☆ stored the same pair
+// again. Pin and compare the CANONICAL index key.
+describe('FilterPanel — pins use the canonical index key (R3 finding 5)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  function mountCi(onSearch) {
+    return render(
+      <FilterPanel
+        wsId="ws1"
+        username="alice@hsbc.com"
+        tableIndex={{ TEMP_RFN: { fields: ['dkjjbm', 'IGNDA'], scripts: ['rfn.sql'] } }}
+        fieldIndex={{ dkjjbm: { tables: ['TEMP_RFN'], scripts: ['rfn.sql'] } }}
+        onSearch={onSearch}
+        loading={false}
+      />
+    );
+  }
+
+  it('stores the canonical key when the name was typed in another casing', () => {
+    mountCi(vi.fn());
+    fireEvent.change(screen.getByPlaceholderText(/Type table name/), { target: { value: 'temp_rfn' } });
+    fireEvent.change(screen.getByPlaceholderText(/Type field name/), { target: { value: 'DKJJBM' } });
+    fireEvent.click(screen.getByRole('button', { name: '☆' }));
+
+    expect(screen.getByText('TEMP_RFN.dkjjbm')).toBeInTheDocument();
+    const pins = JSON.parse(window.localStorage.getItem('df_pinned_searches:alice@hsbc.com'));
+    expect(pins).toEqual([{ table: 'TEMP_RFN', field: 'dkjjbm' }]);
+  });
+
+  it('the CI-search echo cannot create a duplicate pin', () => {
+    mountCi(vi.fn());
+    const tableInput = screen.getByPlaceholderText(/Type table name/);
+    const fieldInput = screen.getByPlaceholderText(/Type field name/);
+    fireEvent.change(tableInput, { target: { value: 'temp_rfn' } });
+    fireEvent.change(fieldInput, { target: { value: 'DKJJBM' } });
+    // pin BEFORE the search echoed the canonical spelling into the inputs
+    fireEvent.click(screen.getByRole('button', { name: '☆' }));
+    // the search runs and echoes the canonical key into both inputs
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(tableInput.value).toBe('TEMP_RFN');
+    expect(fieldInput.value).toBe('dkjjbm');
+
+    // the same pair is already pinned → the button reads ★ and clicking it
+    // UNPINS instead of storing a second, differently-cased copy
+    expect(screen.getByRole('button', { name: '★' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '★' }));
+    expect(screen.queryByText('TEMP_RFN.dkjjbm')).not.toBeInTheDocument();
+    expect(JSON.parse(window.localStorage.getItem('df_pinned_searches:alice@hsbc.com')))
+      .toEqual([]);
+  });
+
+  it('pins an unresolvable pair as typed (no canonical form to resolve to)', () => {
+    const onSearch = vi.fn();
+    render(
+      <FilterPanel
+        wsId="ws1"
+        username="alice@hsbc.com"
+        tableIndex={{ TEMP_RFN: { fields: ['dkjjbm'], scripts: ['rfn.sql'] } }}
+        fieldIndex={{ dkjjbm: { tables: ['TEMP_RFN'], scripts: ['rfn.sql'] } }}
+        onSearch={onSearch}
+        loading={false}
+      />
+    );
+    fireEvent.change(screen.getByPlaceholderText(/Type table name/), { target: { value: 'TEMP_RFN' } });
+    fireEvent.change(screen.getByPlaceholderText(/Type field name/), { target: { value: 'nope' } });
+    expect(screen.getByTestId('field-missing-msg')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '☆' }));
+    expect(JSON.parse(window.localStorage.getItem('df_pinned_searches:alice@hsbc.com')))
+      .toEqual([{ table: 'TEMP_RFN', field: 'nope' }]);
+  });
+});
+
 // V2-N3 (2026-08-29): the missing-name message used to fire off the raw
 // unresolved prefix, so typing `bdm_acc` rendered 12 live suggestions AND
 // "no such table in the index" at once. The message is the terminal state of

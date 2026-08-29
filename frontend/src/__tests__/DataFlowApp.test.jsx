@@ -4,6 +4,7 @@ import DataFlowApp from '../DataFlowApp';
 import {
   searchDataFlow, getLevel2Graph, addViewChild,
   resumeWorkspace, scanWorkspace, indexWorkspace, listViews,
+  getWorkspaceTree, getWorkspaceIndex,
 } from '../api/client';
 
 // All heavy children are mocked — this suite asserts the T8 (#295) left-panel
@@ -52,7 +53,14 @@ vi.mock('../components/ViewBar', () => ({
           <div key={v.view_id} data-testid={`tab-${v.view_id}`} onClick={() => p.onSelect(v.view_id)}>
             {v.view_id}
             {(v.children || []).map(c => (
-              <span key={c.view_id} data-testid={`child-${c.view_id.replace(/[^a-zA-Z0-9]/g, '_')}`}>
+              <span
+                key={c.view_id}
+                data-testid={`child-${c.view_id.replace(/[^a-zA-Z0-9]/g, '_')}`}
+                // R3 finding 1: a test must be able to NAVIGATE to a child row
+                // (the real ViewBar does) — that is the path that nulls
+                // parentViewIdRef while the child stays the active view.
+                onClick={(e) => { e.stopPropagation(); p.onSelect(c.view_id); }}
+              >
                 {c.script_name}
               </span>
             ))}
@@ -71,6 +79,8 @@ vi.mock('../api/client', () => ({
   deleteViewChild: vi.fn(),
   getLevel2Graph: vi.fn(),
   getWorkspaceStatus: vi.fn(),
+  getWorkspaceTree: vi.fn(),
+  getWorkspaceIndex: vi.fn(),
   indexWorkspace: vi.fn(),
   listViews: vi.fn(),
   removeFromMyHistory: vi.fn(),
@@ -145,7 +155,14 @@ const NOT_IN_FLOW_L2 = {
 };
 
 async function mountWorkspaceSearcher() {
-  resumeWorkspace.mockResolvedValue({ state_version: 0, layouts: {} });
+  // The existing #400/V2-N4 scenarios open as the CREATOR (resume names this
+  // user) and with no served tree (getWorkspaceTree → null) — i.e. the exact
+  // pre-G3 creator path: scan → POST /index.
+  resumeWorkspace.mockResolvedValue({
+    state_version: 0, layouts: {}, creator_username: 'alice@hsbc.com',
+  });
+  getWorkspaceTree.mockResolvedValue(null);
+  getWorkspaceIndex.mockResolvedValue({});
   scanWorkspace.mockResolvedValue({ type: 'folder', name: 'ws', children: [] });
   indexWorkspace.mockResolvedValue({
     table_index: { tmp_km: { fields: ['BAL'], scripts: NO_FLOW_RESULT.script_ids } },
@@ -358,5 +375,132 @@ describe('DataFlowApp — out-of-flow strip on a partially-rendered L1 (V2-N4)',
     expect(getLevel2Graph).toHaveBeenCalledWith(
       'ws1', 'v4', 'sub/BDM_ACC_LOAN_INFO_Digitallending.sql', true, 'downstream');
     expect(await screen.findByText(/Level 2 Detail/)).toBeInTheDocument();
+  });
+});
+
+// ── R3 findings 1 + 3a (2026-08-29) ───────────────────────────────────
+// Two defects in the not-in-flow strip once MORE than one view exists:
+//   3a — it diffed `view.script_ids` against the GLOBAL `l1Graph`, which
+//        belongs to whatever view was rendered LAST. With a second search's
+//        L1 (or an L2 child) active, the strip named scripts the parent view
+//        really does render.
+//   1  — its open path fell back to the ACTIVE view id when
+//        `parentViewIdRef` was null (it is nulled by every tree navigation
+//        to an L2 child), so POST .../children addressed a script row as a
+//        parent: 404, swallowed, orphan child view.
+const PARTIAL_A = {
+  view_id: 'vA',
+  table: 'p2',
+  field: 'P_DT',
+  script_ids: ['BDM_PL.sql', 'BDM_SUP.sql', 'sub/BDM_DL.sql', 'sub/BDM_OTH.sql'],
+  l1_graph: {
+    nodes: [
+      { data: { id: 's1', type: 'script_node', label: 'BDM_PL.sql', script_name: 'BDM_PL.sql' } },
+      { data: { id: 's2', type: 'script_node', label: 'BDM_SUP.sql', script_name: 'BDM_SUP.sql' } },
+    ],
+    edges: [],
+  },
+  match_mode: 'exact',
+  direction: 'downstream',
+};
+
+const OTHER_SEARCH = {
+  view_id: 'vB',
+  table: 'p2',
+  field: 'AMT',
+  script_ids: ['BDM_OTHER.sql'],
+  l1_graph: {
+    nodes: [
+      { data: { id: 's9', type: 'script_node', label: 'BDM_OTHER.sql', script_name: 'BDM_OTHER.sql' } },
+    ],
+    edges: [],
+  },
+  match_mode: 'exact',
+  direction: 'downstream',
+};
+
+describe('DataFlowApp — out-of-flow strip uses the view’s own graph (R3 3a)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  it('names only the scripts the PARENT view’s cached L1 does not render', async () => {
+    getLevel2Graph.mockResolvedValue(NOT_IN_FLOW_L2);
+    await mountWorkspaceSearcher();
+    await runSearch(PARTIAL_A);
+    expect(await screen.findByTestId('not-in-flow-strip')).toBeInTheDocument();
+
+    // Open vA's L2, then render ANOTHER search's L1, then come back to vA's
+    // child through the tree — the global l1Graph now holds vB's graph while
+    // the strip still describes vA.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_DL.sql full graph' }));
+    });
+    await screen.findByText(/Level 2 Detail/);
+    await runSearch(OTHER_SEARCH);
+    await screen.findByTestId('tab-vB');
+    await act(async () => { fireEvent.click(screen.getByTestId('tab-vB')); });
+    await screen.findByTestId('tab-vB');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('child-vA_sub_BDM_DL_sql'));
+    });
+    await screen.findByText(/Level 2 Detail/);
+
+    // The strip is still rendered for vA — and must diff against vA's OWN
+    // cached L1 (BDM_PL/BDM_SUP render there), never against vB's graph
+    // (which would list every vA script as missing).
+    const strip = await screen.findByTestId('not-in-flow-strip');
+    expect(strip.textContent).toContain('BDM_DL.sql');
+    expect(strip.textContent).toContain('BDM_OTH.sql');
+    expect(strip.textContent).not.toContain('BDM_PL.sql');
+    expect(strip.textContent).not.toContain('BDM_SUP.sql');
+  });
+});
+
+describe('DataFlowApp — strip open resolves the parent view id (R3 finding 1)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  it('posts the child under the SEARCH view id after tree navigation nulled the ref', async () => {
+    getLevel2Graph.mockResolvedValue(NOT_IN_FLOW_L2);
+    await mountWorkspaceSearcher();
+    await runSearch(PARTIAL_A);
+    expect(await screen.findByTestId('not-in-flow-strip')).toBeInTheDocument();
+
+    // First open — the ref still points at vA, so this already worked.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_DL.sql full graph' }));
+    });
+    await screen.findByText(/Level 2 Detail/);
+    expect(addViewChild).toHaveBeenCalledWith('ws1', 'vA', expect.objectContaining({
+      parent_view_id: 'vA',
+    }));
+
+    // Tree navigation to the child nulls parentViewIdRef while the child
+    // stays the active view — the L1 panel (and its strip) stays mounted.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('child-vA_sub_BDM_DL_sql'));
+    });
+    await screen.findByText(/Level 2 Detail/);
+    const callsBefore = addViewChild.mock.calls.length;
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_OTH.sql full graph' }));
+    });
+    await screen.findByText(/Level 2 Detail/);
+
+    // The new child is persisted under the PARENT search view — not under
+    // the active child id (a script row is not a parent: 404 + orphan view).
+    expect(getLevel2Graph).toHaveBeenLastCalledWith(
+      'ws1', 'vA', 'sub/BDM_OTH.sql', true, 'downstream');
+    expect(addViewChild.mock.calls.length).toBeGreaterThan(callsBefore);
+    expect(addViewChild).toHaveBeenLastCalledWith('ws1', 'vA', expect.objectContaining({
+      view_id: 'vA_sub/BDM_OTH.sql',
+      parent_view_id: 'vA',
+    }));
+    expect(screen.getByTestId('active-view').textContent).toBe('vA_sub/BDM_OTH.sql');
   });
 });

@@ -1192,8 +1192,8 @@ def _combine_edges(new_edges: list, node_lines: dict | None = None) -> list:
     The first occurrence keeps its carried extraction-time info (the
     payload anchor is per-edge, derived later from that carried info).
 
-    R45 Fix H (2026-08-28.8): EXCEPT when a later carrier IS the keeper
-    chip's own occurrence. One display field folds every occurrence of a
+    R45 Fix H (2026-08-28.8): EXCEPT when a carrier IS the keeper chip's
+    own occurrence. One display field folds every occurrence of a
     physical field (J12-16 — the key is not statement-scoped), so a
     belongs-to/structure edge arrives once per occurrence: the CTE-body
     birth (`SUBSTR(P1.BRANCH_CODE,-3) AS tag_branch` @721) and the outer
@@ -1230,6 +1230,19 @@ def _combine_edges(new_edges: list, node_lines: dict | None = None) -> list:
         if _ln:
             claimed.setdefault((e["source"], e["target"], _ln), set()).add(
                 e.get("edge_type"))
+    # Fix H decided over the WHOLE carrier set, before the loop — not
+    # carriers[1:] (2026-08-29): the earlier loop-side guard only saw the
+    # carriers after the first, so a Fix-H carrier sitting in slot 0 (or
+    # merely ahead of the chip-line carrier) never won, and the LFS108
+    # residual latched `keepers` for the first carrier and locked Fix H
+    # out for good. `setdefault` keeps first-in-edge-order — deterministic.
+    fix_h: dict[tuple, dict] = {}
+    if node_lines is not None:
+        for e in new_edges:
+            _w = node_lines.get(e["target"])
+            if not _w or _safe_int(e.get("_tgt_line")) != _w:
+                continue
+            fix_h.setdefault((e["source"], e["target"], e["edge_type"]), e)
     combined_edges = {}
     keepers: dict[tuple, int] = {}
     for e in new_edges:
@@ -1240,11 +1253,14 @@ def _combine_edges(new_edges: list, node_lines: dict | None = None) -> list:
             existing_labels = set(existing.get("label", "").split(", "))
             existing_labels.add(e.get("label", ""))
             existing["label"] = ", ".join(sorted(existing_labels))
-            if node_lines is not None and key not in keepers:
+            if key in fix_h and key not in keepers:
+                keepers[key] = 1                      # latch even when already keeper
+                if combined_edges[key] is not fix_h[key]:
+                    combined_edges[key] = fix_h[key]
+            elif node_lines is not None and key not in keepers:
                 want = node_lines.get(e["target"])
-                if want is not None and _safe_int(
-                        e.get("_tgt_line")) == want != _safe_int(
-                            existing.get("_tgt_line")):
+                if want and _safe_int(e.get("_tgt_line")) == want != _safe_int(
+                        existing.get("_tgt_line")):
                     combined_edges[key] = e
                     keepers[key] = 1
                 # LFS108 residual: yield the anchor to the occurrence line

@@ -15,7 +15,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.extractor.variable_extractor_v2 import extract_variables_from_sql
-from app.extractor.dependency_graph import build_dependency_graph
+from app.extractor.dependency_graph import (
+    _OCCURRENCE_PREFIX,
+    build_dependency_graph,
+)
 from app.services.topology_checker import run_all_checks
 
 SAMPLES_DIR = Path(__file__).resolve().parent.parent.parent / "samples"
@@ -30,6 +33,13 @@ def _all_sample_files():
     if fin_dir.exists():
         for f in sorted(fin_dir.glob("fin_query*.sql")):
             yield f"financial/{f.name}", f.read_text()
+
+
+# R4 M (2026-08-29): an empty corpus must fail at COLLECTION time with the
+# reason, not silently pass a zero-parameter test ("0 tests ran" green).
+assert any(True for _ in _all_sample_files()), (
+    f"sample corpus missing — no *.sql / financial/fin_query*.sql under "
+    f"{SAMPLES_DIR}: the topology sweep would pass vacuously")
 
 
 def _var_dicts(variables):
@@ -62,6 +72,17 @@ def _dep_dicts(deps):
     ]
 
 
+def _r44_occurrence_twin_names(vars_dict):
+    """Every variable the extractor stamped as an occurrence-side twin.
+
+    The stamp IS the marker `defined_in` carries (`OCCURRENCE` +
+    the collected clause, dependency_graph._OCCURRENCE_PREFIX) — the only
+    extraction-time statement that a var is an occurrence attribution
+    rather than a schema member."""
+    return {v["name"] for v in vars_dict
+            if (v.get("defined_in") or "").upper().startswith(_OCCURRENCE_PREFIX)}
+
+
 def _r44_derived_read_twin_names(vars_dict):
     """R44 (2026-08-28, user ruling "walker occurrence coverage") — the
     derived-read twins the extractor registers as occurrence-side fields
@@ -75,12 +96,27 @@ def _r44_derived_read_twin_names(vars_dict):
     its prefix table") does not apply. Their model witness is the REF edge
     from their occurrence origin (the derived-alias read), which the
     checker's accepted set (SCHEMA/SELECT/DML) does not count; the
-    physical model keys them under the table entity. Signature: column,
-    non-output, name = {source_tables[0]}.{col}, source_columns non-empty
-    (the occurrence origin). Write twins are NOT waived: they are only
-    written, and their write-leg witness (Phase 4c OUTPUT SCHEMA) exists —
-    the checker's contract 'every displayed field has a model edge' holds
-    for them and must keep holding."""
+    physical model keys them under the table entity.
+
+    Signature (TIGHTENED 2026-08-29, R4 M-H): column, non-output,
+    **`defined_in` carries the `OCCURRENCE` marker**, name =
+    {source_tables[0]}.{col}, source_columns non-empty (the occurrence
+    origin — family 3's line twins carry an empty list and are covered by
+    Phase 4d-gb's belongs-to edge instead, so they need no waiver). The
+    marker requirement is what makes the waiver a *scoped* waiver: the
+    previous signature keyed on the name shape alone, which matched 88
+    (file, column) members corpus-wide of which only **21** carry the
+    marker — 67 ordinary columns sat inside the waiver's blast radius and
+    it absorbed 14 live `column_connectivity` findings. Every name this
+    predicate returns is asserted to be an occurrence twin; anything else
+    must be adjudicated in `_ADJUDICATED_CONNECTIVITY` below, one entry at
+    a time.
+
+    Write twins are NOT waived: they are only written, and their write-leg
+    witness (Phase 4c OUTPUT SCHEMA) exists — the checker's contract
+    'every displayed field has a model edge' holds for them and must keep
+    holding."""
+    occurrence = _r44_occurrence_twin_names(vars_dict)
     names = set()
     for v in vars_dict:
         if v.get("variable_type") != "column":
@@ -88,10 +124,132 @@ def _r44_derived_read_twin_names(vars_dict):
         st = v.get("source_tables") or []
         name = v.get("name") or ""
         if (not v.get("is_output") and v.get("source_columns")
+                and name in occurrence
                 and st and "." in name
                 and name.split(".", 1)[0].lower() == st[0].lower()):
             names.add(name)
+    # R4 M-H: the waiver is *stated* as an occurrence-twin waiver, so it
+    # can only ever be a subset of the occurrence twins. If this fires, the
+    # predicate drifted away from the marker that justifies it.
+    assert names <= occurrence, (
+        "the R44 twin waiver admitted a variable the extractor never "
+        f"stamped as an occurrence twin: {sorted(names - occurrence)}")
     return names
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Adjudicated column_connectivity residue (R4 M-H, 2026-08-29)
+# ════════════════════════════════════════════════════════════════════════
+# The pre-tightening signature absorbed 14 live `column_connectivity`
+# findings corpus-wide. Two of the 14 stay covered by the (now marker-gated)
+# occurrence waiver itself — the same column name also has an occurrence
+# twin in that file — so 12 are handed back here; all 14 are listed, because
+# an entry that fires is an entry whose verdict is checked. Two verdicts
+# exist:
+#
+#   FALSE POSITIVE — the check's premise does not hold for this var: it is
+#     NOT a member of its prefix table (a renamed projection, an aggregate
+#     born in a derived scope, a bare group key owned by a derived
+#     container), so the missing belongs-to edge is CORRECT and emitting
+#     it would fabricate a schema fact. Its connectivity witness is the
+#     REF from the reference it came from.
+#   DEFECT (v3.3.193 material) — the var IS a member of its prefix table
+#     and genuinely carries no belongs-to edge, because dependency_graph
+#     Phase 4d-gb's admission gate enumerates only `GROUP BY` + the
+#     OCCURRENCE marker; the MERGE ON / MERGE UPDATE SET / MERGE WHEN /
+#     JOIN ON clauses fall between the two. App-code fix, owned by the
+#     extractor team — NOT patched here, and not silently waived either:
+#     each entry states the defect, and the whole entry stops being
+#     load-bearing (and fails the test below) the moment the fix lands.
+_ADJUDICATED_CONNECTIVITY = {
+    "financial/fin_query4_merge_upsert.sql": {
+        # `ON target.account_id = source.account_id` @25 — `source` is the
+        # MERGE USING alias and `account_id` is its RENAMED projection
+        # (`t.source_account_id AS account_id` @8): gps_transactions has no
+        # account_id column in this script, so the belongs-to premise is
+        # false. Witness: REF in from `source.account_id` + the DML legs to
+        # both merge-target instances of gps_accounts.
+        "gps_transactions.account_id":
+            "FALSE POSITIVE — renamed USING projection, not a "
+            "gps_transactions column (t.source_account_id AS account_id @8)",
+        # MERGE UPDATE SET @30/@35/@36 and MERGE WHEN @63/@64 read genuine
+        # gps_transactions columns (t.amount @10, t.fee_amount @11,
+        # t.net_amount @12, t.txn_id @15, t.settlement_date @14,
+        # t.currency_code @16). The belongs-to edge is missing only because
+        # Phase 4d-gb does not admit the MERGE clauses — a real model gap
+        # (v3.3.193), waived with the defect stated, never silently.
+        "gps_transactions.amount":
+            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
+            "MERGE UPDATE SET clause; the twin @18 (OCCURRENCE SELECT expr, "
+            "same TOP0) carries the belongs-to edge, so the rendered chip "
+            "stays connected",
+        "gps_transactions.fee_amount":
+            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
+            "MERGE UPDATE SET clause; no sibling registration carries the "
+            "belongs-to edge",
+        "gps_transactions.txn_id":
+            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
+            "MERGE UPDATE SET clause; no sibling registration carries the "
+            "belongs-to edge",
+        "gps_transactions.settlement_date":
+            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
+            "MERGE UPDATE SET clause; the twin @21 (OCCURRENCE WHERE, same "
+            "TOP0) carries the belongs-to edge",
+        "gps_transactions.net_amount":
+            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
+            "MERGE WHEN clause; no sibling registration carries the "
+            "belongs-to edge",
+        "gps_transactions.currency_code":
+            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
+            "MERGE WHEN clause; no sibling registration carries the "
+            "belongs-to edge",
+    },
+    "financial/fin_query8_multi_party_settlement.sql": {
+        # `GROUP BY party_id, party_type` @155 inside CTE party_net_positions
+        # — bare keys of the DERIVED container `positions`, whose outputs
+        # are renamed settlement_legs columns (`sl.debit_party_id AS
+        # party_id`). gps_exchange_rates never provides either field here (it
+        # appears only as the scalar rate lookup @142-149), so the owner is
+        # the single-visible-table fallback and the belongs-to premise is
+        # false: emitting the edge would fabricate a schema fact. Witness:
+        # REF in from the bare key + REF out to the CTE.
+        "gps_exchange_rates.party_id":
+            "FALSE POSITIVE — bare GROUP BY key of the derived `positions` "
+            "container (sl.debit_party_id AS party_id); gps_exchange_rates "
+            "never provides it in this script, so the owner is a "
+            "single-visible-table fallback attribution",
+        "gps_exchange_rates.party_type":
+            "FALSE POSITIVE — bare GROUP BY key of the derived `positions` "
+            "container (sl.debit_party_type AS party_type); same fallback "
+            "owner as party_id",
+    },
+    "financial/fin_query14_recursive_account_hierarchy.sql": {
+        # `COALESCE(txn.txn_count, 0) AS node_txn_count` @87-90 — txn is the
+        # derived subquery @92-107 and each field is an aggregate BORN there
+        # (COUNT(t.txn_id), SUM(...), SUM(CASE ...)). Not columns of
+        # gps_transactions — the R44 rationale's own named example.
+        "gps_transactions.txn_count":
+            "FALSE POSITIVE — aggregate born inside the derived `txn` "
+            "subquery (COUNT(t.txn_id) @95), not a gps_transactions column",
+        "gps_transactions.total_volume":
+            "FALSE POSITIVE — aggregate born inside the derived `txn` "
+            "subquery (SUM(t.settlement_amount) @96)",
+        "gps_transactions.total_fees":
+            "FALSE POSITIVE — aggregate born inside the derived `txn` "
+            "subquery (SUM(COALESCE(t.merchant_discount,0)+…) @97-100)",
+        "gps_transactions.chargeback_count":
+            "FALSE POSITIVE — aggregate born inside the derived `txn` "
+            "subquery (SUM(CASE WHEN t.txn_type='CHARGEBACK'…) @101-102)",
+        # `txn.merchant_id` @107 in the LEFT JOIN ON — merchant_id IS a
+        # genuine gps_transactions column (t.merchant_id @94, GROUP BY
+        # t.merchant_id @106), and this var carries no belongs-to edge
+        # because Phase 4d-gb does not admit JOIN ON.
+        "gps_transactions.merchant_id":
+            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
+            "JOIN ON clause; the sibling registration @106 "
+            "(CTE{node_transactions}:join:txn) carries the belongs-to edge",
+    },
+}
 
 
 # The topology checker's issue IDENTITY header: every issue opens with
@@ -150,7 +308,10 @@ class TestGraphIntegrity:
         """
         r = extract_variables_from_sql(sql, fname)
         if len(r.variables) == 0:
-            return  # DDL files — skip
+            # R4 M (2026-08-29): a DDL file contributes no variables, which
+            # is a legitimate SKIP — a silent `return` is indistinguishable
+            # from a test that never ran.
+            pytest.skip("DDL file — no variables to check")
         deps = build_dependency_graph(r, "")
         vars_dict = _var_dicts(r.variables)
         deps_dict = _dep_dicts(deps)
@@ -161,27 +322,54 @@ class TestGraphIntegrity:
         # their column_connectivity findings are waived (see
         # _r44_derived_read_twin_names). Write twins stay covered.
         waived = _r44_derived_read_twin_names(vars_dict)
+        # R4 M-H (2026-08-29): the adjudicated residue the tightened
+        # predicate hands back. Each entry carries its own verdict; a
+        # listed entry that no longer fires is a WAIVER THAT LOST ITS
+        # DEFECT — the fix landed, so delete the entry (and the defect
+        # note with it) instead of letting the list rot.
+        info_checks = {"component_link_usage", "ambiguous_base_names", "alias_edges", "tables_view_isolation", "duplicate_nodes", "duplicate_table_names", "node_name_uniqueness"}
+        adjudicated = _ADJUDICATED_CONNECTIVITY.get(fname, {})
+        if adjudicated:
+            firing = set()
+            for check, issues in results.items():
+                if check in info_checks:
+                    continue
+                for issue in issues:
+                    m = _ISSUE_HEADER.match(issue)
+                    if m is not None:
+                        firing.add(m.group("name"))
+            stale = set(adjudicated) - firing
+            assert stale == set(), (
+                f"{fname}: adjudicated waiver entries that no longer fire — "
+                f"the defect was fixed (or the checker stopped reporting "
+                f"it), so DELETE the entries and their defect notes: "
+                f"{sorted(stale)}")
         unparsed = []
-        if waived:
+        if waived or adjudicated:
             # column_connectivity: the twin's witness is the REF from its
             # occurrence origin, which the check's accepted set
             # (SCHEMA/SELECT/DML) does not count.
             # isolated_nodes: that same single-REF witness can sit under
             # the check's "dotted column needs ≥2 edges" bar — same
             # false-positive class, so the same identity is waived there
-            # (≥1 edge only; a 0-edge twin stays a hard error).
+            # (≥1 edge only; a 0-edge twin stays a hard error). The
+            # adjudicated residue is column_connectivity-only by verdict:
+            # none of its members is a 0-edge node.
             for check, require_edge in (("column_connectivity", False),
                                         ("isolated_nodes", True)):
                 if check not in results:
                     continue
+                names = waived | (set(adjudicated)
+                                  if check == "column_connectivity" else set())
+                if not names:
+                    continue
                 results[check], bad = _apply_twin_waiver(
-                    results[check], waived, require_edge=require_edge)
+                    results[check], names, require_edge=require_edge)
                 unparsed += bad
         assert unparsed == [], (
             "topology_checker issue text no longer matches the "
             f"`[<type>] <name>:` header the R44 twin waiver parses "
             f"(update _ISSUE_HEADER, do not re-pin prose): {unparsed}")
-        info_checks = {"component_link_usage", "ambiguous_base_names", "alias_edges", "tables_view_isolation", "duplicate_nodes", "duplicate_table_names", "node_name_uniqueness"}
         hard_errors = {k: v for k, v in results.items()
                        if v and k not in info_checks}
         assert len(hard_errors) == 0, \

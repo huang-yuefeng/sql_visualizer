@@ -239,17 +239,36 @@ are gone.
 ### lending_ref downstream-in-SUP_M — the family-3 occurrence twins (F-D)
 
 The R44 record's items 1-4 stand. What changed under EXTRACTOR_VERSION
-2026-08-28.6/.7 is that two of the six join-key operands own a SECOND in-scope
-occurrence, so their occurrence twins render at their own lines instead of the
-join-key line: **pogmab** @46 (`AND p2.pogmab = 'HSBC'`, subq scope) and **poctcd**
-@120 (`p3.zfctcd = p2.poctcd`, the p3 join ON inside loan_final). Re-pins: LFS29
-(copy REF → alias instance @41), LFS36/LFS56→LFS62 (belongs-to @46/@120), LFS85
-(FILTER@46 into ⟐subq), LFS91 (JOIN@120), LFS100-103 (the four cross-instance copy
-REFs @46/@120), LFS64 (JOIN@150 — `RPAD(p4.iiapty,3,'')||p4.iiblno = p1.lending_ref`; the @153 form is W4-correctly served only in the iiapty closure (IID5))
-iiapty closure pins as IID5). New rows: LFS107 (the rollover IN-filter step @22),
-LFS108 (the NOT-IN filter step @48); LFS109 REMOVED (the X2 rendering has no realization path for a CTE-body subquery — its belongs-to is LFS9)
-its own frame @22 — the X2 rendering), LFS110/IID18 (the physical-side belongs-to
-twin of `p2.lending_ref`@201). New nodes: `pogmab@46`, `poctcd@120`.
+2026-08-28.6/.7/.8 is that two of the six join-key operands own a SECOND
+in-scope occurrence, so their occurrence twins render at their own lines
+instead of the join-key line: **pogmab** @46 (`AND p2.pogmab = 'HSBC'`, subq
+scope) and **poctcd** @120 (`p3.zfctcd = p2.poctcd`, the p3 join ON inside
+loan_final). Re-pins: LFS29 (copy REF → alias instance @41),
+LFS36/LFS56→LFS62 (belongs-to @46/@120), LFS85 (FILTER@46 into ⟐subq),
+LFS91 (JOIN@120), LFS100-103 (the four cross-instance copy REFs @46/@120),
+and **LFS64, re-pinned @153 → @150** (`ON RPAD(p4.iiapty,3,'')||p4.iiblno =
+p1.lending_ref`). The @153 anchor came from the iiapty closure's rendering
+of that join step; L153's predicate is `p5.iiapty = p4.iiapty`, never
+lending_ref, so it can only serve the iiapty closure — where the same
+physical relation is canonical as IID5 (`iiapty@151 → loan_final@64`,
+JOIN@153). In the lending_ref closure the served graph has NO edge at 153
+and the surviving join step is L150's, whose key ends in `p1.lending_ref`
+and so admits under W4 (J12-20 option b).
+
+**New rows:** LFS107 (the rollover IN-filter's filter step, anchored **@19**
+— the `AND lending_ref IN (` predicate line; the earlier @22 pin was the
+nested IN-subquery's own projection column, a different scope whose
+belongs-to stays LFS8/LFS9) and LFS108 (the NOT-IN filter step @48).
+**Removed:** LFS109 — the X2 "output column read into its own output frame"
+rendering has no realization path (`_simplify_dml_edges` mints it only
+behind a `tgt in dml_targets` gate, and ⟐subq1 is a CTE-body subquery's
+output frame, never a DML target; the ownership fact it doubled is already
+canonical as LFS9, and its membership predicate is LFS107 @19), and
+LFS110/IID18 — the physical-side belongs-to twin of `p2.lending_ref`@201
+plus its lending_ref-seeded twin (L201 reads `p2.lending_ref` with p2 the
+ALIAS of bdm_acc_loan_info_sup @199, so the one ownership fact the text
+supports there is already canonical as LFS74). New nodes: `pogmab@46`,
+`poctcd@120`.
 
 **Removed**: LFS56 (`poctcd@117 → rollover@9 REF@117`) — one of the six "@117
 operand copies into rollover" rows the point-15 served-closure dump produced, the
@@ -258,17 +277,26 @@ is loan_final (LFS50/LFS86-91); rollover is a sibling CTE consumed by the L41 jo
 and by p6 @155-156. LFS51-55 keep their rows only because the engine still renders
 them — same circularity, routed to the extractor/doc owner with the removal note.
 
-**Two engine edges are NOT canonicalized** (extractor defects, owner F-C, both
-model-witnessed because the model shares the extraction output):
+**Two engine edges are NOT canonicalized** — both were extractor defects
+(owner F-C, model-witnessed because the model shares the extraction output),
+and both are CLOSED by EXTRACTOR_VERSION 2026-08-28.8 (Fixes C/D): the engine
+no longer mints either edge, so no canonical row exists for them, and each is
+pinned by a test so the defect cannot return silently.
 
-| edge | SQL-text refutation |
-|------|---------------------|
-| `SCHEMA@182` bdm_acc_loan_info_sup → CHARGE_DEPARTMENT@160 | L182 is `p1.charge_department` with p1 = loan_final (L198) — the SOURCE-side column computing reserved_field7; the sup partition slot is fed by L196 `,p1.charge_department`. Family 3's "never a guessed owner" contract is violated. |
-| `SCHEMA@59` bdm_evt_loan_trans → lending_ref@50 | L59 `GROUP BY lending_ref` belongs to the ENCLOSING subq (the NOT-IN subquery closes at L58) whose source is p1 = bdm_acc_loan_info — pinned as LFS106. |
+| edge | SQL-text refutation | resolution |
+|------|---------------------|------------|
+| `SCHEMA@182` bdm_acc_loan_info_sup → CHARGE_DEPARTMENT@160 | L182 is `p1.charge_department` with p1 = loan_final (L198) — the SOURCE-side column computing reserved_field7; the sup partition slot is fed by L196 `,p1.charge_department`. Family 3's "never a guessed owner" contract was violated. | **Fix D** — the @182 occurrence is owned by loan_final; pinned by `test_occurrence_twin_owner_scope.py::test_charge_department_twins_are_owned_by_loan_final`. |
+| `SCHEMA@59` bdm_evt_loan_trans → lending_ref@50 | L59 `GROUP BY lending_ref` belongs to the ENCLOSING subq (the NOT-IN subquery closes at L58) whose source is p1 = bdm_acc_loan_info — pinned as LFS106. | **Fix C** — the GROUP BY occurrence is anchored inside its own scope only; pinned by `test_no_town_outside_the_not_in_subquery_scope`. |
 
-These two keep `iiapty↓SUP_M` (edges 18/19, highlights 10/11) and `lending_ref↓
-SUP_M` (edges 105/105, highlights 26/26 after the F-K adjudication) below the 1.0000 floor. Everything else is
-1.0000/1.0000: **18 passed / 2 failed**, recall 1.0 on all 20 cases.
+With LFS64 re-pinned to @150, LFS107 re-anchored to @19 and LFS109/LFS110/IID18
+removed, the gate is at set equality: **20 passed / 0 failed**, recall AND
+precision 1.0000 on all 20 cases (`lending_ref↓SUP_M` 105/105 edges,
+highlights 26/26 after the F-K adjudication; `iiapty↓SUP_M` served from its
+own closure, IID5). *(Measured at `EXTRACTOR_VERSION 2026-08-28.8` and
+re-verified 2026-08-29; the in-flight R44 Fix A stage-1 work on
+`lineage.py` — the derived-holder single-source gate — re-reddens
+`lending_ref↓SUP_M` nodes/precision until it is re-adjudicated, so re-check
+this row against the tree you are standing in.)*
 
 ### line-merged invariant (test_l2_line_merged_benchmark.py) — adjudicated
 

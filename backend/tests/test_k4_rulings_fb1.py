@@ -117,7 +117,10 @@ class TestFieldChipLineStart:
         try:
             res = _build_l2_graph(ws_id, "two_stmt.sql", TWO_STMT_SQL,
                                   "bdm_src", "dm_flag2")
-            assert res.get("error") is None, res
+            # R4 L (2026-08-29): the old `assert res.get("error") is None`
+            # was a tautology — `_build_l2_graph` never emits an `error` key
+            # (it returns {nodes, edges, ...} or raises), so the assert could
+            # not fail. The chip guards below are the real contract.
             fields = [n["data"] for n in res["nodes"]
                       if n["data"].get("type") == "field"]
             assert fields, res
@@ -135,9 +138,13 @@ class TestFieldChipLineStart:
         try:
             res = _build_l2_graph(ws_id, "two_stmt.sql", TWO_STMT_SQL,
                                   "bdm_src", "dm_flag2")
-            for n in res["nodes"]:
-                if n["data"].get("type") == "field":
-                    assert "line_end" not in n["data"], n["data"]
+            # R4 L (2026-08-29): without this guard the loop below can be
+            # vacuous — a builder that emitted zero field chips passed.
+            fields = [n["data"] for n in res["nodes"]
+                      if n["data"].get("type") == "field"]
+            assert fields, res
+            for f in fields:
+                assert "line_end" not in f, f
         finally:
             delete_workspace(ws_id)
 
@@ -398,7 +405,10 @@ class TestCaseInsensitiveSeedMatching:
             assert sr["script_ids"] == ["dl.sql", "pl.sql"], sr
             res = get_level2_graph(ws_id, sr["view_id"], "dl.sql",
                                    "bdm_src", "dm_flag2")
-            assert res.get("search_matched") is not False, res
+            # R4 L (2026-08-29): `get_level2_graph` writes `search_matched`
+            # ONLY as False (absent ⇒ matched), so the old `is not False`
+            # could never fail. The honest form asserts the matched default.
+            assert res.get("search_matched", True) is True, res
             seeds = [n["data"] for n in res["graph"]["nodes"]
                      if n["data"].get("type") == "field"
                      and n["data"].get("is_target")]
@@ -415,7 +425,7 @@ class TestCaseInsensitiveSeedMatching:
             assert sr["script_ids"] == ["dl.sql", "pl.sql"], sr
             res = get_level2_graph(ws_id, sr["view_id"], "pl.sql",
                                    "BDM_SRC", "DM_FLAG2")
-            assert res.get("search_matched") is not False, res
+            assert res.get("search_matched", True) is True, res
             seeds = [n["data"] for n in res["graph"]["nodes"]
                      if n["data"].get("type") == "field"
                      and n["data"].get("is_target")]
@@ -444,18 +454,35 @@ class TestCaseInsensitiveSeedMatching:
             delete_workspace(ws_id)
 
     def test_l1_builder_seed_is_case_insensitive(self):
-        """The seed the ruling names (l1_builder's `fld.name == field`) is
-        casefolded now, so the field-children enrichment path seeds the
-        closure from every case variant.
+        """LIMITATION (R4 L, 2026-08-29): the casefold of l1_builder's
+        field-children enrichment seed CANNOT be asserted as behaviour, so
+        this test pins the reason instead of the source text.
 
-        NOTE on reachability: since R29 item 8 a FIELD query returns early
-        through `_build_l1_directional_field_flow` (no field nodes on L1),
-        so this seed is only exercised by the table-only enrichment path —
-        the casefold is correctness there and future-proofing for any
-        caller that reaches it with a truthy field. The user-visible
-        case-split contract is the L2 one tested above.
+        R29 item 8 makes the path unreachable for a FIELD query: every
+        field search returns early through `_build_l1_directional_field_flow`
+        (L1 carries no field nodes), so no fixture can drive the enrichment
+        seed through the service layer — a source-text assert on it could
+        only ever re-test the source, not the system, and is dropped. The
+        reachability fact itself IS assertable behaviour, and that is what
+        this test now pins: an L1 built for a field query carries only
+        script/table nodes, never a field node. The casefold stays
+        correctness for the table-only enrichment path and future-proofing
+        for any caller that reaches it with a truthy field; the
+        user-visible case-split contract is the L2 one tested above.
         """
-        import inspect
-        import app.services.l1_builder as l1b
-        src = inspect.getsource(l1b._build_l1_graph_uncached)
-        assert "fld.name.casefold() == _field_key" in src, src[:400]
+        ws_id = _indexed_ws({"pl.sql": PL_SQL, "dl.sql": DL_SQL})
+        try:
+            from app.services.dataflow_service import _build_l1_graph
+            l1 = _build_l1_graph(ws_id, ["dl.sql", "pl.sql"],
+                                 "bdm_src", "dm_flag2")
+            assert l1.get("flow_empty") is False, l1
+            node_types = {n["data"]["type"] for n in l1["nodes"]}
+            assert node_types, l1
+            assert node_types <= {"script_node", "source_table",
+                                  "intermediate_table", "output_table",
+                                  "query_output"}, node_types
+            assert not (node_types & {"field", "column"}), (
+                "a FIELD query reached the field-node path on L1 — R29 "
+                f"item 8's early return no longer holds: {node_types}")
+        finally:
+            delete_workspace(ws_id)

@@ -74,7 +74,7 @@ def test_anchor_index_equals_reference_linear_scan():
     # (hive here — INSERT OVERWRITE) — the statements the extractor walks
     from app.extractor.variable_extractor_v2 import (
         _detect_dialect, _preprocess_sql)
-    clean = _preprocess_sql(sql)
+    clean, _kept = _preprocess_sql(sql)
     parsed = [s for s in sqlglot.parse(clean, dialect=_detect_dialect(sql),
                                        error_level=sqlglot.ErrorLevel.IGNORE)
               if s is not None]
