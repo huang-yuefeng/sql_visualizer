@@ -11,6 +11,7 @@ IMAGE_FILE="$IMAGE_DIR/gps-sql-visualizer.tar.gz"
 PIECE_SIZE="45M"          # pieces < 50MB for GitHub
 VERSION=$(cat VERSION)
 COMMIT_MSG="${1:-[release] v$VERSION}"
+SMOKE_PORT="${SMOKE_PORT:-8000}"   # smoke container port — must differ from a running prod gps-sql (8000)
 
 # ── 0. Pre-flight: run pytest suite ─────────────────────────────────
 echo "=== Pre-flight: pytest ==="
@@ -50,7 +51,7 @@ docker build -t gps-sql-visualizer:latest .
 # ── 2. Run smoke test ───────────────────────────────────────────────
 echo "=== Smoke test ==="
 docker rm -f gps-test 2>/dev/null || true
-docker run -d --pull=never -p 8000:8000 --name gps-test gps-sql-visualizer:latest
+docker run -d --pull=never -p ${SMOKE_PORT}:8000 --name gps-test gps-sql-visualizer:latest
 
 echo -n "  Waiting for healthy..."
 for i in $(seq 1 20); do
@@ -62,7 +63,7 @@ for i in $(seq 1 20); do
     echo -n "."
 done
 
-curl -sf --noproxy '*' http://127.0.0.1:8000/api/health && echo ""
+curl -sf --noproxy '*' http://127.0.0.1:${SMOKE_PORT}/api/health && echo ""
 
 # Run pytest in container
 echo "=== Pytest (container) ==="
