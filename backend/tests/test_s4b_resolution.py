@@ -195,17 +195,22 @@ def test_r6_field_equals_visible_table_never_attributed():
 # ── statement doesn't reference ─────────────────────────────────────────
 
 def test_scope_absent_evidence_never_attributed():
-    """Field `id` is known only in table t1 (INSERT target column list),
-    but the statement's visible tables are {a, b} — t1 is NOT referenced →
-    0 visible owners → stays unresolved. (The old scope-blind S4 loop
-    attributed workspace-unique t1.id here — the bug S4b replaces.)"""
+    """R44 amendment (2026-08-28, user ruling "walker occurrence
+    coverage"): field `id` is named in t1's INSERT target column list —
+    authored SQL text = positive evidence, NOT a guess. The extractor
+    registers the write-side twin t1.id (attributed to t1), so the index
+    records id → t1 and nothing stays unresolved. The S4b schema STRATEGY
+    itself still never infers here (by_strategy.schema == 0, candidates
+    summary unmoved) — INSERT-target attribution is extraction-time, and
+    never-guess governs scope-INFERRED attribution only (the old
+    scope-blind S4 loop remains replaced by the scope-aware pass)."""
     ws = _make_ws({"t.sql":
                    "INSERT INTO t1 (id) SELECT id FROM a JOIN b ON a.x = b.y;\n"})
     try:
         result = index_scripts(ws, ["t.sql"])
-        assert result["field_index"]["id"]["tables"] == [], \
-            "never attribute to a table the statement doesn't reference"
-        assert result["orphan_field_count"] == 1, result
+        assert result["field_index"]["id"]["tables"] == ["t1"], \
+            "R44: the INSERT target list is authored evidence for t1.id"
+        assert result["orphan_field_count"] == 0, result
         assert result["resolution_stats"]["by_strategy"]["schema"] == 0
         assert result["schema_candidates_summary"] == {
             "total": 1, "unique_owner": 0, "r6_collision": 0}

@@ -16,7 +16,7 @@
 -- 20250604  chenbinbin 新增 loan_purpose, loan_purpose_onoff_flag
 -- 20250725  sunhao     修改 loan_purpose, 新增 loan_purpose_indus 字段 modify 150 HBCNRDQE-4040 HBCNRDQE-4157
 SET odps.sql.decimal.odps2=true;
-INSERT OVERWRITE TABLE bdm_acc_loan_info PARTITION(data_dt='${load_date}',CHARGE_DEPARTMENT='OPS_CLBS_PLoan');
+INSERT OVERWRITE TABLE bdm_acc_loan_info PARTITION(data_dt='${load_date}',CHARGE_DEPARTMENT='OPS_CLBS_PLoan')
 --PLOAN 部分贷款
 SELECT distinct a.acnw AS LENDING_REF,  -- 借据号
 NULL AS PCB_ACCT_NO,  -- 表内账号

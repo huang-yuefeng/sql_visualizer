@@ -227,18 +227,33 @@ async def get_activity(request: Request, ws_id: str):
 
 
 @router.post("/workspace/{ws_id}/scan")
-async def scan_workspace(ws_id: str):
-    """Scan workspace directory, return file tree."""
+def scan_workspace(request: Request, ws_id: str):
+    """Scan workspace directory, return file tree.
+
+    E4 (item 2): plain `def`, not `async def` — scan_folder walks the tree
+    and parses every .sql file (blocking I/O + CPU); it must run in
+    FastAPI's threadpool, never on the event loop (mirrors index_workspace).
+
+    #380 (user ruling 2026-08-28): creator-only, same rule as layout /
+    filter-config (#272) — a scan rewrites shared workspace state, and
+    read-only participants must not trigger it."""
+    username, token = _session_ctx(request)
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    if ws.get("creator_username") != username:
+        raise HTTPException(status_code=403,
+                            detail="Only the workspace creator may rescan the workspace")
     return scan_folder(ws_id)
 
 
 @router.post("/workspace/{ws_id}/index")
-def index_workspace(ws_id: str, body: dict):
+def index_workspace(request: Request, ws_id: str, body: dict):
     """Index the ENTIRE workspace — the index is ALWAYS the complete
     workspace index, never a caller-supplied subset.
+
+    #380 (user ruling 2026-08-28): creator-only — indexing rewrites the
+    shared caches (table_index / analysis_*), so participants get 403.
 
     #257: the body's `scripts` list is IGNORED. A partial script list used
     to overwrite cache/table_index.json with exactly that list (no merge),
@@ -253,9 +268,16 @@ def index_workspace(ws_id: str, body: dict):
     writes) per script; it must run in FastAPI's threadpool, never on the
     event loop (a large index request used to freeze the whole service).
     """
+    # #380 (user ruling 2026-08-28): creator-only — indexing rewrites the
+    # shared caches (table_index / analysis_*), so participants get 403
+    # (same rule as layout / filter-config, #272).
+    username, token = _session_ctx(request)
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    if ws.get("creator_username") != username:
+        raise HTTPException(status_code=403,
+                            detail="Only the workspace creator may re-index the workspace")
 
     # #257: always rebuild from the on-disk tree — a subset `scripts` body
     # must never shrink the index. _collect_sql_files excludes schema files

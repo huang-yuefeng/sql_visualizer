@@ -152,9 +152,13 @@ class TestC2GraphCacheInvalidation:
         from the model occurrences, the DML trunk is per-statement
         J12-15); R26.3 integration bumped to graph_3_2_24 (the per-edge
         `mech` payload is removed from the graph JSON shape — R26
-        deleted the frontend renderer, the backend emitter is retired).
+        deleted the frontend renderer, the backend emitter is retired);
+        K4 ruling 3 (2026-08-28) bumped to graph_3_2_25 (cached graphs
+        carry stale `parse_errors: []` for scripts ErrorLevel.IGNORE
+        recovered into a partial tree — paired with extractor_version
+        2026-08-28.7; graph JSON shape unchanged).
         The bump is the single-constant invalidation."""
-        assert cache_keys.GRAPH_CACHE_PREFIX == "graph_3_2_24", \
+        assert cache_keys.GRAPH_CACHE_PREFIX == "graph_3_2_25", \
             cache_keys.GRAPH_CACHE_PREFIX
         assert fis.GRAPH_CACHE_PREFIX == cache_keys.GRAPH_CACHE_PREFIX
 

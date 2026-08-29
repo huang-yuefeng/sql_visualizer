@@ -11,6 +11,13 @@ I am going to develop a requirement for the sql visualizer of a project.
 
 ### Amendment (2026-08-12) — L1 shows the queried FIELD's flow; upstream/downstream query direction
 
+> **Status: PARTLY SUPERSEDED.** The §4 field-flow half stands (R29). The direction half does
+> not: **R38 (v3.3.180) removed the Upstream/Downstream toggle — every search runs DOWNSTREAM**
+> (the reading flow), and the K4 ruling of 2026-08-28 closed the API (the `direction` parameter
+> is accepted but never honored; omitted AND legacy `"upstream"` coerce to `"downstream"` at the
+> router boundary). Traceability: R4.13/R29.4 + the "K4 rulings" section of
+> `wiki/REQUIREMENTS_TRACEABILITY.md`.
+
 §4 amended: the first-level graph shows the **data flow of the selected field** — the
 same semantic as the second-level graph — at cross-script scale: script nodes + the
 tables between scripts that carry the flow (no fields, no intra-script detail). Scripts
@@ -41,6 +48,10 @@ toolbar drops a seldom-used toggle.
   button (with pin). The direction toggle sits UNDER the table/field boxes and BEFORE
   Search so it cannot be skipped; **upstream** remains the default.
 
+  > **Superseded (R38, v3.3.180):** the Direction toggle is REMOVED from the Search area —
+  > it is now Table box → Field box → Search, one direction only (downstream). See the
+  > 2026-08-12 amendment's status note above.
+
 **§4 amended — remove the L2 "Structure off" toggle:**
 - The L2 graph toolbar's "Structure on/off (N)" button is removed (seldom used).
   SCHEMA structure/containment edges stay permanently hidden (their documented
@@ -70,8 +81,8 @@ autocomplete of §2) is limited to:
 ### Amendment (2026-08-25) — code-review decisions: access model + security hardening
 (walkthrough of `wiki/CODE_REVIEW_2026-08-24.md`, one-by-one; IMPLEMENTED — v3.3.165)
 
-Decisions taken during the 2026-08-25 review walkthrough. Coding reference for the pending
-implementation batch — tasks #303 (H1), #308 (M-S1), #309 (M-L1), #310 (M-L2), #315 (M-Po3),
+Decisions taken during the 2026-08-25 review walkthrough. Coding reference for the
+implementation batch (all shipped v3.3.165, commit `7e67f0e`) — tasks #303 (H1), #308 (M-S1), #309 (M-L1), #310 (M-L2), #315 (M-Po3),
 #316 (M-Po4), #317 (M-Po5), #318 (M-Po6), #319 (M-Po7), #320 (low backlog), #322 (notification
 removal). Traceability rows: see `wiki/REQUIREMENTS_TRACEABILITY.md` "Code-review decisions".
 

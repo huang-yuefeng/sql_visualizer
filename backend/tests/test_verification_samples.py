@@ -15,8 +15,9 @@ team; §8.9 corrected accordingly), REBASED onto the served L2 2026-08-10
 (E2 scope, same day):
 
   WINDOW   dialect_test/snowflake_qualify.sql
-           order_date@4 → rn@6            anchor 4  (rule 1 — appearance)
-           customer_id@3 → rn@6           anchor 3
+           order_date@4 → rn@6            anchor 6  (#387 window-key — the
+           customer_id@3 → rn@6           anchor 6   OVER clause's own line
+           (the window var rn@6), not the operand's line)
   SET_OP   tpcds_qualified/86.sql
            union_result@0 → results_rollup@14  anchor 15  (rule 4 — the
            set-op expression's first token; the CTE header line 14 supports
@@ -35,10 +36,11 @@ team; §8.9 corrected accordingly), REBASED onto the served L2 2026-08-10
   WINDOW   tpcds_qualified/86.sql — the 4 rank() inputs (total_sum /
            g_class / i_category / lochierarchy, all L15). The served L2
            MERGES them into ONE WINDOW edge — owner results_rollup → the
-           rank_within_parent target field, anchor 15 (appearance line of
-           every input) — the pre-existing field-edge promotion + dedup
-           (P2/promote_field_edges; the target keeps field level only when
-           it is the searched seed field, e.g. seed (⟐ output,
+           rank_within_parent target field, anchor 25 (#387 window-key —
+           the OVER clause's own line, the window var rank_within_parent@25,
+           not the inputs' appearance line) — the pre-existing field-edge
+           promotion + dedup (P2/promote_field_edges; the target keeps field
+           level only when it is the searched seed field, e.g. seed (⟐ output,
            rank_within_parent)). One pin (WINDOW-3) covers the merged edge.
   INDIRECT spider_complex/046_pets_1_s6.sql
            T1.stuid@3 → T1.stuid@3        anchor 3  (endpoint-decided — the
@@ -97,18 +99,20 @@ TABLE_LIKE = {"table", "view", "cte", "virtual_table", "subquery", "merge_target
 #                       gap); the pin tracks the served value and flips
 #                       loudly when the extractor lands the fix.
 PINNED_ROWS = [
-    # ── WINDOW — snowflake_qualify.sql (rule 1: source field's appearance) ──
+    # ── WINDOW — snowflake_qualify.sql (#387 window-key anchoring) ──────────
     # L2 field nodes carry no line_start; the (name, line) pairs below are
-    # the raw-var lines (order_date@4, rn@6, customer_id@3). The served
-    # edges: (order_date → rn) hl=4 in the (orders, order_date) closure;
-    # (customer_id → rn) hl=3 in the (orders, customer_id) closure — the
-    # seed field keeps field-level edges (P2), non-seed inputs promote to
-    # the owner table (orders → rn, same anchors).
+    # the raw-var lines (order_date@4, rn@6, customer_id@3). #387
+    # (2026-08-28): a WINDOW edge's anchor is the window application's OWN
+    # line (the OVER clause rides the window var — the edge's target rn@6),
+    # NOT the operand's line (order_date@4 / customer_id@3). Served edges:
+    # (order_date → rn) hl=6, (customer_id → rn) hl=6 — the seed field
+    # keeps field-level edges (P2), non-seed inputs promote to the owner
+    # table (orders → rn, same anchor 6).
     dict(sample="dialect_test/snowflake_qualify.sql", eid="WINDOW-1",
-         src=("order_date", 4), tgt=("rn", 6), rel="WINDOW", anchor=4,
+         src=("order_date", 4), tgt=("rn", 6), rel="WINDOW", anchor=6,
          mode="closure"),
     dict(sample="dialect_test/snowflake_qualify.sql", eid="WINDOW-2",
-         src=("customer_id", 3), tgt=("rn", 6), rel="WINDOW", anchor=3,
+         src=("customer_id", 3), tgt=("rn", 6), rel="WINDOW", anchor=6,
          mode="closure"),
     # ── SET_OP — 86.sql (rule 4: set-op expression's first token, L15) ─────
     # Edge exists in the unfiltered L2; hl is currently 0 — the union_branch
@@ -118,24 +122,26 @@ PINNED_ROWS = [
     dict(sample="tpcds_qualified/86.sql", eid="SET_OP-1",
          src=("union_result", 0), tgt=("results_rollup", 14), rel="SET_OP",
          anchor=15, mode="full_graph", known_gap=True),
-    # ── WINDOW — 86.sql (rule 1: appearance at line 21) ────────────────────
+    # ── WINDOW — 86.sql (#387 window-key anchoring) ────────────────────────
     # The 4 rank() inputs (total_sum / g_class / i_category / lochierarchy,
     # all owned by results_rollup) MERGE in the served L2 into ONE
     # WINDOW edge: owner results_rollup → the rank_within_parent target
-    # field. anchor 21 = the inputs' OWN window appearance
-    # (partition by lochierarchy at L21; total_sum in the window's
-    # order-by at L23) — the rank() over block spans L22-25, the AS alias
-    # `rank_within_parent` at L25. Rebased 2026-08-11 from 15 (S3
-    # occurrence-aware anchors, v3.3.152): pre-fix the inputs resolved to
-    # L15 — their FIRST file appearance inside the results_rollup CTE
-    # union arm (first-occurrence-beats-definition collapse); post-fix
-    # each resolves to its own window occurrence. The merged edge
-    # lives in the (⟐ output, rank_within_parent) seed closure (the target
-    # seed field keeps field level — P2). Rows WINDOW-4..6 of the original
-    # probe collapsed into this single pin (pre-existing promotion design).
+    # field. #387 (2026-08-28): the anchor is the window application's OWN
+    # line — the window var `rank_within_parent` @25 (the OVER clause's
+    # closing line, `order by total_sum desc) as rank_within_parent`),
+    # NOT the inputs' appearance line 21. The rank() over block spans
+    # L22-25, the AS alias `rank_within_parent` at L25. Rebased 2026-08-11
+    # from 15 (S3 occurrence-aware anchors, v3.3.152): pre-fix the inputs
+    # resolved to L15 — their FIRST file appearance inside the
+    # results_rollup CTE union arm (first-occurrence-beats-definition
+    # collapse); post-fix each resolves to its own window occurrence. The
+    # merged edge lives in the (⟐ output, rank_within_parent) seed closure
+    # (the target seed field keeps field level — P2). Rows WINDOW-4..6 of
+    # the original probe collapsed into this single pin (pre-existing
+    # promotion design).
     dict(sample="tpcds_qualified/86.sql", eid="WINDOW-3",
          src=("results_rollup", 14), tgt=("rank_within_parent", 25),
-         rel="WINDOW", anchor=21, mode="closure"),
+         rel="WINDOW", anchor=25, mode="closure"),
     # ── INDIRECT — 046_pets_1_s6.sql (endpoint-decided: token at both
     #    endpoints → anchor 3). mode="dep": the correlated self-loops exist
     #    at the dependency level (op CORRELATED); the served L2 promotes

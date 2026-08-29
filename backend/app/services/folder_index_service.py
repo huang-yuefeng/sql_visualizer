@@ -632,6 +632,16 @@ def index_scripts(ws_id: str, script_paths: list[str],
                             field_index[field_name]["tables"].add(tname)
                             table_index.setdefault(tname, {"fields": set(), "scripts": set()})
                             table_index[tname]["fields"].add(field_name)
+                            # F2 (audit #383): a table entry that receives a
+                            # field from this script must also record the
+                            # script — create_search matches scripts via
+                            # field_index[f].scripts ∩ table_index[t].scripts,
+                            # so a fields-without-scripts entry (CTE names,
+                            # aliases, derived containers — none of which get
+                            # the vt=="table" attribution above) is a silent
+                            # no_matches for every search that names it
+                            # (TEMP_RFN.dkjjbm).
+                            table_index[tname]["scripts"].add(rel_path)
 
                 elif vt in _OUTPUT_ALIAS_TYPES and v.get("is_output") \
                         and _is_top_statement_context(context):
@@ -656,6 +666,10 @@ def index_scripts(ws_id: str, script_paths: list[str],
                             field_index[field_name]["tables"].add(tname)
                             table_index.setdefault(tname, {"fields": set(), "scripts": set()})
                             table_index[tname]["fields"].add(field_name)
+                            # F2 (audit #383): same invariant as the column
+                            # branch — fields from this script imply the
+                            # script in table_index[tname].scripts.
+                            table_index[tname]["scripts"].add(rel_path)
 
             # Bug 41: Cross-reference DML dependencies so that INSERT column
             # names (e.g., total_amount) are indexed alongside SELECT aliases
@@ -686,6 +700,9 @@ def index_scripts(ws_id: str, script_paths: list[str],
                     table_index.setdefault(tgt_table, {"fields": set(), "scripts": set()})
                     table_index[tgt_table]["fields"].add(src_field)
                     table_index[tgt_table]["fields"].add(tgt_field)
+                    # F2 (audit #383): same invariant — the fields just
+                    # attributed to the write target imply this script.
+                    table_index[tgt_table]["scripts"].add(rel_path)
                     # Index both names in field_index with target table
                     for fn in (src_field, tgt_field):
                         field_index.setdefault(fn, {"tables": set(), "scripts": set()})
@@ -841,7 +858,14 @@ def index_scripts(ws_id: str, script_paths: list[str],
         # candidate's own scope replaces workspace-global uniqueness).
         field_index.setdefault(_f, {"tables": set(), "scripts": set()})
         field_index[_f]["tables"].add(owner)
+        # F2 (audit #383): S4b is a field-attribution site too — the field
+        # attributed here implies the candidate's script on BOTH the field
+        # and the owner table (create_search matches field_scripts ∩
+        # table_scripts, so a schema-resolved field must carry its defining
+        # script like every other attribution site).
+        field_index[_f]["scripts"].add(_srec)
         table_index[owner]["fields"].add(_f)
+        table_index[owner]["scripts"].add(_srec)
         extractor_unresolved.discard(_f)  # out of the per-script unresolved lists
         # Persist into the analysis cache: var attribution + resolution_stats
         # (unresolved drop, schema +1, candidate removal) so cache consumers
@@ -912,6 +936,11 @@ def index_scripts(ws_id: str, script_paths: list[str],
                     table_index.setdefault(_t,
                                            {"fields": set(), "scripts": set()})
                     table_index[_t]["fields"].add(_c)
+                    # F2 (audit #383): star expansion is a field-attribution
+                    # site too — the star over _t in this script implies the
+                    # script on the table entry (fields-without-scripts
+                    # zombies break the create_search intersection).
+                    table_index[_t]["scripts"].add(_rel)
                     star_expanded_fields += 1
 
     # P1: Build pair_index[(table,field)] → {scripts} for fast seed-script lookup.
@@ -1513,16 +1542,124 @@ def autocomplete(index: dict, type_: str, query: str) -> list[str]:
     return ranked[:20]
 
 
+# ── F5 (audit #383, R2.10) at the SEARCH layer ──────────────────────────
+# SQL identifiers are case-insensitive, but the index keys carry whatever
+# casing each script WROTE (`dm_flag2` in one script, `DM_FLAG2` in the
+# next). The frontend already resolves a typed name case-insensitively
+# (`resolveNameCi()` in utils/nameFilter.js) — but resolution at the UI is
+# only an echo: the backend matched index keys EXACTLY, so two case
+# variants of one column resolved to DISJOINT script sets and a
+# natural-spelling query missed the index outright. These helpers are the
+# backend half of the same ruling, built on ISSUE-4's case-insensitive
+# physical-table identity (2026-08-25.1, `_canonicalize_table_names` /
+# `_majority_spelling` in the extractor): case variants are ONE identity,
+# never competing alternatives.
+
+def _majority_index_spelling(index: dict, keys: list[str]) -> str:
+    """Canonical spelling of a case-variant key group — the index-level
+    form of the extractor's ISSUE-4 `_majority_spelling` rule (most votes
+    first, lowercase preferred on a tie, then first-seen).
+
+    The index has no per-occurrence votes, so the closest available
+    frequency signal is used: the number of scripts that recorded the
+    spelling (`entry["scripts"]`). Ties fall back exactly like the
+    extractor — a lowercase spelling beats a non-lowercase one, then the
+    index's own key order (insertion = first-seen during indexing)
+    decides. Deterministic for a given index, whatever casing arrives.
+    """
+    order = {k: i for i, k in enumerate(index.keys())}
+
+    def _rank(k: str):
+        n_scripts = len((index.get(k) or {}).get("scripts") or [])
+        return (-n_scripts, 0 if k.islower() else 1, order.get(k, len(order)))
+
+    return sorted(keys, key=_rank)[0]
+
+
+def resolve_name_ci(index: dict, query: str) -> tuple:
+    """Resolve a typed table/field name against an index, case-insensitively.
+
+    Returns ``(canonical_key, group_keys)``:
+
+    * ``group_keys`` — EVERY index key equal to ``query`` case-insensitively.
+      The caller must UNION the entries' script sets: the variants are one
+      index identity (ISSUE-4), so `dm_flag2` and `DM_FLAG2` can never
+      resolve to disjoint script sets again.
+    * ``canonical_key`` — the single spelling a search echoes and hands to
+      the L1/L2 builders. The exact key wins (the frontend `resolveNameCi`
+      ruling: a caller that sent a real index key must not be rewritten);
+      otherwise the group's ISSUE-4 majority spelling
+      (`_majority_index_spelling`) — deterministic when several scripts
+      wrote the same identifier in different cases. The frontend's
+      autocomplete collation (exact > prefix > Levenshtein,
+      `autocomplete()` below — already case-insensitive) is a DROPDOWN
+      ranking, deliberately NOT a search-resolution rule: falling back to
+      prefix/Levenshtein here would answer a question the user did not
+      ask.
+    * ``(None, [])`` — nothing matches, case-insensitively included. The
+      caller keeps its honest no_matches / "not in the index" behavior.
+
+    An empty/blank query resolves to nothing (a table-only search resolves
+    its field as "absent" and the caller gates on that itself).
+    """
+    if not isinstance(query, str):
+        return None, []
+    q = query.strip()
+    if not q:
+        return None, []
+    q_lower = q.lower()
+    group = [k for k in index if isinstance(k, str) and k.lower() == q_lower]
+    if not group:
+        return None, []
+    if q in index:
+        return q, group
+    return _majority_index_spelling(index, group), group
+
+
+def scripts_for_name_ci(index: dict, query: str) -> set:
+    """Union of the scripts of EVERY case-insensitive-equal index entry.
+
+    The search-layer script-set lookup: `dm_flag2` and `DM_FLAG2` both
+    return the same set, so the same column written in different cases by
+    different scripts is one searchable identity (the create_search
+    intersection is taken over this union, never over one spelling's
+    scripts).
+    """
+    _canonical, group = resolve_name_ci(index, query)
+    out: set = set()
+    for k in group:
+        entry = index.get(k)
+        if isinstance(entry, dict):
+            out.update(entry.get("scripts") or [])
+    return out
+
+
 def tables_for_field(index: dict, field: str) -> list[str]:
-    """Return all tables containing the given field."""
-    entry = index.get(field, {})
-    return entry.get("tables", [])
+    """Return all tables containing the given field (case-insensitive).
+
+    NOTE (deliberate asymmetry with `scripts_for_name_ci`): resolution is
+    case-insensitive, but the returned set comes from the CANONICAL entry
+    only — the case-variant group is NOT unioned. No production caller
+    today (test-only); `scripts_for_name_ci` is the search-layer lookup
+    and unions the whole group because scripts per spelling genuinely
+    differ, while `tables`/`fields` are one canonical identity's payload.
+    """
+    canonical, _group = resolve_name_ci(index, field)
+    if canonical is None:
+        return []
+    return index.get(canonical, {}).get("tables", [])
 
 
 def fields_for_table(index: dict, table: str) -> list[str]:
-    """Return all fields of the given table."""
-    entry = index.get(table, {})
-    return entry.get("fields", [])
+    """Return all fields of the given table (case-insensitive).
+
+    Same deliberate asymmetry as `tables_for_field`: canonical entry only,
+    no case-variant union (see the NOTE above).
+    """
+    canonical, _group = resolve_name_ci(index, table)
+    if canonical is None:
+        return []
+    return index.get(canonical, {}).get("fields", [])
 
 
 def get_index_status(ws_id: str) -> dict:

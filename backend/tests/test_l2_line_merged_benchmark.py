@@ -73,6 +73,41 @@ has no independent canonical pin; it is verified structurally instead:
       (line, unordered node pair) is present in full_merged with an arrow
       set that is a superset of the flow edge's arrows (the full build's
       extra edges can only widen a pair's direction, never narrow it).
+
+ADJUDICATION (2026-08-29, F-D) — the rule-4 self-loop invariant and SUP_M
+line 59
+-------------------------------------------------------------------------
+This benchmark's rule-4 check fired after the family-3 occurrence twins
+(EXTRACTOR_VERSION 2026-08-28.6) minted a second SCHEMA belongs-to edge on
+SUP_M line 59 (`GROUP BY lending_ref`). Verdict, after reading
+`l2_builder.build_line_merged_edges`: the INVARIANT is amended, the
+builder is NOT asked to dedup harder, and the intent survives intact.
+
+  * The builder's rule 4 carries its own recorded ruling (L-E5): a self-loop
+    is absorbed only into the line's NON-SELF edge(s); a line whose edges
+    are ALL self-loops keeps every one of them, because two distinct
+    self-loops (T1→T1 + T2→T2) are each their own table's sole edge. The
+    check below still enforced the pre-L-E5 form (`len(les) > 1`), so the
+    builder and its benchmark disagreed — the check was stale, not the
+    builder. Amended to the L-E5 semantics (self-loop + non-self edge on
+    one line ⇒ must be absorbed), which is the invariant's actual intent:
+    a table's loop must never silently disappear among a line's other
+    table-pair edges.
+  * What line 59 actually carries, SQL-verified: L59 `GROUP BY lending_ref`
+    belongs to the ENCLOSING subq (the NOT-IN subquery
+    `SELECT DISTINCT lending_ref FROM bdm_evt_loan_trans a WHERE …` closes
+    at L58), whose only source is p1 = bdm_acc_loan_info — so
+    (a) `bdm_acc_loan_info → lending_ref@59` (canonical LFS106, the #387
+    GROUP-BY occurrence twin) is genuine, and
+    (b) `bdm_evt_loan_trans → lending_ref@59` is an extractor DEFECT (the
+    twin inherited subq2's owner for an occurrence outside subq2's parens;
+    family 3's "never a guessed owner" contract). Reported to the
+    extractor owner, never canonicalized; fixed by F-E2 (Fixes C/G/E/F,
+    2026-08-28.8) — the L59 GROUP-BY defect reasoning lives in this file's
+    docstring above and the equivalence docstring; the IID18 note in
+    jaccard_canonical.py is now the L201 plain-alias twin removal note
+    (a different defect). When L59-class bugs are fixed, line 59 keeps
+    exactly one self-loop — and the amended rule keeps it.
 """
 
 import io
@@ -216,17 +251,28 @@ def _merge_shape_problems(view, name):
                 f"{name}: two merged edges share (line, table pair) "
                 f"{key}: {seen[key]} and {d.get('id')}")
         seen[key] = d.get("id")
-    # rule 4 — a self-loop survives only as its line's SOLE edge.
+    # rule 4 — a self-loop survives only when its line carries NO non-self
+    # edge (l2_builder.build_line_merged_edges rule 4 / L-E5): a line whose
+    # edges are ALL self-loops keeps every one of them — two distinct
+    # self-loops (T1→T1 + T2→T2) are each their own table's sole edge —
+    # while a self-loop sharing its line with a non-self table pair is
+    # absorbed into that pair. (The pre-L-E5 form of this check used
+    # `len(les) > 1`, which also fired on a line of two distinct self-loops
+    # and demanded the builder dedup harder — the exact check L-E5
+    # replaced; its one live trigger was line 59 of SUP_M, see the module
+    # note below.)
     by_line = defaultdict(list)
     for e in edges:
         by_line[e["data"]["highlight_line"]].append(e["data"])
     for line, les in by_line.items():
-        for d in les:
-            if d["source"] == d["target"] and len(les) > 1:
+        self_loops = [d for d in les if d["source"] == d["target"]]
+        non_self = [d for d in les if d["source"] != d["target"]]
+        if self_loops and non_self:
+            for d in self_loops:
                 problems.append(
-                    f"{name}: self-loop {d.get('id')} on line {line} is not "
-                    f"the line's sole edge ({len(les)} edges) — must be "
-                    f"absorbed")
+                    f"{name}: self-loop {d.get('id')} on line {line} shares "
+                    f"its line with {len(non_self)} non-self edge(s) — must "
+                    f"be absorbed")
     # field→table promotion — no field endpoint may survive (THIS script has
     # no parentless fields; see the parentless-field KNOWN GAP in the module
     # docstring for the DL/PL scripts where this does NOT hold).

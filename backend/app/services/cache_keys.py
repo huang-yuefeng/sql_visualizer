@@ -103,5 +103,16 @@ by earlier builds carry mech edges and must not serve — mass
 invalidate, rebuild lazily. Compound-node line_start/line_end/
 defined_in and the R25 per-edge payload (highlight_line/flow_kind/
 reason) are unchanged.
+
+K4 ruling 3 (2026-08-28): bumped to 3_2_25 — INVALIDATION bump, not a
+format-version change (format_version stays 4). Paired with
+extractor_version 2026-08-28.8: cached graphs written before the
+structural paren-balance check carry `parse_errors: []` for scripts
+that sqlglot's ErrorLevel.IGNORE silently recovered into a partial
+tree, so the L2 banner never fired for a genuinely broken script. The
+graph JSON shape is unchanged (field chips gain `line_start` at
+DISPLAY time in l2_builder, derived per request from full_graph —
+no cache impact from that alone); only the parse_errors freshness
+stamps move. Mass invalidate, rebuild lazily.
 """
-GRAPH_CACHE_PREFIX = "graph_3_2_24"
+GRAPH_CACHE_PREFIX = "graph_3_2_25"

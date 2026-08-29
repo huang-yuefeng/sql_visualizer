@@ -639,7 +639,7 @@ def _l1_graph_copy(g: dict) -> dict:
 
 def _build_l1_graph(ws_id: str, script_names: list[str],
                     table: str, field: str,
-                    direction: str = "upstream") -> dict:
+                    direction: str = "downstream") -> dict:
     """Build Level 1 cross-script directional field-flow graph (R29).
 
     Cached wrapper (#252): the Final-L1-graph memo. A repeat call with
@@ -683,7 +683,7 @@ def _build_l1_graph(ws_id: str, script_names: list[str],
 
 def _build_l1_graph_uncached(ws_id: str, script_names: list[str],
                              table: str, field: str,
-                             direction: str = "upstream") -> dict:
+                             direction: str = "downstream") -> dict:
     """Build Level 1 cross-script directional field-flow graph (R29).
 
     Field queries (field truthy): L1 is the queried field's data flow —
@@ -1036,8 +1036,15 @@ def _build_l1_graph_uncached(ws_id: str, script_names: list[str],
                 continue
 
             seed_ids = set()
+            # F-A follow-up (K4 item 5, 2026-08-28): SQL identifiers are
+            # case-insensitive and create_search hands the L1 builder the
+            # index's CANONICAL spelling (the ISSUE-4 majority), so a
+            # script that wrote the field in another case (`dm_flag2` vs
+            # `DM_FLAG2`) must still seed the closure — the old exact
+            # match lost the whole script's field projection.
+            _field_key = field.casefold()
             for fld in m.fields.values():
-                if fld.name == field:
+                if fld.name.casefold() == _field_key:
                     seed_ids.update(fld.occurrence_ids)
 
             visited = set(seed_ids)
@@ -1079,7 +1086,9 @@ def _build_l1_graph_uncached(ws_id: str, script_names: list[str],
                 continue
             seen_node_ids.add(field_id)
             is_direct = (tname, fname) in direct_fields
-            is_target = (f"{tname}.{fname}" == target_full)
+            # F-A follow-up (K4 item 5): same casefolded identity as the
+            # seed above — a case-variant writer must still wear the ★.
+            is_target = f"{tname}.{fname}".casefold() == target_full.casefold()
             field_label = f"★{fname}" if is_target else fname
             field_node = {
                 "data": {

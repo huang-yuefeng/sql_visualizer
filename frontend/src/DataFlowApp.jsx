@@ -37,7 +37,15 @@ export default function DataFlowApp({
   const [activeViewId, setActiveViewId] = useState(null);
   const parentViewIdRef = useRef(null);
   const [graphLevel, setGraphLevel] = useState('L1');
-  const [layoutMode, setLayoutMode] = useState('snake'); // 'snake' or 'pipeline'
+  // R42 (2026-08-28): per-level layout state. L2 OPENS in the ELK pipeline
+  // layout (layered, ELK_DIRECTION='RIGHT' — left-to-right for landscape
+  // screens); L1 keeps its snake default. Splitting the state means flipping
+  // the L2 default can never move L1, and each toolbar's Snake/Pipeline
+  // toggle drives only its own graph. Fields are unaffected by construction:
+  // layout algorithms position tables only, field chips follow
+  // table.pos + frozen offsets (layoutCore.applyLayout — the single site).
+  const [l1LayoutMode, setL1LayoutMode] = useState('snake'); // 'snake' | 'pipeline'
+  const [l2LayoutMode, setL2LayoutMode] = useState('pipeline'); // R42: L2 initial = left-to-right
   // R38 ruling (2026-08-27): the direction toggle is removed — downstream is
   // the ONLY direction (reading flow: "where does this field's value go").
   // Constant, not state. Persisted view rows may still carry
@@ -53,6 +61,12 @@ export default function DataFlowApp({
   // last click wins. `selectedEdge` stays edge-only, so a node click clears
   // it instead of leaving a mismatched edge highlighted.
   const [sqlHighlightLine, setSqlHighlightLine] = useState(null);
+  // F-B2 (S4 finding 6): a clicked element whose payload line is 0/absent
+  // used to fail silently (previous highlight cleared, nothing lit — 23 such
+  // TVF-alias edges in one view). A short neutral notice in the L2 graph
+  // area says why; it self-clears on the next valid click, on a canvas tap,
+  // and on every L2 entry path (applyL2Result) / drop to L1.
+  const [sqlLineNotice, setSqlLineNotice] = useState(null);
   const [l2Result, setL2Result] = useState(null);
   // L2 view toggle (#331, four modes): 'flow' (closure — the default on a
   // matched search), 'full' (entire script graph), 'flow-merged' and
@@ -191,6 +205,20 @@ export default function DataFlowApp({
     }, 1000);
   }, [flushLayoutSave]);
 
+  // M-E1 (R42): the L2 layout-persistence key is split by view family —
+  // merged views (flow-merged / full-merged) persist under
+  // `l2:merged:{script}`, detailed views keep `l2:{script}`. The merged and
+  // detailed graphs are DISTINCT node+edge sets (l2m_* vs l2e_* ids);
+  // sharing one key made a drag in one view pin the other's table positions
+  // on re-open. The prefix composes through resumeLayoutKey unchanged
+  // (`l2:merged:X`); the backend treats the script value as a free-form key
+  // (save_layout builds `f"l2:{script}"` verbatim), so no schema change.
+  // BOTH the save path (handlePositionsChange) and the read path
+  // (savedPositions below) derive from THIS value so they can never drift.
+  const l2LayoutScriptKey = (l2ViewMode === 'flow-merged' || l2ViewMode === 'full-merged') && currentScriptName
+    ? `merged:${currentScriptName}`
+    : currentScriptName;
+
   // Drag-end positions → debounced autosave for the CURRENT level+script.
   // #309: the level is passed EXPLICITLY per graph. The shared callback must
   // not derive it from the GLOBAL graphLevel — while an L2 is open (graphLevel
@@ -199,10 +227,10 @@ export default function DataFlowApp({
   const handlePositionsChange = useCallback((level, positions) => {
     scheduleLayoutSave(
       level,
-      level === 'l2' ? currentScriptName : null,
+      level === 'l2' ? l2LayoutScriptKey : null,
       positions,
     );
-  }, [currentScriptName, scheduleLayoutSave]);
+  }, [l2LayoutScriptKey, scheduleLayoutSave]);
 
   // Final save on close: when the keyed DataFlowApp unmounts (close
   // workspace / switch workspace / logout), flush the coalesced layout save
@@ -270,6 +298,9 @@ export default function DataFlowApp({
     // inactive (no stale dimming from the previous script) and paused.
     setStoryActiveIndex(null);
     setStoryAutoplay(false);
+    // F-B2: a fresh script never inherits the previous one's no-SQL-line
+    // notice.
+    setSqlLineNotice(null);
   }, []);
 
   // ── R31: full reset of debugger state (no workspace lifecycle calls —
@@ -286,6 +317,7 @@ export default function DataFlowApp({
     setProgress(null); setVersion(0); setResumeLayouts({});
     setShowLog(true);
     setStoryActiveIndex(null); setStoryAutoplay(false);
+    setSqlLineNotice(null);
   }, [setVersion]);
 
   // ── Upload (create) & Analyze ─────────────────────────────────────
@@ -490,6 +522,76 @@ export default function DataFlowApp({
     }
   }, [wsId, activeViewId, views]);
 
+  // ── #400: the no-flow dead end ────────────────────────────────────
+  // A `no_flow` search DOES match scripts (`view.script_ids`) but its L1
+  // graph is EMPTY — no script node to double-click — so the matched
+  // script's L2 was reachable only by hand-crafting the child view through
+  // the API. The banner therefore carries one "Open <script> full graph"
+  // affordance per matched script, calling the SAME path the L1
+  // double-click uses (`handleOpenL2` → GET /level2 → POST .../children):
+  // same fetch, same state updates, same child-view dedup. `no_matches`
+  // always persists `script_ids: []`, so only a no-flow view renders
+  // buttons — an in-flow search has no banner at all.
+  const noFlowScripts = useMemo(() => {
+    if (!activeView) return [];
+    if (activeView.match_mode !== 'no_flow' && activeView.match_mode !== 'no_matches') return [];
+    return Array.isArray(activeView.script_ids)
+      ? activeView.script_ids.filter(Boolean)
+      : [];
+  }, [activeView]);
+
+  // `script_ids` are workspace rel_paths — exactly what GET /level2's
+  // `script=` resolves (shared `resolve_script`), so the rel_path stands in
+  // for the L1 script node's cached-analysis id as the child-view id suffix.
+  const handleOpenNoFlowScript = useCallback((scriptName) => {
+    return handleOpenL2(scriptName, scriptName);
+  }, [handleOpenL2]);
+
+  // ── V2-N4 (2026-08-29): matched-but-not-in-flow scripts on an L1 view ──
+  // `matched != in flow`: an exact-match search's `script_ids` are the scripts
+  // that QUERY the searched field, while the L1 graph renders only the
+  // directional flow's script nodes — P2.P_DT matched 4 scripts and its L1
+  // rendered 2, with no UI path to the other two (the no_flow banner's
+  // "Open … full graph" affordance is a no_flow-only render). The strip below
+  // names those scripts and reuses the SAME affordance + open path.
+  const l1SearchView = useMemo(() => {
+    if (!activeView) return null;
+    if (activeView.type === 'search') return activeView;
+    // An L2 child is the active view while its parent L1 stays on screen —
+    // the strip describes the parent search view's L1.
+    const parent = views.find(v => v.view_id === activeView.parent_view_id);
+    return parent && parent.type === 'search' ? parent : null;
+  }, [activeView, views]);
+
+  const inFlowScriptNames = useMemo(() => {
+    const names = new Set();
+    if (l1Graph && Array.isArray(l1Graph.nodes)) {
+      for (const n of l1Graph.nodes) {
+        const d = (n && n.data) || n || {};
+        if (d.type !== 'script_node') continue;
+        const nm = d.script_name || d.label;
+        if (nm) names.add(nm);
+      }
+    }
+    return names;
+  }, [l1Graph]);
+
+  const outOfFlowScripts = useMemo(() => {
+    // no_flow / no_matches own the #400 banner above — never this strip.
+    if (!l1SearchView || !l1Graph) return [];
+    if (l1SearchView.match_mode === 'no_flow' || l1SearchView.match_mode === 'no_matches') return [];
+    const ids = Array.isArray(l1SearchView.script_ids)
+      ? l1SearchView.script_ids.filter(Boolean)
+      : [];
+    if (ids.length === 0 || inFlowScriptNames.size === 0) return [];
+    // script_ids are workspace rel_paths; an L1 script node carries the same
+    // rel_path in `script_name`. Basename matching only covers payload shapes
+    // that dropped the directories — never a substitute for a real match.
+    const base = p => String(p).split('/').pop();
+    const byBase = new Set([...inFlowScriptNames].map(base));
+    return ids.filter(s => !inFlowScriptNames.has(s) && !byBase.has(base(s)));
+  }, [l1SearchView, l1Graph, inFlowScriptNames]);
+
   // ── View Tree navigation ──────────────────────────────────────────
   const handleViewTreeClick = useCallback(async (viewId) => {
     setActiveViewId(viewId);
@@ -621,16 +723,27 @@ export default function DataFlowApp({
     setStoryAutoplay(false);
     setSelectedEdge(edgeData);
     const ln = edgeData && edgeData.highlight_line;
-    setSqlHighlightLine(Number.isInteger(ln) && ln >= 1 ? ln : null);
+    if (Number.isInteger(ln) && ln >= 1) {
+      setSqlHighlightLine(ln);
+      setSqlLineNotice(null);
+    } else {
+      // F-B2 (S4 finding 6): line 0/absent used to clear the previous
+      // highlight and light nothing — silent. Say so instead (the notice
+      // clears itself on the next valid click).
+      setSqlHighlightLine(null);
+      setSqlLineNotice('this element has no SQL line');
+    }
   }, []);
 
   // R37: L2 node click → scroll the SQL panel to the node's definition
-  // line. Line semantics = server contract: ⟐ output VT → statement anchor
-  // (INSERT/ALTER), physical table → first occurrence (R22 keeper), alias/
-  // CTE → its FROM/JOIN/WITH line. Guards: integer ≥ 1 else silent no-op
-  // (TVF alias `f` anchors L0 until M-T1 — never guess); first line only
-  // (single-line-highlight convention, v3.3.145); the tapped element's OWN
-  // payload is read, never a label lookup (merged nodes keep their own
+  // line. Line semantics = server contract: ⟐ output VT → its own creation
+  // line (top-level: the statement's own first token — never the WITH line
+  // that merely names the CTE; nested subquery/EXISTS VT: the body's first
+  // output line), physical table → first occurrence (R22 keeper), alias/
+  // CTE → its FROM/JOIN line. Guards: integer ≥ 1 else the no-SQL-line
+  // notice (TVF alias `f` anchors L0 until M-T1 — never guess); first line
+  // only (single-line-highlight convention, v3.3.145); the tapped element's
+  // OWN payload is read, never a label lookup (merged nodes keep their own
   // line_start). Node click clears a stale edge selection so a mismatched
   // edge can't stay highlighted beside a node's line.
   const handleNodeClick = useCallback((nodeData) => {
@@ -639,12 +752,19 @@ export default function DataFlowApp({
     setStoryAutoplay(false);
     setSelectedEdge(null);
     const ln = nodeData && nodeData.line_start;
-    setSqlHighlightLine(Number.isInteger(ln) && ln >= 1 ? ln : null);
+    if (Number.isInteger(ln) && ln >= 1) {
+      setSqlHighlightLine(ln);
+      setSqlLineNotice(null);
+    } else {
+      setSqlHighlightLine(null);
+      setSqlLineNotice('this element has no SQL line');
+    }
   }, []);
 
   const clearEdgeSelection = useCallback(() => {
     setSelectedEdge(null);
     setSqlHighlightLine(null);
+    setSqlLineNotice(null);
   }, []);
 
   // ── Clear edge selection ────────────────────────────────────────────
@@ -661,6 +781,7 @@ export default function DataFlowApp({
     setL2ParseErrors([]);
     setSqlText(''); setCurrentScriptName('');
     setSelectedEdge(null); setSqlHighlightLine(null);
+    setSqlLineNotice(null);
     setActiveViewId(null);
   }, []);
 
@@ -1039,16 +1160,61 @@ export default function DataFlowApp({
             ⚠️ {activeView.match_mode === 'no_flow'
               ? `${activeView.message || 'no flow in this direction'} - empty result view`
               : `No matches: ${activeView.message || 'no tables in scope'} - empty result view`}
+            {/* #400: one continuation per matched script — the L1 canvas is
+                empty, so there is nothing to double-click. Opening swaps the
+                banner for the L2 panel exactly like the L1 double-click (the
+                active view becomes the child, whose own not-in-flow notice
+                then explains the full-graph render). */}
+            {noFlowScripts.length > 0 && (
+              <div className="no-match-banner-actions">
+                {noFlowScripts.map(s => (
+                  <button
+                    key={s}
+                    type="button"
+                    className="btn btn-outline btn-sm banner-open-script"
+                    disabled={loading}
+                    onClick={() => handleOpenNoFlowScript(s)}
+                    title={`Open ${scriptBaseName(s)}'s full Level 2 graph — the search matched this script, only this direction's flow is empty`}
+                  >
+                    Open {scriptBaseName(s)} full graph
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {/* V2-N4: matched scripts the L1 flow does NOT render. An exact-match
+            search can match scripts whose own L2 answers search_matched:false
+            (they never touch the searched field's downstream flow) — without
+            this strip they are unreachable from the UI. Hidden when every
+            matched script is in flow. */}
+        {outOfFlowScripts.length > 0 && (
+          <div className="no-match-banner banner-strip" data-testid="not-in-flow-strip">
+            <span className="strip-label">Not in the flow:</span>
+            {outOfFlowScripts.map(s => (
+              <span key={s} className="strip-item">
+                <span className="strip-script">{scriptBaseName(s)}</span>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm banner-open-script"
+                  disabled={loading}
+                  onClick={() => handleOpenNoFlowScript(s)}
+                  title={`Open ${scriptBaseName(s)}'s full Level 2 graph — the search matched this script, but it is not in this view's rendered flow`}
+                >
+                  Open {scriptBaseName(s)} full graph
+                </button>
+              </span>
+            ))}
           </div>
         )}
         {graphData && (
           <DataFlowGraph
             graphData={graphData}
             level="L1"
-            layoutMode={layoutMode}
+            layoutMode={l1LayoutMode}
             breadcrumb={breadcrumb}
             onOpenL2={handleOpenL2}
-            onToggleLayout={(mode) => { if (mode) { setLayoutMode(mode); } else { setLayoutMode(m => m === 'snake' ? 'pipeline' : 'snake'); }}}
+            onToggleLayout={(mode) => { if (mode) { setL1LayoutMode(mode); } else { setL1LayoutMode(m => m === 'snake' ? 'pipeline' : 'snake'); }}}
             onTableClick={handleTableClick}
             activeTable={activeL1Table}
             onClearTableFilter={handleClearTableFilter}
@@ -1094,10 +1260,11 @@ export default function DataFlowApp({
           <div className="inline-l2-graph">
             {/* A3: statement-level parse errors from the level2 response —
                 one line per statement, backend detail shown verbatim. Uses the
-                no-match-banner style; shifts down when the not-in-flow banner
-                is also present so the two never overlap. */}
+                no-match-banner style in the BOTTOM slot (F-B2/S4 t47): the top
+                slot below the toolbar belongs to the not-in-flow notice, and a
+                bottom offset no longer has to guess its wrapped height. */}
             {l2ParseErrors.length > 0 && (
-              <div className="no-match-banner" style={l2NotInFlow ? { top: '44px' } : undefined}>
+              <div className="no-match-banner banner-bottom">
                 {l2ParseErrors.map(e => (
                   <div key={e.stmt_idx}>
                     ⚠️ SQL parse error in statement {e.stmt_idx} - {e.detail || 'check the script syntax'}
@@ -1112,10 +1279,18 @@ export default function DataFlowApp({
                 ⚠️ {l2NotInFlowMessage || 'Field not in this script - showing the full script graph'}
               </div>
             )}
+            {/* F-B2 (S4 finding 6): a clicked element whose payload line is
+                0/absent says so here — never a silent no-op. Neutral (not a
+                warning), bottom slot, self-clears on the next valid click. */}
+            {sqlLineNotice && (
+              <div className="no-match-banner banner-bottom banner-neutral" role="status">
+                {sqlLineNotice}
+              </div>
+            )}
             <DataFlowGraph
               graphData={l2GraphData}
               level="L2"
-              layoutMode={layoutMode}
+              layoutMode={l2LayoutMode}
               breadcrumb={[]}
               onEdgeClick={handleEdgeClick}
               onNodeClick={handleNodeClick}
@@ -1125,9 +1300,10 @@ export default function DataFlowApp({
               onViewModeChange={setL2ViewMode}
               flowNodeIds={l2Result?.flow_node_ids}
               flowEdgeIds={flowEdgeIds}
-              savedPositions={resumeLayouts[resumeLayoutKey('l2', currentScriptName)]}
+              savedPositions={resumeLayouts[resumeLayoutKey('l2', l2LayoutScriptKey)]}
               onPositionsChange={(positions) => handlePositionsChange('l2', positions)}
               storyFocus={storyFocus}
+              onToggleLayout={(mode) => { if (mode) { setL2LayoutMode(mode); } else { setL2LayoutMode(m => m === 'snake' ? 'pipeline' : 'snake'); }}}
             />
           </div>
           {/* Resize handle: L2 graph | SQL panel */}
@@ -1255,4 +1431,10 @@ function collectSqlFiles(tree) {
   if (tree.type === 'file' && tree.is_sql) paths.push(tree.path);
   if (tree.children) tree.children.forEach(c => paths.push(...collectSqlFiles(c)));
   return paths;
+}
+
+// Display label for a workspace rel_path (banner buttons, L2 header) — the
+// basename only, so a deep script still fits the banner box.
+function scriptBaseName(path) {
+  return String(path || '').split('/').pop();
 }

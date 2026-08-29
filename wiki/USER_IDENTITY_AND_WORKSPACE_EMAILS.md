@@ -27,16 +27,26 @@
 > (no 30-min idle); #280 same-origin check kept (decision only, no code); #285 **per-user visit
 > logging dropped** (`visit_service.py` deleted, `close_workspace` is a no-op 200). Sections below
 > annotated accordingly.
+>
+> **Notifications REMOVED (#322, v3.3.165):** the in-app notification subsystem described in the
+> original design no longer exists — no per-user inbox, no `notifications/{username}.json` store,
+> no `GET /api/notifications` / `POST /api/notifications/{id}/read` endpoints, no frontend
+> notification bell. No producers remained after per-user visit logging was dropped (#285), so the
+> whole subsystem was deleted rather than left half-fed. The durable "who did what" record is the
+> **activity log + server-global audit log** (§5.4), which are unaffected. Sections below that
+> still mention notifications are historical design text, annotated where they read as current.
 
 > Design note — revised 2026-08-19 (6th revision). Email is **dropped** (no usable
 > mail path on the target network). Replaced with **local accounts (`@hsbc.com` usernames) + IP
-> audit + in-app notifications + per-workspace activity log + a per-user "my workspaces" index**.
+> audit + in-app notifications + per-workspace activity log + a per-user "my workspaces" index**
+> (the notification half was later removed entirely — #322, see the Status note above).
 > **All decisions locked and IMPLEMENTED (v3.3.164, 2026-08-24).** Sections below reflect the shipped
 > code; where a later decision changed a section, it is annotated with its R31.x traceability row.
 
 **Change vs the 2026-08-14 email design:** every email function maps to an in-app equivalent —
-OTP login → local accounts; memo/creator-alert emails → notification inboxes; mailbox-searchable
-titles → notification-card titles. **Added later revisions:** `@hsbc.com`-enforced usernames,
+OTP login → local accounts; memo/creator-alert emails → notification inboxes (inbox half later
+removed, #322); mailbox-searchable titles → notification-card titles (likewise removed).
+**Added later revisions:** `@hsbc.com`-enforced usernames,
 per-operation **username + IP** recording, a per-user workspace index on login, and a
 **role-dependent remove-from-my-history** workspace lifecycle (creator = physical delete with
 warning, participant = link removal only) + **quota** (A-M2, 2026-08-21).
@@ -67,8 +77,9 @@ lives inside the deployed web app.
 ## 2. Model at a glance (user-confirmed 2026-08-19)
 
 - **Two parallel entities: the user account and the workspace.**
-  - **User account** = identity (`user_name@hsbc.com` + password) + own notification inbox + own
-    workspace index. **Pre-provisioned** from the admin-managed allowlist before first login.
+  - **User account** = identity (`user_name@hsbc.com` + password) + own
+    workspace index (the notification inbox originally specified here was removed, #322).
+    **Pre-provisioned** from the admin-managed allowlist before first login.
   - **Workspace** = own id + **shared current state** + readable **history** (activity log).
 - **Account ↔ workspace is 1:N.** A user may create or visit many workspaces.
 - **"My workspaces" (per-user index, personal):** the list of workspaces the user has **created or
@@ -90,8 +101,9 @@ the workspace's **search state** stays shared and current-state-only.
   (UUID4 / 128-bit random)** — never client-supplied, never sequential — and **no endpoint lists
   workspace ids**; the only ways in are one's own index, an explicit shared id/link, or an id the
   user was given (A-H4).
-- The workspace records its **creator** (username) at creation. When someone else works on it, the
-  creator is **alerted in-app** (next login).
+- The workspace records its **creator** (username) at creation. The original in-app
+  creator alert was **removed with the notification subsystem (#322)** — who worked on it is
+  answerable from the activity log instead.
 - Every operation writes to the workspace's **activity log** with the actor's **username + IP** —
   the shared audit trail.
 
@@ -103,13 +115,13 @@ the workspace's **search state** stays shared and current-state-only.
 | — | Logout | **No idle timeout — ZERO session expiry (#279)** (session lives until logout or server restart; browser drops the cookie on close). A logout button destroys the session. **No visit flush** — per-user visit logging is dropped (#285). |
 | — | One L1 + multiple L2 | Keep. One search = one L1; the L2s the user opened are retained. |
 | Q2 | Last-search state | **Shared**, workspace-wide. Resume = current workspace state, never personal history. Last-writer (closes last) wins. |
-| Q3 | Access model | **Open by workspace id** — any logged-in user who knows the id can open and edit; creator is only alerted (in-app). (Known simple, slight risk, accepted for now.) |
+| Q3 | Access model | **Open by workspace id** — any logged-in user who knows the id can open and edit (the "creator is alerted in-app" half was removed with #322). (Known simple, slight risk, accepted for now.) |
 | Q4 | Layout save | **L1 and L2 node x/y are both autosaved** on each drag-end. Save **node x/y only**; zoom/pan ignored. **One storage location** — `meta.json` `layouts` map (A-M5). `l2:{script}` keys **persist once saved** — the opened_l2s prune was removed (#272, also fixes #291). |
 | — | Multiple tabs | A user may have several workspaces open in different tabs **and in several sessions (browsers)**. Each session is independent (zero expiry, #279). **Visit tracking is dropped** (#285) — no per-session open-visits registry, no visit memos/creator-alerts. |
 | — | Login gate | **Login entrance page before any page** — the whole service is behind it; only the health endpoint stays public. |
 | Q5 | Concurrent users | **CAS-conditional saves** (A-M4): a save applies only if the `state_version` it was built on still matches; otherwise **409 → auto reload + re-apply** with a "state changed by X — refreshed" notice. Saves are **debounced (≤1/s + final on close)** so rapid operations coalesce and conflict windows stay rare. No locking. |
-| Q6 | Accounts | **Persisted local accounts** (pre-provisioned from the admin allowlist + password issued at provisioning). Stable identity is what makes the inbox, the per-user index, and "creator" meaningful. |
-| Q7 | Notifications | **In-app, keep all records, one file per user** (`notifications/{username}.json`). One memo per workspace-close. **No script contents** — script names, search table/field names, ws_id, time. Enough to understand what happened. |
+| Q6 | Accounts | **Persisted local accounts** (pre-provisioned from the admin allowlist + password issued at provisioning). Stable identity is what makes the per-user index and "creator" meaningful (the inbox half was removed, #322). |
+| Q7 | Notifications | **REMOVED (#322, v3.3.165)** — the originally-agreed in-app notification store (`notifications/{username}.json`, one memo per workspace-close) no longer exists; visit logging had already been dropped (#285), leaving no producers. The activity log answers "what happened". |
 | Q8 | Idle timeout | **None — ZERO session expiry (#279).** No idle reaper; a session lives until logout or server restart (browser drops the session cookie on close). No visit memos on close/logout (#285). |
 | — | Concurrent writes | **Accepted**: losing the rarer concurrent update is OK (low simultaneous-user count). Files are still written atomically (temp + rename) so a race **never corrupts a file** — it only drops the losing writer's update. |
 | — | Layout write cadence | Frontend writes layout **at most once per second**; a **final write on workspace close**. The layout file keeps **only current state** (per-view `{node_id:[x,y]}`), never history — its size does not grow. |
@@ -157,8 +169,8 @@ the workspace's **search state** stays shared and current-state-only.
   `open_visit`/`touch_visit`/`flush_session_visits`, no visit memos or creator visit-alerts
   (`visit_service.py` deleted). Workspace **close** (`POST /api/workspace/{ws_id}/close`) is a
   **no-op returning 200** (kept so the frontend `closeWorkspace` control still works). Only
-  **creator-driven activity events** (workspace create / creator delete / remove-from-history) and
-  their notifications remain.
+  **creator-driven activity events** (workspace create / creator delete / remove-from-history)
+  remain — and they are logged only (no notifications, #322).
 - Session store is in-memory; lost on container restart — **accepted** (A-M9). On next login the
   user simply continues.
 
@@ -197,7 +209,7 @@ the workspace's **search state** stays shared and current-state-only.
   #291). Zoom/pan intentionally not saved. (History of layout *actions* lives in the activity log,
   not the layout file.)
 
-### 5.4 Activity log + in-app notifications
+### 5.4 Activity log (notifications REMOVED)
 
 **Activity log (per workspace, append-only)** — `workspaces/{ws_id}/activity.json`, stored as
 **NDJSON: one `{...}` record per line, appended with `O_APPEND`** — real appends, never
@@ -210,16 +222,14 @@ workspace, so the deletion event is written to the **server-global audit log** i
 **Visit model — DROPPED (#285):** per-user visit logging (open-visits registry, visit start/end
 memos, creator visit-alerts) is **removed entirely** (`visit_service.py` deleted). **No
 notifications are generated on workspace close or logout** — `close_workspace` is a no-op 200.
-Notifications exist only for **creator-driven activity**:
-- → **the creator's inbox** — an alert when a **non-creator** removes the workspace from their own
-  list (who, when); and when a creator physically deletes a workspace.
 
-**Notification record** — **one file per user** (`notifications/{username}.json`), list of
-`{id, kind: memo|alert, title, body, read, created_at}`. Title keeps the mailbox-searchable format —
-`[SQL Data Flow Visualizer] Workspace {ws_id} · {YYYY-MM-DD HH:MM}`. **All records are kept**
-(user-confirmed); a write touches only the owning user's file. Timestamps use server local time.
-
-**Pull, not push:** the user sees these on next login (unread badge + inbox panel).
+**Notification subsystem — REMOVED (#322, v3.3.165):** the original design kept a per-user inbox
+(`notifications/{username}.json`, records `{id, kind: memo|alert, title, body, read, created_at}`,
+pull-model unread badge + inbox panel) fed by creator-driven alerts (non-creator
+remove-from-list, creator physical delete). With visit logging gone (#285) no producers remained,
+so the store, the `GET /api/notifications` / `POST /api/notifications/{id}/read` endpoints and
+the frontend bell were all **deleted**. Those same events still land in the activity log /
+server-global audit log above — that is the surviving record.
 
 ### 5.5 "My workspaces" (per-user index) + reading history
 
@@ -255,7 +265,7 @@ Notifications exist only for **creator-driven activity**:
 | Store | Contents | Lifecycle |
 |-------|----------|-----------|
 | `users.json` (new) | `username → {salt, password_hash, created_at, last_login_ip, workspaces: [{ws_id, role, first_opened, last_opened}]}` | Durable; a creator's remove-from-history removes the workspace from **every** index (physical delete, A-M2); a participant's removes only their own entry |
-| `notifications/{username}.json` (new) | `[notification records]`, kept forever — one file per user | Durable |
+| ~~`notifications/{username}.json`~~ | ~~`[notification records]`, kept forever — one file per user~~ | **REMOVED (#322, v3.3.165)** — the notification subsystem was deleted |
 | `workspaces/{ws_id}/meta.json` (new) | `creator_username`, `created_at`, `state_version`, last-search ref, **`layouts` map** (`{"l1": …, "l2:{script}": …}`, A-M5), opened-L2 list | Durable, per workspace |
 | `workspaces/{ws_id}/activity.json` (new) | NDJSON `{username, ip, ts, action, detail}`, one record per line, **O_APPEND** (A-M3) | Durable, per workspace |
 | `audit.json` (new, server-global) | NDJSON `{username, ip, ts, ws_id, action}`, one record per line, **O_APPEND** (A-M3) — **deletion events** survive the workspace they describe (A-H3) | Durable, outside any workspace |
@@ -271,7 +281,7 @@ Notifications exist only for **creator-driven activity**:
   (A-M4): the write applies only if the `state_version` it was built on still matches (single
   worker, A-M8, makes check-and-write atomic). A stale writer is told (409) and re-applies — no
   silent loss.
-- **Per-user files — `users.json` / `notifications/{username}.json`:** accepted-loss whole-file
+- **Per-user files — `users.json` (notifications store removed, #322):** accepted-loss whole-file
   **write-temp + rename** (last-writer-wins). Two of a user's own sessions writing at the same
   instant: the losing writer's update may be dropped — **accepted** (low simultaneous-user count).
   A race never corrupts a file; it only drops the last writer's change.
@@ -318,7 +328,8 @@ turns the queue into a clear user message.)
   overwrites the entry). **One endpoint** for the L1 and all L2s — the `view_id`-keyed path is
   dropped (A-M5). **Creator-only (#272):** a non-creator session gets **403**.
 - `GET  /api/workspace/{ws_id}/resume` → full current state (L1 + opened L2 + positions + state_version)
-- `GET  /api/notifications` → current user's inbox; `POST /api/notifications/{id}/read`
+- ~~`GET /api/notifications` / `POST /api/notifications/{id}/read`~~ → **REMOVED (#322)** — the
+  notification inbox endpoints no longer exist (no producers post-#285)
 
 **Login gate (#293):** only the **Data Flow Debugger** requires login — the legacy SQL Analysis
 endpoints (`/api/analyze`, `/api/analyze_multi`, `/api/scripts`) are public (exempt from the
@@ -342,8 +353,9 @@ All workspace endpoints above require a session cookie.
   than what the user has on screen.
 - **"System busy — please wait" message** when a search is refused while another heavy analysis is
   running (409); the button re-enables when the gate frees.
-- **Notification bell**: unread badge; inbox listing memos/alerts (title, ws_id, time, read/unread).
-- **Close workspace** control (explicit visit-end trigger).
+- ~~**Notification bell**~~ — **REMOVED (#322)**: no unread badge / inbox panel; "what happened"
+  is read from the workspace history panel (activity log).
+- **Close workspace** control (kept; a no-op server-side — visits dropped, #285).
 - **Opened-L2 strip** under the L1 navigation panel: previously-opened L2s (with saved layouts) —
   click to switch; opening an un-saved L2 recomputes fresh and becomes savable.
 - **Layout autosave**: `PUT /api/workspace/{ws_id}/layout` — node x/y **at most once per second**
@@ -357,7 +369,8 @@ All workspace endpoints above require a session cookie.
 - **Password changes are config re-provisioning only (#269)** — no self-service reset and no HTTP
   admin-reset endpoint can overwrite an identity (A-H1).
 - **Open-by-workspace-id** is the accepted loose access — any logged-in user who knows the id can
-  open/edit; the creator is alerted in-app afterwards. **`ws_id` is server-generated UUID4 /
+  open/edit (no in-app creator alert — removed with the notification subsystem, #322; the activity
+  log is the record). **`ws_id` is server-generated UUID4 /
   128-bit random and no endpoint enumerates ids** (A-H4).
 - **Remove-from-my-history is role-dependent (A-M2):** for the **creator** it is a physical delete —
   warning dialog, **server-global audit log written before removal** (A-H3); for a **non-creator**
@@ -382,7 +395,8 @@ All workspace endpoints above require a session cookie.
 4. ~~Session store / `open_visits` lost on restart~~ → **accepted** (A-M9) — in-memory sessions
    are lost on restart; **no open_visits exists anymore** (visits dropped, #285); no persistence
    machinery.
-5. ~~Notification retention~~ → **keep all**.
+5. ~~Notification retention~~ → **keep all** — *superseded by #322: the notification subsystem
+   itself was removed (v3.3.165); nothing to retain.*
 6. ~~Username format~~ → **`user_name@hsbc.com`**, enforced.
 7. ~~Account provisioning~~ → **pre-provisioned from config (`PROVISIONED_USERS`, #269)** —
    unknown usernames rejected at login (A-H2); no HTTP provisioning endpoint.
@@ -407,7 +421,8 @@ All workspace endpoints above require a session cookie.
 16. ~~Concurrent write loss~~ → **accepted** (low simultaneous users, **single uvicorn worker —
     enforced, A-M8**); files still written atomically (temp + rename) so a race never corrupts a
     file.
-17. ~~Notifications storage~~ → **one file per user** `notifications/{username}.json`.
+17. ~~Notifications storage~~ → **one file per user** `notifications/{username}.json`
+    — *superseded by #322: store deleted (v3.3.165).*
 18. ~~Layout write cadence~~ → **≤1/s from the frontend + final write on workspace close**; layout
     file keeps **current state only** (never grows). The debounce also **minimizes CAS conflict
     windows** (A-M4): accumulated operations coalesce into one save per second.
@@ -424,7 +439,8 @@ All workspace endpoints above require a session cookie.
     of their own workspaces.
 24. ~~Audit-log append (A-M3)~~ → **`O_APPEND`, one NDJSON record per line** for `activity.json`
     and `audit.json` — real append-only, no read-modify-write, concurrent appends never lost.
-    State files (`users.json`/`notifications`/`meta.json`) keep temp+rename (accepted-loss).
+    State files (`users.json`/`meta.json`; the `notifications` store was removed, #322) keep
+    temp+rename (accepted-loss).
 25. ~~`state_version` monotonicity (A-M4)~~ → **CAS-conditional state writes**: a save applies only
     if the `state_version` it was built on still matches; else **409 → auto reload + re-apply** +
     "state changed by X" notice. Saves are **debounced (≤1/s, final on close)** so accumulated
@@ -445,5 +461,6 @@ All workspace endpoints above require a session cookie.
     lost on a restart (user logs in again). **No open_visits / visit flush exists anymore** (#285);
     no persist/flush-at-startup machinery.
 31. ~~open_visits keyed by username (A-M10)~~ → **superseded by #285** — the open-visits registry
-    and visit memos/creator-alerts are **dropped entirely** (`visit_service.py` deleted); only
-    creator-driven activity notifications remain.
+    and visit memos/creator-alerts are **dropped entirely** (`visit_service.py` deleted); and by
+    **#322** the remaining creator-driven activity notifications were removed too — those events
+    are now logged only (activity/audit logs).

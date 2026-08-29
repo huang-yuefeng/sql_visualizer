@@ -153,7 +153,7 @@ Node types are grouped into these categories for frontend filtering:
 
 | Category | Types | Color Theme |
 |----------|-------|-------------|
-| Data Source | table, cte, subquery, virtual_table, function_table | Blue/Green |
+| Data Source | table, view, cte, subquery, virtual_table, function_table | Blue/Green |
 | Column Reference | column, cte_column | Light Blue/Green |
 | DML Target | merge_target | Red |
 | Set Operation | union_branch | Grey |

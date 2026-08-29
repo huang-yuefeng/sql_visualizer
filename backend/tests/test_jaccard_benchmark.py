@@ -16,10 +16,11 @@ precision = |A∩B|/|A| ("did we emit any junk?"). A = B ⟺ recall =
 precision = 1.0. GUARD (user ruling): "A = B" is genuine SET EQUALITY —
 mutual membership, never |A| = |B| (A={x}, B={y} have equal sizes but
 recall = precision = 0). The report prints BOTH directions; each is
-asserted against its own floor. ni is the realized/matched/intersection
-count (not a set size — one response node may realize several
-same-label canonical entries, e.g. bdm@16/29/84), so a direction may
-print above 1.0; the floor is "at least 1.0".
+asserted against its own floor. L-BM4/M-BM1 reconciliation (2026-08-26):
+every numerator is now a TRUE set size (nodes recall counts realized
+canonical nodes, nodes precision counts realizer served nodes — see
+compute_seed), so no direction can print above 1.0; the floor is
+"at least 1.0" and 1.0 means exact set equality.
 
 Seeds: bdm (bdm_acc_loan_info) and sup (bdm_acc_loan_info_sup), target data_dt.
 
@@ -269,9 +270,9 @@ FEATURES = ("nodes", "edges", "highlights")
 #    0.9 = the documented R11-2 extra: the rrcdm node carries the
 #    non-canonical DML phantom data_dt (guarded by the field-uniqueness
 #    invariant; moves to 1.0 when the R11-2 Sync-2 dedup lands).
-#    ni is the realized/matched/intersection count, not a set size — one
-#    response node may realize several same-label canonical entries
-#    (bdm@16/29/84), so a direction may print above 1.0; the floor is
+#    ni is a true set size for every feature (M-BM1, 2026-08-26: nodes
+#    recall = realized canonical nodes, nodes precision = realizer served
+#    nodes), so no direction can print above 1.0; the floor is
 #    "at least 1.0". J12-13 (same day): the fixture gains requirement
 #    rows 15-DML/20/21 — the gate was EXPECTED red on them (and on the
 #    bdm realization of sup@223/data_dt@225) until Issues 2/3 landed.
@@ -1057,5 +1058,13 @@ def test_jaccard_benchmark(capsys, seed, script, direction):
             assert round(val, 4) >= floor, (
                 f"REGRESSION {seed}/{Path(script).stem}/{direction}/"
                 f"{feat}/{score_dir}: {val:.4f} < floor {floor:.4f}")
+            # M12 (review): recall = |A∩B|/|B| and precision = |A∩B|/|A|
+            # are a genuine set-equality pair — neither can exceed 1.0 (the
+            # pre-M-BM1 nodes-precision overcount printed 1.125/1.1429 and
+            # rode the `>= floor` check silently). A value above 1.0 is an
+            # invariant break and must fail loudly.
+            assert round(val, 4) <= 1.0001, (
+                f"SET-EQUALITY VIOLATION {seed}/{Path(script).stem}/"
+                f"{direction}/{feat}/{score_dir}: {val:.4f} > 1.0")
     assert not problems, ("benchmark invariants violated:\n"
                           + "\n".join(problems))

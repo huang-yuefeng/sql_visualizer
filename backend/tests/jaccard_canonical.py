@@ -437,6 +437,141 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
    The legacy direction-less entries (bdm/sup/pl/dl, points 1-13) are
    untouched -- they predate the R29 harness and are derived from the
    docs' REQUIREMENT sections (J12-13), not from served closures.
+
+17. R44 OCCURRENCE-COVERAGE RE-DERIVATION (2026-08-28, CR10 discipline
+   -- EXTRACTOR_VERSION 2026-08-28.3). R44 landed two extraction-time
+   changes that stale three canonical cases BY DESIGN (measured against
+   the canonical BEFORE this round: pl downstream E=0.8889/0.8889,
+   H=1.0/0.8333; bdm upstream-in-PL E=0.6667/0.6667, H=1.0/0.5;
+   lending_ref downstream-in-SUP_M recall 1.0, N-precision 0.9796,
+   E-precision 0.7476 -- pure augmentation). Every re-pinned row below
+   is re-derived FROM THE SQL TEXT (line numbers + occurrence-coverage
+   reasoning in the inline comments); the served L2 was consulted ONLY
+   as the post-hoc cross-check noted inline ("cross-checked: identical")
+   per the CR10 ruling.
+   - F1 write-severance fix (PL, BDM_ACC_LOAN_INFO_PL.sql): sqlglot
+     parses the bare `INSERT OVERWRITE TABLE bdm_acc_loan_info
+     PARTITION(data_dt='${load_date}',...);`@19 and the standalone
+     `SELECT distinct a.acnw AS LENDING_REF ...;`@21-251 as TWO
+     statements (the semicolon @19 severs the write from its source);
+     R44 walks the Select under the INSERT's own context -- ONE write
+     statement (TOP0; the job-log INSERT@253 keeps TOP2, no
+     renumbering). The bare INSERT's "⟐ insert" trunk @19 NO LONGER
+     EXISTS; the merged statement's output VT is "⟐ output"@21 (born
+     at the SELECT -- the output frame IS the SELECT result set).
+     Rows R1 (pl) and UBP1 (bdm↑PL) re-pin anchor 19 -> 21 [SUPERSEDED
+     2026-08-29 by point 18 -- the K3 sample repair removed the stray
+     `;`@19, the output VT is born at the INSERT@19 again, and the
+     job-log INSERT@253 drops from TOP2 to TOP1]: the
+     partition-read redirect of PARTITION(data_dt='${load_date}')@19
+     lands on the merged statement's output frame and carries the
+     frame's own line (21). The src endpoint stays data_dt@19 (the
+     SQL occurrence line of the partition column). Every other pl /
+     bdm↑PL row is line-invariant to the merge (P15/V1 anchor @19 --
+     the write leg + value write of the partition literal; P16/V2/M1
+     @253/254 and P18/P22/F1 @263/264 -- stmt2's own lines):
+     unchanged. Measured after re-pin: pl 7/9 nodes, 9/9 edges, 6/6
+     highlights; bdm↑PL 3/3, 3/3, 2/2 -- all 1.0000/1.0000.
+   - Occurrence-coverage twins (SUP_M, BDM_ACC_LOAN_INFO_SUP_M.sql):
+     the R44 user ruling ("covering all occurrences of the target
+     field is the PURPOSE of flow-only") admits the physical-side
+     instances of the p2 join-key operands and the NOT-IN subquery
+     container into the lending_ref downstream closure. SQL facts:
+     p2 is a derived alias whose body reads EXACTLY ONE physical
+     table -- ods_hub_lsacmsp (FROM@33 in the subq scope, FROM@109 in
+     the loan_final scope) -- so each p2.X operand of the CONCAT join
+     keys @41/@117 (ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,
+     '0'),...) = p1.lending_ref) is an occurrence of an
+     ods_hub_lsacmsp column (the column list @31/@107 names poctcd,
+     pogmab, poacb, poacs, poacx, podtao); the NOT-IN subquery @48-52
+     (SELECT DISTINCT lending_ref@50 FROM bdm_evt_loan_trans a@52)
+     produces a lending_ref value set that filters the enclosing
+     subq's rows. 26 new rows LFS80-LFS105 + the ⟐subq2@50 VT node;
+     the closure went 37 -> 38 canonical nodes / 77 -> 103 canonical
+     edges AT THIS ROUND (served at this round: 49 nodes / 103 edges --
+     every canonical node realized, every served edge consumed).
+     COUNT RE-BASE (2026-08-29, review M15): those figures are this
+     round's measurement, not the current total. LFS106 (#387, the
+     GROUP-BY occurrence twin) and LFS107-109 + the pogmab@46 /
+     poctcd@120 field instances (F-D, family-3, 2026-08-29) landed
+     after it -- then the F-K final adjudication (point 19) removed
+     LFS109/LFS110, so the canonical lending_ref↓SUP_M closure now
+     stands at 40 CANONICAL_NODES_DIR entries / 105 CANONICAL_EDGES
+     rows. Never
+     cite 38/103 as live; re-derive from the module (import and count).
+     The parallel-admission
+     rows pin the SHARED endpoint label-only ("@0"): the twin
+     admission targets the SAME VT/table instance as its LFS16-23 /
+     LFS45-50 sibling (the two admissions render the one SQL
+     occurrence under two instance identities -- alias-side and
+     physical-side -- so they are (label, line)-identical by
+     construction; the used-set consumes the second parallel edge).
+     Cross-checked against the served closure: identical (no
+     over/under-admission). All other 19 gate cases re-measured at
+     1.0000/1.0000 (the 17 previously-covered cases held).
+
+18. K3 SAMPLE REPAIR RE-PIN (2026-08-29, F-D -- the PL pixel-adjudicated
+    sample repair landed AFTER point 17 was measured; point 17's R1/UBP1
+    and TOP2 pins are superseded by this point, never silently rewritten).
+    K3 removed the stray `;` that ended the bare INSERT@19, so
+    BDM_ACC_LOAN_INFO_PL.sql is ONE write statement again (TOP0 =
+    INSERT@19 + SELECT@21-251; the job-log INSERT@253 is TOP1) and the
+    lines below it DID NOT MOVE (the `;` was removed, not a line):
+      - R1 (pl) / UBP1 (bdm↑PL) re-pin anchor 21 -> 19. The output VT of
+        the merged statement is born at the INSERT@19 (the statement's own
+        first token), so the partition-read REF of
+        PARTITION(data_dt='${load_date}')@19 carries the statement's line
+        19 -- NOT the SELECT@21 line point 17 pinned ("the fallback's
+        synthesized SELECT@21"). src stays data_dt@19 (the SQL occurrence
+        line). SQL text: L19 `INSERT OVERWRITE TABLE bdm_acc_loan_info
+        PARTITION(data_dt='${load_date}',CHARGE_DEPARTMENT='OPS_CLBS_
+        PLoan')` + L21 `SELECT distinct a.acnw AS LENDING_REF` with no `;`
+        between them. Engine cross-check: REF@19 flow_kind=read into the
+        output VT ctx=TOP0 line_start=19.
+      - P16/V2 (pl) and RDP3 (rrcdm↓PL) re-pin "stmt" TOP2 -> TOP1 (J12-17
+        point 11): the job-log INSERT@253 is the SECOND statement once the
+        INSERT@19/SELECT@21 pair merges, so the write leg's output VT is
+        ctx TOP1 (line_start 253) -- the "TOP2" slot point 17 kept no
+        longer exists. Rows P18/P22/F1 (263/264) and M1/V2 lines
+        (253/254) are line-invariant.
+    Measured after this re-pin (EXTRACTOR_VERSION 2026-08-28.7): pl
+    7/9 nodes, 9/9 edges, 5/5 highlights; bdm↑PL 3/3, 3/3, 1/1; rrcdm↓PL
+    3/3, 3/3, 2/2 -- all 1.0000/1.0000.
+
+19. F-K FINAL ADJUDICATION (2026-08-29) -- the last 2 jaccard rows, both
+    lending_ref↓SUP_M (the 105-vs-106 / ∩104 gap the determinism team
+    pinned as byte-stable over 14+ runs; a 2-row semantic gap, not a
+    flake). Canonical 106 -> 105 rows; served 105 edges; A = B at
+    1.0000/1.0000.
+      - LFS64 RE-PINNED @153 -> @150. F-D's family-3 re-pin carried the
+        iiapty closure's rendering of the join step into a closure the
+        membership rule does not serve it in. SQL text:
+          L150 | ON RPAD(p4.iiapty,3,'')||p4.iiblno = p1.lending_ref
+          L153 |     p5.iiapty = p4.iiapty
+        W4 (J12-20 option b, USER RULING 2026-08-13; lineage.py:1076-1094)
+        admits a FILTER/JOIN edge into a field closure only when the
+        SEARCHED field is an endpoint. L150's key ends in p1.lending_ref
+        -> admits here. L153's predicate is iiapty = iiapty -- never
+        lending_ref -- so it serves ONLY the iiapty closure, as IID5
+        (`iiapty@151 -> loan_final@64 JOIN@153`, served l2e_4a91a8ec1c94;
+        the same physical relation, field-scoped two ways). In THIS
+        closure the served graph has NO edge at 153, and the surviving
+        join-step rendering is L150's (`JOIN iiapty -> loan_final`,
+        l2e_b3954ba205ac -- the engine surplus this re-pin consumes).
+      - LFS109 REMOVED. It pinned the X2 "output column read into its own
+        output frame" rendering (`REF lending_ref@22 -> ⟐subq1@22`). That
+        rendering is minted only by _simplify_dml_edges
+        (l2_builder.py:1627-1644 / 1646-1672) behind the
+        `tgt in dml_targets` gate, and ⟐subq1 is a CTE-body subquery's
+        output frame, never a DML target (the script's only DML is the
+        INSERT OVERWRITE@160) -- no realization path. The raw dependency
+        list for lending_ref@L22 holds 4 REFs OUT (@13/@26/@50/@59) plus
+        2 SCHEMA belongs-to INs (rollover@9 = LFS8, ⟐subq1@22 = LFS9);
+        L22 itself is the IN-subquery's projection column, whose
+        belongs-to is already canonical as LFS9 (membership predicate =
+        LFS107 @19). Keeping LFS109 asserted one ownership fact twice
+        under two instance identities -- forbidden by set equality, the
+        same ground as the LFS110 removal.
 """
 
 CANONICAL_ROWS = [
@@ -536,14 +671,20 @@ CANONICAL_ROWS = [
     #    no-bypass chain) + the probe-pinned extras R1/V1/V2/M1/F1 (the
     #    SUP X-series canonization mirrors; served forms in doc §8.5).
     #    P15/P16/V1/V2 carry "stmt" in CANONICAL_EDGES (J12-17 point 11;
-    #    note P16/V2's statement is TOP2 -- the pl script's stmt2 is the
-    #    second INSERT, TOP1 is the SELECT body between the two). ──
+    #    note P16/V2's statement is TOP1 -- docstring point 18, K3 sample
+    #    repair: the bare INSERT@19 + SELECT@21-251 are ONE statement
+    #    TOP0, so the job-log INSERT@253 is TOP1). ──
     ("P15", "pl", "⟐output", 0, "bdm", 19, "TABLE_FLOW", 19),
     ("P16", "pl", "⟐output", 0, "rrcdm", 253, "TABLE_FLOW", 253),
     ("P18", "pl", "data_dt", 264, "bdm", 263, "REF", 263),
     ("P22", "pl", "bdm", 263, "⟐output", 0, "TABLE_FLOW", 263),
     ("V1", "pl", "data_dt", 19, "⟐output", 0, "TABLE_FLOW", 19),
     ("V2", "pl", "data_dt", 254, "⟐output", 0, "TABLE_FLOW", 254),
+    # R1 re-pinned 2026-08-29 (docstring point 18 -- K3 sample repair):
+    # anchor 21 -> 19. The merged write statement's output VT is born at
+    # the INSERT@19 (its own first token), so the partition-read REF of
+    # PARTITION(data_dt='${load_date}')@19 carries the statement's line
+    # 19. src keeps the SQL occurrence line 19.
     ("R1", "pl", "data_dt", 19, "⟐output", 0, "REF", 19),
     ("M1", "pl", "⟐output", 0, "data_dt", 254, "SCHEMA", 254),
     ("F1", "pl", "data_dt", 264, "bdm", 264, "FILTER", 264),
@@ -675,17 +816,38 @@ CANONICAL_EDGES = [
     # ── pl closure (9): P15/P18/P22/P16 -- REQUIREMENT rows (doc §4.2/
     #    §4.3, the R19.3 no-bypass chain; P15/P16 carry "stmt", J12-17:
     #    the write legs must attach to their OWN statement's output VT --
-    #    P15's is the bare-INSERT output "⟐ insert"@19 TOP0, served with
-    #    label "insert") + the probe-pinned extras R1/V1/V2/M1/F1 (the
-    #    SUP X-row mirrors, doc §8.5): R1 the partition REF@19 into the
-    #    output VT (X2 mirror), V1/V2 the value writes @19/@254 (rows
-    #    12/17/X4 mirrors), M1 the stmt2 output VT's membership SCHEMA@254
-    #    (X3 mirror), F1 the stmt2 WHERE FILTER@264 (X5 mirror).
+    #    R44 F1 (2026-08-28, docstring point 17): the bare INSERT@19 +
+    #    SELECT@21-251 merge into ONE statement TOP0; K3 (docstring point
+    #    18) removed the stray `;`@19 that had severed them, so the output
+    #    VT is born at the INSERT@19 and the job-log INSERT@253 is TOP1)
+    #    + the probe-pinned extras R1/V1/V2/M1/F1 (the SUP X-row mirrors,
+    #    doc §8.5): R1 the partition REF into the output VT (X2 mirror;
+    #    re-pinned @19 -- the merged statement's own line), V1/V2 the
+    #    value writes @19/@254 (rows 12/17/X4 mirrors), M1 the stmt2
+    #    output VT's membership SCHEMA@254 (X3 mirror), F1 the stmt2
+    #    WHERE FILTER@264 (X5 mirror).
     {"row": "P15", "seed": "pl", "src": "⟐output@0", "dst": "bdm@19", "type": "TABLE_FLOW", "anchor": 19, "spec": "anchor_rel_ep", "stmt": "TOP0"},
     {"row": "V1", "seed": "pl", "src": "data_dt@19", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 19, "spec": "anchor_rel_ep", "stmt": "TOP0"},
+    # R1 re-pinned 2026-08-29 (docstring point 18 -- K3 sample repair).
+    # SQL text: PARTITION(data_dt='${load_date}',...)@19 writes the
+    # partition column of bdm_acc_loan_info from a literal inside the ONE
+    # write statement INSERT@19 + SELECT@21-251 (K3 removed the stray
+    # `;`@19, so the statement is whole again and its output VT is born at
+    # the INSERT@19). The write routes data_dt -> (statement output frame)
+    # -> bdm_acc_loan_info; the read-side companion (the partition key's
+    # use of data_dt) renders as a REF into that output frame, carrying
+    # the statement's own line 19. src keeps data_dt@19, the partition
+    # occurrence's SQL line. Cross-checked against the served L2:
+    # identical (REF@19, flow_kind=read, endpoint output VT ctx=TOP0
+    # line_start=19).
     {"row": "R1", "seed": "pl", "src": "data_dt@19", "dst": "⟐output@0", "type": "REF", "anchor": 19, "spec": "anchor_rel_ep"},
-    {"row": "P16", "seed": "pl", "src": "⟐output@0", "dst": "rrcdm@253", "type": "TABLE_FLOW", "anchor": 253, "spec": "anchor_rel_ep", "stmt": "TOP2"},
-    {"row": "V2", "seed": "pl", "src": "data_dt@254", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 254, "spec": "anchor_rel_ep", "stmt": "TOP2"},
+    # P16/V2 re-pinned 2026-08-29 (docstring point 18 -- K3 sample repair):
+    # "stmt" TOP2 -> TOP1. The job-log INSERT@253 is the SECOND statement
+    # once the bare INSERT@19 merges with its SELECT@21-251 body (K3
+    # removed the stray `;`), so its output VT is ctx TOP1 (line_start
+    # 253) -- the TOP2 slot the pre-K3 script had no longer exists.
+    {"row": "P16", "seed": "pl", "src": "⟐output@0", "dst": "rrcdm@253", "type": "TABLE_FLOW", "anchor": 253, "spec": "anchor_rel_ep", "stmt": "TOP1"},
+    {"row": "V2", "seed": "pl", "src": "data_dt@254", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 254, "spec": "anchor_rel_ep", "stmt": "TOP1"},
     {"row": "M1", "seed": "pl", "src": "⟐output@0", "dst": "data_dt@254", "type": "SCHEMA", "anchor": 254, "spec": "anchor_rel_ep"},
     {"row": "P18", "seed": "pl", "src": "data_dt@264", "dst": "bdm@263", "type": "REF", "anchor": 263, "spec": "anchor_rel_ep"},
     {"row": "P22", "seed": "pl", "src": "bdm@263", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 263, "spec": "anchor_rel_ep"},
@@ -722,6 +884,15 @@ CANONICAL_EDGES = [
     #    the write, the write leg) -- the served realization of the
     #    prose chain. The READ of the seed (pl @264 / dl @560) is the
     #    DOWNSTREAM flow, explicitly excluded by §6a.4. ──
+    # UBP1 re-pinned 2026-08-29 (docstring point 18 -- K3 sample repair):
+    # anchor 21 -> 19 -- same edge as the downstream R1 row, upstream
+    # direction. SQL text: PARTITION(data_dt='${load_date}')@19 is the
+    # ONLY producer of bdm_acc_loan_info.data_dt in PL (literal-terminated
+    # upstream chain); the merged write statement's output frame is born
+    # at the INSERT@19, so the partition-read redirect into that frame
+    # carries anchor 19 (src keeps the partition occurrence line 19).
+    # Cross-checked against the served L2: identical (REF@19,
+    # flow_kind=read, into output VT ctx=TOP0 line_start=19).
     {"row": "UBP1", "seed": "bdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "upstream",
      "src": "data_dt@19", "dst": "⟐output@0", "type": "REF", "anchor": 19, "spec": "anchor_rel_ep"},
     {"row": "UBP2", "seed": "bdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "upstream",
@@ -780,7 +951,7 @@ CANONICAL_EDGES = [
     {"row": "RDP2", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "downstream",
      "src": "⟐output@0", "dst": "data_dt@254", "type": "SCHEMA", "anchor": 254, "spec": "anchor_rel_ep", "pending": True},
     {"row": "RDP3", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_PL.sql", "direction": "downstream",
-     "src": "⟐output@0", "dst": "rrcdm@253", "type": "TABLE_FLOW", "anchor": 253, "spec": "anchor_rel_ep", "stmt": "TOP2"},
+     "src": "⟐output@0", "dst": "rrcdm@253", "type": "TABLE_FLOW", "anchor": 253, "spec": "anchor_rel_ep", "stmt": "TOP1"},
     {"row": "RDS1", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "data_dt@213", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 213, "spec": "anchor_rel_ep"},
     {"row": "RDS2", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
@@ -847,6 +1018,38 @@ CANONICAL_EDGES = [
      "src": "⟐output@0", "dst": "rrcdm@211", "type": "TABLE_FLOW", "anchor": 211, "spec": "anchor_rel_ep", "stmt": "TOP1"},
     {"row": "IID17", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "sup@223", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 223, "spec": "anchor_rel_ep"},
+    # IID18 -- REMOVED (2026-08-29, F-J CR10 re-derivation; the lending_ref-
+    # seed twin of the LFS110 removal above). It pinned the physical-side
+    # belongs-to twin of IID12 (`sup@160 -> lending_ref@201`, SCHEMA@201) and
+    # was realized only by the wrong-owner occurrence F-E2's EXTRACTOR_VERSION
+    # 2026-08-28.8 removed (the p1.lending_ref group inheriting p2.lending_ref's
+    # owner, both occurring on L201). SQL text L199
+    # `LEFT JOIN bdm_acc_loan_info_sup p2` + L201 `p2.lending_ref =
+    # p1.lending_ref` supports ONE ownership fact at that line -- bdm_
+    # acc_loan_info_sup owns the lending_ref read @201 -- rendered at the
+    # qualifying ALIAS instance p2@199, which is IID12 (engine
+    # l2e_fe74418a5d43). A second, physical-side row for the same fact would
+    # demand the same engine edge twice; deferred with the plain-alias twin
+    # family (see the LFS110 note).
+    # NOT PINNED -- engine edge l2e_18228d5f16f6
+    # (bdm_acc_loan_info_sup@160 -> CHARGE_DEPARTMENT@160, SCHEMA@182,
+    # reason "‖bdm_acc_loan_info_sup@L223 → bdm_acc_loan_info_sup.CHARGE_
+    # DEPARTMENT@L182‖") is an extractor DEFECT, reported to the extractor
+    # owner (F-C), never canonicalized. Two refutations:
+    #   (a) owner: the L182 occurrence is `p1.charge_department` and inside
+    #       the sup-write SELECT p1 = loan_final (L198 `FROM loan_final
+    #       p1`) -- the SOURCE-side column (born @79 in rollover, from
+    #       bdm_acc_loan_info@44), not bdm_acc_loan_info_sup's. The value
+    #       at 182 computes reserved_field7, it never feeds the
+    #       CHARGE_DEPARTMENT partition slot (that is L196 `,p1.charge_
+    #       department`). Family 3's own contract ("attributed to the SAME
+    #       owner the surviving var resolved to -- never a guessed owner")
+    #       is violated: the surviving var at 182 resolved to loan_final.
+    #   (b) anchor: L182 is not an occurrence line of the sup column; the
+    #       SQL-text anchors for sup.CHARGE_DEPARTMENT are L160 (the
+    #       PARTITION spec that names it) and L203 (`p2.charge_department`).
+    # The same edge is unaccounted in lending_ref↓SUP_M (it is in that
+    # closure too), where it keeps highlights precision at 26/27.
     #    iiapty↑SUP_M (iiapty upstream) is EMPTY -- no row, no node
     #    (doc §3.2: no script writes ods_hie_ipacmsp at all).
     #    lending_ref↑DL -- bdm_acc_loan_info.lending_ref UPSTREAM, the
@@ -886,6 +1089,25 @@ CANONICAL_EDGES = [
      "src": "ods_ccb_cb_loan_acctloan@426", "dst": "A@426@426", "type": "REF", "anchor": 426, "spec": "anchor_rel_ep"},
     {"row": "LFD7", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
      "src": "⟐output@0", "dst": "bdm@99", "type": "TABLE_FLOW", "anchor": 99, "spec": "anchor_rel_ep"},
+    # ── LFD8-LFD10 (2026-08-29, F-D): the L101 projection's three
+    #    renderings, SQL-verified (the DL writer's output column). SQL
+    #    L99 `INSERT OVERWRITE TABLE bdm_acc_loan_info PARTITION(...)` +
+    #    L101 `A.acctnbr AS LENDING_REF`. ──
+    # LFD8 -- the output column's value write into the statement output
+    # frame (the row 17 / X4 mirror, upstream direction): the SELECT list's
+    # LENDING_REF@101 is written into ⟐output@99.
+    {"row": "LFD8", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
+     "src": "LENDING_REF@101", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 101, "spec": "anchor_rel_ep"},
+    # LFD9 -- the projection copy, producer→consumer: A.acctnbr (the ODS
+    # read @426) becomes the output column LENDING_REF@101.
+    {"row": "LFD9", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
+     "src": "ods_ccb_cb_loan_acctloan@426", "dst": "LENDING_REF@101", "type": "REF", "anchor": 101, "spec": "anchor_rel_ep"},
+    # LFD10 -- the same production fact in the read direction
+    # (consumer→producer), anchored at the statement's FROM line: the
+    # engine renders BOTH directions for a read, exactly as for LFD6
+    # (`ods@426 -> A@426 REF@426`, the L426 FROM-line read).
+    {"row": "LFD10", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
+     "src": "LENDING_REF@101", "dst": "ods_ccb_cb_loan_acctloan@426", "type": "REF", "anchor": 426, "spec": "anchor_rel_ep"},
     #    lending_ref↓SUP_M -- bdm_acc_loan_info.lending_ref DOWNSTREAM:
     #    the seed's CTE-zone flow + the R29 row-level continuation
     #    (2026-08-12 ruling: the sup-write statement USES lending_ref as
@@ -969,8 +1191,14 @@ CANONICAL_EDGES = [
      "src": "poacx@41", "dst": "rollover@9", "type": "REF", "anchor": 41, "spec": "anchor_rel_ep"},
     {"row": "LFS28", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "poctcd@41", "dst": "rollover@9", "type": "REF", "anchor": 41, "spec": "anchor_rel_ep"},
+    # LFS29 re-pinned 2026-08-29 (F-D, family-3 occurrence twins): the L41
+    # copy into rollover renders from the ALIAS instance -- the SQL operand
+    # at L41 is qualified `p2.pogmab`, and with pogmab's second in-scope
+    # occurrence @46 (L46 `AND p2.pogmab = 'HSBC'`) the alias instance is
+    # the carrier of the copy. Same flow, alias-side instance identity
+    # (the point-17 parallel-admission convention).
     {"row": "LFS29", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "pogmab@41", "dst": "rollover@9", "type": "REF", "anchor": 41, "spec": "anchor_rel_ep"},
+     "src": "p2@199@41", "dst": "rollover@9", "type": "REF", "anchor": 41, "spec": "anchor_rel_ep"},
     {"row": "LFS30", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "p1@84@41", "dst": "lending_ref@41", "type": "SCHEMA", "anchor": 41, "spec": "anchor_rel_ep"},
     {"row": "LFS31", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
@@ -983,8 +1211,12 @@ CANONICAL_EDGES = [
      "src": "p2@199@41", "dst": "poacx@41", "type": "SCHEMA", "anchor": 41, "spec": "anchor_rel_ep"},
     {"row": "LFS35", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "p2@199@41", "dst": "poctcd@41", "type": "SCHEMA", "anchor": 41, "spec": "anchor_rel_ep"},
+    # LFS36 re-pinned 2026-08-29 (F-D, family-3): the belongs-to renders at
+    # pogmab's own second occurrence line -- SQL L46 `AND p2.pogmab =
+    # 'HSBC'` (a real in-scope predicate occurrence). The L41 occurrence's
+    # ownership is still pinned by the LFS23 JOIN@41 + LFS29 REF@41 rows.
     {"row": "LFS36", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "p2@199@41", "dst": "pogmab@41", "type": "SCHEMA", "anchor": 41, "spec": "anchor_rel_ep"},
+     "src": "p2@199@46", "dst": "pogmab@46", "type": "SCHEMA", "anchor": 46, "spec": "anchor_rel_ep"},
     {"row": "LFS37", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "p1@29@41", "dst": "lending_ref@41", "type": "SCHEMA", "anchor": 41, "spec": "anchor_rel_ep"},
     {"row": "LFS38", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
@@ -1023,8 +1255,23 @@ CANONICAL_EDGES = [
      "src": "poacs@117", "dst": "rollover@9", "type": "REF", "anchor": 117, "spec": "anchor_rel_ep"},
     {"row": "LFS55", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "pogmab@117", "dst": "rollover@9", "type": "REF", "anchor": 117, "spec": "anchor_rel_ep"},
-    {"row": "LFS56", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "poctcd@117", "dst": "rollover@9", "type": "REF", "anchor": 117, "spec": "anchor_rel_ep"},
+    # LFS56 REMOVED 2026-08-29 (F-D): the row pinned `poctcd@117 ->
+    # rollover@9 REF@117`, one of the six "@117 operand copies into
+    # rollover" rows (LFS51-56) dumped from the served closure by the
+    # point-15 repin -- the round CR10 declared circular. SQL text refutes
+    # the flow: the L117 CONCAT joins the derived p2 to loan_final(p1)
+    # INSIDE the loan_final CTE body, so the join's consumer is loan_final
+    # (pinned by LFS50 + the physical-side LFS86-91); rollover_loan_info is
+    # a sibling CTE consumed by the SUBQ scope's L41 join and by the p6
+    # join @155-156, never by the L117 join. The @41 family (LFS24-29) is
+    # SQL-supported and stays: that CONCAT sits inside the subq whose rows
+    # feed rollover's `lending_ref IN (...)` @19. The engine's family-3
+    # convergence (poctcd gained its own @120 occurrence family:
+    # LFS56->LFS62 SCHEMA@120, LFS91 JOIN@120, LFS102/LFS103 copies)
+    # dropped this one rendering and exposed the artifact. LFS51-55 keep
+    # their rows ONLY because the engine still renders them -- they carry
+    # the same point-15 circularity and are routed to the extractor/doc
+    # owner with this note, not silently kept as truth.
     {"row": "LFS57", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "p2@199@117", "dst": "poacx@117", "type": "SCHEMA", "anchor": 117, "spec": "anchor_rel_ep"},
     {"row": "LFS58", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
@@ -1035,10 +1282,36 @@ CANONICAL_EDGES = [
      "src": "p2@199@117", "dst": "poacs@117", "type": "SCHEMA", "anchor": 117, "spec": "anchor_rel_ep"},
     {"row": "LFS61", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "p2@199@117", "dst": "pogmab@117", "type": "SCHEMA", "anchor": 117, "spec": "anchor_rel_ep"},
+    # LFS62 re-pinned 2026-08-29 (F-D, family-3): poctcd's own second
+    # in-scope occurrence is L120 (`p3.zfctcd = p2.poctcd`, the p3 join ON
+    # inside loan_final), so its belongs-to renders there. The L117
+    # occurrence stays pinned by LFS50 (JOIN) / LFS91 (physical side).
     {"row": "LFS62", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "p2@199@117", "dst": "poctcd@117", "type": "SCHEMA", "anchor": 117, "spec": "anchor_rel_ep"},
+     "src": "p2@199@120", "dst": "poctcd@120", "type": "SCHEMA", "anchor": 120, "spec": "anchor_rel_ep"},
     {"row": "LFS63", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "iiblno@150", "dst": "loan_final@64", "type": "JOIN", "anchor": 150, "spec": "anchor_rel_ep"},
+    # LFS64 re-pinned 2026-08-29 (F-K final adjudication; supersedes the
+    # F-D family-3 re-pin @153 -- that pin carried the iiapty closure's
+    # rendering over into a closure the W4 rule does not serve it in).
+    # Both lines are real join-ON occurrences in loan_final's join chain
+    # down to lending_ref, but they are DIFFERENT predicates served by
+    # DIFFERENT field closures:
+    #   L150 | ON RPAD(p4.iiapty,3,'')||p4.iiblno = p1.lending_ref
+    #   L153 |     p5.iiapty = p4.iiapty
+    # Closure membership for FILTER/JOIN is the J12-20 option-b USER RULING
+    # (W4, lineage.py:1076-1094): the edge admits only when the SEARCHED
+    # field is one of its endpoints. L150's key has p1.lending_ref as an
+    # endpoint, so it admits HERE (seed lending_ref). L153's predicate is
+    # iiapty = iiapty -- never lending_ref -- so it admits ONLY in the
+    # iiapty closure, where it is canonical as IID5 (`iiapty@151 ->
+    # loan_final@64 JOIN@153`; served there as l2e_4a91a8ec1c94, verified
+    # live). In THIS closure the served graph holds no edge anchored at 153
+    # at all: the raw-graph p5.iiapty@153 JOIN instance the F-D pin cited
+    # is dropped by W4 before the closure is served, and the surviving
+    # join-step rendering is the L150 one (`JOIN iiapty -> loan_final`,
+    # l2e_b3954ba205ac -- the engine surplus this re-pin consumes). Same
+    # physical relation, two field-scoped renderings; the L150 iiapty
+    # occurrence keeps its REF row here (LFS66, engine hl 150).
     {"row": "LFS64", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "iiapty@150", "dst": "loan_final@64", "type": "JOIN", "anchor": 150, "spec": "anchor_rel_ep"},
     {"row": "LFS65", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
@@ -1146,6 +1419,259 @@ CANONICAL_EDGES = [
      "src": "⟐output@0", "dst": "data_dt@180", "type": "SCHEMA", "anchor": 180, "spec": "anchor_rel_ep", "pending": True},
     {"row": "RUE3", "seed": "rrcdm", "script": "EAST5_STZFXXB_M.sql", "direction": "upstream",
      "src": "⟐output@0", "dst": "rrcdm@179", "type": "TABLE_FLOW", "anchor": 179, "spec": "anchor_rel_ep"},
+    # ── R44 occurrence-coverage rows (2026-08-28, lending_ref↓SUP_M --
+    #    docstring point 17). Re-derived FROM THE SQL TEXT (CR10: the
+    #    engine's served closure was consulted only as the post-hoc
+    #    cross-check -- "identical" below means both derivations agree).
+    #    The R44 user ruling ("covering all occurrences of the target
+    #    field is the PURPOSE of flow-only") admits the PHYSICAL-side
+    #    instances of the p2 join-key operands and the NOT-IN subquery
+    #    container into the closure:
+    #    (a) p2 is a derived alias reading EXACTLY ONE physical table --
+    #        ods_hub_lsacmsp (FROM@33 subq scope, FROM@109 loan_final
+    #        scope; column list @31/@107: poctcd, pogmab, poacb, poacs,
+    #        poacx, podtao). Each p2.X operand of the CONCAT join keys
+    #        @41 and @117 (ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,
+    #        3,'0'),...) = p1.lending_ref) is therefore an occurrence of
+    #        an ods_hub_lsacmsp column at BOTH lines -- the closure must
+    #        carry the physical-side instance of each operand alongside
+    #        the alias-side instance (LFS16-23/LFS45-50 pin the
+    #        alias-side join admissions; LFS80-85/LFS86-91 pin the
+    #        physical-side ones; LFS92-103 pin the copy REFs that tie the
+    #        @117 alias-side reads onto the physical occurrences).
+    #    (b) the NOT-IN subquery @48-52 (AND p1.lending_ref NOT IN (
+    #        SELECT DISTINCT lending_ref@50 FROM bdm_evt_loan_trans a@52)
+    #        -- closed @58) produces a lending_ref value set whose
+    #        membership edge (LFS104) and feed into the enclosing subq
+    #        scope (LFS105) are the container chain of that read.
+    #    Endpoint spelling: the twin admissions share the TARGET
+    #    instance with their LFS16-23/LFS45-50 siblings, so the shared
+    #    endpoint is pinned label-only ("@0") -- the two parallel edges
+    #    are (label, line)-identical by construction (one SQL occurrence,
+    #    two instance identities) and the used-set consumes the second
+    #    parallel edge. Served closure cross-checked AT THIS ROUND: 49
+    #    nodes / 103 edges; every row below matched exactly one served
+    #    edge and no served edge was left over (identical). Rows pinned
+    #    LATER carry their own cross-checks (LFS106 #387; LFS107-109
+    #    F-D 2026-08-29) -- 49/103 is NOT the current total: the
+    #    canonical closure is 40 nodes / 106 rows (docstring point 17
+    #    count re-base, review M15; LFS110 removed by F-J).
+    # LFS80-85 -- the physical-side @41 join admissions: SQL text @41
+    # (ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),LPAD(p2.poacs,
+    # 6,'0'),LPAD(p2.poacx,3,'0'),LPAD(p2.podtao,8,'0')) = p1.lending_ref)
+    # uses each ods_hub_lsacmsp column (p2's sole physical source, FROM@33)
+    # as a join operand alongside the lending_ref key -- one admission per
+    # operand instance, mirroring LFS16-23's alias-side admissions.
+    {"row": "LFS80", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poctcd@41", "dst": "⟐subq@0", "type": "JOIN", "anchor": 41, "spec": "anchor_rel_ep"},
+    {"row": "LFS81", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poacb@41", "dst": "⟐subq@0", "type": "JOIN", "anchor": 41, "spec": "anchor_rel_ep"},
+    {"row": "LFS82", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poacs@41", "dst": "⟐subq@0", "type": "JOIN", "anchor": 41, "spec": "anchor_rel_ep"},
+    {"row": "LFS83", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poacx@41", "dst": "⟐subq@0", "type": "JOIN", "anchor": 41, "spec": "anchor_rel_ep"},
+    {"row": "LFS84", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "podtao@41", "dst": "⟐subq@0", "type": "JOIN", "anchor": 41, "spec": "anchor_rel_ep"},
+    # LFS85 re-pinned 2026-08-29 (F-D, family-3): pogmab's second in-scope
+    # occurrence -- SQL L46 `AND p2.pogmab = 'HSBC'`, a WHERE predicate, so
+    # the admission into the subq scope renders as FILTER@46 from the alias
+    # instance (the L41 JOIN admission stays pinned by LFS23). This row's
+    # pre-re-pin form (`pogmab@41 -> ⟐subq@0 JOIN@41`, the "physical-side"
+    # twin of LFS23) was a point-17 parallel-admission pin; the occurrence
+    # that rendering stood for is now pinned at its own line instead.
+    {"row": "LFS85", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p2@199@46", "dst": "⟐subq@0", "type": "FILTER", "anchor": 46, "spec": "anchor_rel_ep"},
+    # LFS86-91 -- the physical-side @117 join admissions: SQL text @117
+    # (the same CONCAT join inside loan_final; p2's body FROM@109 reads
+    # ods_hub_lsacmsp only) -- one admission per operand instance,
+    # mirroring LFS45-50's alias-side admissions.
+    {"row": "LFS86", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poacx@117", "dst": "loan_final@0", "type": "JOIN", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS87", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "podtao@117", "dst": "loan_final@0", "type": "JOIN", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS88", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poacb@117", "dst": "loan_final@0", "type": "JOIN", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS89", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poacs@117", "dst": "loan_final@0", "type": "JOIN", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS90", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "pogmab@117", "dst": "loan_final@0", "type": "JOIN", "anchor": 117, "spec": "anchor_rel_ep"},
+    # LFS91 re-pinned 2026-08-29 (F-D, family-3): the physical-side L117
+    # join admission renders from the L120 occurrence's alias instance
+    # (`p3.zfctcd = p2.poctcd`), mirroring the LFS62 belongs-to re-pin.
+    {"row": "LFS91", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p2@199@120", "dst": "loan_final@0", "type": "JOIN", "anchor": 120, "spec": "anchor_rel_ep"},
+    # LFS92-103 -- the copy REFs tying the @117 alias-side reads onto the
+    # physical occurrences: SQL text @117 (p2.poctcd etc. in the CONCAT)
+    # reads ods_hub_lsacmsp columns, so each alias-side read IS an
+    # occurrence of the physical column -- the copy edge lands on the
+    # physical instance whose occurrence stream includes the @41 read
+    # (dst @41; that instance carries both lines' evidence) and on the
+    # @117-scoped physical instance (src label-only: the alias-side read
+    # feeds both copies).
+    # SRC LINE SCOPING (2026-08-29, review L20): the label-only srcs that
+    # remain -- LFS93/95/97/99 (`poacs@0` etc.) -- are DELIBERATE, not a
+    # weak pin. Those four operands have NO second in-scope occurrence
+    # (see the LFS100-103 note below), so the copy's source instance
+    # carries BOTH lines' evidence and a line-scoped src would invent
+    # evidence the SQL does not select between @41 and @117. The rows
+    # that DO own a second occurrence are line-scoped (LFS92/94/96/98 at
+    # @117; LFS100-103 at the operand's own line, F-D family-3).
+    {"row": "LFS92", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poacs@117", "dst": "poacs@41", "type": "REF", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS93", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poacs@0", "dst": "poacs@117", "type": "REF", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS94", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poacb@117", "dst": "poacb@41", "type": "REF", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS95", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poacb@0", "dst": "poacb@117", "type": "REF", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS96", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "podtao@117", "dst": "podtao@41", "type": "REF", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS97", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "podtao@0", "dst": "podtao@117", "type": "REF", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS98", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poacx@117", "dst": "poacx@41", "type": "REF", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS99", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "poacx@0", "dst": "poacx@117", "type": "REF", "anchor": 117, "spec": "anchor_rel_ep"},
+    # LFS100-103 re-pinned 2026-08-29 (F-D, family-3). These four rows pin
+    # the cross-instance copy REFs for the TWO join-key operands that own a
+    # SECOND in-scope occurrence (pogmab @46, poctcd @120 -- L46 `AND
+    # p2.pogmab = 'HSBC'`, L120 `p3.zfctcd = p2.poctcd`), so their copy
+    # family re-roots on the alias instance and anchors at the operand's
+    # own line, exactly like the LFS62/LFS91 belongs-to/JOIN re-pins. The
+    # other four operands (poacb/poacs/poacx/podtao) have no second
+    # occurrence, so LFS92-99 keep the @117 form byte-identical.
+    #   LFS100: the L46 pogmab occurrence copies onto the @41-scoped
+    #           instance (the instance that carries both lines' evidence).
+    #   LFS101: the L46 pogmab occurrence copies onto the @117-scoped
+    #           instance.
+    #   LFS102: the L120 poctcd occurrence copies onto the @41-scoped
+    #           instance.
+    #   LFS103: the L120 poctcd occurrence copies onto the @117-scoped
+    #           instance.
+    {"row": "LFS100", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p2@199@46", "dst": "pogmab@41", "type": "REF", "anchor": 46, "spec": "anchor_rel_ep"},
+    {"row": "LFS101", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p2@199@46", "dst": "pogmab@117", "type": "REF", "anchor": 46, "spec": "anchor_rel_ep"},
+    {"row": "LFS102", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p2@199@120", "dst": "poctcd@41", "type": "REF", "anchor": 120, "spec": "anchor_rel_ep"},
+    {"row": "LFS103", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p2@199@120", "dst": "poctcd@117", "type": "REF", "anchor": 120, "spec": "anchor_rel_ep"},
+    # LFS104-105 -- the NOT-IN subquery container chain: SQL text @48-52
+    # (AND p1.lending_ref NOT IN (SELECT DISTINCT lending_ref@50 FROM
+    # bdm_evt_loan_trans a@52), closed @58). The subquery's output
+    # column lending_ref@50 is a closure member (membership edge, the
+    # LFS9/LFS11 ⟐subq1/⟐subq pattern) and its value set feeds the
+    # enclosing subq scope's row selection (the LFS12 ⟐subq ->
+    # ⟐subq1 container-hop pattern, one level deeper).
+    {"row": "LFS104", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "⟐subq2@50", "dst": "lending_ref@50", "type": "SCHEMA", "anchor": 50, "spec": "anchor_rel_ep"},
+    {"row": "LFS105", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "⟐subq2@50", "dst": "⟐subq@26", "type": "TABLE_FLOW", "anchor": 50, "spec": "anchor_rel_ep"},
+    # LFS106 -- the GROUP-BY occurrence twin (#387, 2026-08-28, GROUP-BY
+    # occurrence-coverage). SQL text @59 `GROUP BY lending_ref` is an
+    # occurrence of bdm_acc_loan_info.lending_ref -- unqualified, and the
+    # enclosing subq's only source is p1 = bdm_acc_loan_info@29. R44's
+    # "cover all occurrences" ruling admits the GROUP-BY occurrence into
+    # the closure; the physical-side field instance carries its own SCHEMA
+    # (table->column ownership) edge from the physical table
+    # bdm_acc_loan_info (first occurrence FROM@16) to the lending_ref
+    # field at the GROUP-BY line. Cross-checked against the served
+    # closure: identical (the served edge's reason string pins
+    # bdm_acc_loan_info@L16 -> bdm_acc_loan_info.lending_ref@L59).
+    {"row": "LFS106", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "bdm@16", "dst": "lending_ref@59", "type": "SCHEMA", "anchor": 59, "spec": "anchor_rel_ep"},
+    # ── LFS107-110 (2026-08-29, F-D): the family-3 occurrence twins that
+    #    carry real in-scope occurrence lines the canonical never pinned.
+    #    Each is SQL-verified against the SUP_M text; the served closure
+    #    was used only as the post-hoc cross-check (CR10). F-J adjudication
+    #    (2026-08-29): LFS107 re-anchored to its predicate line and LFS110
+    #    removed as the phantom twin of LFS74 -- see the row notes.
+    #    F-K final adjudication (2026-08-29): LFS109 removed (no realization
+    #    path; the SQL ownership fact it doubled is already LFS9) -- only
+    #    LFS107/LFS108 of this family remain live. ──
+    # LFS107 -- the rollover IN-filter's filter step. RE-ANCHORED 22 -> 19
+    # (2026-08-29, F-J CR10 repair; the 22 pin was realized only by the
+    # wrong-scope occurrence F-E2's EXTRACTOR_VERSION 2026-08-28.8 removed).
+    # SQL text, verified in the sample:
+    #   L19 |         AND lending_ref IN (          <- the predicate line
+    #   L21 |             SELECT
+    #   L22 |                 lending_ref            <- subq1's OWN projection
+    # L19 is the WHERE arm of the rollover_loan_info body (SELECT lending_ref
+    # @13 FROM bdm_acc_loan_info @16) -- the line the IN-predicate filters on.
+    # L22 is a DIFFERENT SCOPE: the output column of the nested IN-subquery
+    # (subq1), not the enclosing predicate; the engine now refuses to carry
+    # the filter step there and emits the FILTER at the predicate line
+    # (lending_ref@13 -> rollover_loan_info@9). The subquery output column's
+    # own membership stays anchored at L19-22 as pinned by LFS8/LFS9.
+    {"row": "LFS107", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@13", "dst": "rollover@9", "type": "FILTER", "anchor": 19, "spec": "anchor_rel_ep"},
+    # LFS108 -- the NOT-IN filter step. SQL L48 `AND p1.lending_ref NOT IN
+    # (`: the enclosing subq's row selection filters on lending_ref; the
+    # read side of this predicate is pinned as LFS39 (@52) and the
+    # subquery's output VT as LFS104/LFS105 -- the filter step itself was
+    # missing.
+    # F-J status note (2026-08-29): extraction is already SQL-true here --
+    # the raw dependency is `FILTER bdm_acc_loan_info.lending_ref@48
+    # (OCCURRENCE WHERE) -> ⟐subq@26` -- but the folded L2 edge is carried
+    # by the earlier JOIN-key instance and highlights at L41
+    # (`ON CONCAT(p2.poctcd,...) = p1.lending_ref`), which is a JOIN key,
+    # not this predicate. This row is the last red edge/highlight cell in
+    # the gate; it closes when the l2_builder `_combine_edges` carrier
+    # preference lands the anchor on the genuine occurrence line (owner
+    # F-G). The anchor stays 48 -- it is the independently SQL-derivable
+    # line, so the row is NOT "pending".
+    {"row": "LFS108", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@13", "dst": "⟐subq@0", "type": "FILTER", "anchor": 48, "spec": "anchor_rel_ep"},
+    # LFS109 -- REMOVED (2026-08-29, F-K final adjudication). The row pinned
+    # the X2 "output column read into its own output frame" rendering
+    # (`REF lending_ref@22 -> ⟐subq1@22`). No realization path exists:
+    #   * the X2 rendering is minted only by _simplify_dml_edges
+    #     (l2_builder.py:1627-1644 step 2 and the step-3 value-edge branch
+    #     @1646-1672), both gated on `tgt in dml_targets` / a DML
+    #     relationship -- ⟐subq1 is a CTE-body subquery's output frame,
+    #     never a DML target (the script's ONLY DML is the INSERT OVERWRITE
+    #     @160 -> bdm_acc_loan_info_sup), so the engine cannot mint that
+    #     edge here. F-D cited the X2 rendering as precedent; X2's own gate
+    #     is what excludes it (an over-pin);
+    #   * the RAW dependency list for lending_ref@L22 carries 4 REFs OUT to
+    #     its sources (@13 / @26 / @50 / @59) plus 2 SCHEMA belongs-to INs
+    #     (rollover@9 = LFS8, ⟐subq1@22 = LFS9) -- there is no
+    #     lending_ref@22 -> ⟐subq1 REF in the extraction to fold;
+    #   * the SQL text: L22 is the IN-subquery's PROJECTION column --
+    #     L19 `AND lending_ref IN (` / L21 `SELECT` / L22 `lending_ref` /
+    #     L23 `FROM (`. Its one ownership fact IS the ⟐subq1 belongs-to,
+    #     already canonical as LFS9; the membership predicate itself is
+    #     LFS107 (@19).
+    #     Keeping LFS109 too asserted that same ownership fact a second
+    #     time under a second instance identity, which set equality
+    #     (A = B, recall AND precision both 1.0) forbids -- the same ground
+    #     as the LFS110 removal below.
+    # LFS110 -- REMOVED (2026-08-29, F-J CR10 re-derivation). The row pinned
+    # the physical-side belongs-to twin of LFS74 (`sup@160 -> lending_ref@201`,
+    # SCHEMA@201) and was realized ONLY by the wrong-owner occurrence F-E2's
+    # EXTRACTOR_VERSION 2026-08-28.8 refuses to mint any more: the p1.lending_ref
+    # group inherited p2.lending_ref's owner (bdm_acc_loan_info_sup) because both
+    # occur on L201. Re-derived from the SQL text alone:
+    #   L199 |     LEFT JOIN bdm_acc_loan_info_sup p2
+    #   L201 |         p2.lending_ref = p1.lending_ref
+    # The L201 reference is qualified `p2.lending_ref` -- p2 is the ALIAS of
+    # bdm_acc_loan_info_sup (L199), so the ONE ownership fact the text supports
+    # at that line is "bdm_acc_loan_info_sup owns the lending_ref read @201",
+    # rendered at the owning INSTANCE the reference is qualified by. The engine
+    # emits exactly that (l2e_fe74418a5d43, p2@199@199 -> lending_ref@201,
+    # SCHEMA@201) and it is ALREADY canonical as LFS74 (IID12 for the iiapty
+    # seed) -- keeping this row too demanded the same ownership fact twice under
+    # two instance identities, which set equality (A = B) forbids. The
+    # physical-side {owner}.{col} twin family for PLAIN table-alias reads
+    # (family 2 covers derived aliases only) stays deferred: it would mint
+    # hundreds of twins per sample and shift anchors sample-wide.
+    # NOT PINNED (resolved 2026-08-29, F-E2 Fix D): the engine edge
+    # l2e_18228d5f16f6 (bdm_acc_loan_info_sup@160 -> CHARGE_DEPARTMENT@160,
+    # SCHEMA@182) attributed the L182 `p1.charge_department` occurrence --
+    # loan_final's SOURCE-side column (p1 = loan_final @198) -- to the sup
+    # write target's partition-column node. Extractor defect, owner F-C; the
+    # engine no longer mints it (the @182 occurrence is now owned by loan_final)
+    # and the edge stays out of the canonical set.
 ]
 
 # Response-node-LABEL -> canonical-label alignment (served node ids are
@@ -1179,6 +1705,11 @@ NORMALIZE_MAP = {
     "output(subq)": "⟐subq",
     "output(subq1)": "⟐subq1",
     "output(insert)": "⟐output",
+    # "output(subq2)" (2026-08-28, R44 occurrence-coverage round): the
+    # NOT-IN subquery's output VT (CTE{rollover_loan_info}/subq1/subq/
+    # subq2 -- SELECT DISTINCT lending_ref@50 FROM bdm_evt_loan_trans).
+    # Same #223 display-label form as subq/subq1; canonical ⟐subq2.
+    "output(subq2)": "⟐subq2",
     # field folds: canonical qualified spelling -> bare response spelling
     "p1.data_dt": "data_dt",
     "p2.data_dt": "data_dt",
@@ -1272,9 +1803,12 @@ CANONICAL_NODES = {
     # The two bdm entries mirror the SUP bdm@160/sup@223 pair: R22's
     # label-keyed merge unifies the stmt1-INSERT instance (L19) and the
     # stmt2 FROM-read instance (L263) into ONE served node. The two
-    # ⟐output entries are the two statements' output VTs (stmt1's served
-    # label is "insert", stmt2's is "output" -- both normalize to
-    # ⟐output; line evidence + statement context separate them).
+    # ⟐output entries are the two statements' output VTs (R44 F1,
+    # 2026-08-28: stmt1 = the MERGED bare-INSERT@19 + SELECT@21-251
+    # statement -- its output VT is born at the SELECT@21 and serves
+    # with label "output"; the pre-R44 "insert" trunk no longer exists;
+    # stmt2's is "output" too -- line evidence + statement context
+    # separate them).
     "pl": [
         {"label": "data_dt", "line": 19, "kind": "field",
          "note": "stmt1 partition write PARTITION(data_dt=...)@19"},
@@ -1288,7 +1822,7 @@ CANONICAL_NODES = {
          "note": "stmt2 FROM-read instance (R22-merged with bdm@19)"},
         {"label": "rrcdm", "line": 253, "kind": "table"},
         {"label": "⟐output", "line": None, "kind": "vt",
-         "note": "stmt1 output VT -- served label 'insert' (bare-INSERT output)"},
+         "note": "stmt1 output VT -- R44 F1 (2026-08-28): the bare INSERT@19 + SELECT@21-251 are ONE statement (TOP0); the ⟐insert@19 trunk is gone, the merged output VT is born at the SELECT@21 (served label 'output', line_start 21)"},
         {"label": "⟐output", "line": None, "kind": "vt",
          "note": "stmt2 output VT -- served label 'output'"},
         # M-BM1 (2026-08-26): charge_department@265 is a documented closure
@@ -1361,7 +1895,7 @@ CANONICAL_NODES_DIR = {
         {"label": "bdm", "line": 19, "kind": "table",
          "note": "stmt1 INSERT target (bare INSERT@19)"},
         {"label": "⟐output", "line": None, "kind": "vt",
-         "note": "stmt1 output VT (TOP0, served label 'insert')"},
+         "note": "stmt1 output VT (TOP0) -- R44 F1 merges INSERT@19+SELECT@21 into ONE statement; K3 (point 18) removed the stray `;`@19 so the VT is born at the INSERT@19 (served label 'output'; the old ⟐insert@19 trunk is gone)"},
     ],
     # bdm↑DL -- data_dt upstream in BDM_ACC_LOAN_INFO_Digitallending.sql
     # (doc §6a.1/§6a.4: the partition write @99, literal-terminated).
@@ -1502,7 +2036,16 @@ CANONICAL_NODES_DIR = {
     # statement USES lending_ref → carries the flow into the sup
     # write @160; the sup data_dt row-selection @225 continues into
     # the rrcdm write @211 -- the chain END). Repin round (point 15):
-    # 37 served nodes, probe-pinned. The two ⟐output entries are the
+    # 37 served nodes, probe-pinned. R44 occurrence-coverage round
+    # (2026-08-28, point 17): +⟐subq2@50 (the NOT-IN container) -- 38
+    # canonical entries; served AT THAT ROUND: 49 nodes / 103 edges.
+    # Since then LFS106 (#387) and LFS107-109 + the pogmab@46 /
+    # poctcd@120 field instances (F-D, 2026-08-29) landed -- the
+    # canonical closure is 40 entries / 105 CANONICAL_EDGES rows (the
+    # po* twin instances realize the po*@41/@117 entries below; F-J
+    # removed LFS110, the phantom twin of LFS74, and F-K removed
+    # LFS109 -- point 19).
+    # The two ⟐output entries are the
     # two statement output VTs (TOP0 @160 / TOP1 @211), distinguished
     # by incident line evidence; the four lending_ref entries are the
     # four served instances (incident-line separated); the truncated
@@ -1540,6 +2083,14 @@ CANONICAL_NODES_DIR = {
          "note": "loan_final join-key sibling"},
         {"label": "pogmab", "line": 117, "kind": "field",
          "note": "loan_final join-key sibling"},
+        # family-3 occurrence twins (2026-08-29, F-D): the two join-key
+        # operands that own a SECOND in-scope occurrence get their own field
+        # instance at that line -- SQL L46 `AND p2.pogmab = 'HSBC'` and
+        # L120 `p3.zfctcd = p2.poctcd` (LFS36/LFS56 pin their belongs-to).
+        {"label": "pogmab", "line": 46, "kind": "field",
+         "note": "subq predicate occurrence (L46 AND p2.pogmab = 'HSBC')"},
+        {"label": "poctcd", "line": 120, "kind": "field",
+         "note": "loan_final p3-join occurrence (L120 p3.zfctcd = p2.poctcd)"},
         {"label": "podtao", "line": 117, "kind": "field",
          "note": "loan_final join-key sibling"},
         {"label": "iiapty", "line": 150, "kind": "field",
@@ -1566,6 +2117,13 @@ CANONICAL_NODES_DIR = {
          "note": "subq1 virtual table (CTE{rollover_loan_info}/subq1)"},
         {"label": "⟐subq", "line": 26, "kind": "vt",
          "note": "subq virtual table (CTE{rollover_loan_info}/subq1/subq)"},
+        # R44 (2026-08-28, docstring point 17): the NOT-IN subquery's
+        # output VT -- SQL text @48-52 (p1.lending_ref NOT IN (SELECT
+        # DISTINCT lending_ref@50 FROM bdm_evt_loan_trans a)); its value
+        # set filters the enclosing subq scope. Served label
+        # "output(subq2)" (the #223 display form), ls=50.
+        {"label": "⟐subq2", "line": 50, "kind": "vt",
+         "note": "subq2 virtual table (CTE{rollover_loan_info}/subq1/subq/subq2) -- the NOT-IN read container @48-52"},
         {"label": "p1", "line": 29, "kind": "table",
          "note": "the p1 alias of bdm (subq segment)"},
         {"label": "p1", "line": 84, "kind": "table",

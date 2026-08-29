@@ -212,8 +212,25 @@ def test_no_unparented_fields_on_flagship():
 
 
 def test_flagship_field_count_sup():
-    """Pinned spec fact: bdm_acc_loan_info_sup carries exactly 24
-    physical fields (the L2 keeper shows the same 24 pre-sync)."""
+    """Pinned spec fact: bdm_acc_loan_info_sup carries exactly 37
+    physical fields (the L2 keeper shows the same 37 pre-sync).
+
+    R44 (2026-08-28, user ruling "walker occurrence coverage"): 24 → 37.
+    The +13 are write-side twins — the sup write @160's qualified
+    projections (`p1.internal_key` @162, `p1.contract_no` @164,
+    `p1.acct_no` @165, `p1.product_code` @166, `p1.interest_type` @167,
+    `p1.branch_code_sk` @168, `p1.desc_length20` @169,
+    `p1.limit_contract_no` @170, `p1.abnormal_issue_flag` @171,
+    `p1.tag_primary_accountable_party` @172, `p1.tag_responsible_party`
+    @173, `p1.sys_src_code` @174, `p1.reserved_field8 AS reserved_field8`
+    @183) each materialize {bdm_acc_loan_info_sup}.{column} attributed to
+    the write target (extraction-time, is_output, the projection's own
+    line) — authored DML text, positive evidence. Each of the 37 was
+    SQL-verified against the write statement; the legacy 24 (partition
+    columns CHARGE_DEPARTMENT/charge_department/data_dt, p2 reads
+    lending_ref/reserved_field6/7, the NULL/CASE projections
+    rec_creat_dt_tm + reserved_field1-20 minus the folded twin) are
+    unchanged."""
     model, (table_nodes, field_nodes, *_rest) = flagship()
     sup = model.tables["bdm_acc_loan_info_sup"]
     keeper = next(tn for tn in table_nodes.values()
@@ -221,22 +238,89 @@ def test_flagship_field_count_sup():
                   and tn["table_name"] == "bdm_acc_loan_info_sup")
     keeper_fields = {f["label"] for f in field_nodes
                      if f.get("parent") == keeper["id"]}
-    assert len(sup.fields) == 24
+    # The +13 enumerated above, pinned BY NAME (an aggregate count alone
+    # would also pass if a twin were lost and another field gained):
+    # each is the sup write's qualified projection, attributed to the
+    # write target under its bare column name.
+    r44_write_twins = {
+        "internal_key",                      # p1.internal_key @162
+        "contract_no",                       # p1.contract_no @164
+        "acct_no",                           # p1.acct_no @165
+        "product_code",                      # p1.product_code @166
+        "interest_type",                     # p1.interest_type @167
+        "branch_code_sk",                    # p1.branch_code_sk @168
+        "desc_length20",                     # p1.desc_length20 @169
+        "limit_contract_no",                 # p1.limit_contract_no @170
+        "abnormal_issue_flag",               # p1.abnormal_issue_flag @171
+        "tag_primary_accountable_party",     # p1.tag_primary_... @172
+        "tag_responsible_party",             # p1.tag_responsible_party @173
+        "sys_src_code",                      # p1.sys_src_code @174
+        "reserved_field8",                   # p1.reserved_field8 AS ... @183
+    }
+    assert len(r44_write_twins) == 13
+    # model.fields is keyed by field name
+    assert r44_write_twins <= set(sup.fields), (
+        "R44 write twins missing from bdm_acc_loan_info_sup: "
+        f"{sorted(r44_write_twins - set(sup.fields))}")
+    assert len(sup.fields) == 37
     assert keeper_fields == set(sup.fields)
 
 
 # ── Flagship: edges ─────────────────────────────────────────────────────
 
 def test_every_display_edge_has_model_witness():
-    """All 470 final L2 edges (10 types present in this sample) are
+    """All 528 final L2 edges (10 types present in this sample) are
     covered by model PhysicalEdges: same carried extraction-time info,
     same highlight_line, same type (or the DML rewrite), matching
-    endpoints after label→entity mapping."""
+    endpoints after label→entity mapping.
+
+    R44 (2026-08-28): 470 → 520. The +50 are the write-side twins' edges
+    — each twin field ({write_target}.{projection}, SQL-verified in
+    test_flagship_field_count_sup) renders its own model-witnessed edges
+    (OUTPUT SCHEMA / write legs / the twin's REF anchors) exactly like
+    every legacy field; the witness contract itself is unchanged.
+
+    Family-3 occurrence twins (2026-08-29, F-D pin verification):
+    520 → 530. Isolated by disabling `_mint_occurrence_twin` (families 1/2
+    untouched) and re-running this pipeline: family 3 RE-ANCHORS 3 edges
+    (accu's COMPUTED/REF pair 75 → 95 — the `ON p1.lending_ref =
+    accu.vlookup_key_value` line; the derived-read REF p2 → ods_hub_lsacmsp
+    117 → 120 — `p3.zfctcd = p2.poctcd`) and ADDS 11, of which 9 are
+    SQL-text-verified occurrences (`FILTER@22` the rollover IN-filter,
+    `SCHEMA@27` ,loan_maturity_dt, `SCHEMA@37` podtao <> pofddt, `SCHEMA@38`
+    NVL(poofla,0), `FILTER@41` the CONCAT operands, `SCHEMA@105` ON
+    branch.account_no = p1.acct_no, `FILTER@121` p3.zfdcg = p2.podcg,
+    `SCHEMA@201` p2.lending_ref = p1.lending_ref, `COMPUTED/REF@95`) and 2
+    are DOCUMENTED EXTRACTOR DEFECTS, reported to the extractor owner and
+    never canonicalized in the jaccard benchmark:
+      - `SCHEMA@59` bdm_evt_loan_trans → lending_ref@50: L59
+        `GROUP BY lending_ref` belongs to the ENCLOSING subq (the NOT-IN
+        subquery closes at L58), whose source is p1 = bdm_acc_loan_info
+        (pinned as LFS106) — the twin inherited subq2's owner for an
+        occurrence outside subq2's parens.
+      - `SCHEMA@182` bdm_acc_loan_info_sup → CHARGE_DEPARTMENT@160: L182
+        is `p1.charge_department` with p1 = loan_final (L198) — the
+        SOURCE-side column that computes reserved_field7, not the sup
+        partition slot (fed by L196 `,p1.charge_department`).
+    Both still carry model witnesses because the model is built from the
+    same extraction output — the equivalence contract (display ≡ model)
+    holds; the defect is upstream of both.
+
+    F-J pin bump (2026-08-29): 530 → 528. F-E2 (EXTRACTOR_VERSION
+    2026-08-28.8) removed exactly the 2 phantom wrong-owner twins of the
+    list above — the `SCHEMA@59` bdm_evt_loan_trans → lending_ref@50 twin
+    (Fix C/G wrong scope: the GROUP BY @59 belongs to the enclosing scope,
+    not the NOT-IN subquery) and the `SCHEMA@182`
+    bdm_acc_loan_info_sup → CHARGE_DEPARTMENT@160 twin (Fix D wrong owner:
+    the @182 occurrence is p1 = loan_final). Both now carry their honest
+    owner instead (bdm_acc_loan_info@59; loan_final@182), so the edge count
+    drops by exactly the 2 defects and no other edge moves. The witness
+    loop below re-verifies every remaining edge."""
     model, (table_nodes, field_nodes, new_edges, *_rest) = flagship()
     by_tid = {tn["id"]: tn for tn in table_nodes.values()}
     by_fid = {f["id"]: f for f in field_nodes}
 
-    assert len(new_edges) == 470
+    assert len(new_edges) == 528
     uncovered = []
     for E in new_edges:
         src_ref = display_endpoint(E["source"], by_tid, by_fid, model)

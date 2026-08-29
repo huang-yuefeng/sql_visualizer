@@ -53,9 +53,18 @@ def load_bgr(path):
     img = cv2.imread(path)
     if img is not None:
         return img
-    from PIL import Image
-    pil = Image.open(path).convert("RGB")
-    return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+    # L-H1: cv2 failed (exotic PNG mode) — fall back to PIL, with a helpful
+    # error if PIL is missing too, and without leaking the PIL file handle.
+    try:
+        from PIL import Image
+    except ImportError as e:
+        raise RuntimeError(
+            f"cannot read {path!r}: cv2.imread returned None and PIL is "
+            f"unavailable ({e}) — install Pillow or convert the PNG mode"
+        ) from e
+    with Image.open(path) as pil:
+        rgb = pil.convert("RGB")
+    return cv2.cvtColor(np.array(rgb), cv2.COLOR_RGB2BGR)
 
 
 def binarize(img):
@@ -63,7 +72,7 @@ def binarize(img):
     both light-on-dark editor screenshots and dark-on-light scans."""
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     median = float(np.median(gray))
-    margin = max(12, int(0.12 * 255))
+    margin = int(0.12 * 255)  # 30 — L-H2: the old max(12, ...) floor was dead
     if median < 128:
         # Dark background, light text — anything notably brighter is content.
         return ((gray > median + margin) * 255).astype(np.uint8)
@@ -102,13 +111,17 @@ def detect_line_bands(binv, min_h=6, gap=2, row_frac=0.01):
     return merged
 
 
-def line_pixel_counts(band_bin, min_area=4, min_h=3, word_gap=12):
+def line_pixel_counts(band_bin, min_area=4, min_h=1, word_gap=12):
     """Recursive divide-and-conquer count for one line strip.
 
     One connected component (glyph) ~= one character; glyphs cluster into words
     by pixel-less x-gaps. Returns a dict:
       {n_chars, n_words, per_word_chars, left, right}
-    where per_word_chars is the character count of each word (word -> chars)."""
+    where per_word_chars is the character count of each word (word -> chars).
+
+    M-H3: min_h=1 — periods/commas/underscores are 1-2px-tall components;
+    dropping them undercounted n_chars and emitted spurious char-gap flags.
+    min_area still filters pure speckle noise."""
     n, _, stats, _ = cv2.connectedComponentsWithStats(band_bin, connectivity=8)
     xs = []
     for i in range(1, n):
@@ -163,10 +176,14 @@ def super_resolve(img, scale, iterations=6, lam=0.6):
     return np.clip(H, 0, 255).astype(np.uint8)
 
 
-def detect_gutter_left(binv, max_x=150, min_gap=3):
+def detect_gutter_left(binv, max_x=150, min_gap=12):
     """Return the x column where code starts (after the line-number gutter).
     0 means 'no gutter detected' (crop nothing). The gutter is a left block of
-    short content followed by a clean vertical whitespace gap."""
+    short content followed by a clean vertical whitespace gap.
+
+    M-H4: min_gap is WIDE (12 cols) — a 3-column gap after an indented token
+    is ordinary code spacing, not a gutter; and the returned x is clamped to
+    w-1 so `binv[y0:y1, x0:]` can never become an empty crop."""
     colsum = (binv > 0).sum(axis=0)
     nonzero = colsum > 0
     w = len(colsum)
@@ -180,7 +197,7 @@ def detect_gutter_left(binv, max_x=150, min_gap=3):
         if not nonzero[c]:
             run += 1
             if run >= min_gap:
-                return c + 1
+                return min(c + 1, w - 1)  # clamp: keep >=1 content column
         else:
             run = 0
     return 0
@@ -337,11 +354,93 @@ def flag_band(meta, ocr, conf_lo=0.88, char_gap=8, word_gap=3, cover_gap=8):
 # --------------------------------------------------------------------------
 
 _SYSTEM_QUALIFIERS = {
-    "information_schema", "sys", "mysql", "performance_schema", "dual",
-    "values", "lateral",
+    # L-H3: keywords ('values', 'lateral', 'mysql') removed — they masked
+    # real errors; only actual system schemas/the DUAL table remain.
+    "information_schema", "sys", "performance_schema", "dual",
 }
 
+
+def _sql_keywords():
+    """SQL keywords/reserved words that would crowd out the identifier-vote.
+
+    L13: derive the set from sqlglot's tokenizer so it tracks dialect keyword
+    additions (MERGE/USING/ALTER/DROP/COLUMN/…) instead of drifting. The pinned
+    tail covers the context-sensitive reserved words sqlglot does not emit as
+    bare keywords (GROUP/ORDER/BY, CAST, window-frame CURRENT/PRECEDING/
+    FOLLOWING, DDL PRIMARY/FOREIGN/KEY), plus the DDL words the denylist was
+    previously missing, and doubles as the complete fallback when sqlglot is
+    unavailable.
+    """
+    pinned = {
+        "select", "from", "where", "group", "order", "by", "having", "join",
+        "left", "right", "inner", "outer", "full", "cross", "on", "as", "and",
+        "or", "not", "in", "is", "null", "like", "between", "exists", "case",
+        "when", "then", "else", "end", "with", "union", "all", "distinct",
+        "insert", "into", "values", "update", "set", "delete", "create",
+        "table", "view", "partition", "over", "rows", "range", "preceding",
+        "following", "current", "row", "limit", "offset", "asc", "desc",
+        "cast", "interval",
+        "date", "timestamp", "varchar", "decimal", "bigint", "string",
+        "double",
+        # L13: DDL/reserved words previously missing from the denylist.
+        "merge", "using", "alter", "drop", "column", "key", "primary",
+        "foreign", "default",
+    }
+    try:
+        from sqlglot.tokens import Tokenizer
+        pinned |= {k.lower() for k in Tokenizer.KEYWORDS}
+    except Exception:  # pragma: no cover - sqlglot unavailable
+        pass
+    return frozenset(pinned)
+
+
+# L-H4: SQL keywords always "win" the frequency vote and crowd out the
+# identifier-spelling signal the vote exists for — exclude them (see
+# _sql_keywords for the L13 tokenizer-derived build).
+_SQL_KEYWORDS = _sql_keywords()
+
 _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _split_on_semicolons(sql_text, dialect):
+    """Split a script on real ';' tokens, keeping ';' inside string literals and
+    comments intact (the tokenizer skips both). Falls back to a naive split only
+    when tokenization itself fails."""
+    try:
+        tokens = sqlglot.tokens.Tokenizer(dialect=dialect).tokenize(sql_text)
+    except Exception:  # pragma: no cover - tokenizer failure on exotic input
+        return sql_text.split(";")
+    parts = []
+    start = 0
+    for tok in tokens:
+        if tok.token_type == sqlglot.tokens.TokenType.SEMICOLON:
+            parts.append(sql_text[start : tok.start])
+            start = tok.end + 1
+    parts.append(sql_text[start:])
+    return parts
+
+
+def _parse_statements(sql_text, dialect, out):
+    """Statement-split via sqlglot (M-H1: survives ';' inside string literals
+    and comments). Falls back to a ';'-safe tokenizer split (L12) — reporting
+    the per-statement parse error — when the whole-script parse raises."""
+    try:
+        stmts = sqlglot.parse(sql_text, read=dialect)
+    except Exception as e:
+        out["parse_errors"].append(_clip(str(e)))
+        stmts = []
+        for stmt in _split_on_semicolons(sql_text, dialect):
+            stmt = stmt.strip()
+            if not stmt:
+                continue
+            try:
+                tree = sqlglot.parse_one(stmt, read=dialect)
+            except Exception as e2:
+                out["parse_errors"].append(_clip(str(e2)))
+                continue
+            if tree is not None:
+                stmts.append(tree)
+    return [s for s in stmts if s is not None]
 
 
 def validate_sql(sql_text, dialect="hive"):
@@ -351,25 +450,21 @@ def validate_sql(sql_text, dialect="hive"):
 
     out = {"parse_errors": [], "undeclared_qualifiers": [], "dialect": dialect}
 
-    declared = set()
-    qualifiers = set()
+    all_declared = set()
+    undeclared = set()
 
-    for stmt in sql_text.split(";"):
-        stmt = stmt.strip()
-        if not stmt:
-            continue
-        try:
-            tree = sqlglot.parse_one(stmt, read=dialect)
-        except Exception as e:
-            out["parse_errors"].append(_clip(str(e)))
-            continue
-        if tree is None:
-            continue
+    for tree in _parse_statements(sql_text, dialect, out):
+        # M-H1: declared names are PER-STATEMENT scope — an alias declared in
+        # one statement does not cover a qualifier in another (each statement
+        # must carry its own FROM/CTE/alias declarations).
+        declared = set()
         for t in tree.find_all(exp.Table):
-            for part in (t.alias_or_name, t.alias, t.name):
-                p = (part or "").strip()
-                if p:
-                    declared.add(p.lower())
+            # M-H2: only the effective reference (alias if present, else the
+            # table's own name) — adding t.name unconditionally let a physical
+            # table name silence undeclared qualifiers elsewhere.
+            p = (t.alias_or_name or "").strip()
+            if p:
+                declared.add(p.lower())
         for s in tree.find_all(exp.Subquery):
             a = (s.alias or "").strip()
             if a:
@@ -379,14 +474,13 @@ def validate_sql(sql_text, dialect="hive"):
             if a:
                 declared.add(a.lower())
         for col in tree.find_all(exp.Column):
-            q = (col.table or "").strip()
-            if q:
-                qualifiers.add(q.lower())
+            q = (col.table or "").strip().lower()
+            if q and q not in declared and q not in _SYSTEM_QUALIFIERS:
+                undeclared.add(q)
+        all_declared |= declared
 
-    undeclared = sorted(q for q in qualifiers
-                        if q not in declared and q not in _SYSTEM_QUALIFIERS)
-    out["undeclared_qualifiers"] = undeclared
-    out["declared_aliases"] = sorted(declared)
+    out["undeclared_qualifiers"] = sorted(undeclared)
+    out["declared_aliases"] = sorted(all_declared)
     return out
 
 
@@ -394,7 +488,10 @@ def identifier_votes(sql_text):
     """Frequency vote over identifiers -> spot inconsistent spellings."""
     votes = {}
     for m in _IDENT_RE.findall(sql_text):
-        votes[m.lower()] = votes.get(m.lower(), 0) + 1
+        m = m.lower()
+        if m in _SQL_KEYWORDS:
+            continue
+        votes[m] = votes.get(m, 0) + 1
     long = {k: v for k, v in votes.items() if len(k) >= 4 and v >= 2}
     return long
 
@@ -419,22 +516,24 @@ def process_image(path, engine=None, scales=(6, 8), sr_scales=(8, 12),
     enhancers = ([("lanczos", s) for s in scales]
                  + [("sr", s) for s in sr_scales])
 
-    tmpdir = tempfile.mkdtemp(prefix="ocr_")
     lines = []
-    for y0, y1 in bands:
-        band_bin = binv[y0:y1, x0:]
-        meta = line_pixel_counts(band_bin)
-        ocr = engine.ocr_band(img, y0, y1, x0=x0, enhancers=enhancers,
-                              tmpdir=tmpdir, meta=meta)
-        flags = flag_band(meta, ocr)
-        lines.append({
-            "y0": y0, "y1": y1,
-            "n_chars": meta["n_chars"], "n_words": meta["n_words"],
-            "per_word_chars": meta["per_word_chars"],
-            "text": ocr["text"], "conf": round(ocr["conf"], 3),
-            "scale": f"{ocr.get('method') or ''}{ocr.get('scale') or ''}",
-            "flags": flags,
-        })
+    with tempfile.TemporaryDirectory(prefix="ocr_") as tmpdir:
+        # H-D2: the tempdir is removed when the block exits — mkdtemp leaked
+        # one directory per image on every run.
+        for y0, y1 in bands:
+            band_bin = binv[y0:y1, x0:]
+            meta = line_pixel_counts(band_bin)
+            ocr = engine.ocr_band(img, y0, y1, x0=x0, enhancers=enhancers,
+                                  tmpdir=tmpdir, meta=meta)
+            flags = flag_band(meta, ocr)
+            lines.append({
+                "y0": y0, "y1": y1,
+                "n_chars": meta["n_chars"], "n_words": meta["n_words"],
+                "per_word_chars": meta["per_word_chars"],
+                "text": ocr["text"], "conf": round(ocr["conf"], 3),
+                "scale": f"{ocr.get('method') or ''}{ocr.get('scale') or ''}",
+                "flags": flags,
+            })
 
     stitched = "\n".join(l["text"] for l in lines if l["text"])
     val = validate_sql(stitched, dialect=dialect)
@@ -462,8 +561,16 @@ def main(argv=None):
     scales = tuple(int(s) for s in args.scales.split(","))
     engine = OcrEngine()
 
-    reports = [process_image(p, engine=engine, scales=scales,
-                             dialect=args.dialect) for p in args.images]
+    # M-H5: per-image isolation — one unreadable image must not abort the
+    # whole batch; it contributes an error record instead.
+    reports = []
+    for p in args.images:
+        try:
+            reports.append(process_image(p, engine=engine, scales=scales,
+                                         dialect=args.dialect))
+        except Exception as e:  # noqa: BLE001 — report and continue
+            reports.append({"image": os.path.basename(p),
+                            "error": _clip(f"{type(e).__name__}: {e}")})
 
     payload = json.dumps(reports, ensure_ascii=False, indent=2)
     if args.out:

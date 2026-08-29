@@ -159,8 +159,11 @@ def _check_column_connectivity(variables, dependencies):
         outgoing[d["source_id"]].append(d)
 
     # Build set of known table prefixes
+    # (L-T1: 'function_table' included — a TVF alias in FROM/JOIN owns dotted
+    # columns just like a table/view; matches the sets at :52 and :200)
     table_names = {v["name"] for v in variables
-                   if v.get("variable_type") in ("table","view","cte","merge_target","subquery")}
+                   if v.get("variable_type") in ("table","view","cte","merge_target",
+                                                 "subquery","function_table")}
 
     for v in variables:
         if v.get("variable_type") != "column":

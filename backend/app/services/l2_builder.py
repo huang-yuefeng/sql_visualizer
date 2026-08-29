@@ -6,6 +6,7 @@ Builds L2 detail view: tables + fields + all 16 edge types for a single script.
 import json
 import hashlib
 import logging
+import re
 from pathlib import Path
 
 _log = logging.getLogger("sql_visualizer.dataflow")
@@ -40,6 +41,97 @@ def _recompute_line_map(var_likes: list, sql_text: str) -> dict:
     """
     from app.extractor.sql_line_mapper import map_variables_to_lines
     return map_variables_to_lines(var_likes, sql_text)
+
+
+# ── R43 (2026-08-28, task #384): partition-DDL statement frames ──────
+# User ruling: "ALTER TABLE ADD PARTITION statements should not appear in
+# the L2 graph — they are folder names, not dataflow." A partition
+# ADD/DROP/MSCK statement creates a metadata slot and moves no values, so
+# the statement frame the generic statement walk materializes for it (the
+# ⟐ output VT, plus the structure edges hung on that VT — the read-side
+# occurrence →output TABLE_FLOW and output→occurrence REF pair per ALTER)
+# is display noise, never data. Detection is deliberately conservative:
+# the statement's own text must open with ALTER TABLE and carry an
+# ADD/DROP/MSCK … PARTITION clause. Column DDL (ALTER TABLE … ADD COLUMN),
+# CREATE TABLE/CTAS (a real dataflow target) and SET (already no VT) are
+# out of scope — no evidence they frame anything but real structure.
+_PARTITION_DDL_STMT = re.compile(
+    r"\s*ALTER\s+TABLE\b.*?\b(?:ADD|DROP|MSCK)\b\s+"
+    r"(?:IF\s+(?:NOT\s+)?EXISTS\s+)?PARTITION\b",
+    re.IGNORECASE | re.DOTALL)
+_TOP_STMT_CTX = re.compile(r"^TOP\d+$")
+_DDL_STMT_SCAN_LINES = 200
+
+
+def _statement_text_from_line(sql_text: str, head_line: int) -> str:
+    """R43: the statement text starting at `head_line` (1-based), through
+    the first line that closes a statement (contains ';'). The bounded
+    scan keeps an unterminated tail from swallowing the rest of the file."""
+    lines = sql_text.splitlines()
+    if head_line < 1 or head_line > len(lines):
+        return ""
+    stop = min(head_line - 1 + _DDL_STMT_SCAN_LINES, len(lines))
+    out = []
+    for i in range(head_line - 1, stop):
+        out.append(lines[i])
+        if ";" in lines[i]:
+            break
+    return "\n".join(out)
+
+
+def _drop_partition_ddl_frames(full_graph: dict, sql_text: str) -> dict:
+    """R43 — remove pure-metadata partition-DDL statement frames from the
+    L2 display inputs: the statement's ⟐ output VT node plus every edge
+    anchored on it. The DML edges that name the ALTERed table belong to
+    the WRITE statement's own vars (not to this VT) and are kept — they
+    route/dedup exactly as before, so only the VT frames drop.
+
+    Display-layer only, applied AFTER the graph cache load on EVERY build:
+    the cache (keyed by extractor version + sql — neither changes) may
+    still contain the frames, and this projection removes them
+    deterministically on both the cache-hit and fresh-build paths, so no
+    cache-format bump is needed and no EXTRACTOR_VERSION change is made.
+    Extraction/TOPn statement indexing are untouched (benchmark pins like
+    TOP11 stay valid)."""
+    dropped = set()
+    dropped_ctxs = set()
+    for n in full_graph.get("nodes", []):
+        nd = n.get("data", n)
+        line = _safe_int(nd.get("line_start"))
+        if (nd.get("label") == "⟐ output"
+                and nd.get("variable_type") == "virtual_table"
+                and _TOP_STMT_CTX.match(nd.get("context") or "")
+                and line >= 1
+                and _PARTITION_DDL_STMT.match(
+                    _statement_text_from_line(sql_text, line))):
+            dropped.add(nd.get("id"))
+            dropped_ctxs.add(nd.get("context"))
+    if not dropped:
+        return full_graph
+    filtered = dict(full_graph)
+    filtered["nodes"] = [n for n in full_graph.get("nodes", [])
+                         if n.get("data", n).get("id") not in dropped]
+    filtered["edges"] = [e for e in full_graph.get("edges", [])
+                         if e.get("data", e).get("source") not in dropped
+                         and e.get("data", e).get("target") not in dropped]
+    # L5: the ALTERed table's own occurrence (a table-like var in the
+    # dropped statement's scope) is now isolated — drop it too, so a
+    # partition-DDL statement leaves no table node behind (folder names,
+    # not dataflow). A table also read/written in ANOTHER statement keeps
+    # its own occurrence (different context, still has edges).
+    _endpoints = set()
+    for e in filtered["edges"]:
+        _d = e.get("data", e)
+        _endpoints.add(_d.get("source"))
+        _endpoints.add(_d.get("target"))
+    _TABLE_LIKE = {"table", "view", "merge_target", "function_table"}
+    filtered["nodes"] = [
+        n for n in filtered["nodes"]
+        if not (n.get("data", n).get("variable_type") in _TABLE_LIKE
+                and (n.get("data", n).get("context") or "") in dropped_ctxs
+                and n.get("data", n).get("id") not in _endpoints)
+    ]
+    return filtered
 
 
 # ── L2 phase functions (CW4: split from the _build_l2_graph monolith) ──
@@ -240,9 +332,16 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
     # alias-copy seed depends on it; narrowing to name == target_full
     # would regress the Jaccard gate).
     union = set()
+    # F-A follow-up (K4 item 5, 2026-08-28): the search hands the builders
+    # the index's CANONICAL spelling, while each script wrote the field in
+    # its own casing (`dm_flag2` in one script, `DM_FLAG2` in the next).
+    # SQL identifiers are case-insensitive, so the seed predicates compare
+    # casefolded — otherwise the case-variant script rendered
+    # search_matched:false and lost every is_target chip.
+    _field_key = field.casefold()
     if physical_model is not None:
         for (tkey, fname), fld in physical_model.fields.items():
-            if fname == field:
+            if fname.casefold() == _field_key:
                 union.update(fld.occurrence_ids)
     for n in nodes:
         nd = n.get("data", n)
@@ -258,7 +357,7 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
         # predicate would regress dotted-suffix searches ("b.ihgmab)" as a
         # suffix of a dotted computed label) and the model=None fallback.
         label = nd.get("label", "")
-        if nid in union or label.rsplit(".", 1)[-1] == field:
+        if nid in union or label.rsplit(".", 1)[-1].casefold() == _field_key:
             target_node_ids.add(nid)
             continue
         # J12-9 source_columns path (kept — a var whose label differs but
@@ -271,7 +370,7 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
         else:
             sc = nd.get("source_columns", [])
         for sc_name in sc:
-            if sc_name.rsplit(".", 1)[-1] == field:
+            if sc_name.rsplit(".", 1)[-1].casefold() == _field_key:
                 target_node_ids.add(nid)
                 break
 
@@ -468,6 +567,19 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 if canon is not None:
                     alias_map[av["label"]] = canon.name
 
+    # ── #386 (2026-08-28, CTE-scope ruling): field-occurrence owner index
+    # — var id → the model entity KEY of the field it belongs to. A name
+    # match cannot tell a CTE from a same-named PHYSICAL table (the
+    # ruling: a CTE's scope ends with its statement, so a LATER
+    # statement's bare ref is a physical read, never the CTE); the model
+    # keys them as distinct entities, so field ownership is the only
+    # disambiguator for the column-parent choice below.
+    field_owner_key = {}
+    if physical_model is not None:
+        for (_tkey, _fname), _fld in physical_model.fields.items():
+            for _vid in _fld.occurrence_ids:
+                field_owner_key.setdefault(_vid, _tkey)
+
     # Classify each node
     for n in nodes:
         nd = n.get("data", n)
@@ -503,7 +615,14 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
             # nids record occ_to_id to the keeper, re-pointing every edge).
             # Aliases/subqueries/CTEs keep per-context semantics (Bug 28
             # visible aliases; distinct subquery scopes).
-            if vt in ("table", "view", "function_table") and not is_alias:
+            # Table-dup audit (2026-08-28): merge_target occurrences join
+            # the physical fold — the model already keys a MERGE target by
+            # its raw name (kind "physical", roles {merge_target, read}),
+            # so a table that is MERGE-INTO'd in one statement and read in
+            # another is ONE compound node, not a source_table twin beside
+            # an intermediate_table twin (family-6 duplicate).
+            if vt in ("table", "view", "function_table",
+                      "merge_target") and not is_alias:
                 # J12-10 stage 2: the keeper lookup is the physical model's
                 # entity key — for a non-alias table/view occurrence the
                 # model key IS the raw name (kind "physical"), so this is
@@ -530,7 +649,8 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 tbl_type = "cte_table"
             elif is_output_node and vt not in ("table", "view", "function_table"):
                 tbl_type = "output_table"
-            elif vt in ("table", "view", "function_table") and not is_output_node:
+            elif vt in ("table", "view", "function_table",
+                        "merge_target") and not is_output_node:
                 tbl_type = "source_table"
             else:
                 tbl_type = "intermediate_table"
@@ -620,9 +740,11 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 "context": nd.get("context", ""),
             }
             occ_to_id[nid] = tbl_id
-            if vt in ("table", "view", "function_table") and not is_alias:
+            if vt in ("table", "view", "function_table",
+                      "merge_target") and not is_alias:
                 # #288: store under the folded key so case-variant
-                # occurrences merge into this keeper.
+                # occurrences merge into this keeper (merge_target keepers
+                # register too — the table-dup audit fold above).
                 keeper_by_entity[_fold_physical(ekey)] = table_nodes[nid]
             elif is_alias:
                 alias_nodes_by_key[alias_key] = table_nodes[nid]
@@ -650,10 +772,42 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 # Bug 28: Match source table name directly (aliases are now visible nodes)
                 # Try exact match first, then try canonical name if this is an alias
                 src_name = src_tables[0]
-                for tid, tn in table_nodes.items():
-                    if tn["table_name"] == src_name or tid == src_tables[0]:
-                        parent_table_id = tn["id"]
-                        break
+                # #386 (CTE-scope ruling): a CTE's scope ends with its
+                # statement. When src_name is a CTE VISIBLE in this
+                # column's own statement, the reference folds onto the
+                # cte compound (in-scope, unchanged behavior); a LATER
+                # statement's bare ref to the same name is a PHYSICAL
+                # read and must never land on the cte compound.
+                if src_name:
+                    _stmt_root = ((nd.get("context") or "")
+                                  .split(":join:")[0].split("/")[0])
+                    for tn in table_nodes.values():
+                        if (tn.get("type") == "cte_table"
+                                and (tn.get("table_name") or "").lower()
+                                == src_name.lower()
+                                and ((tn.get("context") or "")
+                                     .split(":join:")[0].split("/")[0])
+                                == _stmt_root):
+                            parent_table_id = tn["id"]
+                            break
+                # #386: else prefer the model's OWN entity — the field's
+                # occurrence owner disambiguates a same-named CTE and
+                # physical table where the table_name first-match below
+                # cannot (first-by-creation would land an out-of-scope
+                # `FROM tmp_loan` read's columns on the cte_table
+                # compound).
+                if parent_table_id is None:
+                    _mk = field_owner_key.get(nid)
+                    if _mk is not None:
+                        keeper = keeper_by_entity.get(_fold_physical(_mk))
+                        if (keeper is not None
+                                and keeper.get("table_name") == src_name):
+                            parent_table_id = keeper["id"]
+                if parent_table_id is None:
+                    for tid, tn in table_nodes.items():
+                        if tn["table_name"] == src_name or tid == src_tables[0]:
+                            parent_table_id = tn["id"]
+                            break
                 # #288: case-insensitive physical-only fallback (a field of
                 # a differently-cased occurrence of the merged physical
                 # table still lands on the keeper).
@@ -706,6 +860,15 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 "is_target": is_target,
                 "field_group": "direct" if is_direct else "indirect",
                 "original_id": nid,
+                # K4 ruling 1 (2026-08-28, FIX-DEFECT): the chip carries the
+                # def line so an L2 node click lights its variable's I1
+                # definition line (R37's line semantics, previously honoured
+                # for tables/aliases only). line_start ONLY — line_end would
+                # re-route pickAutoEdge's priority-1 seed-zone pick
+                # (frontend/src/utils/pickAutoEdge.js needs BOTH endpoints).
+                # The dedup below keeps the FIRST occurrence's node, so the
+                # keeper chip anchors at the first-occurrence line.
+                "line_start": _safe_int(nd.get("line_start")),
             }
             if parent_table_id:
                 field_node["parent"] = parent_table_id
@@ -783,6 +946,8 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 "is_target": is_target,
                 "field_group": "direct" if is_direct else "indirect",
                 "original_id": nid,
+                # K4 ruling 1: chip def line (see the column branch above).
+                "line_start": _safe_int(nd.get("line_start")),
             }
             if parent_table_id:
                 field_node["parent"] = parent_table_id
@@ -819,6 +984,8 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
                 "field_group": "indirect",
                 "original_id": nid,
                 "parent": parent_table_id,
+                # K4 ruling 1: chip def line (see the column branch above).
+                "line_start": _safe_int(nd.get("line_start")),
             })
 
     # J12-10 stage 3: the B3/P1 seed-copy proxy (seed_{id}_{keeper[:8]})
@@ -826,6 +993,56 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
     # compound node directly: the physical model attributes every
     # occurrence to its entity, so the searched table's compound carries
     # the real field instance (nothing to synthesize).
+
+    # ── #387 follow-up (2026-08-28): searched-write-table display
+    # projection ──
+    # A derived-alias write-projection attributed to a REAL read source
+    # keeps that parent (#289's model-following rule: `p1.HTJE AS
+    # LOAN_AMT` renders on the read source) — #289's write-target
+    # fallback only ever covered phantom-sourced projections. But when
+    # the SEARCH targets the WRITE table, the projection's own node
+    # (the one carrying its value edges) belongs where the user is
+    # looking: on the write target. Scoped to the searched field's own
+    # projections (nid ∈ target_node_ids) whose write target resolves to
+    # the searched table's compound. Display projection only — the
+    # extraction truth (source_tables) is untouched, and when the write
+    # table's compound already carries a same-named field (the R44
+    # write-side twin) the projection's edges re-point onto THAT node
+    # instead of duplicating the chip.
+    if (search_table and physical_model is not None
+            and write_field_target and target_node_ids):
+        _sl = search_table.lower()
+        _retarget = []          # (field node, keeper compound id)
+        for fn in field_nodes:
+            nid = fn.get("original_id")
+            if nid not in write_field_target or nid not in target_node_ids:
+                continue
+            keeper = _resolve_write_target(write_field_target[nid])
+            keeper_node = next((tn for tn in table_nodes.values()
+                                if tn.get("id") == keeper), None)
+            if (not keeper_node or fn.get("parent") == keeper):
+                continue
+            if keeper_node.get("table_name", "").lower() != _sl:
+                continue
+            _retarget.append((fn, keeper))
+        for fn, keeper in _retarget:
+            same = next((f for f in field_nodes
+                         if f is not fn and f.get("parent") == keeper
+                         and f.get("label") == fn.get("label")), None)
+            if same is not None:
+                # Re-point the projection (and every occurrence that
+                # folded into its node) onto the write table's existing
+                # same-named field — its value edges render there.
+                for k, v in list(occ_to_id.items()):
+                    if v == fn["id"]:
+                        occ_to_id[k] = same["id"]
+                if fields_by_key.get((fn.get("parent"), fn.get("label"))) is fn:
+                    del fields_by_key[(fn.get("parent"), fn.get("label"))]
+                field_nodes.remove(fn)
+            else:
+                fn["parent"] = keeper
+                fn["is_target"] = True
+                fields_by_key[(keeper, fn.get("label"))] = fn
 
     return table_nodes, field_nodes, alias_map, occ_to_id
 
@@ -969,12 +1186,52 @@ def _build_edge_list(edges: list, nodes: list, id_map: dict,
     return new_edges, {i: nd.get("label", "") for i, nd in node_info.items()}
 
 
-def _combine_edges(new_edges: list) -> list:
+def _combine_edges(new_edges: list, node_lines: dict | None = None) -> list:
     """Phase 5 (CW4): same (source,target,edge_type) → combine labels.
 
     The first occurrence keeps its carried extraction-time info (the
-    payload anchor is per-edge, derived later from that carried info)."""
+    payload anchor is per-edge, derived later from that carried info).
+
+    R45 Fix H (2026-08-28.8): EXCEPT when a later carrier IS the keeper
+    chip's own occurrence. One display field folds every occurrence of a
+    physical field (J12-16 — the key is not statement-scoped), so a
+    belongs-to/structure edge arrives once per occurrence: the CTE-body
+    birth (`SUBSTR(P1.BRANCH_CODE,-3) AS tag_branch` @721) and the outer
+    statement's later read occurrence (`A.tag_branch` inside NVL @1030,
+    the family-3 twin) both carry `TEMP_BDM_ACC_LOAN_INFO_02 → tag_branch`.
+    First-carrier-wins anchored the folded edge at the LATER occurrence and
+    the birth line went dark — the field node keeps its birth `line_start`,
+    so the carrier that agrees with it is the honest anchor. Carriers that
+    do not name the chip's line keep first-carrier-wins (an occurrence-line
+    anchor a canonical pin relies on — SUP_M's GROUP BY SCHEMA@59 — is a
+    sibling occurrence, never the chip's line).
+
+    LFS108 residual (2026-08-29): EXCEPT as well when the keeper's
+    occurrence line is CLAIMED by a different relationship on the same
+    endpoint pair. The lending_ref↓SUP_M NOT-IN filter folds three
+    carriers of `lending_ref → ⟐subq (FILTER)` — @41 (the JOIN-key
+    occurrence, whose line 41 is `... = p1.lending_ref` inside the ON
+    clause) and @48 twice (the `AND p1.lending_ref NOT IN (` occurrence +
+    its twin). All three carry identical extraction-time info but
+    `_src_line`, so the only available discriminator is the graph itself:
+    line 41 already carries the pair's JOIN edge (the join key IS what
+    that line is), so the @41 FILTER carrier is that JOIN's line wearing
+    the wrong type and the anchor belongs to the occurrence whose line is
+    unique to this relationship. Guarded so it cannot drift the pins Fix
+    H and the canonical rely on: it fires only when Fix H's own rule did
+    not, the keeper's field-side line is shared with a different type on
+    the same (source, target), and the candidate's is not — Fix H's
+    keeper-line rule wins first (SCHEMA@59 keeps its GROUP-BY anchor)."""
+    # (source, target, field-side occurrence line) -> {edge types} — the
+    # relationship claim each line carries for a folded pair.
+    claimed: dict[tuple, set] = {}
+    for e in new_edges:
+        _ln = _safe_int(e.get("_src_line")) or 0
+        if _ln:
+            claimed.setdefault((e["source"], e["target"], _ln), set()).add(
+                e.get("edge_type"))
     combined_edges = {}
+    keepers: dict[tuple, int] = {}
     for e in new_edges:
         key = (e["source"], e["target"], e["edge_type"])
         if key in combined_edges:
@@ -983,9 +1240,36 @@ def _combine_edges(new_edges: list) -> list:
             existing_labels = set(existing.get("label", "").split(", "))
             existing_labels.add(e.get("label", ""))
             existing["label"] = ", ".join(sorted(existing_labels))
+            if node_lines is not None and key not in keepers:
+                want = node_lines.get(e["target"])
+                if want is not None and _safe_int(
+                        e.get("_tgt_line")) == want != _safe_int(
+                            existing.get("_tgt_line")):
+                    combined_edges[key] = e
+                    keepers[key] = 1
+                # LFS108 residual: yield the anchor to the occurrence line
+                # this relationship alone owns (see docstring).
+                elif (existing.get("_src_field_like")
+                      and _is_claimed_together(existing, claimed)
+                      and not _is_claimed_together(e, claimed)):
+                    combined_edges[key] = e
+                    keepers[key] = 1
         else:
             combined_edges[key] = e
     return list(combined_edges.values())
+
+
+def _is_claimed_together(edge: dict, claimed: dict) -> bool:
+    """True when `edge`'s field-side occurrence line is shared with a
+    DIFFERENT edge type on the same (source, target) pair — that line is
+    another relationship's site, not this edge's own occurrence."""
+    _ln = _safe_int(edge.get("_src_line")) or 0
+    if not _ln:
+        return False
+    types = claimed.get((edge["source"], edge["target"], _ln))
+    if not types:
+        return False
+    return bool(types - {edge.get("edge_type")})
 
 
 def _promote_field_edges(new_edges: list, field_nodes: list) -> list:
@@ -2005,6 +2289,12 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     # node-construction phases consume it (keeper selection + sync inputs).
     full_graph, table_schemas, physical_model = _load_or_build_graph(
         ws_id, script_name, sql_text)
+    # R43 (2026-08-28, task #384): pure-metadata partition-DDL statement
+    # frames never enter the display — dropped here, BEFORE the flow
+    # filter, so full AND flow views are clean. Flow closures are
+    # unchanged: no closure edge ever anchored on an ALTER line (INV-1's
+    # carve-out was exactly that observation).
+    full_graph = _drop_partition_ddl_frames(full_graph, sql_text)
     graph_data = _apply_relevance_filter(full_graph, table, field, table_schemas,
                                          relevance_filter, physical_model,
                                          direction)
@@ -2032,6 +2322,12 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
         field_nodes, table_nodes, target_node_ids, direct_ids, id_map)
 
     new_edges, node_labels = _build_edge_list(edges, nodes, id_map, sql_text)
+    # R45 Fix H: the keeper chip's own line, for the folded-edge anchor.
+    node_lines = {}
+    for tn in table_nodes.values():
+        node_lines[tn.get("id")] = _safe_int(tn.get("line_start"))
+    for fn in field_nodes:
+        node_lines[fn.get("id")] = _safe_int(fn.get("line_start"))
     # J12-15 (stage 4): per-statement DML trunk — the write/read legs of
     # every statement route through that statement's own ⟐ output VT.
     # J12-16: the DML simplification MUST run BEFORE _combine_edges — a
@@ -2046,7 +2342,7 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     new_edges = _simplify_dml_edges(new_edges, full_graph, id_map,
                                     table_nodes, field_nodes,
                                     physical_model=physical_model)
-    new_edges = _combine_edges(new_edges)
+    new_edges = _combine_edges(new_edges, node_lines)
     new_edges = _promote_field_edges(new_edges, field_nodes)
     # C6 (v3.3.140): under the strict table.field filter the JOIN survival
     # heuristic is a no-op — the strict closure already carries the

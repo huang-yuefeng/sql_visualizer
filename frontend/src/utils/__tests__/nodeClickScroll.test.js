@@ -42,3 +42,58 @@ describe('R37 — L2 node click scrolls SQL to the definition line', () => {
     expect(l2).toContain('onNodeClick={handleNodeClick}');
   });
 });
+
+// F-B2 (S4 finding 6, 2026-08-29): a clicked element whose payload line is
+// 0/absent used to clear the previous highlight and light NOTHING — a silent
+// no-op (23 such TVF-alias edges in one S4 view). A short neutral notice in
+// the L2 graph area now says why and self-clears on the next valid click.
+describe('F-B2 — zero-line clicks say so instead of failing silently', () => {
+  it('the notice channel exists', () => {
+    expect(appSrc).toMatch(/const \[sqlLineNotice, setSqlLineNotice\] = useState\(null\)/);
+  });
+
+  it('both handlers clear the notice on a valid line and set it on line 0/absent', () => {
+    const edge = appSrc.match(/const handleEdgeClick = useCallback[\s\S]*?\}, \[\]\);/)?.[0] || '';
+    const node = appSrc.match(/const handleNodeClick = useCallback[\s\S]*?\}, \[\]\);/)?.[0] || '';
+    for (const handler of [edge, node]) {
+      expect(handler).not.toBe('');
+      expect(handler).toMatch(/setSqlHighlightLine\(ln\);\s*setSqlLineNotice\(null\)/);
+      expect(handler).toMatch(/setSqlHighlightLine\(null\);\s*setSqlLineNotice\('this element has no SQL line'\)/);
+    }
+  });
+
+  it('canvas tap clears the notice with the selection', () => {
+    expect(appSrc.match(/const clearEdgeSelection = useCallback[\s\S]*?\}, \[\]\);/)?.[0])
+      .toContain('setSqlLineNotice(null)');
+  });
+
+  it('renders the notice as a NEUTRAL bottom-slot banner in the L2 graph area', () => {
+    expect(appSrc).toMatch(/className="no-match-banner banner-bottom banner-neutral"/);
+    // bottom slot (never over the toolbar) + neutral (informational) styles
+    const css = readSrc('../../styles/app.css');
+    expect(css).toMatch(/\.no-match-banner\.banner-bottom\s*\{[^}]*bottom: 8px/s);
+    expect(css).toMatch(/\.no-match-banner\.banner-neutral\s*\{/);
+  });
+
+  it('the notice stacks ABOVE the parse-errors banner when both render (SHOULD-FIX #4)', () => {
+    // Both bottom-slot banners would sit at bottom:8px and paint over each
+    // other; the LATER sibling in DataFlowApp.jsx is the notice, so the
+    // sibling-offset rule must move IT, not the parse-errors block.
+    const css = readSrc('../../styles/app.css');
+    expect(css).toMatch(
+      /\.no-match-banner\.banner-bottom\s*~\s*\.no-match-banner\.banner-bottom\s*\{[^}]*bottom:\s*56px/s);
+    // DOM order contract: parse errors first, notice after — the `~`
+    // combinator only reaches the LATER sibling.
+    const l2 = appSrc.match(/className="inline-l2-graph"[\s\S]*?<DataFlowGraph/s)?.[0] || '';
+    const parseErr = l2.indexOf('no-match-banner banner-bottom"');
+    const notice = l2.indexOf('banner-bottom banner-neutral');
+    expect(parseErr).toBeGreaterThan(-1);
+    expect(notice).toBeGreaterThan(parseErr);
+  });
+
+  it('every L2 entry path drops a stale notice (applyL2Result)', () => {
+    const apply = appSrc.match(/const applyL2Result = useCallback[\s\S]*?\}, \[\]\);/)?.[0] || '';
+    expect(apply).toContain('setSqlLineNotice(null)');
+  });
+});
+

@@ -241,8 +241,11 @@ class TestL2NotInFlow:
                                       "orders", "ghost", direction="downstream")
         assert result.get("search_matched") is False, result
         assert "ghost" in result.get("message", ""), result
-        assert "not in the data flow" in result.get("message", ""), result
-        assert "full script graph" in result.get("message", ""), result
+        # S4 (K4 item 4): the reason is "outside the searched field's
+        # downstream flow" — never the old false "not queried in this
+        # script" claim (the field is frequently queried right there).
+        assert "not in the downstream flow" in result.get("message", ""), result
+        assert "showing the full graph" in result.get("message", ""), result
         # Full graph — not the skeleton (which is table-only / few nodes)
         assert len(result["graph"]["nodes"]) > 1, result
         assert len(result["graph"]["edges"]) > 0, result

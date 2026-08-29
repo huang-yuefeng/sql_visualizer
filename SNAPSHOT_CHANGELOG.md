@@ -8,6 +8,65 @@ self-consistency only — a repin proves the new baseline reproduces, NOT that i
 is correct; each baseline also needs a one-time human sanity check (see the
 module docstring in `test_l2_snapshot.py`).
 
+## 2026-08-29 — unified rebaseline wave 2 (108 of 109 snapshots, `EXTRACTOR_VERSION 2026-08-28.8`)
+
+**Executed 2026-08-29 after every driver below landed and the jaccard gate reached set equality
+(20/20 at recall AND precision 1.0000).** Regen run + independent verify run: `109 passed` both
+times. 108 snapshot files repinned in ONE wave; 1 already matched. Stale graph caches were
+cleared on both containers before the regen (the version-stamp trap documented in the wave-1
+plan below).
+
+| Driver | Effect on L2 output |
+|--------|---------------------|
+| R44 occurrence coverage + R45 families 1/2/3 (`.4`/`.5`/`.6`) | write-side/derived-read/GROUP-BY/occurrence-line twins add nodes + edges; occurrence twins carry SCHEMA belongs-to edges (Phase 4d-gb) and per-clause anchored FILTER/JOIN edges (F-E1); wrong-owner/scope fixes (Fixes C/D/E/F/G) remove the phantom twins |
+| WINDOW edges re-anchor onto the OVER line (`highlight_strategies _anchor_line`) | window-key lines reachable in flow-only |
+| K4 ruling 1: field chips carry `line_start` | every `type:"field"` node gains one key (chip click → SQL definition line) |
+| K4 ruling 3 paren-balance diagnostics (`.7`) + prefix bump `graph_3_2_25` | no node/line/edge change — cache invalidation only |
+| K3 sample repairs (RFN +2 parens restored, PL stray `;` @L19 removed) | PL full view 543→368 nodes / 750→399 edges (187 phantom nodes gone); RFN full 1921→2156 nodes (missing-paren region re-scoped, real edges recovered) |
+| #399 alias-aware seed expansion (option b′) + LFS108 folded-carrier preference | none — evidenced three ways: snapshot failure set identical with the carrier rule on/off, in-flow controls byte-identical, 20-closure digest changed by exactly one edge |
+
+The wave-1 plan below (kept for the record) lists the driver table this wave executed.
+
+## 2026-08-28 (task #370 — RFN OCR re-derivation, unreleased)
+
+| Snapshot | Change | Driver |
+|----------|--------|--------|
+| `l2_snapshot_02_BDM_ACC_LOAN_INFO_RFN.sql.json` | full 1134→1140 nodes, 5169→5188 edges; filtered 89→100 nodes, 187→210 edges | `BDM_ACC_LOAN_INFO_RFN.sql` re-derived from the surviving source screenshots (`screenshots/case2-1..13.png`) with the committed OCR harness (`tools/ocr/harness.py`) + targeted pixel-topology reads. All 21 `OCR-UNCERTAIN` markers resolved with evidence; no markers remain (1407→1441 lines). |
+
+Delta audit (every hunk traced 1:1 to a SQL repair — no extractor regression):
+the bulk is line-number shifts in content-derived ids (statements after the
+inserted blocks moved +31/+33); real content deltas are (a) `+field C_CRG2`
+from the restored `DECODE(TRIM(P3.C_CRG2),…)` five-way classification
+(old mis-repair had `NULL AS LOAN_GRADE`); (b) removal of the bogus
+`field "REPLACE(P1.X5TERM,' ','') /* [OCR-…"` node whose label had leaked the
+marker comment text (RHS re-read as `''`); (c) `+MAXp_dt`/`p_dt`/`P_dt` fields
+and `+JOIN/FILTER/AGGREGATE` edges from the two restored
+`p_dt = (SELECT MAX(p_dt) …)` predicates (KJDK `ods_cdp_gdc_label_fin`
+subquery @L799 + `ODS_GDC_RFN_RATE` join @L850) which also killed the bogus
+`field LEFT` node the old dangling-`AND` produced; (d) `+source_table
+rrcdm_job_log_exec_par` (L1428) from the restored job-log
+`INSERT INTO TABLE rrcdm_job_log_exec_par(…)` header (present in all 4 sibling
+samples, lost in the earlier reconstruction); (e) re-expanded CASE/NVL blocks
+(HUB_ITEM_CODE `'A18017'`/`'A15000'`, LOAN_MATURITY_DT `'99991231'→'21001231'`,
+BASE_RATE_TYPE `'TR05'` on `('LP0','LP1')`, LOAN_IN_BANK_NO `CONCAT('CNHSBC',…)`,
+LOAN_IN_ACCT_NO / REPAY_ACCT_NO / REPAY_BANK_NAME nested NVL+CASE forms).
+Literal corrections: `1104_report='G19'→'S70'`, RFN ref digits (20-digit
+`RFN21075212024012600002` / `RFN21247212024012600002`), `REPLACE(borrower_ids,'-','')`,
+`'Y1'→'YI'`, `('LPe','ZBR')→('LP0','ZBR')`, lease-branch maturity `1→3` months.
+Gates: extraction parse_errors 0 before/after (vars 1515→1526);
+`test_l2_snapshot.py -k 02_BDM_ACC_LOAN_INFO_RFN` passes against the new
+baseline; `test_jaccard_benchmark.py` 20 passed, recall/precision 1.0000
+(RFN is not a benchmark seed). EAST5 snapshot failure seen in the same working
+tree is from concurrent backend work by other agents, NOT from this repair
+(EAST5 sample + snapshot are untouched here).
+
+**Pending unified regeneration (next release):** all L2 snapshots regenerate
+TOGETHER at the next release — R43's partition-DDL frame drop (EAST5 129→119
+nodes / 168→148 edges pre-regen), this RFN repair, and any R44 walker effects
+land in one rebaseline wave. Until then, snapshot-test failures against the
+committed baselines are EXPECTED rebaselines, not regressions; do not "fix"
+them by reverting the drivers.
+
 ## v3.3.170 (commit `7f335c4`)
 
 Three snapshots rebaselined for the OCR-repaired samples (PL/EAST5/Digitallending
@@ -39,7 +98,18 @@ auditable fact is that these three files changed in `0bc0b54`.)
 
 ## How to add an entry
 
-When you rebaseline one or more snapshots, append a dated section listing the
-exact snapshot file(s) and a one-line rationale (the feature/fix that changed
-the output, or "regenerated for <version>" when the change is a pure repin).
-Keep rationales honest — never fabricate dates or bug numbers.
+When you rebaseline one or more snapshots, append a dated section ABOVE this
+section (dated entries read newest-first), listing the exact snapshot file(s)
+and a one-line rationale (the feature/fix that changed the output, or
+"regenerated for <version>" when the change is a pure repin). Keep rationales
+honest — never fabricate dates or bug numbers.
+
+## 2026-08-28 — unified regeneration wave 1 (v3.3.191 staged): R43 DDL-drop + RFN + R44 occurrence coverage
+
+> Superseded by the DRAFT/PENDING wave-2 entry at the top of this file — the
+> drivers that landed after this regen re-redden the baselines.
+
+All 41 L2 snapshots regenerated together (L2_SNAPSHOT_UPDATE=1, 109/109 green post-regen):
+- **R43** removes the ten EAST5 ALTER-partition ⟐ VT frames and their 20 edges (display-layer; closures untouched — jaccard 1.0000).
+- **#370 RFN** repairs (21 markers → 0, restored rrcdm INSERT @L1396) — delta audited 1:1 by the RFN team (1134→1140n pre-R44).
+- **R44** (EXTRACTOR_VERSION 2026-08-28.3): write-side/derived-read twins + PL statement merge + L-E4 VIEW/CTAS scoping — sample deltas: DL 444→481n, PL 303→505n, RFN 1140→1142n, SUP 204→219n, EAST5 129→137n (= −10 R43 +18 twins); 36/41 non-sample snapshots byte-identical.

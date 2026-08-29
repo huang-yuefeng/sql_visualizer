@@ -19,15 +19,29 @@
         }
       }
     ],
-    "filtered_nodes": 3,
+    "filtered_nodes": 4,
     "nodes": [
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "TOP0",
+          "id": "l2_tbl_26bdd97544",
+          "label": "output",
+          "line_end": 64,
+          "line_start": 1,
+          "original_id": "5e0771d8db675825",
+          "table_name": "\u27d0 output",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
       {
         "data": {
           "context": "TOP0",
           "defined_in": "FROM",
           "id": "l2_tbl_c10689ce61",
           "label": "item",
-          "line_end": 13,
+          "line_end": 64,
           "line_start": 2,
           "original_id": "1391b590dfaba13d",
           "table_name": "item",
@@ -41,9 +55,10 @@
           "id": "fld_4ee70cc6ff",
           "is_target": true,
           "label": "__i_product_name",
+          "line_start": 0,
           "orig_type": "expression",
           "original_id": "5a9f4186deb633ae",
-          "parent": "l2_tbl_c10689ce61",
+          "parent": "l2_tbl_26bdd97544",
           "type": "field",
           "variable_type": "field"
         }
@@ -54,6 +69,7 @@
           "id": "fld_db86638a54",
           "is_target": false,
           "label": "i_product_name",
+          "line_start": 1,
           "orig_type": "column",
           "original_id": "305b684e6a72ce12",
           "parent": "l2_tbl_c10689ce61",
@@ -66,7 +82,7 @@
     "search_matched": true,
     "target": "\u27d0 output.__i_product_name",
     "total_edges": 1,
-    "total_nodes": 3
+    "total_nodes": 4
   },
   "full": {
     "edges": [
@@ -179,6 +195,91 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
+          "highlight_line": 36,
+          "id": "l2e_ec9dd66a5b6f",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016item@L6 \u2192 item.i_manufact@L36\u2016",
+          "source": "l2_tbl_c10689ce61",
+          "target": "fld_9377d5be76",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 14,
+          "id": "l2e_51b8f499d63c",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016item@L6 \u2192 item.i_size@L14\u2016",
+          "source": "l2_tbl_c10689ce61",
+          "target": "fld_0fa3fd9209",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 15,
+          "id": "l2e_648314bd8e77",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016item@L6 \u2192 item.i_category@L15\u2016",
+          "source": "l2_tbl_c10689ce61",
+          "target": "fld_95baaf246b",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 12,
+          "id": "l2e_dd28d5adda78",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016item@L6 \u2192 item.i_units@L12\u2016",
+          "source": "l2_tbl_c10689ce61",
+          "target": "fld_4e7ee30592",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 10,
+          "id": "l2e_70582011b6c3",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016item@L6 \u2192 item.i_color@L10\u2016",
+          "source": "l2_tbl_c10689ce61",
+          "target": "fld_606be03c3a",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
           "highlight_line": 0,
           "id": "l2e_2737b27f6eaf",
           "label": "SCHEMA",
@@ -249,7 +350,7 @@
           "defined_in": "TOP0",
           "id": "l2_tbl_26bdd97544",
           "label": "output",
-          "line_end": 13,
+          "line_end": 64,
           "line_start": 1,
           "original_id": "5e0771d8db675825",
           "table_name": "\u27d0 output",
@@ -264,7 +365,7 @@
           "flow_role": "source",
           "id": "l2_tbl_c10689ce61",
           "label": "item",
-          "line_end": 13,
+          "line_end": 64,
           "line_start": 2,
           "original_id": "1391b590dfaba13d",
           "table_name": "item",
@@ -279,7 +380,7 @@
           "flow_role": "source",
           "id": "l2_tbl_38bfa9984c",
           "label": "i1@2",
-          "line_end": 13,
+          "line_end": 64,
           "line_start": 2,
           "original_id": "1277493ab58592e3",
           "table_name": "i1",
@@ -293,7 +394,7 @@
           "defined_in": "TOP0/subq1",
           "id": "l2_tbl_6569e0b77d",
           "label": "output(subq1)",
-          "line_end": 13,
+          "line_end": 64,
           "line_start": 5,
           "original_id": "dea9388fb3a04fe7",
           "table_name": "\u27d0 subq1",
@@ -307,6 +408,7 @@
           "id": "fld_4ee70cc6ff",
           "is_target": false,
           "label": "__i_product_name",
+          "line_start": 0,
           "orig_type": "expression",
           "original_id": "5a9f4186deb633ae",
           "parent": "l2_tbl_26bdd97544",
@@ -320,6 +422,7 @@
           "id": "fld_db86638a54",
           "is_target": false,
           "label": "i_product_name",
+          "line_start": 1,
           "orig_type": "column",
           "original_id": "305b684e6a72ce12",
           "parent": "l2_tbl_c10689ce61",
@@ -333,6 +436,7 @@
           "id": "fld_158bb9ddd5",
           "is_target": false,
           "label": "i_manufact_id",
+          "line_start": 3,
           "orig_type": "column",
           "original_id": "1e652e0b19376931",
           "parent": "l2_tbl_c10689ce61",
@@ -346,6 +450,7 @@
           "id": "fld_b518d24f8f",
           "is_target": false,
           "label": "item_cnt",
+          "line_start": 5,
           "orig_type": "aggregate",
           "original_id": "b947a1fe34027b12",
           "parent": "l2_tbl_6569e0b77d",
@@ -359,6 +464,7 @@
           "id": "fld_9377d5be76",
           "is_target": false,
           "label": "i_manufact",
+          "line_start": 7,
           "orig_type": "column",
           "original_id": "be99bdfac6fe02aa",
           "parent": "l2_tbl_c10689ce61",
@@ -372,6 +478,7 @@
           "id": "fld_95baaf246b",
           "is_target": false,
           "label": "i_category",
+          "line_start": 8,
           "orig_type": "column",
           "original_id": "78cb00d2c94f285f",
           "parent": "l2_tbl_c10689ce61",
@@ -385,6 +492,7 @@
           "id": "fld_0fa3fd9209",
           "is_target": false,
           "label": "i_size",
+          "line_start": 13,
           "orig_type": "column",
           "original_id": "35358ab16dfa0f95",
           "parent": "l2_tbl_c10689ce61",
@@ -398,6 +506,7 @@
           "id": "fld_4e7ee30592",
           "is_target": false,
           "label": "i_units",
+          "line_start": 11,
           "orig_type": "column",
           "original_id": "229437e69195a96f",
           "parent": "l2_tbl_c10689ce61",
@@ -411,6 +520,7 @@
           "id": "fld_606be03c3a",
           "is_target": false,
           "label": "i_color",
+          "line_start": 9,
           "orig_type": "column",
           "original_id": "acf27a1ceb9f68fc",
           "parent": "l2_tbl_c10689ce61",
@@ -422,8 +532,8 @@
     "script_name": "41.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 10,
-    "total_nodes": 15
+    "total_edges": 15,
+    "total_nodes": 69
   },
   "script_name": "41.sql",
   "seed": {

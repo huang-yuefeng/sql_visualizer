@@ -67,4 +67,24 @@ export function filterNames(names, q) {
   return out.slice(0, MAX);
 }
 
+// F5 (audit #383): case-insensitive name resolution for the search panel.
+// Index keys carry the casing each script WROTE (TEMP_RFN vs temp_rfn —
+// SQL identifiers are case-insensitive), while the backend search matches
+// keys exactly (field_index.get(field)). A typed name in any casing must
+// resolve to the canonical index key before the search is sent. Exact key
+// wins; otherwise the case-insensitive equals are ranked with the same
+// collation the dropdown uses and the first is taken (deterministic when
+// several scripts wrote the same identifier in different cases). No hit →
+// null — the caller shows the inline "not in the index" message.
+export function resolveNameCi(names, typed) {
+  if (!typed) return null;
+  const list = names || [];
+  const t = String(typed);
+  if (list.includes(t)) return t;
+  const query = t.toLowerCase();
+  const hits = list.filter((n) => String(n).toLowerCase() === query)
+    .sort(ciCompare);
+  return hits.length > 0 ? hits[0] : null;
+}
+
 export default filterNames;

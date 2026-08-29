@@ -126,7 +126,43 @@ def test_full_http_journey(journey_ws):
     assert idx["orphan_field_count"] == 0, idx          # MWF is fully qualified
     assert idx["orphan_field_samples"] == [], idx
     rs = idx["resolution_stats"]
-    assert rs["total_columns"] == 26, rs                # 5 fixed scripts
+    # R44 (2026-08-28, user ruling "walker occurrence coverage"): 26 → 44.
+    # 26 source reads + 16 write-target twins + 2 GROUP BY twins.
+    # +16 write-target twins — every DML-written column now exists as a
+    # column var ({target}.{projection}: stg_orders ×5, stg_customers ×4,
+    # analytics_orders ×6, daily_summary ×1). Naming a column in an INSERT
+    # list / writing a projection into a target is authored SQL text =
+    # positive evidence, NOT a guess: INSERT-target attribution is allowed
+    # under the occurrence-coverage ruling; the s4 never-guess principle
+    # governs scope-INFERRED attribution only.
+    # +2 GROUP BY twins (EXTRACTOR_VERSION 2026-08-28.4, `_register_groupby_twins`,
+    # R44 family #3): step4's `GROUP BY DATE(ao.order_date), ao.region` (L5)
+    # registers `analytics_orders.order_date` + `analytics_orders.region` —
+    # each GROUP BY item names a real column with a resolved physical owner
+    # (authored SQL text, same positive-evidence basis as the INSERT list).
+    # +10 R45 family-3 occurrence-line twins (EXTRACTOR_VERSION
+    # 2026-08-28.6, `_register_flow_occurrence_twins` family 3): a column
+    # referenced twice inside one statement used to register ONE var (the
+    # `_add` (name, type, context) dedup), so the second occurrence — a 2nd
+    # WHEN arm, an NVL fallback operand, a byte-identical projection, a
+    # later JOIN-key leg — left no node at its own line. Family 3 re-anchors
+    # each collapsed occurrence as an occurrence-side twin attributed to the
+    # same owner the surviving var resolved to (same positive-evidence basis
+    # as the write-target and GROUP BY twins above: authored SQL text, never
+    # a scope-inferred guess).
+    # 8, not 10 (EXTRACTOR_VERSION 2026-08-28.8, R45 Fixes C–G — ruling):
+    # the .6 handout minted 2 twins that were NOT occurrences of the group
+    # it handed them to — one grabbed a line OUTSIDE its own paren scope,
+    # one was the group's duplicate registration of a field whose line was
+    # already anchored, and both stole the free line a genuine occurrence
+    # needed. Fixes C/G bound the line search to the group's own scope and
+    # its own qualifier's occurrences, Fix F treats a line any same-field
+    # var anchors as taken, Fix E pairs a collapsed occurrence to a line of
+    # ITS OWN clause. Nothing replaced the two: a line where the field does
+    # not occur is not an occurrence. Each of the 8 remaining twins sits on
+    # a line where its field textually occurs, in the clause its
+    # `defined_in` names — SQL-true, verified per script.
+    assert rs["total_columns"] == 52, rs                # 5 fixed scripts
     assert rs["resolved"] + rs["unresolved"] == rs["total_columns"], rs
     assert rs["unresolved"] == 0, rs
     assert rs["coverage_pct"] == 100.0, rs
@@ -188,21 +224,25 @@ def test_full_http_journey(journey_ws):
                          "output_table"}, node_types
     for e in edges:
         assert e["data"]["edge_type"] in ("reads_from", "writes_to"), e
-    # R29: the downstream L1 is the seed's effect scope — only the
-    # CONSUMING script (step3 reads the seed as a join key and writes
-    # analytics_orders): stg_customers →(step3)→ analytics_orders (2
-    # reads_from/writes_to hops). The producing script (step2) is the
-    # upstream side of the seed, so it is not in the downstream
-    # projection (upstream L1 = step2 only); step1/4/5 never touch the
-    # field.
+    # R29 + R44 (2026-08-28): the downstream L1 is the seed's occurrence
+    # projection. R29 kept it to the CONSUMING script only (step3: the
+    # seed read as a join key → analytics_orders). R44's occurrence
+    # coverage adds the seed's WRITE occurrence: the write-side twin
+    # stg_customers.customer_id (step2's INSERT projection) is an
+    # occurrence of the searched field, so step2's table-level write leg
+    # renders (write-completion) together with its feeding read
+    # (crm_customers.customer_id — the value's origin): crm_customers
+    # →(step2)→ stg_customers →(step3)→ analytics_orders, 5 hops.
+    # step1/4/5 never touch the field.
     assert {n["data"]["label"] for n in nodes
             if n["data"]["type"] == "script_node"} == {
+        "multi_workflow/step2_enrich_customers.sql",
         "multi_workflow/step3_join_orders_customers.sql",
     }, nodes
     assert {n["data"].get("table_name") for n in nodes
             if n["data"]["type"] != "script_node"} == {
-        "stg_customers", "analytics_orders"}, nodes
-    assert len(edges) == 2, len(edges)
+        "crm_customers", "stg_orders", "stg_customers", "analytics_orders"}, nodes
+    assert len(edges) == 5, len(edges)
 
     # ── Step 5: L2 graph for the JOIN script ───────────────────────────
     r = client.get(f"/api/workspace/{ws_id}/views/{view_id}/level2",

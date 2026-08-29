@@ -348,12 +348,12 @@ export default function DataFlowGraph(props) {
         .addClass('story-dim');
       cy.edges().filter(el => edgeIds.has(el.id())).addClass('story-active');
       cy.nodes().filter(el => nodeIds.has(el.id())).addClass('label-emph');
-      // f648 fix: a field→own-table edge has coincident endpoints — the
-      // step's own edge may render ~0px (detailed) or ~7px (merged self-
-      // loop). Its VISIBLE representation in merged views is the synthetic
-      // chrome: capL_<edgeId> loop-line + cap_<edgeId> caption. Light those
-      // too so the Filtered step is unmistakable (guard rule keeps the
-      // loop-line growing, never shrinking).
+      // f648 fix (updated v3.3.191): a field→own-table edge has coincident
+      // endpoints — the step's own edge may render ~0px in DETAILED views.
+      // In merged views the self-loop edge itself is the big visible curve
+      // (edge.filter-selfloop) and is lit through edgeIds above; the ⟂
+      // caption node (cap_<edgeId>) paints above it and must pop too. The
+      // retired capL_ bracket lookup stays as a no-op for resumed graphs.
       const chrome = [];
       for (const id of edgeIds) {
         const ll = cy.getElementById('capL_' + id);
@@ -410,21 +410,31 @@ export default function DataFlowGraph(props) {
           </label>
         )}
       </div>
+      {/* V2-N2 (2026-08-29): the Fit/Export controls used to float
+          `position:absolute; top:8px; right:8px` over the toolbar's right
+          end — in the 420px inline L2 panel that is exactly where the
+          4-way view-mode <select> lands, so the right half of the select
+          hit-tested to 'Fit' and a real click switched nothing. They are
+          now the LAST ITEM of the legend's wrapping flex row (right-aligned
+          via margin-left:auto): the legend wraps before the controls can
+          ever overlap the toolbar, on BOTH levels and at any panel width. */}
       <DataFlowLegend
         level={level === 'L2' ? 'L2' : 'L1'}
         structureEdgesHidden={level === 'L2'}
         structureEdgeCount={structureEdgeCount}
+        trailing={(
+          <div className="graph-extra-controls">
+            <button className="btn btn-outline btn-sm" onClick={() => fit(FIT_PADDING)} title="Fit (F)">🗺</button>
+            <button className="btn btn-outline btn-sm" onClick={() => {
+              const c = cyRef.current; if (!c) return;
+              const a = document.createElement('a');
+              a.href = c.png({ full: true, scale: 2, bg: '#1a1a2e' });
+              a.download = `dataflow-${level}-${new Date().toISOString().slice(0, 10)}.png`;
+              a.click();
+            }} title="Export PNG">📷</button>
+          </div>
+        )}
       />
-      <div className="graph-extra-controls">
-        <button className="btn btn-outline btn-sm" onClick={() => fit(FIT_PADDING)} title="Fit (F)">🗺</button>
-        <button className="btn btn-outline btn-sm" onClick={() => {
-          const c = cyRef.current; if (!c) return;
-          const a = document.createElement('a');
-          a.href = c.png({ full: true, scale: 2, bg: '#1a1a2e' });
-          a.download = `dataflow-${level}-${new Date().toISOString().slice(0, 10)}.png`;
-          a.click();
-        }} title="Export PNG">📷</button>
-      </div>
       <div ref={containerRef} className="graph-canvas"
         style={{ width: '100%', height: 'calc(100% - 80px)' }} />
     </div>

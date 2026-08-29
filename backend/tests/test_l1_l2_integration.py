@@ -109,18 +109,35 @@ def test_l1_field_query_shape_stg_customers(multi_workflow_ws):
 def test_l2_step3_join_edges_survive(multi_workflow_ws):
     """Step3 has two JOIN keys (so.customer_id, sc.customer_id). Under the
     strict table.field flow (v3.3.140) only the SEED side's JOIN edge
-    survives — the seed zone never propagates through a JOIN edge, so the
-    mirror key column (a different field instance) and its JOIN edge are
-    dropped. The surviving edge lands on the ⟐ output table."""
+    survived — the mirror key column (a different field instance) and its
+    JOIN edge were dropped. R44 (2026-08-28, user ruling "covering all
+    occurrences of the target field is the PURPOSE of flow-only") admits
+    BOTH key instances of the join: the derived-product round covers
+    alias reads co-scoped with the searched table's read, so the mirror
+    so.customer_id joins the closure (distinct field instance + distinct
+    model edge — NOT a duplicate of the seed side's edge) and the join
+    occurrence renders complete: both key pairs land on the ⟐ output
+    table, same join condition line."""
     graph = _step3_l2_graph(multi_workflow_ws)
     table_by_id = _table_name_by_id(graph)
     joins = [e["data"] for e in graph["edges"]
              if e["data"].get("edge_type") == "JOIN"]
-    assert len(joins) == 1, \
-        f"Expected the seed-side JOIN edge, got {len(joins)}: {joins}"
+    assert len(joins) == 2, \
+        f"Expected both join-key edges (R44 occurrence coverage), got {len(joins)}: {joins}"
+    # "distinct field instance + distinct model edge — NOT a duplicate of
+    # the seed side's edge" (the docstring claim this test pins): the two
+    # edges must come from TWO different source nodes, not two copies of
+    # one edge.
+    assert len({e["source"] for e in joins}) == 2, joins
     for e in joins:
         assert table_by_id.get(e["target"]) == OUTPUT_TABLE, \
             f"JOIN edge must feed the output table, got target {e['target']}"
+    # both edges anchor at the join condition — the line is derived from
+    # the SQL text (the ON clause), never hard-coded, and a missing
+    # highlight_line fails as a mismatch rather than as a KeyError.
+    join_line = next(i for i, ln in enumerate(_step3_sql().splitlines(), 1)
+                     if "ON so.customer_id = sc.customer_id" in ln)
+    assert {e.get("highlight_line") for e in joins} == {join_line}, joins
 
 
 def test_l2_step3_no_table_flow_bypass(multi_workflow_ws):

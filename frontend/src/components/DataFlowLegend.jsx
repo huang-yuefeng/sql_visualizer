@@ -106,7 +106,7 @@ const L2_NODE_TYPE_LEGEND = [
   },
 ];
 
-function L2NodeTypeLegend({ structureEdgesHidden, structureEdgeCount }) {
+function L2NodeTypeLegend({ structureEdgesHidden, structureEdgeCount, trailing }) {
   const swatch = item => ({
     display: 'inline-block', width: 12, height: 12,
     borderRadius: item.circle ? '50%' : 2,
@@ -131,16 +131,26 @@ function L2NodeTypeLegend({ structureEdgesHidden, structureEdgeCount }) {
           structure edges hidden ({structureEdgeCount})
         </span>
       )}
+      {trailing}
     </div>
   );
 }
 
-export default function DataFlowLegend({ level, structureEdgesHidden, structureEdgeCount }) {
+// `trailing` (V2-N2, 2026-08-29): content appended INSIDE the legend's
+// wrapping flex row — DataFlowGraph mounts the Fit/Export controls there so
+// they flow with the legend instead of floating over the toolbar.
+export default function DataFlowLegend({ level, structureEdgesHidden, structureEdgeCount, trailing }) {
   let items, title;
   if (level === 'L1') {
     items = L1_LEGEND;
   } else if (level === 'L2') {
-    return <L2NodeTypeLegend structureEdgesHidden={structureEdgesHidden} structureEdgeCount={structureEdgeCount} />;
+    return (
+      <L2NodeTypeLegend
+        structureEdgesHidden={structureEdgesHidden}
+        structureEdgeCount={structureEdgeCount}
+        trailing={trailing}
+      />
+    );
   } else if (level === 'categories') {
     items = CATEGORY_LEGEND;
     title = '7 Edge Categories';
@@ -159,6 +169,7 @@ export default function DataFlowLegend({ level, structureEdgesHidden, structureE
           <span>{item.label}</span>
         </span>
       ))}
+      {trailing}
     </div>
   );
 }

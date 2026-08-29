@@ -560,14 +560,86 @@ body { background: var(--bg-app); color: var(--ink-900); }
 
 /* ── No-match search notice (R3/F1) ── */
 .no-match-banner {
-  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  /* F-B2 (S4 t47): the banner is an OVERLAY on the graph, so it must start
+     BELOW the graph's own chrome — toolbar (~32px) + legend (the 80px the
+     canvas already reserves via `height: calc(100% - 80px)`) — or a wrapping
+     message paints straight over "Per-Script Detail"/Fit/view-select. */
+  top: 84px;
+  position: absolute; left: 50%; transform: translateX(-50%);
   background: var(--warning-soft);
   border: 1px solid var(--warning); color: var(--warning);
   padding: 6px 14px; border-radius: 4px;
   font-size: 0.75rem; font-weight: 600; z-index: 50;
   /* L15: long messages wrap instead of overflowing the graph panel */
   white-space: normal; max-width: min(70%, 480px); text-align: center;
+  /* F-B2 (S4 t47): and it can never swallow the panel — a message taller
+     than ~40% of the graph area scrolls inside its own box. */
+  max-height: 40%; overflow-y: auto;
 }
+/* F-B2: the SECOND banner on screen (A3 parse errors, or the "no SQL line"
+   notice) takes the bottom slot — a stacked top offset would have to guess
+   the first banner's wrapped height. When BOTH bottom-slot banners render at
+   once, the sibling rule below separates them. */
+.no-match-banner.banner-bottom {
+  top: auto; bottom: 8px;
+}
+/* SHOULD-FIX #4: the L2 graph area can hold TWO bottom-slot banners at once —
+   the A3 parse-errors block first, then the "no SQL line" notice (that DOM
+   order is what DataFlowApp.jsx renders). Without this rule both sit at
+   bottom:8px and paint over each other. The LATER sibling (the notice, the
+   transient one) stacks above; alone, each keeps the plain 8px slot. */
+.no-match-banner.banner-bottom ~ .no-match-banner.banner-bottom {
+  bottom: 56px;
+}
+/* F-B2 (S4 finding 6): informational notice, not a warning. */
+.no-match-banner.banner-neutral {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong); color: var(--ink-600);
+  font-weight: 500;
+}
+/* #400: the no-flow banner's per-script continuation — one
+   "Open <script> full graph" affordance per matched script (an empty L1
+   canvas has no node to double-click). Lives INSIDE the banner's own
+   scroll box, so many matches scroll instead of covering the panel. */
+.no-match-banner-actions {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  margin-top: 6px;
+}
+.no-match-banner-actions .banner-open-script {
+  max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: var(--bg-elevated);
+  font-weight: 600;
+}
+/* V2-N4 (2026-08-29): the matched-but-not-in-flow strip on an L1 view that
+   DOES render a flow. Same top slot as the no-match banner (the chrome ends
+   at ~80px), but a slim left-aligned row of per-script continuations instead
+   of a centered warning — an exact-match view is not an error state. */
+.no-match-banner.banner-strip {
+  left: 12px; right: auto; transform: none;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 4px 10px; font-weight: 500; text-align: left;
+  max-width: calc(100% - 24px);
+  background: var(--bg-elevated); border-color: var(--border-strong);
+  color: var(--ink-600);
+}
+.no-match-banner.banner-strip .strip-label { color: var(--ink-400); font-weight: 600; }
+.no-match-banner.banner-strip .strip-item {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+}
+.no-match-banner.banner-strip .strip-script {
+  font-weight: 600; color: var(--ink-900);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;
+}
+.no-match-banner.banner-strip .banner-open-script { background: var(--bg-surface); }
+/* V2-N2 companion: the top banner is centered at `top:84px`, which is where
+   the legend row (and the Fit/Export controls living at its right end) sits
+   once a narrow panel wraps the legend. Cap the centered banner's width so it
+   stops ~84px short of the panel edge — the controls' band — instead of
+   painting over them. The L1 out-of-flow strip is left-aligned on purpose and
+   stays full-width. */
+.panel-center .no-match-banner:not(.banner-strip),
+.inline-l2-graph .no-match-banner { max-width: calc(70% - 84px); }
 
 /* ── Orphan Resolution Report (R20) ── */
 .resolution-report {
@@ -623,6 +695,10 @@ body { background: var(--bg-app); color: var(--ink-900); }
 
 /* ── A+E+I: Search history, pins, Enter to search ── */
 .search-actions { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+/* F5 (audit #383): inline note under a table/field input whose typed name
+   resolves to no index key (any casing) — the search stays disabled but is
+   no longer a silent no-op. */
+.search-name-missing { font-size: 0.65rem; color: var(--danger); margin-top: 3px; }
 .pinned-searches { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .pinned-label { font-size: 0.7rem; color: var(--ink-400); margin-right: 4px; }
 .pinned-chip { font-size: 0.7rem !important; padding: 2px 8px !important; border-radius: 12px !important; display: flex; align-items: center; gap: 4px; }
@@ -660,7 +736,17 @@ body { background: var(--bg-app); color: var(--ink-900); }
 .breadcrumb-current { color: var(--warning); font-weight: bold; }
 
 /* ── F: Graph extra controls ── */
-.graph-extra-controls { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; z-index: 5; }
+/* V2-N2 (2026-08-29): was `position:absolute; top:8px; right:8px; z-index:5`
+   — a floating box over the toolbar's right end, where the L2 4-way
+   view-mode <select> lands in a narrow inline L2 panel (the right ~60% of
+   the select hit-tested to 'Fit'). Now an IN-FLOW item of the legend's
+   wrapping flex row (DataFlowGraph passes it as DataFlowLegend's
+   `trailing`), pushed right and never wrapped over: the legend grows a row
+   instead of overlapping the toolbar, on both levels and at any width. */
+.graph-extra-controls {
+  display: flex; gap: 4px; align-items: center;
+  margin-left: auto; flex-shrink: 0;
+}
 
 /* ── G: Theme toggle ── */
 .theme-toggle { background: none; border: 1px solid var(--border-strong); border-radius: 50%; width: 28px; height: 28px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; margin-left: auto; transition: border-color 0.3s; }

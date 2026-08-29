@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import * as api from '../api/client';
-import { filterNames } from '../utils/nameFilter';
+import { filterNames, resolveNameCi } from '../utils/nameFilter';
 
 // Consistent color palette for table names (16 colors)
 const TABLE_COLORS = [
@@ -94,10 +94,37 @@ export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, on
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Filter field options by selected table
+  // F5 (audit #383): the index keys are case-sensitive (each script's own
+  // casing — TEMP_RFN vs temp_rfn), and the backend search matches them
+  // EXACTLY, so a name typed in a different casing used to silently
+  // disable search (canSearch required exact keys; Enter was a no-op with
+  // no message). Resolve typed names case-insensitively to the canonical
+  // index key (exact spelling wins, then unique case-variant) — search,
+  // history and pins always run with the canonical key, and the inputs
+  // echo it so the panel shows what was actually searched.
+  const resolvedTable = resolveNameCi(tableNames, table);
+  const resolvedField = resolveNameCi(fieldNames, field);
+
+  // F-B2 (S4 finding 9): the suggestions dropdown is an absolutely-positioned
+  // overlay that hangs over whatever sits below its input — after typing a
+  // complete table name it covered the Field input and ATE the click aimed at
+  // it (the item won, the input never got focus). Blur + click-outside already
+  // closed it, but only once the user clicked elsewhere. Once the typed name
+  // RESOLVES to an index key (exact spelling or unique case-variant) the
+  // suggestions have nothing left to offer — close it then; the next edit
+  // (onChange) or focus reopens it, so browsing alternatives still works.
+  useEffect(() => {
+    if (resolvedTable) setShowTableDrop(false);
+  }, [resolvedTable]);
+  useEffect(() => {
+    if (resolvedField) setShowFieldDrop(false);
+  }, [resolvedField]);
+
+  // Filter field options by selected table (resolved — a wrong-case table
+  // still narrows the field dropdown to that table's fields)
   const getFieldOptions = () => {
-    if (table && tableIndex[table]) {
-      const tableFields = filterNames(tableIndex[table].fields || [], field);
+    if (resolvedTable && tableIndex[resolvedTable]) {
+      const tableFields = filterNames(tableIndex[resolvedTable].fields || [], field);
       if (tableFields.length > 0) return tableFields;
     }
     return filterNames(fieldNames, field);
@@ -105,23 +132,39 @@ export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, on
 
   // Filter table options by selected field
   const getTableOptions = () => {
-    if (!field || !fieldIndex[field]) return tableSuggestions;
-    const filtered = filterNames(fieldIndex[field].tables || [], table);
+    if (!resolvedField || !fieldIndex[resolvedField]) return tableSuggestions;
+    const filtered = filterNames(fieldIndex[resolvedField].tables || [], table);
     // Bug 49: fall back to full suggestions when the field has no indexed tables
     // (e.g. field only seen under an alias) — otherwise the dropdown is empty
     return filtered.length > 0 ? filtered : tableSuggestions;
   };
 
-  const canSearch = table && field && tableIndex[table] && fieldIndex[field];
+  // F5 (audit #383) + V2-N3 (2026-08-29): "no such table/field in the index"
+  // is the TERMINAL state of a name that resolves to nothing — not a
+  // mid-prefix state. While the typed prefix still has live suggestions the
+  // dropdown is the right answer, and the message must stay silent: typing
+  // `bdm_acc` used to render 12 suggestions AND the missing-message at the
+  // same time. The gate is therefore the dropdown's own option list — the
+  // exact complement of the `…Options().length > 0` render condition (and of
+  // the F-B2 close-on-resolve rule: a RESOLVED name shows neither). The
+  // message does not depend on focus, so it survives blur like before.
+  const tableMissing = table.length > 0 && !resolvedTable && getTableOptions().length === 0;
+  const fieldMissing = field.length > 0 && !resolvedField && getFieldOptions().length === 0;
+
+  const canSearch = Boolean(resolvedTable && resolvedField);
 
   // Search trigger — adds to history, updates pins
   const doSearch = (t, f) => {
-    if (!t || !f) return;
-    const entry = { table: t, field: f, time: Date.now() };
-    const newHistory = [entry, ...searchHistory.filter(h => !(h.table === t && h.field === f))];
+    const rt = resolveNameCi(tableNames, t);
+    const rf = resolveNameCi(fieldNames, f);
+    if (!rt || !rf) return;
+    if (rt !== t) setTable(rt);   // echo the canonical spelling
+    if (rf !== f) setField(rf);
+    const entry = { table: rt, field: rf, time: Date.now() };
+    const newHistory = [entry, ...searchHistory.filter(h => !(h.table === rt && h.field === rf))];
     setSearchHistory(newHistory);
     saveHistory(username, newHistory);
-    onSearch(t, f, 'downstream');
+    onSearch(rt, rf, 'downstream');
   };
 
   // Enter key in field input triggers search
@@ -259,17 +302,27 @@ export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, on
           onFocus={() => setShowTableDrop(true)} onFocusCapture={() => setShowFieldDrop(false)}
           onBlur={() => setShowTableDrop(false)}
           placeholder="Type table name..." />
-        {showTableDrop && getTableOptions().length > 0 && (
+        {/* `!resolvedTable` — F-B2 (S4 finding 9): a resolved name renders no
+            overlay, so the Field input below is never covered or click-blocked. */}
+        {showTableDrop && !resolvedTable && getTableOptions().length > 0 && (
           <div className="autocomplete-dropdown">
             {getTableOptions().map(t => (
               <div key={t} className="ac-item" onMouseDown={() => { setTable(t); setShowTableDrop(false); }}>
-                <span className="ac-color-dot" style={{ 
+                <span className="ac-color-dot" style={{
                   display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
                   background: getTableColor(t), marginRight: 6, flexShrink: 0
                 }} />
                 {t}
               </div>
             ))}
+          </div>
+        )}
+        {/* F5 (audit #383) + V2-N3: a typed table that resolves to no index
+            key (any casing) AND has no live suggestion gets an inline message
+            — never a silent no-op, never a mid-prefix false alarm. */}
+        {tableMissing && (
+          <div className="search-name-missing" data-testid="table-missing-msg">
+            no such table in the index — check spelling
           </div>
         )}
       </div>
@@ -281,11 +334,12 @@ export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, on
           onBlur={() => setShowFieldDrop(false)}
           onKeyDown={handleFieldKeyDown}
           placeholder="Type field name... (Enter to search)" />
-        {showFieldDrop && getFieldOptions().length > 0 && (
+        {/* `!resolvedField` — same contract as the table dropdown above. */}
+        {showFieldDrop && !resolvedField && getFieldOptions().length > 0 && (
           <div className="autocomplete-dropdown">
             {getFieldOptions().map(f => (
               <div key={f} className="ac-item" onMouseDown={() => { setField(f); setShowFieldDrop(false); }}>
-                <span className="ac-color-dot" style={{ 
+                <span className="ac-color-dot" style={{
                   display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
                   background: fieldIndex[f]?.tables?.[0] ? getTableColor(fieldIndex[f].tables[0]) : 'var(--ink-400)',
                   marginRight: 6, flexShrink: 0
@@ -293,6 +347,14 @@ export default function FilterPanel({ wsId, username, tableIndex, fieldIndex, on
                 {f}
               </div>
             ))}
+          </div>
+        )}
+        {/* F5 (audit #383) + V2-N3: same contract for the field — an
+            unresolvable name with no live suggestion shows WHY Enter did
+            nothing, instead of disabling search silently. */}
+        {fieldMissing && (
+          <div className="search-name-missing" data-testid="field-missing-msg">
+            no such table.field in the index — check spelling
           </div>
         )}
       </div>

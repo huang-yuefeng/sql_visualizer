@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 // module-link error that would kill the whole file. `import * as` yields
 // undefined instead, so the landing-gated suites below can skip cleanly.
 import * as graphStylesModule from '../graphStyles';
+import { CY_CORE_OPTIONS } from '../../hooks/useCytoscapeGraph';
 
 const readSrc = rel =>
   readFileSync(new URL(rel, import.meta.url), 'utf8');
@@ -99,8 +100,12 @@ emphStyles('HOVER_EMPHASIS_STYLES — hover-enlarge rule', () => {
 });
 
 describe('useCytoscapeGraph — scope guards that survive the hover change', () => {
-  it('keeps minZoom at the readable 0.28 floor (v3.3.175 — labels legible pre-hover)', () => {
-    expect(hookSource).toMatch(/minZoom:\s*0\.28\b/);
+  it('keeps minZoom at the R41 0.08 floor (overview reachable; labels hide via min-zoomed-font-size)', () => {
+    // Runtime assertion (review M21, folded with L15): read the option
+    // object the hook actually spreads into cytoscape(...) through the
+    // import, instead of regexing the source text.
+    expect(CY_CORE_OPTIONS.minZoom).toBe(0.08);
+    expect(CY_CORE_OPTIONS.maxZoom).toBe(5);
   });
 
   it('still links fields to their compound table via _tableParent', () => {

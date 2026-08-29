@@ -1,5 +1,6 @@
 """Tests for variable_extractor.py — extract and classify variables from SQL AST."""
 
+import re
 import sys
 from pathlib import Path
 
@@ -10,7 +11,12 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.models.variable import VariableType  # noqa: E402
-from app.extractor.variable_extractor_v2 import extract_variables_from_sql  # noqa: E402
+from app.extractor.variable_extractor_v2 import (  # noqa: E402
+    _binding_scope,
+    _ctx_segments,
+    _ctx_within,
+    extract_variables_from_sql,
+)
 
 TEST_DATA_DIR = Path(__file__).resolve().parent / "test_data"
 SAMPLES_DIR = Path(__file__).resolve().parent.parent.parent / "samples"
@@ -371,3 +377,142 @@ class TestCaseSensitivePhysicalTableIdentity:
         # a.x keeps the alias spelling; it is NOT folded to A.x
         assert "a.x" in cols, cols
         assert "A.x" not in cols, cols
+
+
+class TestDerivedReadTwinScope:
+    """M2 (2026-08-28): derived-read twins follow lexical scope rules.
+
+    A derived alias is visible from its binding scope AND from any scope
+    nested inside it; it is NOT visible across a CTE boundary. The old
+    check compared the read against the SUB VAR's own context path, so a
+    `p2.col` reference inside a nested scalar subquery never twinned; the
+    naive `_scope_top` repair over-matches instead (a CTE-local derived
+    `p2` would twin the statement-level JOIN alias `p2` in SUP_M).
+    `_binding_scope`/`_ctx_within` give the middle ground.
+    """
+
+    NESTED = (
+        "INSERT INTO tgt\n"
+        "SELECT a.k,\n"
+        "       (SELECT MAX(p2.poctcd) FROM ods_hub_lsacmsp z"
+        " WHERE z.k = a.k) AS mx\n"
+        "FROM (SELECT poctcd, k FROM ods_hub_lsacmsp) p2\n"
+        "JOIN src a ON a.k = p2.k;\n"
+    )
+
+    CTE_BOUNDARY = (
+        "WITH c AS (SELECT k FROM (SELECT k FROM phys_t) p2)\n"
+        "INSERT INTO tgt\n"
+        "SELECT p2.k, p2.poctcd FROM src_t p2;\n"
+    )
+
+    @staticmethod
+    def _twins(result):
+        """Derived-read twins: qualified COLUMN, non-output, carrying the
+        single dotted read it copies (family 2's own registration shape)."""
+        return {v.name: v for v in result.variables
+                if v.variable_type == VariableType.COLUMN and not v.is_output
+                and "." in v.name
+                and v.source_columns and len(v.source_columns) == 1
+                and "." in v.source_columns[0]}
+
+    def test_deeper_nested_read_still_twins(self):
+        """`p2.poctcd` inside the scalar subquery resolves to the derived
+        alias bound one scope up (pre-M2 this produced NO twin)."""
+        r = extract_variables_from_sql(self.NESTED, "m2_nested")
+        twins = self._twins(r)
+        assert "ods_hub_lsacmsp.poctcd" in twins, sorted(twins)
+        t = twins["ods_hub_lsacmsp.poctcd"]
+        assert t.source_columns == ["p2.poctcd"], t.source_columns
+        assert t.source_tables == ["ods_hub_lsacmsp"], t.source_tables
+        # the twin anchors at the read that produced it
+        assert t.line_start > 0
+
+    def test_cte_bound_alias_does_not_leak_to_statement_scope(self):
+        """A `p2` derived inside the CTE body must not twin the
+        statement-level physical alias `p2` (the _scope_top failure)."""
+        r = extract_variables_from_sql(self.CTE_BOUNDARY, "m2_cte_boundary")
+        twins = self._twins(r)
+        assert not twins, twins
+
+    def test_statement_level_alias_join_still_twins(self):
+        """The flagship shape keeps its twins: a JOIN-position derived `p2`
+        read from its own FROM scope twins onto the single physical source."""
+        sql = ("INSERT INTO tgt\n"
+               "SELECT p2.poctcd FROM bdm_x p1\n"
+               "JOIN (SELECT poctcd FROM ods_hub_lsacmsp) p2"
+               " ON p2.poctcd = p1.k;\n")
+        r = extract_variables_from_sql(sql, "m2_join_scope")
+        twins = self._twins(r)
+        assert "ods_hub_lsacmsp.poctcd" in twins, sorted(twins)
+
+
+class TestWriteTwinAliasNaming:
+    """L4 part 2 (2026-08-28): write-side twins never mint a physical field
+    identity from an unaliased projection's auto-name.
+
+    An unaliased expression/literal projection auto-names from a truncated
+    SQL-text fragment (`CONCAT'price=',_p.price`, `NULL`, `1`) — not a
+    column name. The INSERT column list that WOULD name the write slot is
+    not positionally recoverable in the post-walk twin pass (projection
+    outputs do not register 1:1 in source order), so such twins are skipped
+    rather than fabricated. Aliased projections keep their twins.
+    """
+
+    SQL = (
+        "INSERT INTO logs (table_name, operation, record_id, old_value,"
+        " new_value, changed_by)\n"
+        "SELECT 'products', 'UPDATE', p.product_id,\n"
+        "       CONCAT('price=', p.price, ',stock=', p.stock),\n"
+        "       CONCAT('price=', p.price * 1.1, ',stock=', p.stock - 5),\n"
+        "       1\n"
+        "FROM products p;\n"
+        "INSERT INTO logs2 (a, b)\n"
+        "SELECT p.product_id, 1 AS flag FROM products p;\n"
+    )
+
+    def test_no_junk_named_write_twins(self):
+        r = extract_variables_from_sql(self.SQL, "l4_junk")
+        ident = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
+        junk = [v.name for v in r.variables
+                if v.is_output and "." in v.name and not v.source_columns
+                and v.source_tables
+                and v.name.split(".", 1)[0] == v.source_tables[0]
+                and not ident.match(v.name.rsplit(".", 1)[-1])]
+        assert junk == [], junk
+
+    def test_aliased_projections_still_twin(self):
+        """A plain column read keeps its write twin; an aliased literal is
+        attributed straight to the write target (no twin needed)."""
+        r = extract_variables_from_sql(self.SQL, "l4_aliased")
+        names = {v.name for v in r.variables
+                 if v.is_output and "." in v.name and not v.source_columns
+                 and v.source_tables
+                 and v.name.split(".", 1)[0] == v.source_tables[0]}
+        assert "logs2.product_id" in names, names
+        flag = next(v for v in r.variables if v.name == "flag")
+        assert flag.source_tables == ["logs2"], flag.source_tables
+        assert flag.is_output
+
+    def test_binding_scope_unit_semantics(self):
+        """The context-path algebra `_binding_scope`/`_ctx_within` rely on:
+        the trailing alias + its own slot marker are decoration; a scope
+        segment merely NAMED `subq` is not; CTE/statement boundaries hold."""
+        cases = [
+            ("TOP0/subq/p2", "p2", "TOP0"),                    # FROM slot
+            ("TOP0:join:p2", "p2", "TOP0"),                    # JOIN slot
+            ("CTE{c}/subq/p2", "p2", "CTE{c}"),                # inside a CTE
+            ("TOP0/subq1/subq:join:p2", "p2", "TOP0/subq1/subq"),
+            ("TOP0", "source", "TOP0"),                        # MERGE USING
+            ("CTE{merchant_chargeback_stats}", "latest_risk_score",
+             "CTE{merchant_chargeback_stats}"),                # CTE reference
+        ]
+        for ctx, alias, want in cases:
+            assert _binding_scope(ctx, alias) == want, (ctx, alias)
+        assert _ctx_segments("TOP0/subq1/subq:join:p2") == \
+            ["TOP0", "subq1", "subq", "join", "p2"]
+        assert _ctx_within("TOP0/subq1", "TOP0")           # nested
+        assert _ctx_within("CTE{c}:join:x", "CTE{c}")      # CTE-internal
+        assert not _ctx_within("TOP01", "TOP0")            # distinct stmt
+        assert not _ctx_within("CTE{ab}", "CTE{a}")        # distinct CTE
+        assert not _ctx_within("TOP0", "CTE{c}")           # CTE boundary

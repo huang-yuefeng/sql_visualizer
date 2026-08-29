@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.routers.workspace import _session_ctx
 from app.services.workspace_service import get_workspace, get_workspace_dir
 from app.services.logger import _push, _ts
+from app.services.folder_index_service import resolve_name_ci, scripts_for_name_ci
 from app.services.dataflow_service import (
     _load_views, _save_views, _persist_search_view,
     create_search, get_level2_graph,
@@ -20,30 +21,39 @@ from app.services.sql_highlight_service import get_highlight_ranges
 router = APIRouter(tags=["dataflow"])
 
 
-# ── R29 direction allowlist (CR2/CR7) ──
-# Every consumer below tests only `direction == "upstream"` — an
-# unvalidated value ("UPSTREAM", a typo, an empty string) silently fell
-# through to the downstream branch. Validate once at the router boundary
-# (400 on anything outside the allowlist) and default to "upstream" (the
-# writing flow — R29's documented default, so a direct API caller or a
-# missed frontend path gets the same default the UI sends).
+# ── R29 direction allowlist (CR2/CR7) — K4 ruling 4 (2026-08-28) ──
+# R38 already removed the frontend Upstream/Downstream switch and declared
+# "downstream" the only direction, but the API kept defaulting to — and
+# honoring — "upstream", so a direct API caller (or any client that still
+# sends the legacy value) got a DIFFERENT graph than the UI for the same
+# search. The boundary now agrees with the product: an ABSENT value and a
+# legacy "upstream" both resolve to "downstream"; only a value outside the
+# allowlist ("UPSTREAM", a typo, an empty string) is a 400 (never a silent
+# fall-through). The upstream walker machinery below the router is
+# untouched (API-unreachable now; its retirement is a separate work item).
 _VALID_DIRECTIONS = {"upstream", "downstream"}
 
 
 def _normalize_direction(value) -> str:
     """Validate + normalize the R29 direction at the router boundary.
 
-    None (omitted) → the default "upstream"; anything outside the
-    allowlist → 400. Callers get a canonical value, never a silent
-    fall-through to the downstream branch.
+    None (omitted) → "downstream"; a legacy "downstream" passes through
+    unchanged; a legacy "upstream" is COERCED to "downstream" (the R38
+    legacy treatment — accepted, never honored); anything outside the
+    allowlist → 400. A NON-STRING body value (a dict/list — FastAPI happily
+    hands a JSON object/array through) → 400 too, not a TypeError-500: a
+    membership test against a set raises on an unhashable operand, so the
+    isinstance check has to come first. Callers always get a canonical
+    "downstream".
     """
     if value is None:
-        return "upstream"
-    if value not in _VALID_DIRECTIONS:
+        return "downstream"
+    if not isinstance(value, str) or value not in _VALID_DIRECTIONS:
         raise HTTPException(
             status_code=400,
-            detail="Invalid direction %r — must be 'upstream' or 'downstream'" % value)
-    return value
+            detail=("Invalid direction %r — must be 'downstream' "
+                    "(legacy 'upstream' accepted)") % (value,))
+    return "downstream"
 
 
 def _run_coro_in_thread(coro_fn, *args, **kwargs):
@@ -126,13 +136,19 @@ def _search_diagnostic_values(table, field, ti, fi, result, filter_active,
     absent from the BASE index (no script queries it — no data flow exists,
     and the filter CSVs are NOT to blame) from one that IS in the base index
     but excluded by the active filter (legitimate CSV hint).
+
+    F5 (audit #383, R2.10): presence and script counts resolve
+    case-insensitively (`resolve_name_ci`), mirroring create_search — an
+    index keyed by each script's own casing (`dm_flag2` / `DM_FLAG2`) must
+    not make the diagnostic claim "not queried by any indexed script" for
+    a natural-spelling query the search itself resolves.
     """
-    tdata = ti.get(table, {})
-    fdata = fi.get(field, {})
-    table_in_index = table in ti
-    field_in_index = field in fi
-    table_scripts = len(tdata.get("scripts", [])) if tdata else 0
-    field_scripts = len(fdata.get("scripts", [])) if fdata else 0
+    _t_canon, t_group = resolve_name_ci(ti, table)
+    _f_canon, f_group = resolve_name_ci(fi, field)
+    table_in_index = bool(t_group)
+    field_in_index = bool(f_group)
+    table_scripts = len(scripts_for_name_ci(ti, table))
+    field_scripts = len(scripts_for_name_ci(fi, field))
     match_scripts = len(result.get("script_ids", []))
     if not base_table_in_index:
         suggestion = "Table %s is not queried by any indexed script - no data flow exists for it" % table
@@ -184,18 +200,19 @@ async def search_dataflow(ws_id: str, body: dict):
     if not table or not field:
         raise HTTPException(status_code=400, detail="Both 'table' and 'field' are required")
 
-    # R29: query direction — "upstream" (default) is the field's WRITING
-    # flow; "downstream" is the byte-identical legacy reading flow.
-    # CR2: validate once at the boundary — every consumer below tests only
-    # `direction == "upstream"`, so an invalid value must 400 here rather
-    # than silently falling through to the downstream branch.
+    # R29/K4 ruling 4: query direction — an absent value and the legacy
+    # "upstream" both resolve to "downstream" (the field's READING flow,
+    # the only direction R38 kept); anything outside the allowlist is a
+    # 400, never a silent fall-through to a branch.
     direction = _normalize_direction(body.get("direction"))
 
     ti, fi, filtered_active, scope_tables, scope_fields = _load_index(ws_id)
     # BE2: base-index presence drives the R17 suggestion (base vs CSV scope).
+    # F5: presence is CASE-INSENSITIVE (same resolution rule as create_search)
+    # — index keys carry each script's own casing.
     base_ti, base_fi = _load_base_index(ws_id)
-    base_table_in_index = table in base_ti
-    base_field_in_index = field in base_fi
+    base_table_in_index = bool(resolve_name_ci(base_ti, table)[1])
+    base_field_in_index = bool(resolve_name_ci(base_fi, field)[1])
     if not ti and not fi:
         if filtered_active:
             # F1: filter active but empty (empty intersection) — indexing
@@ -315,10 +332,10 @@ async def get_level1(ws_id: str, view_id: str,
     """Get L1 cross-script graph for a view. Rebuilds fresh each time.
 
     R29: `direction` query param overrides the view's persisted direction
-    (the search-time choice survives reload via views.json); defaults to
-    "upstream" (the writing flow). Passed to _build_l1_graph — the
-    directional projection (downstream byte-identical; upstream renders
-    the field's writing flow)."""
+    (the search-time choice survives reload via views.json). K4 ruling 4:
+    an absent param and a legacy "upstream" both resolve to "downstream"
+    (the only honored direction). Passed to _build_l1_graph — the
+    directional projection."""
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
@@ -334,7 +351,8 @@ async def get_level1(ws_id: str, view_id: str,
     field = view.get("field", "")
     # CR2: an explicit query param is validated strictly ("" and typos →
     # 400); only an ABSENT param falls back to the view's persisted
-    # direction (or the upstream default).
+    # direction (or the downstream default). A persisted legacy "upstream"
+    # is coerced — accepted, never honored.
     direction = (_normalize_direction(direction) if direction is not None
                  else _normalize_direction(view.get("direction")))
     l1_graph = _build_l1_graph(ws_id, script_ids, table, field,
@@ -364,9 +382,10 @@ def get_level2(ws_id: str, view_id: str, script: str = Query(...),
     """Get L2 per-script graph for a view's script.
 
     R29: `direction` query param overrides the view's persisted direction
-    (search-time choice survives reload via views.json); defaults to
-    "upstream". Threaded into get_level2_graph — the strict field-flow
-    filter and the L2 builder (upstream = the field's writing flow).
+    (search-time choice survives reload via views.json). K4 ruling 4: an
+    absent param and a legacy "upstream" both resolve to "downstream".
+    Threaded into get_level2_graph — the strict field-flow filter and the
+    L2 builder.
 
     W5/R25: every edge carries its per-edge payload (highlight_line /
     flow_kind / reason) built at L2 build time — the old response-level
@@ -407,7 +426,8 @@ def get_level2(ws_id: str, view_id: str, script: str = Query(...),
     field = view.get("field", "")
     # CR2: an explicit query param is validated strictly ("" and typos →
     # 400); only an ABSENT param falls back to the view's persisted
-    # direction (or the upstream default).
+    # direction (or the downstream default). A persisted legacy "upstream"
+    # is coerced — accepted, never honored.
     direction = (_normalize_direction(direction) if direction is not None
                  else _normalize_direction(view.get("direction")))
 

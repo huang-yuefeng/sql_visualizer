@@ -464,3 +464,21 @@ def test_gate_still_covers_protected_endpoint(_gate_on):
     """#293: Data Flow Debugger routes stay gated without a session."""
     r = client.get("/api/workspace")
     assert r.status_code == 401
+
+
+def test_scan_and_index_non_creator_rejected_with_403():
+    # #380 (user ruling 2026-08-28): POST scan/index mutate shared
+    # workspace state — creator-only, like layout/filter-config (#272).
+    # Participant → 403 on both; the creator's own session → 200.
+    ws_id = create_workspace(_zip_bytes(), creator_username="owner@hsbc.com")
+    auth_service.provision_user("alice@hsbc.com", "secret1", force=True)
+    assert _login("alice@hsbc.com", "secret1").status_code == 200
+    assert client.post(f"/api/workspace/{ws_id}/scan").status_code == 403
+    assert client.post(f"/api/workspace/{ws_id}/index",
+                       json={"scripts": []}).status_code == 403
+
+    auth_service.provision_user("owner@hsbc.com", "secret1", force=True)
+    assert _login("owner@hsbc.com", "secret1").status_code == 200
+    assert client.post(f"/api/workspace/{ws_id}/scan").status_code == 200
+    assert client.post(f"/api/workspace/{ws_id}/index",
+                       json={"scripts": []}).status_code == 200

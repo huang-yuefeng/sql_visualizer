@@ -1,4 +1,4 @@
-"""Verify all 15 variable types have styling entries in both backend and frontend.
+"""Verify all 16 variable types have styling entries in both backend and frontend.
 
 A type missing from the Cytoscape stylesheet (graphStyles.js) will render as
 a default grey ellipse regardless of the shape/color in the node data.

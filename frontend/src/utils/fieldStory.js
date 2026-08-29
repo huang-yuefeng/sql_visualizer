@@ -4,7 +4,7 @@
  *
  * The L2 debugger answers "where does this field's value go" with a
  * graph; this module re-tells the SAME closure as an ordered story the
- * user can step through: born → written → read → filtered → consumed.
+ * user can step through: born → written → read → joined → filtered → consumed.
  * It is a pure projection of the served payload — no React, no
  * cytoscape, no fetches, and no SQL text (the module never sees the
  * script, so every `detail` is built from endpoint labels + line only;
@@ -32,6 +32,8 @@
  *        written   write (flow_kind 'write') INTO the searched table;
  *        read      REF|TABLE_FLOW of kind read/chain OUT of the
  *                  searched table;
+ *        joined    JOIN|TRANSFORM|COMPUTED|WINDOW|AGGREGATE touching
+ *                  the seed or the searched table;
  *        filtered  FILTER touching the seed or the searched table —
  *                  keyed on edge_type FILTER *or* flow_kind 'filter':
  *                  a FILTER edge carries flow_kind 'field flow' (only
@@ -46,7 +48,7 @@
  *      anchor line.
  *   3. Steps group per (kind, line) — the fixed point of "merge
  *      consecutive same-kind groups at the same line" — and are ordered
- *      by STORY KIND first (born → written → read → filtered →
+ *      by STORY KIND first (born → written → read → joined → filtered →
  *      consumed), line ascending within a kind. Pure line-ascending
  *      would bury the narrative: a consuming INSERT that starts at L179
  *      reads at L189 and filters at L190, while its write leg anchors
@@ -91,13 +93,19 @@
 
 // The story order — the rank IS the step order (born first, consumed
 // last); the line breaks ties within one kind.
-const KIND_RANK = { birth: 0, written: 1, read: 2, filtered: 3, consumed: 4 };
+// v3.3.191 (random-10 audit, user-authorized ≤10 stages): the JOINED stage.
+// 49 narrative edges were unclassified across 10 audited fields — 24 JOIN +
+// 8 COMPUTED + 7 AGGREGATE + 6 WINDOW + 4 TRANSFORM — leaving source-side
+// fields (whose interesting life IS joins/transforms) at 1-2 steps. One
+// extra stage closes it; SCHEMA/ALIAS/SUBSET stay non-narrative by design.
+const KIND_RANK = { birth: 0, written: 1, read: 2, joined: 3, filtered: 4, consumed: 5 };
 
 // Bare titles (no numbering — the renderer prefixes the circled number).
 const KIND_TITLES = {
   birth: 'Birth',
   written: 'Written',
   read: 'Read',
+  joined: 'Joined/Transformed',
   filtered: 'Filtered',
   consumed: 'Consumed',
 };
@@ -107,6 +115,7 @@ const KIND_TITLES = {
 // keep edge_type 'DML'. flow_kind 'write' (§8.7 rule 3) is the canonical
 // signal — both carriers are accepted, everything else is not a write.
 const WRITE_EDGE_TYPES = new Set(['TABLE_FLOW', 'DML']);
+const JOINISH_EDGE_TYPES = new Set(['JOIN', 'TRANSFORM', 'COMPUTED', 'WINDOW', 'AGGREGATE']);
 
 // The ⟐ output compounds are DML routing intermediates — a write into one
 // is a leg of the write, never a consumption.
@@ -195,6 +204,13 @@ function classifyEdge(e, { seedId, tableId, tableLine, byId }) {
     && (fk === 'read' || fk === 'chain')
     && (srcId === tableId || (touchesSeed && tgtId === tableId))) {
     return 'read';
+  }
+  // joined — the field/table participates in a join key, transform,
+  // computed/window/aggregate expression (audit Q2: without this, source
+  // fields' whole narrative vanished — JOIN already seed-zone-restricted
+  // by the walker, so touching the table is the right admission).
+  if (JOINISH_EDGE_TYPES.has(et) && (touchesSeed || touchesTable)) {
+    return 'joined';
   }
   // filtered — a FILTER edge, or any edge kinded 'filter' (INDIRECT
   // correlated), touching the seed or the searched table.
@@ -291,7 +307,7 @@ function buildStep(group, byId) {
  * @returns {{searched: string, seedNodeId: string|null, steps:
  *   Array<{id: string, kind: string, title: string, line: number,
  *   edgeIds: string[], nodeIds: string[], detail: string}>}}
- *   `steps` is ordered born → written → read → filtered → consumed
+ *   `steps` is ordered born → written → read → joined → filtered → consumed
  *   (line ascending within a kind); `{steps: [], seedNodeId: null}` when
  *   no seed matches. Never throws on malformed payloads.
  */

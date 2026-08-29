@@ -241,6 +241,26 @@ storySuite('buildFieldStory — robustness (never throws)', () => {
       .toEqual([]);
   });
 
+  it('classifies JOIN/TRANSFORM legs as the Joined stage, ordered between read and filtered (audit Q2)', async () => {
+    const buildFieldStory = await loadBuildFieldStory();
+    const { nodes, edges } = east5Closure();
+    const graph = {
+      nodes,
+      edges: [...edges,
+        { data: { id: 'e-join-144', source: 'east5', target: 'out41',
+                  edge_type: 'JOIN', flow_kind: 'field flow', highlight_line: 144 } },
+        { data: { id: 'e-tr-150', source: 'east5', target: 'out41',
+                  edge_type: 'TRANSFORM', flow_kind: 'field flow', highlight_line: 150 } }],
+    };
+    const r = buildFieldStory({ graph, table: 'east5_stzfxxb', field: 'p_dt' });
+    // story order: birth, written, read, JOINED (×2, per (kind,line)),
+    // filtered, consumed
+    expect(r.steps.map(x => x.kind)).toEqual(
+      ['birth', 'written', 'read', 'joined', 'joined', 'filtered', 'consumed']);
+    const joined = r.steps.filter(x => x.kind === 'joined');
+    expect(sorted(joined.flatMap(x => x.edgeIds))).toEqual(['e-join-144', 'e-tr-150']);
+  });
+
   it('skips malformed closure edges (no highlight_line / no endpoints) without throwing', async () => {
     const buildFieldStory = await loadBuildFieldStory();
     const { nodes, edges } = east5Closure();
@@ -268,16 +288,18 @@ storySuite('buildFieldStory — robustness (never throws)', () => {
     expect(sorted([...new Set(union)])).toEqual(sorted(CLOSURE_EDGE_IDS)); // only real edges
   });
 
-  it('unrelated edge types (JOIN / SCHEMA) produce no steps', async () => {
+  it('non-narrative edge types (SCHEMA / ALIAS / SUBSET) produce no steps', async () => {
     const buildFieldStory = await loadBuildFieldStory();
     const { nodes } = east5Closure();
     const graph = {
       nodes,
       edges: [
-        { data: { id: 'j1', source: 'east5.p_dt', target: 'rrcdm',
-                  edge_type: 'JOIN', flow_kind: 'field flow', highlight_line: 55 } },
         { data: { id: 's1', source: 'east5', target: 'out41',
                   edge_type: 'SCHEMA', highlight_line: 60 } },
+        { data: { id: 'a1', source: 'east5', target: 'out41',
+                  edge_type: 'ALIAS', highlight_line: 61 } },
+        { data: { id: 'ss1', source: 'east5', target: 'out41',
+                  edge_type: 'SUBSET', highlight_line: 62 } },
       ],
     };
     const res = buildFieldStory({ graph, fullGraph: graph, table: 'east5_stzfxxb', field: 'p_dt' });

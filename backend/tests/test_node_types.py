@@ -1,4 +1,4 @@
-"""Per-node-type coverage tests — verify all 15 variable types are generated.
+"""Per-node-type coverage tests — verify all 16 variable types are generated.
 
 Each test provides minimal SQL that must produce at least one variable of the
 target type. This ensures every VariableType is reachable from real SQL.
@@ -440,7 +440,7 @@ class TestDMLTargets:
         assert len(tables) >= 1, "DELETE should extract tables"
 
 
-# ── All 15 types present in comprehensive query ───────────────────────────
+# ── All 16 types present in comprehensive query ───────────────────────────
 
 class TestAllNodeTypesPresent:
     """Every VariableType must exist and be reachable."""

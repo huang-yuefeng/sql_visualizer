@@ -227,7 +227,14 @@ const mergedGraph = {
     { id: 'T1', label: 'east5', type: 'table' },
     { id: 'A1', label: 'p1@29', type: 'alias' },
     { id: 'T2', label: 'out', type: 'table' },
-    { id: 'F_seed', label: 'p_dt', type: 'field', parent: 'T1' },
+    // V2-N1: the searched field's own chip — `is_target` is the builder's
+    // seed marker (P1 seed copies carry it too) and it must NEVER be pruned,
+    // edge-less or not: it is the chip the user searched for and the chip
+    // F-B1 made clickable.
+    { id: 'F_seed', label: 'p_dt', type: 'field', parent: 'T1', is_target: true },
+    // A plain (non-seed) chip in the closure with no visible merged edge —
+    // the #376 floating-orphan case that still gets pruned.
+    { id: 'F_plain', label: 'amt', type: 'field', parent: 'T1' },
     // Parentless-field case: build_line_merged_edges keeps such an endpoint,
     // so this chip has a real merged edge and must stay visible.
     { id: 'F_kept', type: 'field', parent: null },
@@ -245,16 +252,18 @@ const mergedGraph = {
 const findNode = (cy, id) => cy.nodes().find(n => n.id() === id);
 
 describe('mergedView — #376 edgeless field chips hide only in merged modes', () => {
-  it('flow-merged: the seed chip renders hidden while its table box stays', () => {
+  it('flow-merged: the SEARCHED chip survives the prune while a plain edge-less chip does not (V2-N1)', () => {
     const cy = makeFakeCy(mergedGraph);
     applyFlowVisibility(cy, {
       flowOnly: true,
-      flowNodeIds: ['T1', 'A1', 'F_seed', 'F_kept'],
+      flowNodeIds: ['T1', 'A1', 'F_seed', 'F_plain', 'F_kept'],
       flowEdgeIds: ['e_flow', 'e_kept'],
       mergedView: true,
     });
-    // chip without any incident merged edge → hidden
-    expect(findNode(cy, 'F_seed').hidden()).toBe(true);
+    // seed chip: zero visible merged edges, still rendered (V2-N1)
+    expect(findNode(cy, 'F_seed').hidden()).toBe(false);
+    // non-seed chip without any incident merged edge → hidden (#376)
+    expect(findNode(cy, 'F_plain').hidden()).toBe(true);
     // …but with a visible incident merged edge → kept visible
     expect(findNode(cy, 'F_kept').hidden()).toBe(false);
     // tables/aliases always stay, closure or not
@@ -266,11 +275,53 @@ describe('mergedView — #376 edgeless field chips hide only in merged modes', (
     expect(findEdge(cy, 'e_schema').hidden()).toBe(true);
   });
 
-  it('full-merged: chips whose only edge is structure-hidden are orphans too', () => {
+  it('every is_target seed chip is exempt — P1 copies land on alias/CTE/target boxes too', () => {
+    const cy = makeFakeCy({
+      nodes: [
+        { id: 'T1', type: 'table' },
+        { id: 'A1', type: 'alias' },
+        { id: 'S1', type: 'field', parent: 'T1', is_target: true },
+        { id: 'S2', type: 'field', parent: 'A1', is_target: true },
+        { id: 'P', type: 'field', parent: 'T1' },
+      ],
+      edges: [{ id: 'e1', source: 'T1', target: 'A1' }],
+    });
+    applyFlowVisibility(cy, {
+      flowOnly: true,
+      flowNodeIds: ['T1', 'A1', 'S1', 'S2', 'P'],
+      flowEdgeIds: ['e1'],
+      mergedView: true,
+    });
+    expect(findNode(cy, 'S1').hidden()).toBe(false);
+    expect(findNode(cy, 'S2').hidden()).toBe(false);
+    expect(findNode(cy, 'P').hidden()).toBe(true);
+  });
+
+  it('a non-target flag spelling is NOT exempt (strict `is_target === true`)', () => {
+    const cy = makeFakeCy({
+      nodes: [
+        { id: 'T1', type: 'table' },
+        { id: 'Fx', type: 'field', parent: 'T1', is_target: false },
+        { id: 'Fy', type: 'field', parent: 'T1', target: true }, // wrong key
+      ],
+      edges: [],
+    });
+    applyFlowVisibility(cy, {
+      flowOnly: true,
+      flowNodeIds: ['T1', 'Fx', 'Fy'],
+      flowEdgeIds: [],
+      mergedView: true,
+    });
+    expect(findNode(cy, 'Fx').hidden()).toBe(true);
+    expect(findNode(cy, 'Fy').hidden()).toBe(true);
+  });
+
+  it('full-merged: chips whose only edge is structure-hidden are orphans too (seed still shows)', () => {
     const cy = makeFakeCy(mergedGraph);
     applyFlowVisibility(cy, { flowOnly: false, mergedView: true });
     expect(findNode(cy, 'F_iso').hidden()).toBe(true);   // structure-hidden edge ≠ connection
-    expect(findNode(cy, 'F_seed').hidden()).toBe(true);
+    expect(findNode(cy, 'F_plain').hidden()).toBe(true);
+    expect(findNode(cy, 'F_seed').hidden()).toBe(false);  // V2-N1 exemption
     expect(findNode(cy, 'F_kept').hidden()).toBe(false);
     // a disconnected table/alias box is never pruned by the field rule
     expect(findNode(cy, 'T_iso').hidden()).toBe(false);
@@ -297,11 +348,17 @@ describe('mergedView — #376 edgeless field chips hide only in merged modes', (
     cy.nodes().forEach(n => expect(n.hidden()).toBe(false));
   });
 
-  it('fitAllElements forwards mergedView — the restored state re-prunes', () => {
+  it('fitAllElements forwards mergedView — the restored state re-prunes but keeps the seed', () => {
     const cy = makeFakeCy(mergedGraph);
-    fitAllElements(cy, { flowOnly: true, flowNodeIds: ['T1'], flowEdgeIds: [], mergedView: true }, 40);
+    fitAllElements(cy, {
+      flowOnly: true,
+      flowNodeIds: ['T1', 'F_seed', 'F_plain'],
+      flowEdgeIds: [],
+      mergedView: true,
+    }, 40);
     expect(cy._fitCalls).toEqual([40]);
-    expect(findNode(cy, 'F_seed').hidden()).toBe(true);
+    expect(findNode(cy, 'F_seed').hidden()).toBe(false);
+    expect(findNode(cy, 'F_plain').hidden()).toBe(true);
   });
 
   it('is defensive on a null/destroyed instance (merged mode)', () => {

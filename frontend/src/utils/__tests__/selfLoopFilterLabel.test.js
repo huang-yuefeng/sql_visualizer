@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import cytoscape from 'cytoscape';
 // Namespace import on purpose: a NAMED import of an export that does not exist
 // yet (this file ships alongside the feature and may run before it lands) is a
 // module-link error that would kill the whole file. `import * as` yields
 // undefined instead, so the landing-gated suites below can skip cleanly.
 import * as graphStylesModule from '../graphStyles';
+import { CY_CORE_OPTIONS } from '../../hooks/useCytoscapeGraph';
 
 const readSrc = rel =>
   readFileSync(new URL(rel, import.meta.url), 'utf8');
@@ -26,6 +28,19 @@ function stylesheetArrayBody(src) {
   for (; i < src.length; i++) {
     if (src[i] === '[') depth++;
     else if (src[i] === ']') { depth--; if (depth === 0) return src.slice(open, i); }
+  }
+  return '';
+}
+
+/** Text between `cytoscape({` and its matching `})`, for wiring checks. */
+function cytoscapeOptionsBody(src) {
+  const call = src.search(/(?<![\w.])cytoscape\(\s*\{/);
+  if (call === -1) return '';
+  const open = src.indexOf('{', call);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(open, i); }
   }
   return '';
 }
@@ -183,8 +198,22 @@ hookWiringSuite('useCytoscapeGraph — self-loop label wiring', () => {
 });
 
 describe('scope guards that survive the self-loop change', () => {
-  it('keeps minZoom at the readable 0.28 floor', () => {
-    expect(hookSource).toMatch(/minZoom:\s*0\.28\b/);
+  it('keeps minZoom at the R41 0.08 floor (overview reachable; labels hide via min-zoomed-font-size)', () => {
+    // Runtime assertion (review M21): the option object the hook actually
+    // spreads into cytoscape(...), read through the import — and pushed
+    // through a REAL headless cytoscape instance so the value is proven
+    // to be a live cytoscape option, not just a field on a literal.
+    const cy = cytoscape({ headless: true, elements: [], ...CY_CORE_OPTIONS });
+    try {
+      expect(cy.minZoom()).toBe(0.08);
+      expect(cy.maxZoom()).toBe(5);
+    } finally {
+      cy.destroy();
+    }
+    // ...and the hook really spreads that object into the cytoscape call
+    // (a wiring check by identity — a VALUE change never trips it, only
+    // dropping the spread does).
+    expect(cytoscapeOptionsBody(hookSource)).toContain('...CY_CORE_OPTIONS');
   });
 
   it('keeps the annotation client-side — captions derive from client-held payloads', () => {

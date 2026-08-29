@@ -31,6 +31,23 @@ import { applyFlowVisibility, fitAllElements } from '../utils/flowVisibility';
 
 const TABLE_SEL = TABLE_SELECTOR;
 
+// Core cytoscape init options, hoisted out of the cytoscape(...) call so
+// the test suite can assert the RUNTIME object instead of regexing this
+// file's source text (review M21/L15).
+//
+// v3.3.175: 0.05 let fit shrink EAST5's full L2 to ~1px glyphs where
+// even 2x hover emphasis gained <1 screen px (the "#377 invisible
+// hover" trial). v3.3.175 raised minZoom 0.05→0.28 for label legibility;
+// R41 (2026-08-28, user-approved boxes-only overview) lowers it to 0.08:
+// tall L2 graphs need 0.09-0.15x to FIT (EAST5 full: 87/129 nodes hidden
+// at 0.28). Below readable size labels now clamp to a 6px floor via
+// min-zoomed-font-size instead of smearing.
+export const CY_CORE_OPTIONS = Object.freeze({
+  wheelSensitivity: 0.3,
+  minZoom: 0.08,
+  maxZoom: 5,
+});
+
 // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — always
 // hidden (the display toggle was removed as seldom-used). The selector
 // matches edge_type (canonical) and tolerates the legacy relationship key.
@@ -250,12 +267,7 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
         ...FILTER_SELFLOOP_STYLES],
       elements: { nodes, edges },
       layout: { name: 'preset' },
-      wheelSensitivity: 0.3,
-      // v3.3.175: 0.05 let fit shrink EAST5's full L2 to ~1px glyphs where
-      // even 2x hover emphasis gained <1 screen px (the "#377 invisible
-      // hover" trial). 0.28 keeps labels legible; pan covers the rest.
-      minZoom: 0.28,
-      maxZoom: 5,
+      ...CY_CORE_OPTIONS,
     });
 
     // ── Drag: keep fields glued to their table (frozen offsets) ──
@@ -322,6 +334,14 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
       cy.nodes().forEach(n => {
         const d = n.data();
         if (!d) return;
+        // F-B2 (K4 Ruling 1 companion): FIELD CHIPS never take the @L
+        // decoration. F-B1 now puts a valid `line_start` on every chip, so an
+        // unguarded pass would render `lending_ref@L22` on all of them — the
+        // line belongs on the owning table box (the box already shows its own
+        // keeper line). Chips stay clean, and clicking one still lights its
+        // SQL line: the click path reads data.line_start directly
+        // (DataFlowApp.handleNodeClick), never the decorated label.
+        if (d.type === 'field') return;
         n.data('label', decorateLabelWithLine(d.label, d.line_start));
       });
     }
@@ -469,6 +489,11 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
         flowNodeIds: o.flowNodeIds,
         flowEdgeIds: o.flowEdgeIds,
         mergedView: o.mergedView,
+        // R41: an explicit Fit must SHOW THE WHOLE GRAPH — suppress the
+        // post-visibility centerOnSeed that re-pans onto the seed inside
+        // the same click (measured: kept 2/7 nodes off-screen even with
+        // the floor lifted). View-mode toggles keep the default recenter.
+        recenter: false,
       }, p !== undefined ? p : 50);
     } else {
       cy.fit(undefined, p !== undefined ? p : 50);

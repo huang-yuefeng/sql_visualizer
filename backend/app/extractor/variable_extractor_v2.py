@@ -49,7 +49,116 @@ from app.models.variable import VariableDefinition, VariableType
 # physical table keeps its own scope-local case instead of folding to the
 # physical majority spelling (which would merge the alias node into the
 # physical source_table node in L2).
-EXTRACTOR_VERSION = "2026-08-26.1"
+# 2026-08-28.4 (#387 + the #386 CTE-scope ruling, on top of R44's
+# 2026-08-28.3): four semantic changes —
+#   1. GROUP BY occurrence twins (`_register_groupby_twins`, R44 family
+#      3): every GROUP BY item column with a resolved physical owner
+#      registers an occurrence-side twin `{owner}.{col}` (source_columns
+#      populated, NOT is_output, line = the item's own line via the
+#      clause-keyword token run) — PL L246/247 style group-key lines now
+#      anchor; the twin's REF/READ edge comes from the existing
+#      dependency_graph Phase-8 bridge, and the newly-added Phase 4d-gb
+#      emits the SCHEMA/TABLE_COLUMN connectivity edge (anchored at the
+#      twin's line).
+#   2. WINDOW edge anchors move to the window application's own line
+#      (highlight_strategies `_anchor_line` — the OVER clause rides the
+#      window var, the edge's target), so window-key lines are reachable
+#      in flow-only closures.
+#   3. l2_builder #387 follow-up: when the SEARCH targets the write
+#      table, a derived-alias write-projection attributed to a real read
+#      source re-parents (or re-points onto the write table's existing
+#      same-named field) on the write target — display projection only,
+#      extraction untouched.
+#   4. #386 CTE-scope ruling (SQL-standard scoping): `_add`'s CTE-merge
+#      is scope-aware (`_is_cte_name`) — a LATER statement's bare ref to
+#      a CTE's name registers a PHYSICAL table read instead of being
+#      swallowed by the any-context CTE merge; in-scope refs keep
+#      folding. The model's owner resolution still matches by the SHARED
+#      `name` string (`_name_to_key` — a CTE and a same-named physical
+#      table collide there), so l2_builder disambiguates via `_stmt_root`
+#      (the in-scope CTE compound) and `field_owner_key` (the field's
+#      occurrence-owner entity) — the out-of-scope read's columns land on
+#      the physical compound, never the cte_table node.
+# 2026-08-28.5 (deferred-findings M1/M3, two more semantic changes):
+#   5. WRITE-SIDE twins admit `VariableType.LITERAL` — a constant
+#      projection (`1 AS flag`, `'x' AS col`) now materializes its
+#      `{target}.{col}` twin exactly like `NULL AS x` (EXPRESSION)
+#      already does, so literal write columns get a physical field entity.
+#   6. Bare-INSERT merge (`_walk_insert`'s merged_select path) also
+#      merges a following `exp.Union`/`exp.Intersect`/`exp.Except` — a
+#      `SELECT … UNION ALL SELECT …` write source parses as a set-op, and
+#      without the merge those write legs stayed severed.
+# 2026-08-28.6 (R45 — residual occurrence coverage, F-C): one semantic
+# change on top of R44's families 1/2, fixing field occurrences that stayed
+# OUTSIDE the served closure while a sibling occurrence of the same field
+# was already in it —
+#   7. Family 3, occurrence-line twins (`_collapsed_occurrences` +
+#      `_register_flow_occurrence_twins` family 3): `_add`'s (name, type,
+#      context) dedup keeps ONE node per field per scope, so the 2nd..Nth
+#      occurrence of that field inside the same statement left NO node at
+#      all at its own line. Concrete shapes: a CASE's 2nd WHEN arm (RFN
+#      L439 after L438), an NVL fallback operand (RFN L1029/L1314), a
+#      byte-identical `TO_CHAR(TO_DATE(...)) AS X` projection (RFN L525
+#      after L523 — the spec's class-5 anchor collision), the second leg of
+#      a multi-line JOIN ON predicate whose expression side repeats the
+#      first leg's key expression (PL L250 after L27), and an ELSE arm
+#      (EAST5 L52 after L51). `_add` now records each collapsed
+#      COLUMN/EXPRESSION occurrence; family 3 groups them per
+#      (context, casefolded field name), hands out the group's remaining
+#      textual occurrences in stream order (surviving vars keep the first),
+#      and re-anchors each as an occurrence-side twin attributed to the
+#      SAME owner the surviving var resolved to — never a guessed owner,
+#      never a moved anchor (purely additive: no existing var's line
+#      changes).
+# 2026-08-28.7 (K4 ruling 3 — FIX-DEFECT, diagnostics only): the structural
+#   paren-balance check (`_paren_balance_errors`) runs one tokenizer pass
+#   over the ORIGINAL script and reports statements that still have '(' open
+#   at their end. No extraction semantics change — no node, line or edge
+#   moves; the ONLY output difference is `parse_errors` entries for scripts
+#   that ErrorLevel.IGNORE silently recovered into a partial tree. Bumped so
+#   analysis/graph caches written by 2026-08-28.6 (parse_errors: []) are
+#   invalidated and re-stamped. GRAPH_CACHE_PREFIX bumps with it.
+# 2026-08-28.8 (F-E2 — occurrence-twin owner/scope/clause correctness, K3):
+#   8. Fix D — `_base_var_for` matches the group's FULL casefolded identity
+#      first (qualifier included), falling back to the last dot-part only
+#      when no surviving var carries that spelling (I2's owner-qualified
+#      rewrite). Field-part-only matching made every same-field group in a
+#      scope inherit the FIRST surviving var's owner: SUP_M's dynamic
+#      PARTITION column CHARGE_DEPARTMENT@160 (bdm_acc_loan_info_sup)
+#      preceded the projections, so both `p1.charge_department` occurrences
+#      (@182/@196, p1 = loan_final) minted write-target-owned twins.
+#   9. Fix C — the occurrence-line search is bounded by the group's OWN
+#      paren scope (`_paren_scope_bound`, a token-depth profile) and never
+#      claims a line a nested recorded scope owns (`_scope_line_owner`): a
+#      subquery body's range no longer runs past its `)` into the enclosing
+#      statement's continuation (SUP_M: the NOT-IN body closing @58 no
+#      longer claims the enclosing `GROUP BY lending_ref` @59, which is
+#      bdm_acc_loan_info's occurrence — the bdm_evt_loan_trans twin there
+#      is gone).
+#  10. Fix E/F/G — the occurrence→line handout pairs a collapsed occurrence
+#      with a line of ITS OWN clause (`_line_clauses` + `_occurrence_clause`,
+#      token-type aware), `taken` is spelling-insensitive and computed once
+#      (a line any same-field var anchors is not free), and a bare identity
+#      only matches BARE token occurrences (`p1.lending_ref` is another
+#      group's occurrence). Together these stop a group's DUPLICATE
+#      registration of an already-anchored occurrence from stealing the free
+#      line a genuine occurrence needed (RFN: the `p_dt <= TO_DATE(…)`
+#      predicate @831 is the twin's line; the MWF phantom twins are gone —
+#      8 SQL-true twins, not 10).
+#  11. K3 — a COLUMN/CTE_COLUMN whose NAME contains `,`/`(`/`)`/space is an
+#      expression FRAGMENT (the unrepaired RFN's `lending_ref, 4, 5)`): the
+#      var is kept (line/expression/edges are real) but stamped as an
+#      auto-named output, so no write-side twin or owner-qualified
+#      re-derivation ever mints a physical field from it. The structural
+#      paren check (.7) reports the script; this boundary keeps the
+#      recovered partial tree from being taken for field identities.
+#  12. l2_builder Fix H (same version, no prefix bump): when one display
+#      field folds several occurrences' edges, the carrier that names the
+#      keeper chip's OWN line wins the folded edge — a CTE-internal
+#      derivation's birth line (RFN `SUBSTR(P1.BRANCH_CODE,-3) AS
+#      tag_branch` @721) is no longer anchored away by a later occurrence's
+#      carrier (@1030), so the line is lit again (Item 2a; L364/L687 hold).
+EXTRACTOR_VERSION = "2026-08-28.8"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
@@ -300,6 +409,53 @@ def _majority_spelling(votes: Counter) -> str:
     return best
 
 
+# ── M2 (2026-08-28): context-path scope algebra ─────────────────────────
+# Contexts are PATHS whose segments are separated by "/", ":" or "\". Most
+# segments are real scope levels (TOP0, subq1, union0, CTE{x}, exists2);
+# two are DECORATIVE MARKERS that name the FROM/JOIN slot, not a scope:
+# `/subq/<alias>` (FROM-position derived table, _walk_from) and
+# `:join:<alias>` (JOIN-position derived table, _walk_join). Both bind their
+# alias in the scope the FROM/JOIN clause belongs to — one level up, behind
+# the marker. (`join_subq` is the alias-less JOIN slot: it never carries an
+# alias, so no sub var is ever looked up by that name.)
+_SCOPE_SLOT_MARKERS = {"subq", "join"}
+
+
+def _ctx_segments(context: str) -> list[str]:
+    return [s for s in re.split(r"[/\\:]", context) if s]
+
+
+def _binding_scope(context: str, alias: str) -> str:
+    """The scope a derived/CTE alias is bound in, given the sub var's own
+    context path and its name.
+
+    `TOP0/subq/p2` and `TOP0:join:p2` both bind `p2` in `TOP0` — the alias
+    segment and its slot marker are display path decoration, not scope.
+    A sub var registered directly under the binding scope (`TOP0` for a
+    FROM-position derived table at statement level, `CTE{x}` for a CTE
+    reference inside a CTE body) has nothing to strip. Only the trailing
+    alias and its own slot marker are removed — a scope level that merely
+    HAPPENS to be named `subq` (`TOP0/subq1/subq:join:p2`) is never
+    crossed, so a CTE body's / nested body's alias stays inside its own
+    scope and never resolves against a same-named statement-level alias.
+    """
+    segs = _ctx_segments(context)
+    if segs and segs[-1].casefold() == alias.casefold():
+        segs = segs[:-1]
+        if segs and segs[-1].casefold() in _SCOPE_SLOT_MARKERS:
+            segs = segs[:-1]
+    return "/".join(segs)
+
+
+def _ctx_within(inner: str, outer: str) -> bool:
+    """True when `inner` is `outer` itself or nested inside it.
+
+    The leading-separator guard keeps distinct scopes apart (TOP01 vs TOP0,
+    CTE{a} vs CTE{ab}) — a bare startswith would conflate them."""
+    return (inner == outer or inner.startswith(outer + "/")
+            or inner.startswith(outer + ":"))
+
+
 # ── Main Extractor ──────────────────────────────────────────────────────
 
 @dataclass
@@ -533,6 +689,20 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
     if '${' in sql_text:
         result.template_replacements.append("template vars present — may affect parsing")
 
+    # K4 ruling 3 (2026-08-28): structural paren-balance check — the
+    # ErrorLevel.IGNORE recovery above never rejects a broken script, so
+    # the statement-level None-hole record below is not enough (a missing
+    # ')' parses into a plausible PARTIAL tree and parse_errors stays []).
+    # Diagnostics only: extraction continues, the graph may be incomplete.
+    # One record per statement — a statement already covered by an existing
+    # parse error is not reported twice.
+    _reported_stmts = {e.get("stmt_idx") for e in result.parse_errors}
+    for _pe in _paren_balance_errors(sql_text, dialect_used, len(parsed)):
+        if _pe["stmt_idx"] in _reported_stmts:
+            continue
+        result.parse_errors.append(_pe)
+        _reported_stmts.add(_pe["stmt_idx"])
+
     # E3a/2: Hive FROM-led multi-table INSERT (`FROM t INSERT OVERWRITE
     # TABLE a SELECT … INSERT OVERWRITE TABLE b SELECT …`) — sqlglot
     # parses it as a garbage Select in every dialect. Detect textually
@@ -548,7 +718,31 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
     # ("TOP0", "TOP1", …) so same-named variables across DIFFERENT
     # top-level statements no longer collapse under the old shared "TOP"
     # context (they are different nodes — one per statement).
+    # R44 (2026-08-28, F1 write-severance): the ODPS idiom
+    #   INSERT OVERWRITE TABLE t PARTITION(...);   ← bare INSERT, no source
+    #   SELECT ... ;                                ← the write's SELECT
+    # parses as TWO statements, so the target TABLE var lands in TOP{n}
+    # while every projection lands in TOP{n+1} — the statement's DML write
+    # legs never exist (PL's bdm_acc_loan_info columns returned not-in-flow
+    # in their own writer). A bare INSERT (no expression of its own)
+    # immediately followed by a Select is ONE write: walk the Select under
+    # the INSERT's own context (the exact semantics of _walk_insert's
+    # `process_statement(expr, context)` path for an inline SELECT — the
+    # docstring's "anchors are last-wins (I1)" behavior).
+    _skip_stmt_idx = set()
     for stmt_idx, statement in enumerate(parsed):
+        if stmt_idx in _skip_stmt_idx:
+            continue
+        if (isinstance(statement, exp.Insert)
+                and statement.args.get("expression") is None
+                and stmt_idx + 1 < len(parsed)
+                and isinstance(parsed[stmt_idx + 1],
+                               (exp.Select, exp.Union, exp.Intersect,
+                                exp.Except))):
+            extractor.process_statement(statement, f"TOP{stmt_idx}",
+                                         merged_select=parsed[stmt_idx + 1])
+            _skip_stmt_idx.add(stmt_idx + 1)
+            continue
         if stmt_idx in hive_arms:
             # E3a/2: skip the garbage parse of a FROM-led multi-insert —
             # walk the re-parsed arms instead (each arm is its own INSERT
@@ -581,10 +775,15 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
             # record it (statement index + short text) so the caller can
             # surface "statement N failed to parse" instead of silently
             # dropping it. Never a hard failure — extraction continues.
+            # K4 ruling 3: a statement already carrying the structural
+            # paren-balance diagnostic is not reported twice.
+            if stmt_idx in _reported_stmts:
+                continue
             result.parse_errors.append({
                 "stmt_idx": stmt_idx,
                 "detail": _failed_stmt_detail(clean_sql, stmt_idx),
             })
+            _reported_stmts.add(stmt_idx)
 
     # B3 (v3.3.145): walk outputs the S1-S3 chains could not attribute land
     # on their OWN container — extraction-time info, never a guess. L2
@@ -592,6 +791,12 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
     # picker is deleted), so an unattributed output column would render
     # parentless.
     extractor._attribute_output_containers()
+
+    # R44 (2026-08-28): occurrence-coverage twins — the output-side field
+    # instances and the derived-read physical ties the strict table.field
+    # walker needs to cover EVERY dataflow-relevant occurrence of a
+    # searched field (user ruling). Post-walk, extraction-time facts only.
+    extractor._register_flow_occurrence_twins()
 
     # ISSUE-4: fold physical-table spelling to one canonical form BEFORE the
     # resolution-stats build so `_finalize_schema_candidates` (inside
@@ -619,6 +824,84 @@ def _failed_stmt_detail(clean_sql: str, stmt_idx: int) -> str:
             return text[:60] + "…"
         return text
     return "parse error"
+
+
+def _paren_balance_errors(sql_text: str, dialect: str, stmt_count: int) -> list[dict]:
+    """Structural paren-balance check over the ORIGINAL script (K4 ruling 3).
+
+    ErrorLevel.IGNORE recovers a partial tree from almost anything, so a
+    genuinely broken script (a ')' missing three statements up) still parses
+    into a plausible graph and `parse_errors` stays [] — design rule 23's
+    "never silently skipped" promise quietly unkept (RFN shipped +2 parens
+    before its OCR repair and reported a clean extraction).
+
+    The tokenizer is the independent structural check: ONE pass over the
+    original text (string literals and comments are token-aware, so a paren
+    inside either never counts), split at `;` TOKENS, net depth per
+    statement. A statement that still has `(` open at its end is reported —
+    extraction NEVER rejects (the recovered tree still walks; the detail
+    says the graph may be incomplete). Extra `)` (net < 0) is not reported
+    here: a dangling close leaves a real hole in sqlglot's statement list,
+    which the walk loop records as a None-hole parse error already.
+
+    split-index → parse stmt_idx mapping: both lists come from the same `;`
+    delimiters, so the counts line up unless preprocessing dropped leading
+    statements (SET/config lines). The offset is the tail alignment
+    (len(splits) - stmt_count); splits mapping to a negative stmt_idx are
+    skipped (no parsed statement to attach the diagnostic to), and a
+    negative offset is clamped to 0 so the identity mapping survives an
+    under-count (sqlglot synthesizing statements the tokenizer did not
+    split).
+
+    Tokenizer failure → [] (benign: a diagnostic helper never raises; the
+    parse path already reports what it can).
+    """
+    if stmt_count <= 0 or not sql_text:
+        return []
+    try:
+        tokens = list(sqlglot.Tokenizer(dialect=dialect).tokenize(sql_text))
+    except Exception:
+        # benign: fall back to the dialect-agnostic tokenizer (the file's
+        # own line-resolution convention) before giving up.
+        try:
+            tokens = list(sqlglot.Tokenizer().tokenize(sql_text))
+        except Exception:
+            return []
+
+    splits: list[tuple[int, int]] = []   # (first-token line, net depth)
+    first_line = 0
+    depth = 0
+    for tok in tokens:
+        tt = tok.token_type
+        if tt == TokenType.SEMICOLON:
+            splits.append((first_line, depth))
+            first_line, depth = 0, 0
+            continue
+        if first_line == 0:
+            first_line = tok.line
+        if tt == TokenType.L_PAREN:
+            depth += 1
+        elif tt == TokenType.R_PAREN:
+            depth -= 1
+    if first_line:
+        splits.append((first_line, depth))
+
+    offset = len(splits) - stmt_count
+    if offset < 0:
+        offset = 0
+    errors: list[dict] = []
+    for i, (line, net) in enumerate(splits):
+        idx = i - offset
+        if idx < 0 or net <= 0:
+            continue
+        errors.append({
+            "stmt_idx": idx,
+            "detail": (
+                "unbalanced parentheses: %d '(' left open at statement end "
+                "(script line %d) — sqlglot recovered a partial tree; the "
+                "graph may be incomplete" % (net, line)),
+        })
+    return errors
 
 
 def _is_as_keyword(tok) -> bool:
@@ -662,6 +945,91 @@ def _statement_head_run(expr) -> list[str]:
         return []
     return [t.text.lower() for t in rendered
             if t.token_type != TokenType.STRING and not _is_as_keyword(t)][:6]
+
+
+# R45 Fix E (2026-08-28.8): the clause keywords a line can BELONG to. Only
+# the clauses the walker actually stamps into `defined_in` participate (no
+# `when`/`from`/`values`: a CASE arm's WHEN would re-label every following
+# projection line, and a FROM line is not a clause a field occurrence is
+# collected in). Looked up by TOKEN TYPE name first — the tokenizer folds
+# multi-word keywords into ONE token (`ORDER BY` → TokenType.ORDER_BY), so
+# a text-only match would never see them — then by text.
+_LINE_CLAUSE_TOKENS = {
+    "SELECT": "select", "WHERE": "where", "GROUP_BY": "group",
+    "GROUP": "group", "HAVING": "having", "ORDER_BY": "order",
+    "ORDER": "order", "ON": "on", "SET": "set", "USING": "using",
+    "PARTITION": "partition", "INSERT": "insert", "UPDATE": "update",
+    "DELETE": "delete", "MERGE": "merge", "CREATE": "create",
+    "select": "select", "where": "where", "group": "group",
+    "having": "having", "order": "order", "on": "on", "set": "set",
+    "using": "using", "partition": "partition", "insert": "insert",
+    "update": "update", "delete": "delete", "merge": "merge",
+    "create": "create",
+}
+
+# `defined_in` → the line-clause it demands. A collapsed occurrence is a
+# token the walker visited inside a specific clause; the line handed to it
+# must be a line of THAT clause (Fix E). Values the walker fills with the
+# CONTEXT name (`CTE{loan_final}`, `TOP0`, `PARTITION`'s own statement head)
+# carry no clause, so they map to None and take the stream-order fallback.
+_DEFINED_IN_CLAUSES: tuple[tuple[str, str], ...] = (
+    ("select", "select"),
+    ("where", "where"),
+    ("group", "group"),
+    ("order", "order"),
+    ("having", "having"),
+    ("on", "on"),
+    ("set", "set"),
+    ("using", "using"),
+    ("partition", "partition"),
+    ("insert", "insert"),
+    ("update", "update"),
+    ("delete", "delete"),
+    ("merge", "merge"),
+    ("create", "create"),
+)
+
+
+def _occurrence_clause(defined_in: str | None) -> str | None:
+    """The clause a collapsed occurrence was collected in (R45 Fix E).
+
+    `defined_in` is the walker's clause stamp (`SELECT expr`, `WHERE`,
+    `GROUP BY`, `JOIN ON`, `MERGE UPDATE SET`, …) or — when the walker had
+    no clause for it — the context name (`CTE{loan_final}`, `TOP0`). The
+    context-shaped values never name a clause; they return None so the
+    occurrence falls back to stream order instead of being pinned to a
+    clause it was never in.
+    """
+    text = (defined_in or "").strip().casefold()
+    if not text:
+        return None
+    if "{" in text or re.match(r"^top\d+$", text):
+        return None
+    for needle, clause in _DEFINED_IN_CLAUSES:
+        if needle in text:
+            return clause
+    return None
+
+
+# K3 (2026-08-28.8): the signature of an expression FRAGMENT that reached a
+# FIELD name — a list/argument separator, a paren, or a space inside a name
+# that claims to be a column. A real identifier (quoted ones are stripped by
+# `_clean`) never contains any of these; `a.*` and the ⟐ sentinels do.
+_FIELD_FRAGMENT_CHARS = re.compile(r"[,()\s]")
+
+
+def _field_identity(name: str) -> str:
+    """Casefolded field identity for occurrence grouping (R45 family 3).
+
+    SQL identifiers are case-insensitive, so `A.REPAY_ACCT_NO` in a
+    projection list and `A.repay_acct_no` in a JOIN ON leg are the SAME
+    field — only CASE folds. The QUALIFIER stays part of the identity on
+    purpose: a bare `podtao` and a join-key `p2.podtao` are different
+    occurrences of one column, on different lines in different scopes, so
+    grouping them would hand one occurrence's line to the other and mint a
+    twin where no occurrence exists.
+    """
+    return name.casefold()
 
 
 def _name_token_run(name: str) -> list[str]:
@@ -738,6 +1106,22 @@ class _RoleBasedExtractor:
             # benign: tokenization failure → empty stream; every position
             # lookup then falls back to the string-based search.
             self._tokens = []
+        # R45 Fix C (2026-08-28.8): paren depth BEFORE each token, and the
+        # stream's last line — the structural bound for the occurrence-pass
+        # line search (`_paren_scope_bound`). A `)` inside a string literal
+        # or a comment never counts (the tokenizer is both-aware), so the
+        # depth profile is exact.
+        self._tok_depth: list[int] = []
+        self._token_last_line = 0
+        _depth = 0
+        for _tok in self._tokens:
+            self._tok_depth.append(_depth)
+            if _tok.token_type == TokenType.L_PAREN:
+                _depth += 1
+            elif _tok.token_type == TokenType.R_PAREN:
+                _depth -= 1
+            if _tok.line > self._token_last_line:
+                self._token_last_line = _tok.line
         # ISSUE-4: frequency vote over identifier tokens for the canonical
         # physical-table spelling. Only identifier token types vote —
         # TokenType.VAR / TokenType.IDENTIFIER. STRING/NUMBER literals (the
@@ -778,6 +1162,13 @@ class _RoleBasedExtractor:
         # statement-walk entry so `_find_def_position` can scope line
         # lookups to the variable's own statement (D-series).
         self._stmt_anchor_lines: dict[str, int] = {}
+        # L4 (part 2): ids of SELECT outputs whose name is the extractor's
+        # AUTO-NAME for an unaliased expression/literal projection (a
+        # truncated SQL-text fragment: `CONCAT'price=',_p.price,_',st`,
+        # `NULL`, `1`) rather than a column name the statement states. The
+        # write-side twin pass consults this so it never mints a physical
+        # field identity from such a fragment.
+        self._auto_named_outputs: set[str] = set()
         # C-13(b): AS-filtered token stream + first-token position index,
         # built ONCE per analysis. `_statement_anchor` scans the index
         # candidates instead of rebuilding the filtered list and linearly
@@ -789,6 +1180,13 @@ class _RoleBasedExtractor:
         self._first_token_index: dict[str, list[int]] = {}
         for _ti, _tok in enumerate(self._tokens_wo_as):
             self._first_token_index.setdefault(_tok.text.lower(), []).append(_ti)
+        # R45 (2026-08-28.6) — occurrences the (name, type, context) dedup
+        # in `_add` collapsed away. Each entry is a genuine walker-visited
+        # field occurrence (a column ref, or a JOIN-key expression side)
+        # that would otherwise leave NO node at its own line; family 3 of
+        # `_register_flow_occurrence_twins` re-anchors them as
+        # occurrence-side twins.
+        self._collapsed_occurrences: list[dict] = []
 
     def _next_id(self, key: str) -> str:
         self._counter[key] = self._counter.get(key, 0) + 1
@@ -1069,6 +1467,192 @@ class _RoleBasedExtractor:
         except Exception:
             return (0, 0)
 
+    def _paren_scope_bound(self, anchor: int) -> int:
+        """Last line of the paren scope `anchor` sits in (token-stream, I1).
+
+        R45 Fix C: a subquery / derived-table body's line range must stop at
+        the `)` that closes it. The recorded statement anchors give a range
+        its start and its "next statement" end, but a nested body's next
+        non-nested anchor is the ENCLOSING statement's next one — so
+        without a structural bound the body's range runs past its own
+        closing paren and the enclosing statement's continuation after it
+        (its GROUP BY, its next join leg) reads as an occurrence of the
+        NESTED scope's field (SUP_M: `GROUP BY lending_ref` @59 sits in the
+        enclosing subquery whose source is bdm_acc_loan_info, but the
+        NOT-IN subquery that closes at L58 handed the line to its own
+        bdm_evt_loan_trans group).
+
+        Depth 0 at the anchor (a top-level statement) has no enclosing
+        paren to close → 10**9 (the "next statement" bound then rules
+        alone, exactly as before). Tokenizer failure / empty stream →
+        10**9 (degrades to the previous behavior).
+        """
+        tokens = self._tokens
+        depths = self._tok_depth
+        if not tokens or anchor <= 0:
+            return 10**9
+        start = 0
+        n = len(tokens)
+        while start < n and tokens[start].line < anchor:
+            start += 1
+        if start >= n:
+            return 10**9
+        own = depths[start]
+        if own <= 0:
+            return 10**9
+        for i in range(start, n):
+            if (tokens[i].token_type == TokenType.R_PAREN
+                    and depths[i] - 1 < own):
+                return tokens[i].line
+        return 10**9
+
+    def _scope_line_owner(self) -> dict[int, str]:
+        """line → innermost RECORDED context whose range covers it.
+
+        R45 Fix C: an occurrence line belongs to the scope the walker
+        collected it in. A line inside a nested body's own range is that
+        nested context's occurrence — the enclosing context must never
+        claim it (`_occurrence_lines` skips such lines), otherwise a
+        nested scope's textual occurrence is handed to the enclosing
+        group's twin and the twin lands on the wrong table's line.
+        """
+        innermost: dict[int, str] = {}
+        for ctx, line in self._stmt_anchor_lines.items():
+            if line <= 0:
+                continue
+            end = min(self._next_anchor_after(line, ctx),
+                      self._paren_scope_bound(line),
+                      self._token_last_line + 1)
+            for ln in range(line, end):
+                cur = innermost.get(ln)
+                if cur is None or len(ctx) > len(cur):
+                    innermost[ln] = ctx
+        return innermost
+
+    def _line_clauses(self, lo: int, hi: int) -> dict[int, str]:
+        """line → clause keyword governing it, over the token stream (Fix E).
+
+        The clause of a line is the last clause keyword at or before it
+        (`AND x = 1` under a WHERE is a WHERE line; the first line of a
+        subquery's SELECT is a SELECT line). Computed per group over
+        [lo, hi) so a clause never leaks in from the previous statement.
+        STRING tokens are skipped (a literal 'where' is text, not a clause).
+        """
+        out: dict[int, str] = {}
+        cur = ""
+        for tok in self._tokens:
+            if tok.line >= hi:
+                break
+            if tok.token_type != TokenType.STRING:
+                kw = (_LINE_CLAUSE_TOKENS.get(tok.token_type.name)
+                      or _LINE_CLAUSE_TOKENS.get(tok.text.lower()))
+                if kw:
+                    cur = kw
+            if tok.line >= lo:
+                out[tok.line] = cur
+        return out
+
+    def _occurrence_lines(self, name: str, context: str,
+                          taken: set[int],
+                          innermost: dict[int, str] | None = None
+                          ) -> list[int]:
+        """R45 Fix B: every line of `context`'s statement range where
+        `name`'s token run occurs, EXCEPT lines a surviving var of the same
+        field already anchors, in stream order.
+
+        A collapsed occurrence consumes these in order, so the 2nd
+        occurrence of a field lands on the 2nd textual occurrence even
+        though the 1st is taken by the surviving node.
+
+        R45 Fix C: two boundaries keep the search inside `context`'s own
+        scope — the paren scope of `context`'s anchor (`_paren_scope_bound`)
+        and the nested recorded scopes' ranges (`innermost`, from
+        `_scope_line_owner`): a line a nested body owns is never an
+        occurrence of the enclosing context, so handing it out would mint
+        the enclosing group's twin on another scope's line.
+
+        R45 Fix G: a BARE field identity (`lending_ref`) only matches BARE
+        token occurrences. The token run of a bare name is one token, so
+        every qualified spelling of that field (`p1.lending_ref`) also
+        matches it — and those are ANOTHER group's occurrences (Fix D
+        splits groups per qualifier for exactly that reason). Requiring the
+        token before the match not to be `.` keeps each group inside its
+        own qualifier's occurrences.
+        """
+        tokens = self._tokens
+        run = _name_token_run(name)
+        if not tokens or not run:
+            return []
+        anchor = self._stmt_anchor_for(context)
+        if anchor <= 0:
+            return []
+        end = min(self._next_anchor_after(anchor, context),
+                  self._paren_scope_bound(anchor))
+        bare = "." not in (name or "")
+        out: list[int] = []
+        for ln, first_idx in self._all_match_lines(run, anchor, end):
+            if bare and first_idx > 0 and tokens[first_idx - 1].text == ".":
+                continue  # a qualified spelling — another group's occurrence
+            if ln in taken:
+                continue
+            if innermost is not None:
+                owner = innermost.get(ln)
+                # A line another recorded scope owns is admissible only when
+                # that scope is an ANCESTOR of `context` (the case where
+                # `context` has no anchor of its own and borrows the
+                # enclosing statement's range). A nested body's line is that
+                # nested context's occurrence — never this context's.
+                if (owner is not None and owner != context
+                        and not (context.startswith(owner + "/")
+                                 or context.startswith(owner + ":"))):
+                    continue
+            out.append(ln)
+        return out
+
+    def _all_match_lines(self, run: list[str], lo_line: int,
+                         hi_line: int) -> list[tuple[int, int]]:
+        """Every (line, first-token index) where `run` occurs in [lo, hi).
+
+        Same matching rules as `_match_token_run` (non-STRING tokens, AS
+        KEYWORD may interleave) — but it collects ALL matches instead of
+        stopping at the first, so an occurrence pass can hand them out in
+        stream order. The index lets the caller inspect the token BEFORE the
+        match (Fix G's bare/qualified discriminator).
+        """
+        tokens = self._tokens
+        out: list[int] = []
+        n = len(tokens)
+        r0 = run[0].lower()
+        for i in range(n):
+            tok = tokens[i]
+            if tok.line < lo_line:
+                continue
+            if tok.line >= hi_line:
+                break
+            if tok.token_type == TokenType.STRING:
+                continue
+            if tok.text.lower() != r0:
+                continue
+            j, k = i + 1, 1
+            while k < len(run):
+                if j >= n:
+                    break
+                t2 = tokens[j]
+                if t2.token_type == TokenType.STRING:
+                    j += 1
+                    continue
+                if t2.text.lower() == run[k].lower():
+                    k += 1
+                    j += 1
+                    continue
+                if _is_as_keyword(t2):
+                    j += 1
+                    continue
+                break
+            if k == len(run):
+                out.append((tok.line, i))
+        return out
+
     @staticmethod
     def _match_token_run(run: list[str], tokens, lo_line: int,
                          hi_line: int, ret_last: bool = False,
@@ -1156,11 +1740,21 @@ class _RoleBasedExtractor:
             return None
 
         # CTE tables referenced in FROM clauses also appear as TABLE.
-        # Merge: if a CTE with same name exists (any context), skip the TABLE.
-        if var_type == VariableType.TABLE:
+        # Merge: if a CTE with same name exists, skip the TABLE — but only
+        # when the CTE is VISIBLE in this context (#386 ruling, 2026-08-28:
+        # a CTE's scope ends with its statement — a LATER statement
+        # referencing the same bare name refers to a PHYSICAL table, not
+        # the CTE). The old any-context merge swallowed the out-of-scope
+        # read whole: no TABLE var, so the physical table node never
+        # existed and its columns folded onto the cte_table entity. Scope
+        # visibility is `_is_cte_name`'s own rule (statement-scoped
+        # `_cte_names` via `_scope_top`), so in-scope refs keep folding
+        # exactly as before.
+        if var_type == VariableType.TABLE and self._is_cte_name(name, context):
             for existing in self.result.variables:
-                if existing.variable_type == VariableType.CTE and existing.name == name:
-                    return None  # already exists as CTE
+                if (existing.variable_type == VariableType.CTE
+                        and existing.name.lower() == name.lower()):
+                    return None  # already exists as CTE (visible here)
 
         # Universal node identity: (name, type, context)
         # Every variable is scoped to its context. Two variables with the
@@ -1168,6 +1762,17 @@ class _RoleBasedExtractor:
         # Example: SUM(x) AS total in UNION branch 0 vs branch 1.
         key = (name, var_type.value, context)
         if key in self._seen:
+            # R45 Fix B: the dedup keeps ONE node per (name, type, context),
+            # but the occurrence the walker just visited is still a genuine
+            # field occurrence — a 2nd WHEN arm, an NVL fallback operand, a
+            # byte-identical projection, a later JOIN-key leg, a parallel
+            # derived-body copy. Record it so family 3 can anchor it at its
+            # own line (resolved post-walk, so base anchors never move).
+            if var_type in (VariableType.COLUMN, VariableType.EXPRESSION):
+                self._collapsed_occurrences.append({
+                    "name": name, "type": var_type, "context": context,
+                    "defined_in": defined_in,
+                })
             return None
         self._seen.add(key)
 
@@ -1199,6 +1804,23 @@ class _RoleBasedExtractor:
             alias_of=alias_of,
             is_alias_handle=is_alias_handle,
         )
+        # K3 (2026-08-28.8): a FIELD whose NAME is not an identifier is an
+        # expression FRAGMENT, never a column the script names. The
+        # unrepaired RFN produced `lending_ref, 4, 5)` this way: the missing
+        # ')' made sqlglot recover a partial tree whose alias render spans a
+        # paren, and the fragment reached the field namespace as if it were
+        # `lending_ref`'s name. The structural check (`_paren_balance_errors`,
+        # 2026-08-28.7) now REPORTS such a script; this boundary keeps the
+        # fragment from being TAKEN for a field identity afterwards — the var
+        # itself is kept (its line, its expression, its edges are real), but
+        # it is stamped as an auto-named fragment, so the write-side twin
+        # pass (family 1) and every owner-qualified re-derivation skip it
+        # exactly as they skip `CONCAT'price=',…`. `,` / `(` / `)` / space in
+        # a field name are the fragment signature; `a.*` and the ⟐ sentinels
+        # stay legal.
+        if (var_type in (VariableType.COLUMN, VariableType.CTE_COLUMN)
+                and _FIELD_FRAGMENT_CHARS.search(name)):
+            self._auto_named_outputs.add(var.id)
         self.result.variables.append(var)
         # R20: count every column-type variable actually created.
         if var_type == VariableType.COLUMN:
@@ -1264,6 +1886,391 @@ class _RoleBasedExtractor:
                 if container:
                     v.source_tables = [container]
                     self._resolution_stats["resolved_by"]["expr_alias"] += 1
+
+    def _register_flow_occurrence_twins(self) -> None:
+        """R44 (2026-08-28): register the missing OCCURRENCE-SIDE field
+        instances so the strict table.field walker covers every
+        dataflow-relevant occurrence of a searched field (user ruling:
+        "covering all occurrences of the target field is the PURPOSE of
+        flow-only"). Two twin families — both EXTRACTION-TIME facts of the
+        SQL (never search-time reconstruction), both registered IN
+        ADDITION to the existing vars (nothing is re-attributed):
+
+        1. WRITE-SIDE twins (rename-writes, class 2/5): a DML statement's
+           SELECT projection names a column of the WRITE TARGET
+           (`p1.HTJE AS LOAN_AMT` writes bdm_acc_loan_info.LOAN_AMT;
+           `A.Reserved_Field18 AS RESERVED_6` writes
+           east5_stzfxxb.RESERVED_6), but the output var is attributed to
+           the VALUE's read source (S1/I2), so the target's field entity
+           never exists and a search for the target's column returns
+           not-in-flow. For every is_output var of a statement that
+           DML-writes table T whose attribution is not already T, register
+           twin `{T}.{output alias}` attributed to T — same line, same
+           context, is_output, carrying the projection's source_columns
+           (so the rename REF edge anchors at the projection line).
+        2. DERIVED-READ twins (reads through derived aliases, class 3/4):
+           an outer read `p2.product` / `a.rn` / `p8.X5GMAB` is attributed
+           to the derived alias; its tie to the underlying physical table
+           (the derived body reads EXACTLY ONE physical table) is a fact
+           of the SQL. For every non-output column var qualified by such
+           an alias, register twin `{P}.{col}` attributed to P with
+           source_columns=[the dotted read] — the copy REF edge then
+           anchors at the read line and the physical table's field
+           carries the occurrence.
+        """
+        # ── index 1: per-context DML write targets ──
+        dml_targets_by_ctx: dict[str, list[str]] = {}
+        for v in self.result.variables:
+            if v.variable_type == VariableType.MERGE_TARGET:
+                dml_targets_by_ctx.setdefault(v.context or "TOP",
+                                              []).append(v.name)
+            elif v.variable_type == VariableType.TABLE:
+                di = (v.defined_in or "").upper()
+                if any(kw in di for kw in ("INSERT", "UPDATE", "DELETE")):
+                    dml_targets_by_ctx.setdefault(v.context or "TOP",
+                                                  []).append(v.name)
+
+        # ── index 2: derived containers with exactly ONE physical source ──
+        # A SUBQUERY/VIRTUAL_TABLE occurrence owns every physical read
+        # whose context is inside its scope (its own context, or a
+        # "/"-nested body scope — sibling ":join:" scopes of the same
+        # parent never match the "/"-segment prefix).
+        derived_single: dict[tuple[str, str], str] = {}
+        subs_by_label: dict[str, list] = {}
+        for s in self.result.variables:
+            if s.variable_type in (VariableType.SUBQUERY,
+                                   VariableType.VIRTUAL_TABLE):
+                subs_by_label.setdefault(s.name, []).append(s)
+        for label, subs in subs_by_label.items():
+            for s in subs:
+                sctx = s.context or ""
+                phys = set()
+                for t in self.result.variables:
+                    if t.variable_type not in (VariableType.TABLE,
+                                               VariableType.VIEW):
+                        continue
+                    # originals only — an alias carries st[0] = another
+                    # table's name; a physical read may carry st[0] = its
+                    # own name (I2 self-attribution) or none.
+                    if (t.source_tables
+                            and t.source_tables[0].casefold()
+                            != t.name.casefold()):
+                        continue
+                    tctx = t.context or ""
+                    if not (tctx == sctx or tctx.startswith(sctx + "/")
+                            or tctx.startswith(sctx + ":")):
+                        continue
+                    # An EXISTS/NOT-EXISTS body under the derived scope is
+                    # row-SELECTION, not a row source — its FROM reads do
+                    # not make the derived table multi-source (PL's p2
+                    # wraps bdm_fin_lrr_key_base_info and filters through
+                    # `exists (select 1 from ODS_CDP_GDC_TABLE_COA_LIST …)`).
+                    rel = tctx[len(sctx):].lstrip("/:")
+                    segs = re.split(r"[/\:]", rel)
+                    if any(sg.startswith("exists") for sg in segs if sg):
+                        continue
+                    phys.add(t.name)
+                if len(phys) == 1:
+                    # Determinism pin (2026-08-29): `next(iter(phys))` over a
+                    # str set is hash-order-shaped even though the `len==1`
+                    # guard makes it numerically safe today — a future edit
+                    # that admits a second source would silently turn this
+                    # into a per-process coin flip (PYTHONHASHSEED). `min()`
+                    # is order-independent at any cardinality.
+                    derived_single[(label, sctx)] = min(phys)
+
+        # ── family 1: write-side twins ──
+        for v in self.result.variables:
+            if not v.is_output:
+                continue
+            if v.variable_type not in (VariableType.COLUMN,
+                                       VariableType.CTE_COLUMN,
+                                       VariableType.TRANSFORM,
+                                       VariableType.CASE,
+                                       VariableType.EXPRESSION,
+                                       VariableType.AGGREGATE,
+                                       VariableType.WINDOW,
+                                       VariableType.LITERAL):
+                continue
+            vctx = v.context or ""
+            targets = dml_targets_by_ctx.get(vctx)
+            if not targets:
+                continue
+            alias = v.name.rsplit(".", 1)[-1] if "." in v.name else v.name
+            if not alias:
+                continue
+            if v.id in self._auto_named_outputs:
+                # L4 (part 2): the projection carries no alias, so its name
+                # is an expression fragment (`CONCAT'price=',_p.price,_',st`,
+                # `NULL`, `1`), not a column. The INSERT column list that
+                # would name the write slot is NOT positionally recoverable
+                # here — projection outputs do not register 1:1 in source
+                # order (fin_query4_merge_upsert TOP1: an 11-item SELECT with
+                # an 11-name column list registers 10 outputs, so an index
+                # map would silently mis-name). Same ruling as the CTE/
+                # derived output-column recording ("never resolvable output
+                # names"): skip the twin rather than mint a bogus physical
+                # field on the write target.
+                continue
+            for tname in targets:
+                if (v.source_tables
+                        and v.source_tables[0].casefold() == tname.casefold()):
+                    continue  # already attributed to the write target
+                # source_columns stays EMPTY on purpose: the twin is the
+                # write slot, not a read — copying the projection's read
+                # columns would let dependency_graph Phase 3's bare-name
+                # fallback wire UNRELATED same-named reads onto the twin
+                # across statements (DigL: data_dt@560 → DM_FLAG2 twin),
+                # and Phase 1c would emit a second DML leg family. The
+                # write occurrence renders through Phase 4c's OUTPUT SCHEMA
+                # edge (anchor = the twin's own line) and the projection's
+                # own edges.
+                twin = self._add(
+                    f"{tname}.{alias}", VariableType.COLUMN,
+                    sql_expr=v.sql_expression,
+                    defined_in=v.defined_in or "SELECT", context=vctx,
+                    source_cols=[],
+                    source_tables=[tname], is_output=True)
+                if twin is not None:
+                    # _add's text-search cannot find a synthetic dotted
+                    # name — the twin anchors at the projection itself.
+                    twin.line_start = v.line_start
+                    twin.line_end = v.line_end
+
+        # ── family 2: derived-read twins ──
+        for v in self.result.variables:
+            if v.variable_type != VariableType.COLUMN or v.is_output:
+                continue
+            if "." not in v.name or not v.source_tables:
+                continue
+            _q, _, col = v.name.partition(".")
+            if not col:
+                continue
+            vctx = v.context or ""
+            # M2: lexical visibility — the alias is usable from the read's
+            # scope when the read sits inside (or on) the scope BINDING it.
+            # The pre-M2 check compared the read against the SUB VAR's own
+            # context, so it only ever matched the FROM/JOIN scope that
+            # declares the alias and missed every deeper nested use
+            # (`p2.col` inside a scalar subquery of that same FROM).
+            # Matching on `_scope_top` instead would over-match: it folds
+            # `CTE{x}:join:p2` and `TOP0:join:p2` onto one statement, so a
+            # CTE-local derived `p2` would twin the statement-level JOIN
+            # alias `p2` (SUP_M: p2.data_dt → ods_hub_lsacmsp.data_dt for a
+            # read that is really bdm_acc_loan_info_sup). `_binding_scope`
+            # keeps the CTE boundary and adds the nested-scope uses.
+            best_bind = None
+            best_phys = None
+            for s in subs_by_label.get(_q, []):
+                sctx = s.context or ""
+                bind = _binding_scope(sctx, s.name)
+                if not bind or not _ctx_within(vctx, bind):
+                    continue  # the alias is not usable from the read's scope
+                phys = derived_single.get((_q, sctx))
+                if phys is None:
+                    continue
+                if phys.casefold() == v.source_tables[0].casefold():
+                    continue
+                # innermost binding wins — a nearer redeclaration of the
+                # same alias shadows the outer one (standard SQL scoping).
+                if best_phys is None or len(_ctx_segments(bind)) > len(best_bind):
+                    best_bind, best_phys = _ctx_segments(bind), phys
+            if best_phys is None:
+                continue
+            phys = best_phys
+            twin = self._add(
+                f"{phys}.{col}", VariableType.COLUMN,
+                sql_expr=v.sql_expression,
+                defined_in=v.defined_in or "SELECT", context=vctx,
+                source_cols=[v.name],
+                source_tables=[phys], is_output=False)
+            if twin is not None:
+                twin.line_start = v.line_start
+                twin.line_end = v.line_end
+
+        # ── family 3: occurrence-line twins (R45, 2026-08-28.6) ──
+        # The (name, type, context) dedup in `_add` keeps ONE node per field
+        # per scope, so the SECOND and later occurrences of that field inside
+        # the same statement used to leave no node at all at their own line —
+        # a multi-leg JOIN ON predicate anchored only its first leg, an NVL
+        # fallback operand collapsed onto the bare read above it, a CASE's
+        # 2nd WHEN arm collapsed onto the 1st, byte-identical projections
+        # collapsed onto each other (class 5), and a predicate operand
+        # collapsed onto the same field's projection in the parallel
+        # derived-body copy. `_add` recorded each such collapsed occurrence;
+        # re-anchor it here as an occurrence-side twin attributed to the SAME
+        # owner the surviving var resolved to.
+        #
+        # Grouped per (context, casefolded field identity): the group's
+        # surviving vars already hold the FIRST occurrence lines, so the
+        # collapsed ones are handed the remaining textual occurrences in
+        # stream order. Grouping — never a global cursor — is what keeps
+        # every surviving anchor exactly where it was (a purely additive
+        # change; no existing line can move).
+        groups: dict[tuple[str, str], list[dict]] = {}
+        for occ in self._collapsed_occurrences:
+            ck = (occ["context"], _field_identity(occ["name"]))
+            groups.setdefault(ck, []).append(occ)
+        # R45 Fix C: the per-line scope map is shared by every group — one
+        # pass over the recorded anchors, not one per group.
+        innermost = self._scope_line_owner()
+        # R45 Fix F: `taken` is computed ONCE, from the pre-twin variable
+        # list, so the pass is order-independent. A line is taken when ANY
+        # surviving COLUMN var of this FIELD (last dot-part, any qualifier
+        # spelling) anchors it, not only one spelled exactly like the
+        # occurrence: a group's occurrences are recorded under the walker's
+        # spelling (`lending_ref`) while the surviving node may carry the
+        # owner-qualified spelling (`bdm_acc_loan_info.lending_ref`, the
+        # GROUP BY occurrence @59) — comparing spellings made the
+        # already-anchored line look free, and the group's DUPLICATE
+        # registration of that same occurrence grabbed another line further
+        # down (the @41 filter/JOIN pair) as its "own".
+        field_lines: dict[tuple[str, str], set[int]] = {}
+        for v in self.result.variables:
+            if (v.variable_type != VariableType.COLUMN or not v.line_start):
+                continue
+            key = (v.context or "",
+                   v.name.rsplit(".", 1)[-1].casefold())
+            field_lines.setdefault(key, set()).add(v.line_start)
+        for (context, ident), occs in groups.items():
+            base = self._base_var_for(ident, context)
+            if base is None or not base.line_start:
+                continue
+            taken = field_lines.get((context,
+                                     ident.rsplit(".", 1)[-1].casefold()),
+                                    set())
+            lines = self._occurrence_lines(base.name, context, taken,
+                                           innermost)
+            if not lines:
+                continue
+            # ── R45 Fix E: pair occurrences to lines by CLAUSE, not by raw
+            # stream order. `_add` records collapses in WALK order (clauses
+            # are walked SELECT → FROM → WHERE → …, and a nested body is
+            # walked mid-clause), while `lines` is textual. Zipping the two
+            # hands an occurrence the line of a DIFFERENT one whenever the
+            # group mixes clauses: the rollover CTE's `lending_ref IN (...)`
+            # predicate (WHERE) is the 2nd textual occurrence but the FIRST
+            # collapsed record is the projection's own duplicate
+            # registration, so the predicate's twin landed on the subquery
+            # projection line and the real predicate line got nothing. An
+            # occurrence whose `defined_in` names a clause takes the first
+            # free line OF THAT CLAUSE; only clause-less occurrences (and
+            # occurrences whose clause has no free line left) fall back to
+            # stream order.
+            anchor = self._stmt_anchor_for(context)
+            clause_by_line = self._line_clauses(anchor, lines[-1] + 1)
+            free_by_clause: dict[str, list[int]] = {}
+            for ln in lines:
+                free_by_clause.setdefault(clause_by_line.get(ln, ""),
+                                          []).append(ln)
+            used: set[int] = set()
+            assigned: dict[int, int] = {}
+            leftover: list[dict] = []
+            for occ in occs:
+                clause = _occurrence_clause(occ["defined_in"])
+                bucket = free_by_clause.get(clause, []) if clause else []
+                pick = next((ln for ln in bucket if ln not in used), None)
+                if pick is None:
+                    leftover.append(occ)
+                else:
+                    used.add(pick)
+                    assigned[id(occ)] = pick
+            if leftover:
+                free = [ln for ln in lines if ln not in used]
+                for occ in leftover:
+                    if not free:
+                        break
+                    pick = free.pop(0)
+                    used.add(pick)
+                    assigned[id(occ)] = pick
+            for occ in occs:
+                line = assigned.get(id(occ))
+                if line is not None:
+                    self._mint_occurrence_twin(base, line,
+                                               occ["defined_in"])
+
+    def _base_var_for(self, ident: str,
+                      context: str) -> VariableDefinition | None:
+        """The surviving node a collapsed occurrence group belongs to.
+
+        R45 Fix D: the group identity is the occurrence's own qualified
+        spelling (`p1.charge_department`), so the surviving var that shares
+        it EXACTLY (casefolded) is the one whose owner the twin inherits.
+        Only when no surviving var carries that spelling do we fall back to
+        the last dot-part: I2 rewrites a column's name to OWNER-qualified
+        spelling (`bdm_acc_loan_info.lending_ref`), so the surviving var may
+        spell the qualifier differently than the occurrence's alias.
+
+        Matching on the last dot-part alone (the pre-Fix-D behavior) made
+        every same-field group in a scope resolve to the FIRST surviving
+        var with that field part — for SUP_M's INSERT the PARTITION column
+        `CHARGE_DEPARTMENT` @160 (owner bdm_acc_loan_info_sup) precedes the
+        projections, so both `p1.charge_department` groups (@182/@196, p1 =
+        loan_final) minted twins owned by the write target. A same-named
+        field of two tables in one scope is two different occurrences of
+        two different columns; the qualifier is the only thing that tells
+        them apart.
+        """
+        for v in self.result.variables:
+            if v.context != context or v.variable_type != VariableType.COLUMN:
+                continue
+            if v.name.casefold() == ident:
+                return v
+        col_id = ident.rsplit(".", 1)[-1]
+        for v in self.result.variables:
+            if v.context != context or v.variable_type != VariableType.COLUMN:
+                continue
+            if v.name.rsplit(".", 1)[-1].casefold() == col_id:
+                return v
+        return None
+
+    def _mint_occurrence_twin(self, base: VariableDefinition, line: int,
+                              defined_in: str) -> None:
+        """Register one occurrence-side twin at `line`.
+
+        Mirrors the R44 families: same owner, same context, not an output
+        (the twin is the occurrence side — a genuinely projected var keeps
+        its own output var), carrying a source_columns entry so
+        dependency_graph wires the copy/READ edge at the twin's line. `_add`
+        is bypassed deliberately: the twin is a SECOND node for a (name,
+        type, context) that already exists, which is the whole point.
+        """
+        if not base.source_tables:
+            return  # never guess an owner
+        owner = base.source_tables[0]
+        if not owner or owner.startswith(OTHER_SENTINEL):
+            return
+        col = base.name.rsplit(".", 1)[-1] if "." in base.name else base.name
+        if not col:
+            return
+        twin_id = self._next_id(f"{base.context}:{base.name}@{line}")
+        # `defined_in` carries the OCCURRENCE marker so dependency_graph can
+        # (a) give the twin its structural belongs-to SCHEMA edge (the Phase
+        # 4d-gb precedent — without it the twin trips column_connectivity)
+        # and (b) still see the clause the occurrence was collected in for
+        # FILTER/JOIN typing (`_clause_of` strips the marker there).
+        clause = (defined_in or base.defined_in or "").strip()
+        self.result.variables.append(VariableDefinition(
+            id=twin_id, name=f"{owner}.{col}",
+            variable_type=VariableType.COLUMN,
+            sql_expression=base.sql_expression,
+            # source_columns stays EMPTY on purpose — the family-1
+            # precedent: the twin is the occurrence slot, not a read.
+            # Copying the base read's column would let dependency_graph
+            # Phase 3's bare-name fallback wire UNRELATED same-named reads
+            # onto the twin across statements (the SUP_M `charge_department`
+            # walker-closure widening). The twin's own edges come from
+            # Phase 4d (READ to its owner), Phase 4d-gb (belongs-to SCHEMA)
+            # and Phase 6/6b (FILTER/JOIN, by the clause it was collected
+            # in).
+            source_cols=[],
+            source_tables=[owner],
+            defined_in=f"OCCURRENCE {clause}".strip(),
+            context=base.context,
+            line_start=line, line_end=line,
+            is_output=False,
+        ))
+        self._resolution_stats["total_columns"] += 1
 
     def _canonicalize_table_names(self) -> None:
         """ISSUE-4: fold physical-table spelling to one canonical form.
@@ -1427,13 +2434,22 @@ class _RoleBasedExtractor:
     # ── Top-level dispatch ──────────────────────────────────────────
 
     def process_statement(self, stmt: exp.Expression, context: str,
-                          outer: _SelectScope | None = None):
+                          outer: _SelectScope | None = None,
+                          merged_select: exp.Select | exp.Union
+                          | exp.Intersect | exp.Except | None = None):
         """Process a top-level statement, dispatching to walkers.
 
         `outer` (R29/ISSUE-4 outer-chain) is the enclosing scope when this
         statement is nested (a subquery/exists/derived body, or a Hive
         FROM-led multi-insert arm) — its own scope links back to it so
         correlated references resolve outward.
+
+        `merged_select` (R44 F1): the following standalone SELECT when this
+        INSERT is a bare `INSERT OVERWRITE TABLE t PARTITION(...);` — the
+        ODPS idiom's write source. Passed through to _walk_insert, which
+        walks it under this statement's own context INSTEAD of creating the
+        ⟐ insert VT (two VTs in one context would starve dependency_graph
+        Phase 1c-extra2's single-output-VT write leg).
         """
         # Process any WITH clause first (can appear on any statement type)
         with_clause = stmt.args.get("with") or stmt.args.get("with_")
@@ -1461,7 +2477,8 @@ class _RoleBasedExtractor:
         elif isinstance(stmt, exp.Update):
             self._walk_update(stmt, context, outer=outer)
         elif isinstance(stmt, exp.Insert):
-            self._walk_insert(stmt, context, outer=outer)
+            self._walk_insert(stmt, context, outer=outer,
+                              merged_select=merged_select)
         elif isinstance(stmt, exp.Create):
             self._walk_create(stmt, context)
         else:
@@ -1726,6 +2743,13 @@ class _RoleBasedExtractor:
             if clause:
                 for e in (clause.expressions if hasattr(clause, 'expressions') else [clause]):
                     self._walk_columns_in_expr(e, context, defined_in=label, scope=scope)
+                    # #387 (2026-08-28, R44 family 3): GROUP BY item
+                    # occurrences get their own occurrence-side twin vars
+                    # (see _register_groupby_twins) — ORDER BY stays on the
+                    # historical path (presentation ordering, not a row
+                    # grouping; not part of the ruling's anchor set).
+                    if key == "group":
+                        self._register_groupby_twins(e, context, scope)
 
         # SELECT INTO — creates a new table from the SELECT result
         into = select.args.get("into")
@@ -2177,7 +3201,9 @@ class _RoleBasedExtractor:
         if scope is not None:
             names = {n for _, n in scope.tables}
             if len(names) == 1:
-                return names.pop()
+                # Determinism pin (2026-08-29): same shape as the
+                # `derived_single` pick — hash-order-shaped singleton read.
+                return min(names)
         return ""
 
     def _register_synthetic_alias(self, alias: str, base: str, context: str,
@@ -2300,6 +3326,80 @@ class _RoleBasedExtractor:
                     self._subq_counter += 1
                     self._walk_setop(node.this, type(node.this).__name__.upper(),
                                      f"{context}/exists{self._subq_counter}", outer=scope)
+
+    def _register_groupby_twins(self, expr, context: str,
+                                scope: _SelectScope | None = None):
+        """#387 (2026-08-28, R44 family 3): occurrence-side column vars for
+        GROUP BY item occurrences.
+
+        The GROUP BY walk above attributes each item's column to its owner
+        (S1-S3), but the OCCURRENCE itself registers no var of its own: a
+        bare item folds onto the SELECT projection's var (line = the
+        projection line), so lines like PL L246/247 (`product,` /
+        `lrr_key,` inside GROUP BY) never anchor — the group-key usage is
+        invisible to the strict table.field walker (user ruling: flow-only
+        must cover every dataflow-relevant occurrence).
+
+        Same shape as the R44 derived-read twins: for every column leaf of
+        a GROUP BY item whose (already-attributed) occurrence var carries a
+        physical owner, register twin `{owner}.{col}` in the SAME context
+        with source_columns populated and is_output=False (the twin is the
+        occurrence side — a genuinely projected var keeps its own output
+        var untouched). The twin's line is the item's OWN line — resolved
+        by the clause-keyword token run (["group", …, col], the W2/Defect-5
+        mechanism: loose on the keyword, anchored past it to the column),
+        never the projection's line. dependency_graph's Phase 4d-gb then
+        gives the group-key usage a REF/read-class edge anchored at the
+        twin's line.
+        """
+        if expr is None:
+            return
+        for node in expr.walk():
+            if not isinstance(node, exp.Column):
+                continue
+            table = _clean(node.table or "")
+            col_name = _clean(node.name or "")
+            if not col_name:
+                continue
+            full = f"{table}.{col_name}" if table else col_name
+            # The occurrence var the plain walk just registered/attributed
+            # (the projection var for a bare item, the qualified read var
+            # for a dotted one). Last match in this context = this clause's.
+            var = next((v for v in reversed(self.result.variables)
+                        if v.variable_type == VariableType.COLUMN
+                        and v.name == full
+                        and v.context == context), None)
+            if var is None or not var.source_tables:
+                continue
+            st0 = var.source_tables[0]
+            # Physical owners only — a ⟐ VT / system-sentinel owner is a
+            # container, not a table the group key can anchor against.
+            if (not st0 or st0.startswith("⟐")
+                    or st0 == SYSTEM_TABLE_SENTINEL
+                    or st0 == OTHER_SENTINEL):
+                continue
+            # W2 clause-keyword def site: ["group by", …, col] loose on
+            # the keyword (the sqlglot tokenizer emits GROUP BY as ONE
+            # keyword token), ret_last so the COLUMN's line (not the
+            # keyword's) is reported; the bare-name run is the strict
+            # fallback.
+            if table:
+                bare_run = [table, col_name]
+            else:
+                bare_run = [col_name]
+            twin = self._add(
+                f"{st0}.{col_name}", VariableType.COLUMN,
+                sql_expr=_sql(node),
+                defined_in="GROUP BY", context=context,
+                source_cols=[full],
+                source_tables=[st0], is_output=False,
+                def_site=([["group by"] + bare_run, bare_run], None,
+                         context, True, True))
+            if twin is not None and not twin.line_start:
+                # The token-run site missed (tokenizer hiccup) — degrade
+                # to the occurrence var's own line, never line 0 silently.
+                twin.line_start = var.line_start
+                twin.line_end = var.line_end
 
     def _walk_select_tables(self, select_node, context: str):
         """Extract table references from a Select node inside subquery/EXISTS."""
@@ -2514,6 +3614,20 @@ class _RoleBasedExtractor:
             end = ctx.find("}")
             cte_ctx = ctx[:end + 1] if end > 0 else ctx
             return self._cte_enclosing.get(cte_ctx, ctx)
+        # L-E4 (2026-08-26, folded 2026-08-28): VIEW@{stmt}:{name.casefold()}
+        # / CTAS@{stmt}:{name.casefold()} — the statement-owning, case-folded
+        # scope key. Two same-name (re)definitions now map to their OWN
+        # defining statements, and case-variant spellings of one name share
+        # one bucket (the old "VIEW:{name}" key was neither indexed nor
+        # folded, so `_scope_top` shared one registry across redefinitions
+        # and split one view across case variants).
+        for prefix in ("VIEW@", "CTAS@"):
+            if ctx.startswith(prefix):
+                rest = ctx[len(prefix):]
+                i = rest.find(":")
+                if i > 0:
+                    return rest[:i]
+                break
         # M-E2: VIEW:{name} / CTAS:{name} are distinct per-statement scopes —
         # the ":" is part of the statement identity, not a nested-scope
         # separator. Strip any nested sub-context ("/subq", ":join:..") AFTER
@@ -2962,6 +4076,13 @@ class _RoleBasedExtractor:
                         source_cols=src_cols, source_tables=apply_tables,
                         is_output=(not is_cte),
                         def_site=def_site)
+        if (var is not None and not explicit_alias
+                and not isinstance(inner, (exp.Column, exp.Star))):
+            # L4 (part 2): this output had NO alias, so its name is the
+            # expression-fragment auto-name above — a projection-shape
+            # artifact, not a column name. A bare column's auto-name IS its
+            # own column name (kept); a Star never reaches `_add` as a field.
+            self._auto_named_outputs.add(var.id)
         if var is not None and attr_strategy is not None and not src_tables:
             self._resolution_stats["resolved_by"][attr_strategy] += 1
 
@@ -3256,8 +4377,15 @@ class _RoleBasedExtractor:
     # ── INSERT / CREATE walkers ─────────────────────────────────────
 
     def _walk_insert(self, insert: exp.Insert, context: str,
-                     outer: _SelectScope | None = None):
-        """Walk an INSERT statement (INSERT INTO ... SELECT/VALUES)."""
+                     outer: _SelectScope | None = None,
+                     merged_select: exp.Select | exp.Union
+                     | exp.Intersect | exp.Except | None = None):
+        """Walk an INSERT statement (INSERT INTO ... SELECT/VALUES).
+
+        `merged_select` (R44 F1): the following standalone SELECT for a
+        bare INSERT — walked as this statement's source, replacing the ⟐
+        insert VALUES anchor (see process_statement).
+        """
         # D-series: record BEFORE the into/target and PARTITION registration.
         # Anchors are last-wins (I1) — the source SELECT's walk later
         # overwrites "TOP{n}" with its own line — but the target and
@@ -3341,6 +4469,12 @@ class _RoleBasedExtractor:
         expr = insert.args.get("expression")
         if expr and isinstance(expr, (exp.Select, exp.Union)):
             self.process_statement(expr, context, outer=outer)
+        elif merged_select is not None:
+            # R44 F1: bare INSERT + following standalone SELECT (ODPS idiom)
+            # — the SELECT IS this statement's source; walking it here keeps
+            # ONE output VT per context (dependency_graph Phase 1c-extra2's
+            # write leg needs exactly one).
+            self.process_statement(merged_select, context, outer=outer)
         else:
             # VALUES-based INSERT — create a minimal VT anchor so the target
             # table isn't isolated (the DML phase can connect VT → target).
@@ -3380,12 +4514,13 @@ class _RoleBasedExtractor:
                           def_site=([["create", "view", name], [name]],
                                     create, context))
             # Walk the inner SELECT defining the view
+            # L-E4: statement-owning, case-folded scope key (see _scope_top).
             inner = create.args.get("expression")
+            vctx = f"VIEW@{context}:{name.casefold()}" if name else context
             if inner and isinstance(inner, exp.Select):
-                self._walk_select(inner, f"VIEW:{name}" if name else context, is_cte=False)
+                self._walk_select(inner, vctx, is_cte=False)
             elif inner and isinstance(inner, (exp.Union, exp.Intersect, exp.Except)):
-                self._walk_setop(inner, type(inner).__name__.upper(),
-                                 f"VIEW:{name}" if name else context)
+                self._walk_setop(inner, type(inner).__name__.upper(), vctx)
 
         elif kind == "TABLE":
             # S4a canonical name: a Schema node (`CREATE TABLE t (a INT, …)`)
@@ -3413,9 +4548,11 @@ class _RoleBasedExtractor:
                             self._script_schemas.setdefault(
                                 canonical, {}).setdefault(cname, stmt_line)
             # CTAS: CREATE TABLE ... AS SELECT — walk the inner SELECT
+            # L-E4: statement-owning, case-folded scope key (see _scope_top).
             inner = create.args.get("expression")
+            cctx = f"CTAS@{context}:{name.casefold()}" if name else context
             if inner and isinstance(inner, exp.Select):
-                self._walk_select(inner, f"CTAS:{name}" if name else context, is_cte=False)
+                self._walk_select(inner, cctx, is_cte=False)
                 # S4a source 3: CTAS without a column list → the SELECT
                 # output aliases are positional column evidence for the new
                 # table (same semantics as the Bug 41 DML mapping).
@@ -3427,5 +4564,4 @@ class _RoleBasedExtractor:
                             self._script_schemas.setdefault(
                                 canonical, {}).setdefault(pname, stmt_line)
             elif inner and isinstance(inner, (exp.Union, exp.Intersect, exp.Except)):
-                self._walk_setop(inner, type(inner).__name__.upper(),
-                                 f"CTAS:{name}" if name else context)
+                self._walk_setop(inner, type(inner).__name__.upper(), cctx)

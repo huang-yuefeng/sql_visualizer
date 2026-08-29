@@ -836,12 +836,12 @@ A durable local identity.
 - Every authenticated API call extends `last_active`; a completed long-running search also extends it.
 - Store is in-memory; lost on container restart (**accepted**).
 
-### Open Visit
-`(username, ws_id) → {opened_at, last_active}`. A user may hold several visits at once (multiple
-tabs). A visit ends on the first of:
-1. explicit **Close workspace**,
-2. **logout**,
-3. **session idle expiry**.
+### Open Visit — REMOVED (#285)
+The `Open Visit` entity `(username, ws_id) → {opened_at, last_active}` (one per open workspace
+per user, ended by Close/logout/idle-expiry) was **deleted with per-user visit logging (#285,
+v3.3.165-era)**: `visit_service.py` is gone, `close_workspace` is a no-op 200, and sessions are
+zero-expiry (#279) so there is no idle-expiry leg either. No per-user visit state exists in the
+system.
 
 ### Workspace (collaboration view)
 `ws_id` → `WORKSPACE_ROOT/{ws_id}/` holds the scripts plus two state files with a **state split**:
@@ -864,18 +864,20 @@ personal history.
 
 ### Activity Event
 `{username, ip, ts, action, detail}`, appended to `activity.json` (append-only). Actions include:
-visit start, search performed, L2 opened, layout saved, visit end, workspace deleted. This is the
+search performed, L2 opened, layout saved, remove-from-own-list, workspace deleted (visit
+start/end events were removed with the visit model, #285). This is the
 IP-audited "who modified this" record, readable by any opener.
 
-### Notification
-`{id, kind ∈ {memo, alert}, title, body, read, created_at}`, in
-`notifications/{username}.json` (one file per user). Title = 
-`[SQL Data Flow Visualizer] Workspace {ws_id} · {YYYY-MM-DD HH:MM}`. Records are **kept forever**.
-Pull model: seen on next login (unread badge + inbox).
+### Notification — REMOVED (#322)
+The `Notification` entity (`{id, kind ∈ {memo, alert}, title, body, read, created_at}` in
+`notifications/{username}.json`, pull-model unread badge + inbox) was **deleted in v3.3.165**:
+no producers remained after per-user visit logging was dropped (#285), so the store, the
+`/api/notifications` endpoints and the frontend bell are all gone. The activity log and the
+server-global audit log are the surviving "who did what" records.
 
 ### Access & Deletion Rules
-- **Open-by-id**: any logged-in user with a valid `ws_id` may open and edit; the creator is alerted
-  in-app afterwards.
+- **Open-by-id**: any logged-in user with a valid `ws_id` may open and edit (the in-app creator
+  alert was removed with the notification subsystem, #322).
 - **Remove-from-own-history** (any user): removes the entry from *that user's index only* — never
   the server copy, never another user's index.
 - **Physical delete** (creator only): removes `WORKSPACE_ROOT/{ws_id}` (scripts, `meta.json`,
@@ -883,7 +885,8 @@ Pull model: seen on next login (unread badge + inbox).
   physical-delete path.
 
 ### Heavy-Operation Gate
-One **global** gate over the debugger **search** and `/analyze` + `/analyze_multi`. At most one
+One **global** gate over the debugger **search**, `/analyze` + `/analyze_multi`, and the
+diagnostic `POST /workspace/{id}/debug/graph` (M-P1, 2026-08-25). At most one
 CPU-heavy operation runs at a time; a new one while one is running is refused with HTTP 409
 "system busy — please wait" (no parallel heavy CPU load).
 

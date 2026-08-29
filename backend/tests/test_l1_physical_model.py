@@ -347,7 +347,17 @@ def test_r29_lending_ref_upstream_matches_doc(loan_info_3ws):
     l1, scripts, tables = _r29_projection(
         loan_info_3ws, "bdm_acc_loan_info", "lending_ref", "upstream")
     assert l1["flow_empty"] is False
-    assert scripts == ["BDM_ACC_LOAN_INFO_Digitallending.sql"], scripts
+    # R44 repair (2026-08-28, CR10-style SQL-text evidence): PL joins as a
+    # SECOND writer — its bare `INSERT OVERWRITE TABLE bdm_acc_loan_info
+    # PARTITION(...)` @19 is followed by the write's standalone SELECT,
+    # which writes the seed at @21 (`SELECT distinct a.acnw AS
+    # LENDING_REF`; `a` = the dedup subquery over ODS_CUPD_PLOAN_ACCTM_NEW5
+    # @220). The doc's old "PL: 0 occurrences (grep-verified)" was a
+    # case-sensitive grep miss (the occurrence is spelled LENDING_REF);
+    # pre-R44 the bare-INSERT parse severed the write (F1) so no PL write
+    # leg existed. GROUND_TRUTH_..._LENDING_REF.md §1/§2.1 repaired.
+    assert scripts == ["BDM_ACC_LOAN_INFO_Digitallending.sql",
+                       "BDM_ACC_LOAN_INFO_PL.sql"], scripts
     assert tables == ["bdm_acc_loan_info", "ods_ccb_cb_loan_acctloan"], \
         tables
 
@@ -374,9 +384,22 @@ def test_r29_lending_ref_downstream_matches_doc(loan_info_3ws):
     l1, scripts, tables = _r29_projection(
         loan_info_3ws, "bdm_acc_loan_info", "lending_ref", "downstream")
     assert l1["flow_empty"] is False
-    assert scripts == ["BDM_ACC_LOAN_INFO_SUP_M.sql"], scripts
+    # R44 (2026-08-28, CR10-style SQL-text evidence, doc §2.2 repaired):
+    # (a) the seed's WRITE occurrences render downstream too (occurrence
+    # coverage) — DL's write-side instance `A.acctnbr AS LENDING_REF` @101
+    # and PL's @21 (bare-INSERT idiom, see the upstream test) join SUP_M;
+    # (b) ods_hub_lsacmsp joins as the single-source derived join partner
+    # of the seed's join keys: `CONCAT(p2.poctcd, p2.pogmab, …) =
+    # p1.lending_ref` @41/@117, p2 = the subquery over ods_hub_lsacmsp
+    # @33-47/@109-121 (the join-key expression's feeding reads are
+    # occurrences of the join). Multi-source partners (the p4 chain
+    # @128-144) carry no single-source twin and stay out.
+    assert scripts == ["BDM_ACC_LOAN_INFO_Digitallending.sql",
+                       "BDM_ACC_LOAN_INFO_PL.sql",
+                       "BDM_ACC_LOAN_INFO_SUP_M.sql"], scripts
     assert tables == ["bdm_acc_loan_info", "bdm_acc_loan_info_sup",
-                      "bdm_evt_loan_trans", "rrcdm_job_log_exec_par"], \
+                      "bdm_evt_loan_trans", "ods_hub_lsacmsp",
+                      "rrcdm_job_log_exec_par"], \
         tables
 
 

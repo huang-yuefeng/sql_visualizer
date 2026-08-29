@@ -150,8 +150,8 @@ def test_t1_alias_case_twin_not_folded(twin_ws):
 # ── T2 (#289): INSERT write columns land on the write target ──────────
 
 def test_t2_insert_write_columns_on_target(east5_ws):
-    """#289: nothing in EAST5 routes through the write-target fallback —
-    every projection here is DIRECTLY attributed by the model.
+    """#289 + R44 (2026-08-28): every EAST5 projection is DIRECTLY
+    attributed by the model — and the write side now renders TOO.
 
     Probed truth (v3.3.170 repair): alias `a` = bdm_acc_entrusted_payment,
     so the a.-qualified projections (bz / TAG_* / CHARGE_DEPARTMENT /
@@ -166,7 +166,19 @@ def test_t2_insert_write_columns_on_target(east5_ws):
     source-table parent match. ``write_field_target.get()`` never fires for
     it: no EAST5 projection is phantom-sourced any more. Its twin
     ``b.org_no As dis_bank_id`` reads bdm_acc_loan_info and therefore shows
-    a second dis_bank_id chip there."""
+    a second dis_bank_id chip there.
+
+    R44 amendment (2026-08-28, user ruling "walker occurrence coverage"):
+    every is_output projection of the east5-writing statement @41 ALSO
+    materializes its WRITE-SIDE TWIN ``{east5_stzfxxb}.{projection}``
+    (extraction-time, ``source_tables=['east5_stzfxxb']``, same line) —
+    so each written column now renders TWICE: on its model owner (the
+    value's read source) AND on the write target east5_stzfxxb (the write
+    slot it occupies). bz did NOT move: both instances exist (probe:
+    ``bz`` st=['bdm_acc_entrusted_payment'] L47 +
+    ``east5_stzfxxb.bz`` st=['east5_stzfxxb'] L47). The pre-R44
+    exclusivity pins ("must NOT land on east5") are superseded by
+    twin-coexistence pins."""
     res = _build_l2_graph(east5_ws, EAST5, EAST5_PATH.read_text(),
                           "", "", False)
     nodes = _nodes_by(res)
@@ -187,39 +199,40 @@ def test_t2_insert_write_columns_on_target(east5_ws):
         assert wc in bdm_kids, \
             f"{wc}'s b.org_no twin must stay on bdm_acc_loan_info (its reader)"
     # a.-qualified projections render on their model owner
-    # bdm_acc_entrusted_payment (alias a), not east5.
+    # bdm_acc_entrusted_payment (alias a), and since R44 ALSO as their
+    # write-side twins on east5 (the INSERT @41 write target).
     for wc in ("bz", "TAG_COUNTRY", "TAG_ENTITY",
                "TAG_BRANCH", "TAG_GBGF", "TAG_RESERVE",
                "TAG_PRIMARY_ACCOUNTABLE_PARTY", "TAG_RESPONSIBLE_PARTY",
                "COM_RESERVED_1",
                "RESERVED_2", "RESERVED_4", "RESERVED_6",
                "PRIMARY_SRC_SYSTEM"):
-        assert wc not in kids, \
-            f"{wc} is sourced to bdm_acc_entrusted_payment — must NOT land on east5"
         assert wc in ep_kids, \
             f"{wc} must land on bdm_acc_entrusted_payment (its model owner)"
+        assert wc in kids, \
+            f"{wc} must ALSO land on east5 as its R44 write-side twin"
     # CHARGE_DEPARTMENT spellings are case-sensitive BY DESIGN (#288 folds
-    # only physical tables; column/alias identities keep their case), so
-    # each owner is asserted positively instead of through a case-sensitive
-    # negative:
+    # only physical tables; column/alias identities keep their case):
     #   • bdm_acc_entrusted_payment owns the UPPERCASE projection
     #     (a.CHARGE_DEPARTMENT AS CHARGE_DEPARTMENT) and also the lowercase
     #     a.charge_department reads inside the partition-driven CASE arms;
-    #   • east5_stzfxxb owns ONLY the lowercase partition twin — the
+    #   • east5_stzfxxb owns the lowercase partition twin — the
     #     PARTITION(... ,charge_department) spec @41 (+ ALTER ADD
-    #     PARTITIONs), attributed directly to it as a read.
+    #     PARTITIONs), attributed directly to it as a read — and since R44
+    #     ALSO the UPPERCASE write twin of the projection.
     assert "CHARGE_DEPARTMENT" in ep_kids, \
         "bdm_acc_entrusted_payment must own the uppercase CHARGE_DEPARTMENT projection"
-    assert "charge_department" in kids and "CHARGE_DEPARTMENT" not in kids, \
-        ("east5_stzfxxb must carry only the lowercase partition twin "
-         "'charge_department', never the uppercase CHARGE_DEPARTMENT projection")
+    assert "charge_department" in kids and "CHARGE_DEPARTMENT" in kids, \
+        ("east5_stzfxxb must carry the lowercase partition twin "
+         "'charge_department' AND the uppercase R44 write twin "
+         "'CHARGE_DEPARTMENT'")
     # model-aligned: the model attributes nbjgh/xdhth/xdjjh/dkje to
-    # bdm_acc_loan_info (not east5) — the display must follow the model.
+    # bdm_acc_loan_info — and since R44 their write twins land on east5.
     for wc in ("nbjgh", "xdhth", "xdjjh", "dkje"):
-        assert wc not in kids, \
-            f"{wc} is sourced to bdm_acc_loan_info — must NOT land on east5"
         assert wc in bdm_kids, \
             f"{wc} must land on bdm_acc_loan_info (its model owner)"
+        assert wc in kids, \
+            f"{wc} must ALSO land on east5 as its R44 write-side twin"
 
 
 def test_t2_write_target_parent_at_classification(east5_ws):
@@ -287,6 +300,101 @@ def test_t2_dml_qo_routing_untouched(east5_ws):
             f"write leg into east5 must route through a ⟐ output VT, got {ed}"
 
 
+# ── T3 (table-dup audit 2026-08-28): MERGE target folds into the physical
+# keeper — a table that is MERGE-INTO'd in one statement and read in
+# another is ONE compound node (family-6 duplicate: source_table twin
+# beside an intermediate_table twin). The model already keys merge_target
+# occurrences by the raw physical name (kind "physical", roles
+# {merge_target, read}); the display fold now includes them.
+T3_MERGE_TWIN_SQL = """\
+MERGE INTO acc_master t
+USING acc_delta s
+ON t.acct_no = s.acct_no
+WHEN MATCHED THEN UPDATE SET t.balance = s.balance;
+SELECT a.balance FROM acc_master a;
+"""
+T3_MERGE_SCRIPT = "t3_merge_twin.sql"
+
+
+@pytest.fixture
+def merge_twin_ws():
+    ws_id = _make_ws(T3_MERGE_SCRIPT, T3_MERGE_TWIN_SQL)
+    yield ws_id
+    delete_workspace(ws_id)
+
+
+def test_t3_merge_target_folds_into_physical_keeper(merge_twin_ws):
+    """acc_master (MERGE target @TOP0 + read @TOP1) renders as ONE node
+    carrying BOTH statements' fields — the merge_target occurrence joins
+    the #288 case-folded physical fold. The keeper is a physical table in
+    either order: a non-output merge_target is a source_table (M7 — the
+    order-dependent intermediate_table classification was the bug)."""
+    res = _build_l2_graph(merge_twin_ws, T3_MERGE_SCRIPT, T3_MERGE_TWIN_SQL,
+                          "", "", False)
+    nodes = _nodes_by(res)
+    twins = [n for n in nodes.values()
+             if (n.get("table_name") or "").lower() == "acc_master"]
+    assert len(twins) == 1, \
+        f"acc_master must render as ONE node (MERGE target + read), " \
+        f"got {[(n['id'], n.get('type')) for n in twins]}"
+    keep = twins[0]
+    assert keep["type"] == "source_table", keep["type"]
+    assert {"acct_no", "balance"} <= _kids(nodes, keep["id"]), \
+        "the merged acc_master node must carry the MERGE-side fields"
+
+
+def test_t3_read_first_order_folds_too(merge_twin_ws):
+    """Occurrence order must not matter: read @TOP0 + MERGE @TOP1 is still
+    ONE acc_master node (keeper type source_table — the read came first).
+
+    M10: the statements are swapped WHOLE (never line-reversed — reversing
+    lines produced invalid SQL where the WHEN MATCHED clause preceded the
+    MERGE INTO head, so the "read first" order was never actually
+    exercised)."""
+    stmt1, stmt2 = T3_MERGE_TWIN_SQL.strip().split(";\n")
+    sql = f"{stmt2};\n{stmt1};\n"
+    name = "t3_merge_twin_rev.sql"
+    ws_id = _make_ws(name, sql)
+    try:
+        res = _build_l2_graph(ws_id, name, sql, "", "", False)
+        nodes = _nodes_by(res)
+        twins = [n for n in nodes.values()
+                 if (n.get("table_name") or "").lower() == "acc_master"]
+        assert len(twins) == 1, \
+            f"acc_master must be ONE node in either order, got {len(twins)}"
+        assert twins[0]["type"] == "source_table", twins[0]["type"]
+        assert "balance" in _kids(nodes, twins[0]["id"])
+    finally:
+        delete_workspace(ws_id)
+
+
+def test_t3_one_char_apart_tables_stay_distinct():
+    """Fold guard: bdm_acc_loan_info vs bdm_acc_loan_inf2 (Levenshtein 1)
+    are DIFFERENT tables — exactly two nodes, no cross-attribution."""
+    sql = ("SELECT a.c1 FROM bdm_acc_loan_info a;\n"
+           "SELECT b.c2 FROM bdm_acc_loan_inf2 b;\n")
+    name = "t3_onechar.sql"
+    ws_id = _make_ws(name, sql)
+    try:
+        res = _build_l2_graph(ws_id, name, sql, "", "", False)
+        nodes = _nodes_by(res)
+        counts = {}
+        for n in nodes.values():
+            key = (n.get("table_name") or "").lower()
+            if n.get("type") == "source_table" and key.startswith("bdm_acc_loan_inf"):
+                counts[key] = counts.get(key, 0) + 1
+        assert counts.get("bdm_acc_loan_info") == 1, counts
+        assert counts.get("bdm_acc_loan_inf2") == 1, counts
+        info_id = _table_id(nodes, "bdm_acc_loan_info")
+        inf2_id = _table_id(nodes, "bdm_acc_loan_inf2")
+        assert _kids(nodes, info_id) == {"c1"}, \
+            "c1 belongs to bdm_acc_loan_info only"
+        assert _kids(nodes, inf2_id) == {"c2"}, \
+            "c2 belongs to bdm_acc_loan_inf2 only"
+    finally:
+        delete_workspace(ws_id)
+
+
 # ── T2 (#289): the phantom-projection → write-target FALLBACK itself ──
 # EAST5 no longer contains a phantom-sourced projection (alias `a` resolves
 # to bdm_acc_entrusted_payment), so the fallback branch of
@@ -319,8 +427,11 @@ def test_t2_phantom_projection_renders_on_write_target(phantom_ws):
     _classify_compound_nodes), which parents the projection onto the write
     target's keeper. The sibling projection reading a REAL table (kept_amt)
     keeps its model owner real_src — the fallback never hijacks resolved
-    sources. A trailing no-INSERT contrast probe re-runs the same
-    projection as a bare SELECT: with no DML-target association nothing
+    sources — and since R44 (2026-08-28, user ruling "walker occurrence
+    coverage") ALSO renders its write-side twin
+    ``dwd_pay_detail.kept_amt`` on the write target (two instances: source
+    parent + write twin). A trailing no-INSERT contrast probe re-runs the
+    same projection as a bare SELECT: with no DML-target association nothing
     parents it, proving the write target (not the projection itself) is
     what fires the fallback."""
     # Extraction truth first: carried_amt IS phantom-sourced — its single
@@ -353,17 +464,28 @@ def test_t2_phantom_projection_renders_on_write_target(phantom_ws):
         assert len(got) == 1, f"{label} expected under exactly ONE parent, got {got}"
         return got.pop()
 
+    def _chip_owners(label):
+        return {d.get("parent") for d in nodes.values()
+                if d.get("type") == "field" and d.get("label") == label}
+
     target_id = _table_id(nodes, "dwd_pay_detail")
     assert target_id is not None, "write target dwd_pay_detail not found"
     src_id = _table_id(nodes, "real_src")
     assert src_id is not None, "real_src table not found"
-    # the phantom-sourced write column renders ON THE WRITE TARGET
+    # the phantom-sourced write column renders ON THE WRITE TARGET — and
+    # since R44 its write-side twin dwd_pay_detail.carried_amt lands on the
+    # SAME parent, so carried_amt stays single-parented.
     assert _chip_owner("carried_amt") == target_id, \
         "phantom-sourced carried_amt must render on the write target " \
         "dwd_pay_detail (the #289 fallback)"
-    # control: a resolvable projection keeps its real model owner
-    assert _chip_owner("kept_amt") == src_id, \
-        "kept_amt is sourced to real_src — the fallback must not take it"
+    # control: a resolvable projection keeps its real model owner — and
+    # since R44 (2026-08-28, user ruling "walker occurrence coverage") it
+    # ALSO renders its write-side twin dwd_pay_detail.kept_amt on the write
+    # target: TWO distinct instances (source parent + write twin — two
+    # field nodes, two parents), NOT one node flickering between parents.
+    assert _chip_owners("kept_amt") == {src_id, target_id}, \
+        "kept_amt must render on BOTH real_src (model owner) and " \
+        "dwd_pay_detail (R44 write twin)"
 
     # Contrast probe (no DML → no fallback): the SAME phantom projection in
     # a bare SELECT (no INSERT) owns no write target — write_field_target

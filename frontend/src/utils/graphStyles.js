@@ -14,6 +14,11 @@ export const NODE_STYLES = [
       'text-valign': 'bottom',
       'text-halign': 'center',
       'font-size': 12,
+      // R41: at overview zoom (<0.15) labels clamp to a 6px floor instead
+      // of smearing into illegibility — the accepted boxes-only overview
+      // (user ruling 2026-08-28). min-zoomed-font-size pins the floor, it
+      // never hides.
+      'min-zoomed-font-size': 6,
       'color': '#f0f0f0',
       'text-outline-color': '#1a1a2e',
       'text-outline-width': 1,
@@ -1175,20 +1180,44 @@ export const FILTER_CAPTION_STYLES = [
   },
 ];
 
-// v3.3.185 — the enlarged filter self-loop. Runtime e.style() is a silent
-// no-op in this cytoscape build, so the geometry rides the STYLESHEET via
-// per-edge data: useCytoscapeGraph adds class `filter-selfloop` and sets
-// `data.segp` (segment points in endpoint-relative model units) on every
-// merged FILTER self-loop; this rule draws it as a big, obvious polygon
-// OUTSIDE the box (edges paint under node fills, so the points reach well
-// past the border).
+// v3.3.191 — the enlarged filter self-loop, for real this time.
+//
+// The v3.3.185 attempt styled `curve-style: segments` + `segment-points:
+// data(segp)`. Both halves were inert: (a) cytoscape 3.34 HAS NO
+// `segment-points` property (segments are driven by `segment-weights` +
+// `segment-distances`) — the parsed stylesheet silently drops the unknown
+// property, so the segp data never reached the renderer; (b) even a working
+// `segments` curve-style cannot bend a self-edge: in the renderer's dispatch
+// the `source === target` branch (findLoopPoints) runs BEFORE the
+// segments/taxi branches, whatever curve-style says. A self-loop's ONLY
+// geometry levers are the loop properties: `control-point-step-size` (loop
+// radius), `loop-direction` (which side of the node it sprouts from) and
+// `loop-sweep` (arc span). Default step 40 measured 8×8 px at the 0.28 zoom
+// floor — invisible and un-clickable beneath the table box (nodes paint
+// above edges). This rule makes the REAL edge the big visible curve:
+//   - `control-point-step-size: data(loopstep)` — flowVisibility measures the
+//     table box and writes a per-edge step, because cytoscape scales the loop
+//     from the node CENTRE (1.4 × step along the loop axis): a fixed step
+//     that clears a small chip disappears inside a wide table box. The
+//     per-edge step targets a ~150 model-unit bulge past the LEFT border
+//     (≈42 px at the 0.28 zoom floor) for every table size.
+//   - loop-direction -90deg + sweep -90deg → the arc attaches to the table's
+//     LEFT border (top-left to bottom-left), the side the eye already
+//     associates with the filter (where the retired v3.3.186 bracket sat).
+// `edge.filter-selfloop` is composed AFTER L2_UNIFORM_EDGE_STYLES in the
+// assembled sheet (useCytoscapeGraph), so width/colour win the usual
+// specificity tie. flowVisibility.enlargeFilterSelfLoops writes the data and
+// mints the class (data first, then class — the mapping resolves on the
+// style recalc that follows the batch).
 export const FILTER_LOOP_GEOM_STYLES = [
   {
     selector: 'edge.filter-selfloop',
     style: {
-      'curve-style': 'segments',
-      'segment-points': 'data(segp)',
-      'width': 6,
+      'curve-style': 'bezier',
+      'control-point-step-size': 'data(loopstep)',
+      'loop-direction': '-90deg',
+      'loop-sweep': '-90deg',
+      'width': 7,
       'line-color': '#E74C3C',
       'target-arrow-color': '#E74C3C',
       'target-arrow-shape': 'triangle',
@@ -1198,9 +1227,13 @@ export const FILTER_LOOP_GEOM_STYLES = [
   },
 ];
 
-// v3.3.186 — the BIG visible filter loop: a synthetic node-node edge
-// (node-node edges render reliably; self-loop curves do not) drawn outside
-// the box between two invisible caption anchors.
+// v3.3.186 — RETIRED in v3.3.191. This styled the synthetic `capL_` bracket:
+// a straight node-node line drawn beside the table BECAUSE the real self-loop
+// could not be enlarged (the inert segment-points hack above). With the real
+// edge now carrying the visible curve, flowVisibility no longer mints the
+// bracket or its anchors — nothing matches this selector. The block stays
+// composed (useCytoscapeGraph) so stale classes on a resumed graph render
+// benignly instead of falling back to defaults.
 export const FILTER_LOOPLINE_STYLES = [
   {
     selector: 'edge.filter-loopline',
@@ -1256,12 +1289,16 @@ export const HOVER_EMPHASIS_STYLES = [
 export const STORY_STYLES = [
   { selector: '.story-dim', style: { opacity: 0.15 } },
   { selector: 'edge.story-active', style: { width: 5, 'z-index': 25 } },
-  // Guard (f648 finding): the Filtered step's only visible form in merged
-  // views is the filter loop-line + caption — the underlying self-loop is
-  // ~7px and the detailed FILTER edge renders 0x0 (field→own-table
-  // endpoints coincide). When a story step lights the loop-line it must
-  // GROW, never shrink (edge.story-active width 5 < loopline's 7), and the
-  // ⟂ caption must pop — later rule wins the specificity tie.
+  // Guard (f648 finding, updated v3.3.191): in merged views the Filtered
+  // step's visible form is now the REAL self-loop edge (edge.filter-selfloop,
+  // the big left-border curve) plus the ⟂ caption node — the synthetic
+  // loop-line bracket is retired. A story step lights the self-loop through
+  // its merged edge id, and it must GROW, never shrink (edge.story-active
+  // width 5 < selfloop's 7): later rule wins the specificity tie. The legacy
+  // loop-line guard is kept for resumed graphs that still carry the class.
+  { selector: 'edge.filter-selfloop.story-active',
+    style: { width: 9, 'z-index': 36, 'line-color': '#FF6B6B',
+             'target-arrow-color': '#FF6B6B' } },
   { selector: 'edge.filter-loopline.story-active',
     style: { width: 9, 'z-index': 36, 'line-color': '#FF6B6B',
              'target-arrow-color': '#FF6B6B', 'source-arrow-color': '#FF6B6B' } },

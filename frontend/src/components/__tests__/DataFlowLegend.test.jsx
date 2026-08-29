@@ -113,3 +113,42 @@ describe('DataFlowLegend — L1 branch unchanged (R28)', () => {
     expect(screen.queryByText('Source node')).not.toBeInTheDocument();
   });
 });
+
+// V2-N2 (2026-08-29): the Fit/Export controls used to float over the toolbar
+// and covered the right half of the L2 view-mode <select>. DataFlowGraph now
+// mounts them as the legend's `trailing` — an in-flow item of the legend's
+// wrapping row, so the legend grows a row instead of overlapping the toolbar.
+// (The no-overlap itself is geometry — asserted in the browser probe.)
+describe('DataFlowLegend — trailing content flows INSIDE the legend row (V2-N2)', () => {
+  const trailing = (
+    <div className="graph-extra-controls">
+      <button type="button" title="Fit (F)">🗺</button>
+      <button type="button" title="Export PNG">📷</button>
+    </div>
+  );
+
+  it('the L2 node-type legend renders trailing content inside its own box', () => {
+    const { container } = render(<DataFlowLegend level="L2" structureEdgesHidden structureEdgeCount={2} trailing={trailing} />);
+    const legend = container.querySelector('[data-testid="legend-l2-node-types"]');
+    expect(legend).toBeInTheDocument();
+    const controls = legend.querySelector('.graph-extra-controls');
+    expect(controls).not.toBeNull();
+    expect(controls.querySelector('[title="Fit (F)"]')).toBeInTheDocument();
+    expect(controls.querySelector('[title="Export PNG"]')).toBeInTheDocument();
+    // inside the legend row, i.e. a sibling of the legend items — never a
+    // floating sibling of the legend container
+    expect(controls.parentElement).toBe(legend);
+  });
+
+  it('the L1 legend renders the same trailing slot', () => {
+    const { container } = render(<DataFlowLegend level="L1" trailing={trailing} />);
+    const legend = container.querySelector('.dataflow-legend');
+    expect(legend.querySelector('.graph-extra-controls')).not.toBeNull();
+    expect(legend.lastElementChild.className).toBe('graph-extra-controls');
+  });
+
+  it('renders nothing extra when trailing is omitted', () => {
+    const { container } = render(<DataFlowLegend level="L2" />);
+    expect(container.querySelector('.graph-extra-controls')).toBeNull();
+  });
+});

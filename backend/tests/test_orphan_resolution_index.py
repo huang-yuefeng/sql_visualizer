@@ -6,8 +6,10 @@ TC1–TC5 per spec. Fixture pattern from test_orphan_fields.py
 The extractor emits `resolution_stats` in new analyses; the indexer must
 read it DEFENSIVELY (TC5 — old analyses without the key), aggregate it
 (TC1/TC4), run the S4b cross-script schema pass (scope-aware — candidates
-re-tested only within their own visible tables; TC1 is the never-guess
-regression: evidence table not visible → stays unresolved), and push the
+re-tested only within their own visible tables; TC3 is the never-guess
+ambiguity regression — TC1 was the 0-visible-owner case until R44
+(2026-08-28) made the INSERT target list authored evidence: the write-side
+twin attributes the DML target's columns at extraction time), and push the
 ORPHAN RESOLUTION REPORT (TC3) + expose resolution_stats on the response.
 """
 
@@ -30,11 +32,16 @@ from app.services.workspace_service import (
 from app.services.folder_index_service import index_scripts
 
 # TC1: bare `id` is not qualified anywhere (S1–S3 cannot attribute it: two
-# physical tables in scope). The only schema evidence for `id` lives in
-# table t1 (the INSERT target column list) — which the statement does NOT
-# reference in its FROM. S4b must NOT attribute (never-guess: the old
-# scope-blind S4 loop wrongly matched workspace-unique t1.id here; the
-# SELECT-side `id` belongs to a/b/expression, not t1).
+# physical tables in scope). Pre-R44 the only schema evidence for `id`
+# lived in t1's INSERT target column list, which read-scope visibility
+# excluded → stayed unresolved (the s4 never-guess regression).
+# R44 (2026-08-28, user ruling "walker occurrence coverage"): the INSERT
+# list `(id)` is authored SQL text = positive evidence, NOT a guess — the
+# extractor registers the write-side twin t1.id (attributed to t1,
+# extraction-time fact), so the statement DOES reference t1 (its DML
+# target) and the index records id → t1. INSERT-target attribution is
+# allowed under the occurrence-coverage ruling; never-guess governs
+# scope-INFERRED attribution only.
 TC1_SQL = (
     "INSERT INTO t1 (id) SELECT id FROM a JOIN b ON a.x = b.y;\n"
 )
@@ -111,22 +118,26 @@ def mwf_ws():
 
 
 def test_tc1_scope_absent_schema_owner_stays_unresolved(tc1_ws):
-    """S4b never-guess regression: `id`'s only schema evidence is in t1
-    (INSERT target list) but the SELECT's visible tables are {a, b} — 0
-    visible owners → UNRESOLVED. (The old scope-blind S4 loop attributed
-    workspace-unique t1.id here — that was the bug this replaces.)"""
+    """R44 amendment (2026-08-28, user ruling): the INSERT list `(id)` IS
+    authored evidence, so the bare SELECT-side `id` now attributes to the
+    DML target t1 via the extraction-time write-side twin t1.id — the
+    statement references t1 as its write target, read-scope-only
+    visibility no longer applies. The S4b SCHEMA strategy itself stays
+    untouched (by_strategy.schema == 0 — the twin is extractor-side, not
+    an index-time inference); never-guess still governs scope-INFERRED
+    attribution (see TC3's ambiguity case)."""
     result = index_scripts(tc1_ws, ["t.sql"])
     stats = result["resolution_stats"]
     assert stats["by_strategy"]["schema"] == 0, stats
-    assert result["orphan_field_count"] == 1, result["orphan_field_samples"]
-    assert result["orphan_field_samples"] == ["id"], result["orphan_field_samples"]
-    assert result["field_index"]["id"]["tables"] == [], \
-        "never attribute to a table the statement doesn't reference"
+    assert result["orphan_field_count"] == 0, result["orphan_field_samples"]
+    assert result["orphan_field_samples"] == [], result["orphan_field_samples"]
+    assert result["field_index"]["id"]["tables"] == ["t1"], \
+        "R44: the INSERT target list is authored evidence for t1.id"
     # persisted indexes must agree
     fi = json.loads((get_workspace_dir(tc1_ws) / "cache" / "field_index.json").read_text())
     ti = json.loads((get_workspace_dir(tc1_ws) / "cache" / "table_index.json").read_text())
-    assert fi["id"]["tables"] == [], fi["id"]
-    assert "id" not in ti["t1"]["fields"], ti["t1"]
+    assert fi["id"]["tables"] == ["t1"], fi["id"]
+    assert "id" in ti["t1"]["fields"], ti["t1"]
 
 
 def test_tc2_qualified_only_workflow_full_coverage(mwf_ws):

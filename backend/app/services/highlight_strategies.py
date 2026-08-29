@@ -134,6 +134,17 @@ def _anchor_line(e: dict, kind: str) -> int:
         # #226 — the nested subquery VT's creation line (the subquery
         # that does the row-selection the bridge carries).
         return src_line
+    if e.get("edge_type") == "WINDOW" and tgt_line >= 1:
+        # #387 (2026-08-28): window-key anchoring — a WINDOW edge's anchor
+        # is the window application's OWN line (the OVER clause sits on
+        # the window var, the edge's target), not the operand's line. The
+        # operand kept the anchor everywhere (RFN L464's X5GMAB SELECT
+        # projection anchored the ROW_NUMBER partition-key edge while the
+        # OVER line L473 — the line the user reads for the window key —
+        # never appeared in a flow-only closure). The operand provenance
+        # stays visible in the reason's ‖operand → window‖ segment; a
+        # target with no real line (0) keeps the operand line.
+        return tgt_line
     return src_line                # rule 1 — field-flow appearance line
 
 

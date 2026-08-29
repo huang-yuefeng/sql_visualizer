@@ -48,3 +48,14 @@ tools/e2e_test/ocr_lines_tmp.js
 
 # Playwright test artifacts (never commit — auto-generated per run)
 test-results/
+
+# Local working screenshots (never commit). The tracked evidence crops stay
+# tracked (screenshots/case1-*.png, case2-*.png, bug30_*, code*/… carry the
+# OCR re-derivation evidence); these five are the R40.8 loop-region working
+# set + one raw desktop capture — listed by name so `git add -A` can never
+# pick them up while the evidence crops remain committable.
+screenshots/Screenshot From 2026-08-27 21-51-59.png
+screenshots/crop_A_leftpanel_top.png
+screenshots/crop_B_top_stripe.png
+screenshots/crop_C_vertical.png
+screenshots/crop_D_loop_region.png

@@ -1,4 +1,4 @@
---**所属主题：账户主题  [known-invalid OCR fragment at lines 770, 818: dangling AND predicates — not valid on a real engine]
+--**所属主题：账户主题
 --**功能描述：[贷款业务借据表]保理场景数据处理
 --**目标表：[BDM_ACC_LOAN_INFO】【贷款业务借据表】
 --**源表名：
@@ -106,7 +106,7 @@ SELECT 'CNHSBC'||REPLACE(borrower_ids,'-','') AS cust_no
 ,'4','04'
 ,'5','05'
 ) AS grade
-,ROW_NUMBER() OVER(PARTITION BY REPLACE(borrower_ids,'_','') ORDER BY p_dt DESC) AS rn -- [OCR-UNCERTAIN: replace char '_' vs '-' ambiguous]
+,ROW_NUMBER() OVER(PARTITION BY REPLACE(borrower_ids,'-','') ORDER BY p_dt DESC) AS rn
 FROM ods_gdc_split_fg_rating m
 WHERE m.p_dt = (SELECT MAX(n.P_DT) FROM ods_gdc_split_fg_rating n WHERE n.P_DT <= TO_DATE(LASTDAY(TO_DATE('$(load_date)','yyy-mm-dd'))))
 ),
@@ -232,7 +232,7 @@ WHEN P1._COFSH ='0' THEN (CASE WHEN LENGTH(P1.TXHY) = 4 THEN SUBSTR(P2.YHDS50,50
 ELSE P1.TXHY
 END)
 END AS TXHY
-,CASE WHEN LENGTH(P1.TXHY) = 4 THEN SUBSTR(P2.YHDS50,50,1)||P1.TXHY -- [OCR-UNCERTAIN: second AS TXHY alias may be a different alias]
+,CASE WHEN LENGTH(P1.TXHY) = 4 THEN SUBSTR(P2.YHDS50,50,1)||P1.TXHY
 ELSE P1.TXHY
 END AS TXHY
 FROM (
@@ -249,7 +249,7 @@ WHERE A.P_DT = '$(load_date)'
 ) P1
 LEFT JOIN ODS_HUB_SSSTDPP P2
 ON P2.YHCODE = P1.TXHY
-AND P2.YHTBID = 'Y1' -- [OCR-UNCERTAIN: 'YI'→'Y1'?]
+AND P2.YHTBID = 'YI'
 AND P2.P_DT ='$(load_date)'
 ),
 TEMP_HKXX AS (
@@ -287,21 +287,26 @@ AND t.1104_report = 'G19'
 AND t.field IN ('LOAN_PURPOSE_SNI','LOAN_PURPOSE_CUL','LOAN_PURPOSE_IND_UPDATE_FLAG')
 AND t.vlookup_key ='LENDING_REF'
 ),
-TEMP_BDM_ACC_LOAN_INFO_1 AS (
+TEMP_BDM_ACC_LOAN_INFO_01 AS (
 SELECT P1.DKJJBM AS LENDING_REF --借据编号
 ,NULL AS PCB_ACCT_NO --账户标识码
 ,NULL AS APPLY_NO --申请号
 ,P1.XDHTH AS LIMIT_NO --额度编号
 ,P1.XDHTH AS CONTRACT_NO --合同号
 ,NULL AS ORG_NO --机构号
-,(CASE -- [OCR-UNCERTAIN: open paren assumed to balance closing ')']
-WHEN LENGTH(P1.IGJXA)>3 THEN CONCAT('CNHSBC',LPAD(SUBSTR(P1.IGJXA,-3),3,'0'))
+,(
+CASE WHEN LENGTH(P1.IGJXA)>3 THEN CONCAT('CNHSBC',LPAD(SUBSTR(P1.IGJXA,-3),3,'0'))
 ELSE CONCAT('CNHSBC',LPAD(P1.IGJXA,3,'0'))
-END) AS BRANCH_CODE --内部核算机构号
+END
+) AS BRANCH_CODE --内部核算机构号
 ,SUBSTR(P1.XDHTH,1,15) AS CUST_NO --客户号
 ,NULL AS ITEM_CODE --科目号
 ,NULL AS LRR_KEY_ITEM_CODE --LRRKey科目号
-,'A15000' AS HUB_ITEM_CODE --HUB科目号 -- [OCR-UNCERTAIN: HUB_ITEM_CODE CASE WHEN/THEN branch unreadable; collapsed to its legible ELSE value 'A15000']
+,(
+CASE WHEN SUBSTR(P1.IGNOA,1,1) = 'R' THEN 'A18017'
+ELSE 'A15000'
+END
+) AS HUB_ITEM_CODE --HUB科目号
 ,NULL AS NOMINAL_ACC --COA科目
 ,NULL AS FTP_PRODUCT_CODE --FTP产品编码
 ,'03' AS BUSINESS_TYPE --信贷业务种类
@@ -317,17 +322,21 @@ END) AS BRANCH_CODE --内部核算机构号
 ,P1.FFJE AS LOAN_AMT --放款金额
 ,P1.JYYE AS LOAN_BAL --本金余额
 ,NULL AS RESERVE --减值准备
-,NULL AS LOAN_GRADE --五级分类 -- [OCR-UNCERTAIN: code for line with '五级分类' comment not captured]
+,DECODE(TRIM(P3.C_CRG2),'1','01','2','02','3','03','4','04','5','05',NULL) AS LOAN_GRADE --五级分类
 ,P1.FFRQ AS ISSUE_DT --贷款发放日期
 ,P1.FFRQ AS SRC_ISSUE_DT --源系统贷款发放日期
 ,P1.DQRQ AS LOAN_ORI_MATURITY_DT --贷款原始到期日期
-,P1.DQRQ AS LOAN_MATURITY_DT --贷款最新到期日期 -- [OCR-UNCERTAIN: LOAN_MATURITY_DT CASE WHEN/THEN branch unreadable; collapsed to its legible ELSE value P1.DQRQ]
+,CASE WHEN P1.DQRQ='99991231' THEN '21001231'
+ELSE P1.DQRQ
+END AS LOAN_MATURITY_DT --贷款最新到期日期
 ,P1.DQRQ AS SETTLE_DT --实际终止日期
-,CASE WHEN SUBSTR(P1.IGNBA,1,3) IN ('LPe','ZBR') THEN 'F'
+,CASE WHEN SUBSTR(P1.IGNBA,1,3) IN ('LP0','ZBR') THEN 'F'
 ELSE 'L'
 END AS RATE_FLOAT_TYPE --利率类型
 ,'1' AS RATE_FLOAT_FREQ --利率浮动频率
-,NULL AS BASE_RATE_TYPE --基准利率类型 -- [OCR-UNCERTAIN: BASE_RATE_TYPE CASE WHEN/THEN branch unreadable; collapsed to its legible ELSE value NULL]
+,CASE WHEN SUBSTR(P1.IGNBA,1,3) IN ('LP0','LP1') THEN 'TR05'
+ELSE NULL
+END AS BASE_RATE_TYPE --基准利率类型
 ,P8.X5INR1 AS BASE_RATE --基准利率
 ,P4.IGNOA AS ACTUAL_RATE --实际利率
 ,P1.DQRQ AS NEXT_RATE_CHANGE_DT --下一贷款利率重新定价日
@@ -339,7 +348,9 @@ END AS RATE_FLOAT_TYPE --利率类型
 ,'0' AS INTEREST --应收利息
 ,P1.IGJQA AS LOAN_IN_ACCT_NO --贷款入账账号
 ,NULL AS LOAN_IN_ACCT_NAME --贷款入账户名
-,NULL AS LOAN_IN_BANK_NO --贷款入账行号 -- [OCR-UNCERTAIN: LOAN_IN_BANK_NO CASE WHEN/THEN branch unreadable; collapsed to its legible ELSE value NULL]
+,CASE WHEN P1.IGJQA IS NOT NULL OR SUBSTR(P1.IGJQA,4,1)<>'9' THEN CONCAT('CNHSBC',SUBSTR(P1.IGJQA,1,3))
+ELSE NULL
+END AS LOAN_IN_BANK_NO --贷款入账行号
 ,NULL AS LOAN_IN_BANK_NAME --贷款入账行名
 ,'1' AS TOTAL_PERIOD --总期数
 ,'1' AS CURR_PERIOD --当前期数
@@ -478,7 +489,7 @@ ON p8.X5CTCD = 'CN'
 AND p8.X5GMAB ='HSBC'
 AND p8.X5CYCD = p7.IACYCD
 AND p8.X5RTTY = SUBSTR(P1.IGNBA,1,3)
-AND REPLACE(p8.X5TERM,' ','') = REPLACE(P1.X5TERM,' ','') -- [OCR-UNCERTAIN: RHS of REPLACE comparison not captured; reconstructed as REPLACE(P1.X5TERM,' ','') matching the p8.X5RTTY=SUBSTR(P1.IGNBA,1,3) term-code pattern]
+AND REPLACE(p8.X5TERM,' ','') = ''
 AND p8.NUM = 1
 ),
 TEMP_BDM_ACC_LOAN_INFO_02 AS (
@@ -519,8 +530,8 @@ WHEN P1.LENDING_REF='RFN206192022031800001' THEN '2025-03-17'
 WHEN P1.LENDING_REF='RFN208892022030200001' THEN '2026-12-20'
 WHEN P1.LENDING_REF='RFN210162022031800001' THEN '2026-06-20'
 WHEN P1.LENDING_REF='RFN211122022022200001' THEN '2024-10-12'
-WHEN P1.LENDING_REF='RFN2107512024012600002' THEN '2025-11-30' -- [OCR-UNCERTAIN: LENDING_REF digits]
-WHEN P1.LENDING_REF='RFN2124712024012600002' THEN '2025-01-27' -- [OCR-UNCERTAIN: LENDING_REF digits]
+WHEN P1.LENDING_REF='RFN21075212024012600002' THEN '2025-11-30'
+WHEN P1.LENDING_REF='RFN21247212024012600002' THEN '2025-01-27'
 --因历史遗留问题以及系统录入问题，对六笔借据特殊处理
 WHEN P1.LENDING_REF='RFN20619112024043000001' THEN '2024-12-31'
 WHEN P1.LENDING_REF='RFN20889112023063000001' THEN '2024-12-31'
@@ -568,7 +579,7 @@ END --20250806(HBCNRDQE-3951)
 --首次发放+交易类型：融资发放（借据号最后数字为2)
 WHEN SUBSTR(P1.LENDING_REF,-1) = '2'
 THEN CASE WHEN SUBSTR(P1.IGNOA,-1) IN ('L') AND NVL(p19.dqrq_normal,'')<>'' THEN LEAST(CAST(DATE(p19.dqrq_normal) AS STRING),CAST(DATEADD(DATE(TO_DATE(p1.issue_dt,'YYYYMMDD')),CAST(SUBSTR(p1.IGNBA,5,4) AS BIGINT),'dd') AS STRING))
-WHEN SUBSTR(P1.IGNOA,-1) IN ('L') AND NVL(p19.dqrq_normal,'')='' THEN LAST_DAY(DATEADD(DATE('$(load_date)'),1,'mm')) -- [OCR-UNCERTAIN: exact WHEN condition for this branch]
+WHEN SUBSTR(P1.IGNOA,-1) IN ('L') AND NVL(p19.dqrq_normal,'')='' THEN LAST_DAY(DATEADD(DATE('$(load_date)'),3,'mm'))
 WHEN SUBSTR(P1.IGNOA,-1) NOT IN ('L') AND NVL(p14.dqrq_normal,'')<>'' THEN p14.dqrq_normal
 WHEN SUBSTR(P1.IGNOA,-1) NOT IN ('L') AND NVL(p14.dqrq_normal,'')='' THEN LAST_DAY(DATEADD(DATE('$(load_date)'),1,'mm'))
 END --20250806(HBCNRDQE-3951)
@@ -591,7 +602,12 @@ TO_DATE(P1.LOAN_MATURITY_DT,'YYYYMMDD')
 ,P1.SRC_INT_PAY_METHOD AS SRC_INT_PAY_METHOD --源系统还息频率
 ,P1.INT_CCY_CODE AS INT_CCY_CODE --利息币种
 ,P1.INTEREST AS INTEREST --应收利息
-,NVL(CONCAT('CNHSBC',P1.LOAN_IN_ACCT_NO),P1.CONTRACT_NO) AS LOAN_IN_ACCT_NO --贷款入账账号 -- [OCR-UNCERTAIN: LOAN_IN_ACCT_NO CASE WHEN/THEN branch unreadable; collapsed to its legible ELSE value CONCAT('CNHSBC',P1.LOAN_IN_ACCT_NO)]
+,NVL(
+    CASE WHEN P1.LOAN_IN_ACCT_NO IS NULL OR SUBSTR(P1.LOAN_IN_ACCT_NO,4,1)='9' THEN P5.LOAN_IN_ACCT_NO
+        ELSE CONCAT('CNHSBC',P1.LOAN_IN_ACCT_NO)
+    END
+    ,P1.CONTRACT_NO
+) AS LOAN_IN_ACCT_NO --贷款入账账号
 ,CASE WHEN NVL(P12.COUNTRY_CODE,'') NOT IN ('CHN','TWN','MAC','HKG') THEN NVL(CASE WHEN TRIM(P9.CUST_NAM_EN)='' THEN NULL ELSE P9.CUST_NAM_EN END, P9.CUST_NAM_CH)
 ELSE NVL(CASE WHEN TRIM(P9.CUST_NAM_CH)='' THEN NULL ELSE P9.CUST_NAM_CH END, P9.CUST_NAM_EN)
 END AS LOAN_IN_ACCT_NAME --贷款入账户名
@@ -610,9 +626,24 @@ END
 ,P1.TOTAL_DEBT_PERIOD AS TOTAL_DEBT_PERIOD --累计欠款期数
 ,P1.REPAY_MODE AS REPAY_MODE --还款方式
 ,P1.SRC_REPAY_MODE AS SRC_REPAY_MODE --源系统还款方式
-,NVL(P1.REPAY_ACCT_NO,NVL(CONCAT('CNHSBC',P1.LOAN_IN_ACCT_NO),P1.CONTRACT_NO)) AS REPAY_ACCT_NO --还款账号 -- [OCR-UNCERTAIN: nested REPAY_ACCT_NO CASE WHEN/THEN branch unreadable; collapsed to its legible ELSE value CONCAT('CNHSBC',P1.LOAN_IN_ACCT_NO)]
+,NVL(
+    P1.REPAY_ACCT_NO
+    ,NVL(
+        CASE WHEN P1.LOAN_IN_ACCT_NO IS NULL OR SUBSTR(P1.LOAN_IN_ACCT_NO,4,1)='9' THEN P5.LOAN_IN_ACCT_NO
+            ELSE CONCAT('CNHSBC',P1.LOAN_IN_ACCT_NO)
+        END
+        ,P1.CONTRACT_NO
+    )
+) AS REPAY_ACCT_NO --还款账号
 ,NVL(P8.ORG_NO,NVL(P6.ORG_NO,P5.LOAN_IN_BANK_NO)) AS REPAY_BANK_NO --还款账号所属行号
-,NVL(P8.ORG_NAME,NVL(P5.LOAN_IN_BANK_NAME,P1.CONTRACT_NO)) AS REPAY_BANK_NAME --还款账号所属行名 -- [OCR-UNCERTAIN: nested REPAY_BANK_NAME CASE WHEN/THEN branch unreadable; collapsed to its legible ELSE value P5.LOAN_IN_BANK_NAME]
+,NVL(
+    P8.ORG_NAME
+    ,(
+        CASE WHEN SUBSTR(P1.LOAN_IN_BANK_NO,1,9) IS NOT NULL THEN P6.ORG_NAME
+            ELSE P5.LOAN_IN_BANK_NAME
+        END
+    )
+) AS REPAY_BANK_NAME --还款账号所属行名
 ,NVL(P12.COUNTRY_CODE,'') AS LOAN_PURPOSE_COUNTRY_CODE --贷款投向国家
 ,NVL(SUBSTR(P10.YHDS50,1,6),P5.LOAN_PURPOSE_DIST) AS LOAN_PURPOSE_DIST --贷款投向地区
 ,P1.LOAN_PURPOSE_INDU AS LOAN_PURPOSE_INDU --投向行业
@@ -760,14 +791,14 @@ AND P12.ADD_STATUS = '1'
 AND P12.DATA_DT = '${load_date}'
 LEFT JOIN temp_dqrq_bulk p13
 ON SUBSTR(p1.lending_ref,4,5) = lpad(p13.acct_no,5,'0')
-LEFT JOIN temp_dqrg_normal_01 p14
+LEFT JOIN temp_dqrq_normal_01 p14
 ON SUBSTR(p1.lending_ref,4,5) = lpad(p14.acct_no,5,'0')
 JOIN (  -- 20240229修改科技贷款逻辑
     SELECT DISTINCT vlookup_key_value AS CUST_NO
     ,'Y' AS KJDK_FLAG
     FROM ods_cdp_gdc_label_fin
-    WHERE 1104_report = 'G19'  -- [OCR-UNCERTAIN: value shown as 's70']
-    AND  -- known-invalid OCR fragment: dangling AND predicate (not valid on a real engine) -- AND field = 'IS_SIENCE_TECH' AND value = '1'  -- 20240401增的数据
+    WHERE 1104_report = 'S70'      --AND field = 'IS_SIENCE_TECH' AND value = '1'
+    AND      P_DT = (SELECT MAX(p_dt) FROM ods_cdp_gdc_label_fin WHERE p_dt <= TO_DATE(LASTDAY(TO_DATE('$(load_date)','yyyy-mm-dd'))) AND 1104_report = 'S70'  )   --AND field = 'IS_SIENCE_TECH' AND value = '1'  --20240401增的数据
 ) KJDK
 ON P1.CUST_NO = KJDK.CUST_NO
 LEFT JOIN ods_gdc_split_fg_rating_temp gdc_wjfl  -- 五级形态手工表
@@ -815,7 +846,7 @@ ON stzf.lending_ref = P1.LENDING_REF
 AND SUBSTR(stzf.p_dt,1,7) = SUBSTR('${load_date}',1,7)
 LEFT JOIN ODS_GDC_RFN_RATE p15
 ON p15.contract_no = P1.CONTRACT_NO
-AND  -- known-invalid OCR fragment: dangling AND predicate (not valid on a real engine) [OCR-UNCERTAIN: dangling AND - following condition not captured]
+AND p15.p_dt = (SELECT MAX(p_dt) FROM ODS_GDC_RFN_RATE WHERE p_dt <= TO_DATE(LASTDAY(TO_DATE('$(load_date)','yyyy-mm-dd'))))
 LEFT JOIN temp_1104_G19 p16
 ON p16.lending_ref = p1.lending_ref
 AND p16.bdm_table_field = 'LOAN_PURPOSE_SNI'
@@ -830,6 +861,7 @@ ON p1.lending_ref = p19.dkjjbm
 LEFT JOIN bdm_sys_bdm_acc_loan_info p20
 ON p20.lending_ref = p1.lending_ref
 WHERE 1 = 1
+)
 
 
 INSERT OVERWRITE TABLE bdm_acc_loan_info PARTITION (data_dt = '${load_date}',CHARGE_DEPARTMENT='GTRF_RFN')
@@ -866,8 +898,9 @@ SELECT A.LENDING_REF  -- 借据编号
 ,A.SRC_ACCT_OPEN_DT  -- 源系统开户日期
 ,A.ISSUE_DT  -- 贷款发放日期
 ,A.SRC_ISSUE_DT  -- 源系统贷款发放日期
-,CASE WHEN NVL(A.LOAN_ORI_MATURITY_DT,'')<>'' THEN A.LOAN_ORI_MATURITY_DT  -- 贷款原始到期日期 -- [OCR-UNCERTAIN: outer CASE opening / WHEN condition (original line 927) unreadable — reconstructed as NVL(...)<>'' from the legible THEN value A.LOAN_ORI_MATURITY_DT + the "系统报送掉落→兜底" comment]
--- 3.以上逻辑取得的到期日仍小于放款日期，如果系统报送的确掉落的话，则兜底到期日期=放款日期+1day
+,A.LOAN_ORI_MATURITY_DT  -- 贷款原始到期日期
+-- 3.以上逻辑取得的到期日仍小于放款日期，如果系统报送的确掉落的话，则兜底到期日期 = 放款日期 + 1 day
+,CASE WHEN A.ISSUE_DT <> '$(load_date)' AND '$(load_date)' <> '2024-08-31' AND NVL(A.LOAN_ORI_MATURITY_DT,'') <> '' THEN A.LOAN_ORI_MATURITY_DT
 ELSE CASE WHEN
     (CASE WHEN SUBSTR(A.LENDING_REF,-1)='2' AND A.IGJYA='R'  -- 有追授信情况下（IGJYA=R），本金原有贷款到期日+加graceperiod宽限期<FCLETWK.
           THEN DATEADD(DATE(A.LOAN_ORI_MATURITY_DT),CAST(NVL(A.IGNDA,0) AS BIGINT),'dd')
@@ -1044,7 +1077,7 @@ END AS LOAN_ORI_MATURITY_DT
 ,NULL AS RESERVED_8
 ,NULL AS RESERVED_9
 ,NULL AS RESERVED_10
-,SUBSTR(A.IGNBA,1,3) AS RESERVED_10  -- [OCR-UNCERTAIN: both NULL and SUBSTR captured for RESERVED_10]
+,SUBSTR(A.IGNBA,1,3) AS RESERVED_10
 ,NULL AS RESERVED_11
 ,NULL AS RESERVED_12
 ,NULL AS RESERVED_13
@@ -1079,7 +1112,7 @@ WHEN EXISTS(
     WHERE b.p_dt = (select max(p_dt) p_dt from ODS_GDC_DATAMASK_WHITE_LIST_CDT_PSV_OPSS)  -- 最新的脱敏白名单数据
     AND nvl('1',b.p_dt) = nvl('1',a.dis_data_date)  -- 必须加一个恒等式
     AND LOWER(A.loan_in_acct_name) like concat('%',LOWER(b.datamask_keywords),'%')
-    THEN 'NI'
+    ) THEN 'NI'
 WHEN regexp_instr(A.LOAN_IN_ACCT_NAME,'[0-9]+$') > 0  -- 判断客户名称是否含有数字
 OR (regexp_instr(A.LOAN_IN_ACCT_NAME,'[A-Za-z]+$') >= 1 AND length(A.LOAN_IN_ACCT_NAME) <> lengthb(A.LOAN_IN_ACCT_NAME))  -- 判断客户名称是否同时含有中文和英文
 THEN 'NI'
@@ -1393,13 +1426,14 @@ AND NOT EXISTS (SELECT 1 FROM bdm_acc_loan_info B WHERE B.CHARGE_DEPARTMENT = 'G
 
 
 -- 操作日志记录
+INSERT INTO TABLE rrcdm_job_log_exec_par( data_dt ,object_domain ,sub_src_system ,table_name ,job_name ,total_rows ,load_time ,STATUS ,remarks )
 SELECT '${load_date}' AS data_dt
 ,'BDM' AS object_domain
 ,'Acc' AS sub_src_system
 ,'BDM_ACC_LOAN_INFO' AS table_name
 ,'BDM_ACC_LOAN_INFO_RFN' AS job_name
 ,COUNT(1) AS total_rows
-,getdate() AS load_time  -- [OCR-UNCERTAIN: leading char ambiguous (',' vs '--')]
+,getdate() AS load_time
 ,'Y' AS STATUS
 ,NULL AS remarks
 FROM bdm_acc_loan_info

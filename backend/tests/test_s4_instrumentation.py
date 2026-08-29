@@ -118,14 +118,25 @@ def test_system_schema_refs_not_evidence():
 # ── Source 2: DML target column lists → script_schemas ──────────────────
 
 def test_insert_list_evidence_no_column_vars():
-    """INSERT INTO t (a,b) SELECT … → evidence for t; NO new column vars."""
+    """INSERT INTO t (a,b) SELECT … → evidence for t; write-target twins.
+
+    R44 (2026-08-28, user ruling "walker occurrence coverage"): the two
+    projections x,y each materialize their WRITE-TARGET occurrence as a
+    column var (t.x, t.y — attributed to t, is_output, the projection's
+    line). Naming a column in an INSERT list / writing a projection into
+    a target is authored SQL text = positive evidence, NOT a guess:
+    INSERT-target attribution is allowed under the occurrence-coverage
+    ruling; the s4 never-guess principle governs scope-INFERRED
+    attribution only. The INSERT list names (a, b) themselves still
+    create NO column vars — only schema evidence below."""
     r = extract_variables_from_sql(
         "INSERT INTO t (a,b) SELECT x,y FROM s", "s4a_ins")
     stats = r.resolution_stats
     assert stats["script_schemas"]["t"] == {"a": 1, "b": 1}, stats
-    # total_columns unchanged: only x,y (the SELECT source) are column vars
-    assert stats["total_columns"] == 2, stats
+    # x, y (the SELECT source) + their write-target twins t.x, t.y (R44)
+    assert stats["total_columns"] == 4, stats
     assert stats["total_columns"] == len(_col_vars(r)), stats
+    assert sorted(v.name for v in _col_vars(r)) == ["t.x", "t.y", "x", "y"]
     assert not [v for v in _col_vars(r) if v.name in ("a", "b")]
 
 

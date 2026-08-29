@@ -1,35 +1,40 @@
-"""CW-R29 / CR9: router-level direction journey test over real HTTP.
+"""Direction contract over real HTTP — K4 ruling 4 (2026-08-28).
 
-The full-HTTP suite (test_full_http_journey.py) drives the complete user
-flow end-to-end but only for the DEFAULT direction. R29 (2026-08-12)
-introduced the directional projection (upstream = the field's WRITING
-flow, downstream = the byte-identical legacy READING flow) and CR9 closes
-the router-level gap: the direction value must be validated at the
-boundary, echoed on /search, persisted on the view, restored on GET
-/level1|/level2, and honored by the L2 not-in-flow message + the R29 role
-flip.
+R29 (2026-08-12) introduced the directional projection (upstream = the
+field's WRITING flow, downstream = the byte-identical legacy READING flow)
+and defaulted the API to "upstream". R38 (v3.3.180) then removed the
+frontend Upstream/Downstream switch and declared "downstream" the only
+direction — but the API kept defaulting to, and honoring, "upstream", so a
+direct API caller (or any client still sending the legacy value) got a
+DIFFERENT graph than the UI for the same search.
+
+K4 ruling 4 closes that gap at the router boundary:
+
+  * an ABSENT `direction` → "downstream";
+  * a legacy "upstream" → COERCED to "downstream" (accepted, never
+    honored — the R38 legacy treatment);
+  * "downstream" → unchanged;
+  * anything else ("UPSTREAM", a typo, an empty string, a non-string JSON
+    value such as a dict/list) → 400.
+
+The upstream walker machinery below the router is untouched
+(API-unreachable now; its retirement is a separate work item). The
+explicit-upstream journey tests that used to live here were RETIRED with
+this ruling — they pinned the pre-R38 default and are unreachable over
+HTTP; the ONE coercion test below keeps the whole journey covered.
 
 This test drives the real FastAPI app through TestClient over the actual
 samples/sql_sample_v1 workspace (the 3-script workspace of the four
 GROUND_TRUTH docs — the R29 flagship):
 
   upload (zip) → index → POST /search (direction) → GET /level1 (direction
-  echo + persistence + ?direction override) → GET /level2 (upstream
-  writing-flow message + role flip) → no_flow case → delete
+  echo + persistence + ?direction override) → delete
 
 Assertions are grounded in the R29 ground truth docs, NOT in any engine
-output:
-
-  * bdm_acc_loan_info.lending_ref upstream = the transitive WRITING chain
-    (GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §2.1/§3.1): only
-    BDM_ACC_LOAN_INFO_Digitallending.sql WRITES the field. SUP_M reads it
-    (p1.lending_ref) but never writes it — it is in the matching script
-    set (it touches table+field) yet absent from the upstream L1 graph,
-    and its L2 renders the "not in the writing flow" state.
-  * ods_hie_ipacmsp.iiapty upstream = EMPTY (ODS source, no writers —
-    GROUND_TRUTH_ODS_HIE_IPACMSP.md §2.1): match_mode "no_flow", and the
-    persisted view re-projects to the non-empty downstream closure when
-    GET /level1 is called with ?direction=downstream (CR3).
+output: bdm_acc_loan_info.lending_ref downstream = the transitive reading
+closure (GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §2.2) = {DL, PL,
+SUP_M}; rrcdm_job_log_exec_par.data_dt downstream = the writer's own leg
+(GROUND_TRUTH_RRCDM_JOB_LOG_EXEC_PAR.md §2.2), never empty.
 
 Teardown deletes the workspace on both success and failure.
 """
@@ -56,6 +61,7 @@ SAMPLE_NAMES = [
 ]
 
 DL = "BDM_ACC_LOAN_INFO_Digitallending.sql"
+PL = "BDM_ACC_LOAN_INFO_PL.sql"
 SUP_M = "BDM_ACC_LOAN_INFO_SUP_M.sql"
 
 
@@ -112,19 +118,19 @@ def _search(client, ws_id, table, field, direction):
     return r.json()
 
 
-def _table_node_by_name(graph, table_name):
-    return next((n["data"] for n in graph["nodes"]
-                 if n["data"].get("table_name") == table_name), None)
+def _script_labels(graph) -> set:
+    return {n["data"]["label"] for n in graph["nodes"]
+            if n["data"]["type"] == "script_node"}
 
 
 # ══════════════════════════════════════════════════════════════════════
 # CR2: direction validated once at the router boundary (400 on anything
-# outside {upstream, downstream}); default when absent is "upstream".
+# outside {upstream, downstream}); absent → "downstream" (K4 ruling 4).
 # ══════════════════════════════════════════════════════════════════════
 
 def test_search_invalid_direction_400(r29_ws):
     """CR2: a typo / uppercase / empty direction is a 400, never a silent
-    fall-through to the downstream branch."""
+    fall-through to a branch."""
     client, ws_id, _ = r29_ws
     for bad in ("UPSTREAM", "sideways", ""):
         r = client.post(f"/api/workspace/{ws_id}/search",
@@ -132,173 +138,79 @@ def test_search_invalid_direction_400(r29_ws):
                               "field": "lending_ref",
                               "direction": bad})
         assert r.status_code == 400, (bad, r.status_code, r.text)
-    # Absent direction defaults to upstream (the documented R29 default).
+    # Absent direction → "downstream" (K4 ruling 4 — the only direction).
     r = client.post(f"/api/workspace/{ws_id}/search",
                     json={"table": "bdm_acc_loan_info", "field": "lending_ref"})
     assert r.status_code == 200, r.text
-    assert r.json()["direction"] == "upstream", r.json()
+    assert r.json()["direction"] == "downstream", r.json()
+
+
+def test_search_non_string_direction_400_not_500(r29_ws):
+    """A JSON body may carry a NON-STRING `direction` (dict / list / number /
+    bool — `body: dict` passes them straight through). The guard must type-
+    check BEFORE the allowlist membership test: `{"x": 1} in {"upstream",
+    "downstream"}` raises TypeError (unhashable operand) and surfaced as a
+    500 instead of the contract 400.
+    """
+    client, ws_id, _ = r29_ws
+    for bad in ({"x": 1}, ["upstream"], {"direction": "upstream"}, 7, True):
+        r = client.post(f"/api/workspace/{ws_id}/search",
+                        json={"table": "bdm_acc_loan_info",
+                              "field": "lending_ref",
+                              "direction": bad})
+        assert r.status_code == 400, (bad, r.status_code, r.text)
+        assert "must be 'downstream'" in r.json()["detail"], (bad, r.text)
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Direction echo + persistence + override over the real HTTP journey.
+# K4 ruling 4: a legacy "upstream" request is COERCED — accepted, never
+# honored. The one journey test that survives the ruling.
 # ══════════════════════════════════════════════════════════════════════
 
-def test_search_direction_echo_persist_and_l1_override(r29_ws):
-    """POST /search echoes direction; GET /level1 restores the persisted
-    direction on reload and honors an explicit ?direction override.
+def test_search_upstream_request_coerced_to_downstream(r29_ws):
+    """direction:"upstream" → the DOWNSTREAM graph + a "downstream" echo.
 
-    Seed: bdm_acc_loan_info.lending_ref upstream = the WRITING chain
-    (GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §2.1). Matching script
-    set = {DL, SUP_M} (both touch table+field), but the upstream L1
-    projection contains ONLY the writer DL — SUP_M reads the field, it is
-    not in the writing flow.
+    Seed: bdm_acc_loan_info.lending_ref downstream = the transitive reading
+    closure (GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §2.2) — the
+    writer DL (A.acctnbr AS LENDING_REF @101), the writer PL (LENDING_REF
+    @21) and the reader SUP_M (p1.lending_ref). The pre-ruling upstream
+    projection kept the reader OUT (writers only) — the coercion must NOT
+    return that graph. F5 (audit #383, R2.10) resolves the field
+    CASE-INSENSITIVELY, so the matching set is the union of the case
+    variants = doc §2.2's {DL, PL, SUP_M}.
     """
     client, ws_id, _ = r29_ws
 
     s = _search(client, ws_id, "bdm_acc_loan_info", "lending_ref", "upstream")
-    assert s["direction"] == "upstream", s
+    assert s["direction"] == "downstream", s
     assert s["match_mode"] == "exact", s
-    # The matching set (field ∩ table scripts), NOT the directional graph's
-    # script set — SUP_M touches the field but is absent from the upstream
-    # L1 graph (asserted below).
-    assert s["script_ids"] == [DL, SUP_M], s
+    assert s["script_ids"] == [DL, PL, SUP_M], s
     l1 = s["l1_graph"]
     assert l1.get("flow_empty") is False, l1
-    assert {n["data"]["label"] for n in l1["nodes"]
-            if n["data"]["type"] == "script_node"} == {DL}, l1
+    # The reading closure — NOT the writers-only upstream projection.
+    assert _script_labels(l1) == {DL, PL, SUP_M}, l1
     view_id = s["view_id"]
 
-    # GET /level1 without a direction param restores the persisted one.
+    # The coerced value is what persists, so a reload restores downstream.
     r = client.get(f"/api/workspace/{ws_id}/views/{view_id}/level1")
     assert r.status_code == 200, r.text
     l1r = r.json()
-    assert l1r["direction"] == "upstream", l1r
-    assert l1r["script_ids"] == [DL, SUP_M], l1r
-    assert l1r["l1_graph"].get("flow_empty") is False, l1r
-    assert {n["data"]["label"] for n in l1r["l1_graph"]["nodes"]
-            if n["data"]["type"] == "script_node"} == {DL}, l1r
+    assert l1r["direction"] == "downstream", l1r
+    assert _script_labels(l1r["l1_graph"]) == {DL, PL, SUP_M}, l1r
 
-    # GET /level1 with an explicit ?direction override re-projects.
+    # A legacy ?direction=upstream override on the SAME view is coerced too.
     r = client.get(f"/api/workspace/{ws_id}/views/{view_id}/level1",
-                   params={"direction": "downstream"})
+                   params={"direction": "upstream"})
     assert r.status_code == 200, r.text
-    l1d = r.json()
-    assert l1d["direction"] == "downstream", l1d
-    # Downstream lending_ref = the transitive effect scope (doc §2.2,
-    # REPAIRED 2026-08-12): the READING flow starts at the READ instances,
-    # which live ONLY in SUP_M (the sup-write statement's join-key usages).
-    # DL/PL carry the seed's WRITE instance (the upstream side) — the
-    # mirror of the upstream projection.
-    assert {n["data"]["label"] for n in l1d["l1_graph"]["nodes"]
-            if n["data"]["type"] == "script_node"} == {SUP_M}, l1d
+    l1o = r.json()
+    assert l1o["direction"] == "downstream", l1o
+    assert _script_labels(l1o["l1_graph"]) == {DL, PL, SUP_M}, l1o
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Upstream L2: the "not in the writing flow" message + the R29 role flip.
+# Downstream guard (explicit downstream — unchanged by the ruling): the
+# writer's own leg is a real reading flow, never a false "no flow" pin.
 # ══════════════════════════════════════════════════════════════════════
-
-def test_l2_upstream_writing_flow_message(r29_ws):
-    """GET /level2 on the upstream view for a script that READS but never
-    WRITES the seed → search_matched False + the writing-flow message
-    (dataflow_service._not_in_flow branch), with the full graph fallback.
-    """
-    client, ws_id, _ = r29_ws
-    s = _search(client, ws_id, "bdm_acc_loan_info", "lending_ref", "upstream")
-    view_id = s["view_id"]
-
-    r = client.get(f"/api/workspace/{ws_id}/views/{view_id}/level2",
-                   params={"script": SUP_M, "filter": "true"})
-    assert r.status_code == 200, r.text
-    l2 = r.json()
-    assert l2["search_matched"] is False, l2
-    assert l2["message"] == (
-        f"Script {SUP_M} is not in the writing flow of "
-        "bdm_acc_loan_info.lending_ref — the field is not written in this "
-        "script. Showing the full script graph."
-    ), l2
-    # The not-in-flow fallback keeps the panel useful: the FULL graph.
-    assert l2["graph"]["nodes"] and l2["graph"]["edges"], l2
-
-
-def test_l2_upstream_writing_flow_role_flip(r29_ws):
-    """R29 role flip on the upstream L2 (l2_builder._attach_flow_roles):
-    the searched table's WRITE instance is the flow_target, and the
-    producing tables (the writing chain start) are the flow_sources —
-    the inverse of the downstream reading-flow roles.
-
-    Seed: bdm_acc_loan_info.lending_ref upstream inside
-    BDM_ACC_LOAN_INFO_Digitallending.sql (doc §3.1): the chain runs
-    ods_ccb_cb_loan_acctloan (A) → LENDING_REF → bdm_acc_loan_info.
-    """
-    client, ws_id, _ = r29_ws
-    s = _search(client, ws_id, "bdm_acc_loan_info", "lending_ref", "upstream")
-    view_id = s["view_id"]
-
-    r = client.get(f"/api/workspace/{ws_id}/views/{view_id}/level2",
-                   params={"script": DL, "filter": "true"})
-    assert r.status_code == 200, r.text
-    l2 = r.json()
-    assert l2.get("search_matched", True) is not False, l2
-    graph = l2["graph"]
-    assert graph["nodes"] and graph["edges"], l2
-
-    # The write target compound is the flow target (writing flow ENDS at
-    # the write).
-    bdm = _table_node_by_name(graph, "bdm_acc_loan_info")
-    assert bdm is not None, graph
-    assert bdm.get("flow_target") is True, bdm
-    # The producing ODS source compound is the flow source (the chain
-    # start — nobody in the workspace writes it).
-    ods = _table_node_by_name(graph, "ods_ccb_cb_loan_acctloan")
-    assert ods is not None, graph
-    assert ods.get("flow_source") is True, ods
-
-
-# ══════════════════════════════════════════════════════════════════════
-# no_flow: the field IS in the scripts but the directional closure is
-# empty → match_mode "no_flow" (message, not an error), and the persisted
-# view re-projects to the opposite direction (CR3).
-# ══════════════════════════════════════════════════════════════════════
-
-def test_search_no_flow_upstream_and_downstream_reproject(r29_ws):
-    """ods_hie_ipacmsp.iiapty upstream = EMPTY (ODS source, no writers —
-    GROUND_TRUTH_ODS_HIE_IPACMSP.md §2.1). The search returns match_mode
-    "no_flow" with the real matching scripts kept on the view (CR3), the
-    L1 graph empty; a later GET /level1?direction=downstream re-projects
-    to the non-empty reading closure.
-    """
-    client, ws_id, _ = r29_ws
-
-    s = _search(client, ws_id, "ods_hie_ipacmsp", "iiapty", "upstream")
-    assert s["match_mode"] == "no_flow", s
-    assert s["message"] == "No writing flow for ods_hie_ipacmsp.iiapty", s
-    assert s["direction"] == "upstream", s
-    # CR3: the real matching scripts ride the no-flow view (SUP_M is the
-    # only script that touches the field) so a direction switch re-projects.
-    assert s["script_ids"] == [SUP_M], s
-    assert s["l1_graph"]["nodes"] == [] and s["l1_graph"]["edges"] == [], s
-    view_id = s["view_id"]
-
-    # The persisted no-flow view restores the empty upstream projection.
-    r = client.get(f"/api/workspace/{ws_id}/views/{view_id}/level1")
-    assert r.status_code == 200, r.text
-    l1 = r.json()
-    assert l1["direction"] == "upstream", l1
-    assert l1["l1_graph"].get("flow_empty") is True, l1
-    assert l1["l1_graph"]["nodes"] == [], l1
-
-    # CR3: the opposite direction on the SAME view re-projects to the
-    # downstream closure (doc §2.2 — SUP_M reads iiapty as a join key).
-    r = client.get(f"/api/workspace/{ws_id}/views/{view_id}/level1",
-                   params={"direction": "downstream"})
-    assert r.status_code == 200, r.text
-    l1d = r.json()
-    assert l1d["direction"] == "downstream", l1d
-    assert l1d["script_ids"] == [SUP_M], l1d
-    assert l1d["l1_graph"].get("flow_empty") is False, l1d
-    assert {n["data"]["label"] for n in l1d["l1_graph"]["nodes"]
-            if n["data"]["type"] == "script_node"} == {SUP_M}, l1d
-
 
 def test_search_rrcdm_downstream_writers_own_leg_not_no_flow(r29_ws):
     """Guard against a false "no reading flow" pin: rrcdm_job_log_exec_par.
@@ -318,7 +230,6 @@ def test_search_rrcdm_downstream_writers_own_leg_not_no_flow(r29_ws):
     # The writer's-own-leg projection = the three writing scripts + the
     # rrcdm table (the log statements' FROM inputs stay OUT).
     l1 = s["l1_graph"]
-    assert {n["data"]["label"] for n in l1["nodes"]
-            if n["data"]["type"] == "script_node"} == set(SAMPLE_NAMES), l1
+    assert _script_labels(l1) == set(SAMPLE_NAMES), l1
     assert {n["data"].get("table_name") for n in l1["nodes"]
             if n["data"].get("table_name")} == {"rrcdm_job_log_exec_par"}, l1

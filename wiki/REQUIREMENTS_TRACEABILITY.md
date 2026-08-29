@@ -1,11 +1,12 @@
-# Requirements Traceability Matrix — V3.3.178
+# Requirements Traceability Matrix — V3.3.190
 
 > Maps all requirements from REQUIREMENTS.md to implementation status.
-> Last updated: 2026-08-27 (R33–R36 added ✅ — hover label emphasis, view-open search-params recovery, fit readability margins + zoom floor, release pipeline static-sync guard; shipped v3.3.171–v3.3.178. Prior 2026-08-26 (R32.1–R32.3 flipped ⏸ → ✅ — line-merged views shipped v3.3.166; R1.8 #308 + R31.2 M-Po4 flipped 📝 → ✅ — closed v3.3.165; R31.1 annotated superseded by #293; R31.9 annotated deleted by #322; version bumped to 3.3.166. Prior 2026-08-25: R31 status markers reconciled with shipped code — 8 previously-📝 rows flipped to ✅ against verified implementation; summary recounted: 169 implemented / 1 partial (R31.2 IP audit, pending M-Po4); version bumped to 3.3.164. Prior 2026-08-24: #288/#289 L2 graph backend fixes — case-insensitive physical-table merge shipped; #289 INSERT write-column routing corrected to be a model-following fallback (write columns land on their physical-model owner; only phantom-sourced columns land on the write target); #286 R31 regression fixed — dashboard folder upload restored; R31 status → released v3.3.162, E-series review fixes pending)
+> Last updated: 2026-08-29 (R44 LANDED + the 2026-08-28 code review adjudicated + the 50-target user-scenario simulation. R44.1 flipped ⏳ → ✅ — occurrence coverage is implemented: write-side/derived-read twins, GROUP-BY twins (`_register_groupby_twins`), OVER-line WINDOW anchors (`highlight_strategies._anchor_line`), l2_builder write-target parenting, R45's family-3 occurrence-line twins (`_collapsed_occurrences`); `EXTRACTOR_VERSION 2026-08-28.3 → 2026-08-28.7` (.7 = the K4 paren-balance diagnostics bump). R44.2/R44.3 stay ⏳ (benchmark re-pin + unified snapshot regeneration). NEW rows: R2.11 (backend case-insensitive search — R2.10's F5 was FRONTEND-ONLY before), R5.13 (#386 CTE statement-scoped visibility ruling), R13.7 (simulation-driven sample repairs), R37.5/R37.6 (K4 VT-anchor amendment / F-B1 field-chip + banner + direction-flip fixes — ⏳), R40.11 (F-B2 chip-decoration guard + banner/autocomplete UX), R44.4 (filter-operand twin edges, F-E1 — ⏳). NEW sections: "K4 rulings (2026-08-28)" and "User-scenario simulation (2026-08-29)". The 2026-08-28 code review's 31 first-pass findings are FULLY ADJUDICATED (23 fixed / 6 false positives / 2 deferrals) — verdict table in `wiki/CODE_REVIEW_2026-08-28.md` §"Resolution status (2026-08-29)". CLAUDE.md's #23/#28/#29 amendments are owned by the F-B1 team and are NOT recorded here yet (pending). Prior 2026-08-28 (v3.3.191+ batch recorded — PENDING RELEASE, landed in the working tree: R40.8 + R41.1/R41.2 flipped ⏳ → ✅ (self-loop curve geometry via data-driven `loopstep`; minZoom 0.28 → 0.08 + `min-zoomed-font-size` 6 + Fit suppresses the seed re-center); new rows R2.9 (F2 CTE index defining-script invariant), R2.10 (F5 case-insensitive name resolution), R5.12 (MERGE targets join the physical fold, #386), R13.6 (RFN sample fully OCR-recovered, #370 — all four samples clean), R40.10 (Field Story Joined/Transformed stage); R40.9's open ruling #380 RESOLVED (creator-only scan/index, 403 participants); R44 added ⏳ (walker occurrence coverage — in flight, NOT yet landed); R43.4 note extended (unified snapshot regeneration at release). Prior 2026-08-28 (R40–R41 added — L2 readability batch v3.3.187–v3.3.190 shipped: filter loop-line anchored to the table border, zoom-compensated caption, Field Story step-through bar, flow-reason panel REMOVED + bar relocated below the SQL panel, cache headers, history slim (re-clone required); multi-user matrix 14 scenarios green with ONE open ruling (#380 index/scan not creator-gated); R40.8 same-table edge + R41 zoom-floor/Fit fixes IN FLIGHT. Prior 2026-08-27 (R33–R36 added ✅ — hover label emphasis, view-open search-params recovery, fit readability margins + zoom floor, release pipeline static-sync guard; shipped v3.3.171–v3.3.178. Prior 2026-08-26 (R32.1–R32.3 flipped ⏸ → ✅ — line-merged views shipped v3.3.166; R1.8 #308 + R31.2 M-Po4 flipped 📝 → ✅ — closed v3.3.165; R31.1 annotated superseded by #293; R31.9 annotated deleted by #322; version bumped to 3.3.166. Prior 2026-08-25: R31 status markers reconciled with shipped code — 8 previously-📝 rows flipped to ✅ against verified implementation; summary recounted: 169 implemented / 1 partial (R31.2 IP audit, pending M-Po4); version bumped to 3.3.164. Prior 2026-08-24: #288/#289 L2 graph backend fixes — case-insensitive physical-table merge shipped; #289 INSERT write-column routing corrected to be a model-following fallback (write columns land on their physical-model owner; only phantom-sourced columns land on the write target); #286 R31 regression fixed — dashboard folder upload restored; R31 status → released v3.3.162, E-series review fixes pending)
 
 ## Legend
 - ✅ Implemented & verified
 - ❌ Not yet implemented
+- ⏳ In flight — fix being implemented / queued, not yet verified
 
 ---
 
@@ -32,6 +33,9 @@
 | R2.6 | Narrow Index (CSV filter: script-table + table-column files) | ✅ | Upload ST/TC CSVs to filter autocomplete index |
 | R2.7 | Search history (recent 10) | ✅ | 🕐 Recent dropdown |
 | R2.8 | Pinned searches (star) | ✅ | ☆ / ★ toggle, appears in Pinned section |
+| R2.9 | **F2 (audit #383) CTE index entries carry their defining script** — a CTE's table_index row received fields but never the script, so the search intersection `field_index[f].scripts ∩ table_index[t].scripts` was EMPTY and qualified CTE lookups (TEMP_RFN, temp_kmbh_*) found nothing | ✅ | 2026-08-28 (pending release) — invariant installed at THREE attribution sites in `folder_index_service.py` (CTE-name branch, field-branch, write-target branch): fields recorded from a script imply `table_index[tname]["scripts"].add(rel_path)`; +6 tests (`tests/test_folder_index_cte.py`); the unqualified-only CTE ruling is PRESERVED (bare/unqualified-only CTE names stay out); 128 regressions green |
+| R2.10 | **F5 (audit #383) case-insensitive name resolution** — a typed name in ANY casing must resolve against the index (SQL identifiers are case-insensitive; index keys carry whatever casing each script wrote, e.g. TEMP_RFN vs temp_rfn), with a canonical echo + an inline "no such table.field in the index" message instead of the silent no-op | ✅ | 2026-08-28 (pending release) — `resolveNameCi()` in `utils/nameFilter.js` (exact key wins; case-insensitive equals ranked with the dropdown's collation — deterministic); FilterPanel echoes the canonical key and shows the inline not-in-index message on a null resolution; +10 tests (nameFilter +5, FilterPanel +5). **2026-08-29 (F5-extension, R2.11): F5 was FRONTEND-ONLY — the backend still matched index keys exactly** |
+| R2.11 | **F5-extension (2026-08-29, user-scenario simulation finding) — the BACKEND resolves search names case-insensitively too**: `resolve_name_ci` in `folder_index_service.py` is now the single resolution point for `create_search` and the `POST .../search` router (plus `scripts_for_name_ci`), so a workspace whose scripts spell the same table/field with different casing (TEMP_RFN vs temp_rfn) no longer produces disjoint case-variant index keys that make a correct-looking search return `no_matches` | ✅ | 2026-08-29 (pending release) — Team F-A. `folder_index_service.resolve_name_ci` (line ~1579) + `create_search` (`dataflow_service.py:87-88`) + the search router (`routers/dataflow.py:136`) all resolve through it; the same canonical-key + group model as the frontend's `resolveNameCi` (R2.10), so both sides now agree on ONE canonical key per identifier |
 
 ## R3 — View Management (from requirements_v2.md §3)
 | ID | Requirement | Status | Notes |
@@ -74,6 +78,8 @@
 | R5.9 | L2 follows the query direction automatically — zoom-in of L1's directional flow, no separate control **(R38: that direction is now always downstream)** | ✅ | R29 v3.3.153 → R38 ruling |
 | R5.10 | **#288 L2 physical tables merge CASE-INSENSITIVELY into one compound node** — east5_stzfxxb / EAST5_STZFXXB previously split into 2 nodes | ✅ | #288 (2026-08-24) — Team C backend — the physical-table merge key is case-folded (one keeper, merged-away nids re-point via occ_to_id, edges re-pointed); aliases / CTEs / subqueries stay case-sensitive — a case-twin alias (A vs a) is still a DIFFERENT alias node. Tests: `tests/test_l2_case_merge.py` |
 | R5.11 | **#289 INSERT write-alias columns render ON the write target node** — but only as a FALLBACK: a SELECT-projection column sourced to a phantom alias (no real model owner) lands on the write target; a projection sourced to a real table/CTE/alias renders on that source (its physical-model owner), keeping the display a pure projection of the model | ✅ | #289 (2026-08-24, Team C) + Team E correction 2026-08-24 — each statement's ⟐-output SCHEMA members (its SELECT projections) re-parent onto that statement's DML write target's keeper compound ONLY when the projection has no visible source parent; the physical model is the independent truth — write columns sourced to a real table render on that owner, not on the target (nbjgh→bdm_acc_loan_info, internal_key→loan_final, LENDING_REF→ods_ccb_cb_loan_acctloan), while phantom-sourced projections (bz, TAG_*, RESERVED_*, PRIMARY_SRC_SYSTEM) render on the target. DML ⟐-output routing untouched (no qo_ nodes, write legs still hang off each statement's own output VT). Tests: `tests/test_l2_case_merge.py` |
+| R5.12 | **#386 (2026-08-28) MERGE targets join the physical fold** — the table-duplication audit's ONE real bug: a table that is MERGE-INTO'd in one statement and read/written in another rendered as TWO compound nodes; the model already keys a MERGE target by its raw name (kind physical, roles {merge_target, read}), so its occurrences must merge into the one keeper | ✅ | 2026-08-28 (pending release) — `l2_builder.py` physical fold admits merge_target occurrences (2 conditions; aliases excluded); +3 T3 regression tests in `tests/test_l2_case_merge.py` (fold, read-first order, and 1-char-apart tables stay distinct). Adversarial cases prove schema/backtick/case twins were ALREADY folded and 1-char-apart tables NEVER over-merge. Four #386 rulings filed (CTE-shadows-physical stays separate; RFN typo pairs are real distinct tables; RFN duplicated INSERT block is deliberate sample content; alias-label collisions informational) — see `wiki/CODE_REVIEW_PENDING_2026-08-27.md` §5. **Ruling 5 added 2026-08-28 (CTE scope) — see R5.13** |
+| R5.13 | **#386 CTE-scope ruling — a CTE's name is visible only inside its own statement (SQL-standard scoping)**: a LATER statement's bare reference to a CTE's name registers a PHYSICAL table read; it is never swallowed by the any-context CTE merge | ✅ | 2026-08-28 (`EXTRACTOR_VERSION 2026-08-28.4`, item 4) — `_add`'s CTE merge is scope-aware via `_is_cte_name` (statement-scoped visibility; in-scope refs keep folding). The model still matches owners by the SHARED `name` string (`_name_to_key` — a CTE and a same-named physical table collide there), so `l2_builder` disambiguates at DISPLAY time via `_stmt_root` (the in-scope CTE compound) and `field_owner_key` (the field's occurrence-owner entity): the out-of-scope read's columns land on the PHYSICAL compound, never on the `cte_table` node |
 
 ## R6 — SQL Panel & Export (from requirements_v2.md §6)
 | ID | Requirement | Status | Notes |
@@ -142,6 +148,8 @@
 | R13.3 | tpcds_qualified sample | ✅ | 103 TPC-DS scripts |
 | R13.4 | dialect_test sample | ✅ | BigQuery/MaxCompute/Snowflake |
 | R13.5 | financial sample | ✅ | 18 financial scripts |
+| R13.6 | **#370 RFN sample fully OCR-recovered** — `BDM_ACC_LOAN_INFO_RFN.sql` re-derived from the surviving screenshots with the committed OCR harness + targeted pixel-topology-glyph reads; all 21 `OCR-UNCERTAIN` markers resolved with evidence (21 → 0 across the 13 case2 screenshot pages); two bonus finds (restored missing `rrcdm` INSERT header @L1396); gates green (parse_errors 0, jaccard 1.0000, snapshot 02 regenerated with a 1:1-audited delta + changelog entry). ALL FOUR samples now carry zero markers | ✅ | 2026-08-28 (pending release) — `samples/sql_sample_v1/BDM_ACC_LOAN_INFO_RFN.sql` + `SNAPSHOT_CHANGELOG.md` 2026-08-28 entry (RFN is not a benchmark seed) |
+| R13.7 | **Simulation-driven sample repairs (2026-08-29)** — two pixel-evidenced repairs found while walking the 50-target user scenario: RFN gains the 2 missing closing parens its screenshot shows (the surrounding predicate block was unbalanced), and PL drops the stray `;` at L19 that split a statement | ✅ (re-pin pending) | 2026-08-29 — repairs are in the samples; the PL repair moves 3 `jaccard_canonical` rows, and that re-pin is IN FLIGHT (see R44.2 / `SNAPSHOT_CHANGELOG.md` DRAFT entry). Sample edits never mask engine defects: the 2026-08-28 review's H3 (RFN L492 empty-literal join key) and M9 (RFN L351 `OR`) were checked against the same pixels and stand as written — both are FALSE POSITIVES |
 
 ## R14 — Server-Side Progress Logging
 | ID | Requirement | Status | Notes |
@@ -317,7 +325,7 @@
 | ID | Requirement | Status | Notes |
 |----|------------|--------|-------|
 | R35.1 | Fit spends the window on content | ✅ | `FIT_PADDING` 200→60→24; L2 small-panel adaptive 30/7%→16/5% in BOTH the hook and `layoutCore.applyLayout` (the initial-fit path was missed first, synced v3.3.177) |
-| R35.2 | Labels legible before hover | ✅ | `minZoom` 0.05→0.28 — at 0.05 a 2× emphasis gained <1 screen px; screen-verified via Playwright class+pixel assertions |
+| R35.2 | Labels legible before hover | ✅ | `minZoom` 0.05→0.28 — at 0.05 a 2× emphasis gained <1 screen px; screen-verified via Playwright class+pixel assertions. **R41 (2026-08-28, FIXED in the pending v3.3.191+ batch)**: the 0.28 floor itself blocked overview zoom — re-lowered to 0.08 with `min-zoomed-font-size` 6 hiding sub-legible labels (the legibility job moved OFF the zoom clamp ONTO the font gate) — see R41.2 |
 
 ## R36 — Release pipeline ships the current frontend (build hygiene, 2026-08-27)
 | ID | Requirement | Status | Notes |
@@ -332,7 +340,7 @@
 | R39.1 | A merged-view SELF-LOOP (a field→table FILTER edge after R32 promotion, e.g. `east5→east5 @L190`) carries a readable label `⟂ <fields> (filtered @L<line>)` computed CLIENT-side from the detailed closure — payload/snapshots/benchmarks untouched | ✅ | v3.3.181 — `selfLoopFilterLabels` + `edge[filterLabel]` style, composed after the uniform `label:''` rule |
 | R39.2 | INV-1: every DML line referencing the searched field carries ≥1 closure edge | ✅ | `backend/tests/test_flow_line_invariants.py` — DML carve-out checked both ways (uncovered DML line OR newly-covered DDL line → red) |
 | R39.3 | INV-2: every closure edge is assigned a SQL line (integer ≥1) | ✅ | same gate |
-| R39.4 | DDL `ALTER … ADD PARTITION (P_DT=…)` lines stay OUT of the value-flow closure (metadata-only) — codified as INV-1's documented exception, drift fails loudly | ✅ | EAST5 L166–175 verified excluded; L41/L190 covered |
+| R39.4 | DDL `ALTER … ADD PARTITION (P_DT=…)` lines stay OUT of the value-flow closure (metadata-only) — codified as INV-1's documented exception, drift fails loudly | ✅ (superseded by R43, 2026-08-28) | EAST5 L166–175 verified excluded; L41/L190 covered. R43 strengthens this from a closure-semantics exception to a GRAPH-level drop: the partition-DDL statement frames are removed from the L2 graph entirely (folder names, not dataflow); the invariant's second side is now the R43 regression guard |
 
 ## R37 — L2 node click scrolls the SQL panel to the node's definition line (requirement change, 2026-08-27)
 | ID | Requirement | Status | Notes |
@@ -341,34 +349,197 @@
 | R37.2 | Line semantics follow the server contract | ✅ | `intermediate_table` (⟐ output VT) → its statement's anchor line (INSERT/ALTER); physical `source_table` → first occurrence (keeper-by-construction, R22); `alias_table`/`cte` → their FROM/JOIN/WITH line. The tapped element's OWN payload is read — never a label lookup (merged/dedup'd nodes each keep their own `line_start`) |
 | R37.3 | Guards | ✅ | Scroll only when `line_start` is an integer ≥ 1 — else silent no-op (TVF alias `f` anchors L0, ledger M-T1: no-ops until fixed, never guesses). First line only (statement spans would need new node payloads — deferred). L2 only (L1 cross-script SQL is different machinery). Node click clears any stale edge reason-panel selection |
 | R37.4 | Every table node's line number audited against the sample SQL | ✅ | EAST5 full view: all 25 table nodes checked (physical → line mentions the table; ⟐ VT → statement anchor keyword; alias → FROM/JOIN + alias token). Result: 24/25 exact; 1 known gap = TVF alias `f` at L0 (M-T1, pre-existing) — see audit table in the v3.3.179 commit message |
+| R37.5 | **K4 ruling 1 — the ⟐ VT anchor is the CREATION line** (contract AMENDED; the code was already right): a top-level ⟐ output VT anchors on the statement's OWN first token — never the `WITH` line; a nested subquery/derived/EXISTS ⟐ VT anchors on the body's first output line (falling back to the body's SELECT head) | ✅ | 2026-08-28 (K4) — amendment only, no code change; R37.2's "statement anchor line" wording is now precise. Recorded as a design decision in the "K4 rulings" section below |
+| R37.6 | **F-B1 (2026-08-29, in flight) — click-to-SQL channel completeness**: field chips carry `line_start` (never `line_end`) from the served payload, the not-in-flow banner text states WHY nothing highlighted, and the direction default flip lands with it | ⏳ | IN FLIGHT — Team F-B1 also owns the CLAUDE.md #23/#28/#29 amendments (parse-errors honesty wording, the R37 line-semantics contract, the direction API closure); those land in CLAUDE.md, not here. Until it lands, a chip click can fall back to the table anchor instead of the chip's own definition line |
 
-## Code-review decisions (2026-08-25) — queued, awaiting GO
+## R40 — L2 readability batch (2026-08-27/28, shipped v3.3.187–v3.3.190)
 
-One-by-one walkthrough of `wiki/CODE_REVIEW_2026-08-24.md`. Decisions recorded; implementation
-queued behind the go-command. See the `requirements_v2.md` "Code-review decisions" amendment for
-the full design.
+| ID | Requirement | Status | Notes |
+|----|-------------|--------|-------|
+| R40.1 | **Filter loop-line anchored to the table border** — the merged-view self-loop's synthetic red loop-line was a detached floating bar ("a red line separately on the screen") | ✅ | v3.3.187 — the anchors parked at `sp.x - off` (no visual tie to anything); they now bracket the table's LEFT BORDER: `x = box.x1 - gap`, y spanning the node's vertical center clamped to the box height — model-space anchor, so it never drifts on pan/zoom between upserts (`flowVisibility.js` upsert over the v3.3.186 `capA_/capB_/capL_<edgeId>` chrome). v3.3.190 diagnostic ruling B1: gap clamped to ~2px so the bracket visibly TOUCHES the border (a 12px screen gap reads as detached) |
+| R40.2 | **Caption font zoom-compensated** — the `⟂ <fields> (filtered @L…)` caption stays readable at any zoom | ✅ | v3.3.190 — `'font-size': 'data(caption_font)'` computed per-zoom by `upsertFilterCaptions` (14 model px rendered ~4px at the zoom floor — unreadable); effective on-screen size floors at ~11px |
+| R40.3 | **Field Story step-through bar** — the searched field's L2 closure re-told as an ordered story: birth → written → read → filtered → consumed | ✅ | v3.3.188 — `utils/fieldStory.js` (PURE projection of the served payload — no React/cytoscape/SQL text, nothing guessed, no sample text hardcoded) + `components/FieldStoryBar.jsx` (presentational: numbered step chips, ◀/▶, autoplay 3s, ✕ dismiss; ALL state lives in DataFlowApp). Seed = case-insensitive field-node match on the physical-table compound (#288 case folding); only closure edges with a valid `highlight_line` (INV-2) participate, malformed edges skipped never repaired; FIRST-MATCH-WINS classification (birth outranks read — the seed's binding edge is read-shaped but sits at the table's anchor line); steps group per (kind, line), ordered kind-first / line-ascending. Merged+detailed edge-id NAMESPACES: the default view's ids are content-derived `l2m_*`, DISJOINT from the detailed closure's `l2e_*` — each step carries `edgeIds` AND `mergedEdgeIds` (resolved against `full_merged` by (highlight_line, unordered parent-promoted endpoint pair), line-match fallback) or story emphasis silently no-ops in the default view. Dimming `story-dim` 0.15 (the cone-dim convention) on every element the step does not involve. Step-through REUSES the R37 `sqlHighlightLine` channel (scroll + highlight; last wins; `SqlPanel` unchanged). Red-team rulings A1–A10 folded (A1 = the namespace split; exempt chrome never dimmed, never class-tagged) |
+| R40.4 | **Flow-reason panel REMOVED; FieldStoryBar relocated to its slot below the SQL panel** | ✅ | v3.3.189 (user ruling) — `EdgeReasonPanel` deleted (the R20/R26 reason surfaces are superseded by the story); the FieldStoryBar takes its slot BELOW the SQL panel |
+| R40.5 | **The filter story-step lights the loop-line and golds the caption** | ✅ | v3.3.189 — the Filtered step's underlying edge renders ~0px (detailed: field→own-table endpoints coincide; merged: the self-loop is ~7px) — the f648 invisible-edges finding; the step lights the synthetic chrome (`capL_<edgeId>` loop-line + `cap_<edgeId>` caption). GUARD RULE: story-active can only GROW the loop-line — `edge.filter-loopline.story-active` width 9 (> the chrome's 7; the generic `edge.story-active` width 5 would SHRINK it — later rule wins the specificity tie); the caption golds (`#FFD700`, font 13) |
+| R40.6 | **Cache headers** — index.html always revalidates; content-hashed assets immutable forever | ✅ | v3.3.190 — `_VersionedStatic` (`backend/app/main.py`): non-`assets/` responses (index.html) `Cache-Control: no-cache` (ETag still gives 304s); `assets/*` `public, max-age=31536000, immutable`. ROOT CAUSE of the recurring "deployed but user sees old UI" reports: with NO Cache-Control browsers applied RFC 7234 heuristic freshness (~10% × age) to index.html and kept serving a WHOLE OLD bundle across deploys. Complements R36 (the static-sync + hash-parity half of that defect class) |
+| R40.7 | **History slim (filter-repo)** | ✅ | v3.3.190+ — repo history rewritten: 1.21GiB → ~150MB clone. EVERY existing clone must RE-CLONE (old remotes hold orphaned pre-rewrite history); image pieces re-committed at HEAD with a re-stamped manifest |
+| R40.8 | Same-table (self-pair) merged edge renders as a CURVE and clicking it highlights its SQL line | ✅ | 2026-08-28 (pending release) — root cause: the v3.3.185 "segments" enlargement NEVER rendered — `segment-points` is not a property cytoscape 3.34 understands (segments are driven by `segment-weights`/`segment-distances`; the parsed stylesheet silently drops the unknown property) and a self-edge always routes through `findLoopPoints` whatever `curve-style` says. The REAL knob is the loop properties: `control-point-step-size: data(loopstep)` with `flowVisibility.js` sizing each self-edge's `loopstep` from its endpoint box (`halfWidth + SELFLOOP_BULGE 150`); the dead `segp`/segments bracket machinery removed. (a) the same-table edge renders as a real bulged curve; (b) clicking it highlights its SQL line (DOM-verified on the merged self-loop → SQL L190); the Filtered story step grows the curve under the existing width-9 guard (R40.5) |
+| R40.9 | Multi-user test matrix | ✅ | 2026-08-28 — 14 scenarios green (creation / read / write / share paths). The ONE open ruling is now CLOSED: **#380 RESOLVED (2026-08-28)** — POST scan + index are creator-only (same rule as layout/filter-config #272; participants get 403) + regression test (`test_scan_and_index_non_creator_rejected_with_403`) |
+| R40.10 | **Field Story Joined/Transformed stage** — a 6th stage (user-authorized ≤10): edges of type JOIN/TRANSFORM/COMPUTED/WINDOW/AGGREGATE touching the seed/table are told as their own story step, ordered between Read and Filtered | ✅ | 2026-08-28 (pending release, v3.3.191) — `utils/fieldStory.js`: `KIND_RANK` birth/written/read/**joined**/filtered/consumed, label "Joined/Transformed", `JOINISH_EDGE_TYPES` = {JOIN, TRANSFORM, COMPUTED, WINDOW, AGGREGATE}; SCHEMA/ALIAS/SUBSET stay non-narrative by design. Evidence = the random-10 field audit: 49 previously-unclassified narrative edges (8 COMPUTED + 7 AGGREGATE + 6 WINDOW + 4 TRANSFORM + …) left source-side fields at 1–2 steps; +30 projected steps across 7/10 fields. Tests extended (`fieldStory.test.js`) |
+| R40.11 | **F-B2 (2026-08-29, user-scenario simulation findings) — frontend click/UX hardening**: a field chip's decoration can no longer leak onto its table box, the not-in-flow banner reads as a sentence rather than a bare flag, autocomplete no longer swallows the click aimed at the neighbouring input, and clicking a node with no valid line gives visible feedback instead of a silent no-op | ✅ | 2026-08-29 (pending release) — Team F-B2. Chip-decoration guard (`utils/labelDecoration.js` + `labelDecoration.test.js`), suggestion-dropdown auto-close once the typed name RESOLVES (`FilterPanel.jsx`, the F-B2 finding that the absolutely-positioned dropdown ate the Field-input click), zero-line click feedback, and the banner/autocomplete wording. Fit was re-verified as FIXED in the real UI (R41.1's `recenter:false` + the 0.08 floor), not only in unit tests |
+
+## R41 — L2 overview zoom + Fit correctness (2026-08-28 — FIXED in the pending v3.3.191+ release batch)
+
+| ID | Requirement | Status | Notes |
+|----|-------------|--------|-------|
+| R41.1 | Clicking Fit in L2 displays the WHOLE graph | ✅ | 2026-08-28 (pending release) — twin cause confirmed, both halves fixed: (a) `minZoom` 0.28 → **0.08**; (b) user-initiated Fit passes `recenter: false` through `fitAllElements` so `centerOnSeed` no longer re-centers on the seed AFTER the Fit (view-mode toggles keep the default recenter). Audit numbers: the fit wanted 0.08–0.09 while the 0.28 floor clamped it — **87/129 nodes hidden**; floor-lift probe: **129/129 visible** |
+| R41.2 | Overview zoom reachable; labels degrade gracefully instead of smearing | ✅ | 2026-08-28 (pending release) — zoom floor 0.08 + `min-zoomed-font-size: 6` (`graphStyles.js`): below legibility labels HIDE instead of smearing — a boxes-only overview (user ruling). Amends R35.2: the legibility job moves OFF the zoom clamp ONTO the font gate |
+
+## R42 — L2 initial layout LEFT→RIGHT (requirement change, 2026-08-28)
+
+User requirement: "L2 initial layout should be from LEFT to RIGHT (tables only; fields kept as
+previous arrangement) because our screen is landscape."
+
+Decision: the L2 INITIAL layout is the ELK pipeline (layered, `ELK_DIRECTION='RIGHT'` — the
+pre-existing constant in `config/layout.js`, unchanged). The snake layout stays available as a
+MANUAL option via the toolbar toggle (the L2 toolbar now carries the same Snake/Pipeline buttons
+L1 always had — previously only the L1 toolbar could switch the shared mode). L1's default is
+UNCHANGED (snake): the single shared `layoutMode` state is split per level, so flipping the L2
+default cannot move L1. Fields are untouched by construction — every layout algorithm positions
+tables only and `layoutCore.applyLayout()` derives field positions from `table.pos + frozen
+relative offsets` (the single field-positioning site, shared with drag), so the previous field
+arrangement is preserved under any table layout.
+
+| ID | Requirement | Status | Notes |
+|----|------------|--------|-------|
+| R42.1 | L2 initial layout is left-to-right (landscape screens): sources on the left, DML targets on the right | ✅ | `DataFlowApp.jsx` — L2 `layoutMode` default flipped to `'pipeline'` (per-level state `l2LayoutMode`); ELK layered `RIGHT` was already the pipeline direction (`config/layout.js ELK_DIRECTION`, untouched). Verified headless: EAST5-style 4-layer probe — table x-coordinates form ≥3 strictly ascending layers (`utils/__tests__/ltrLayout.test.js`) |
+| R42.2 | Fields keep the previous arrangement | ✅ | No field math changed — `computeFieldRelPos()` frozen offsets + `applyLayout()`/`positionTableFields()` are the single field-positioning site; layout algorithms only emit table coordinates |
+| R42.3 | Snake stays a manual option; L1 default unchanged | ✅ | `l1LayoutMode` (default `'snake'`) and `l2LayoutMode` (default `'pipeline'`) are separate states; the L2 `DataFlowGraph` now receives `onToggleLayout` (the prop already existed) so Snake/Pipeline switch in the L2 toolbar too |
+| R42.4 | **M-E1**: merged vs detailed L2 views share one layout-persistence key — a drag in one view pinned positions in the other | ✅ | Split by view family: merged views (`flow-merged`/`full-merged`) persist under `l2:merged:{script}`, detailed views keep `l2:{script}`. Implemented at BOTH the save path (`scheduleLayoutSave` script key) and the read path (`savedPositions`) in `DataFlowApp.jsx`; `layoutPersistence.resumeLayoutKey` unchanged (`resumeLayoutKey('l2','merged:X') → 'l2:merged:X'` composes exactly); backend unchanged — `save_layout` treats the script value as a free-form key (`f"l2:{script}"`, no script-name validation) |
+| R42.5 | Wide graphs on small L2 panels stay usable | ✅ (by fit) | ELK RIGHT spreads horizontally; the initial fit + adaptive padding (R35) keep the whole graph in view, and the in-flight R41 fit-floor work makes overview fit fully correct. Rollback = flip `l2LayoutMode` default back to `'snake'` (one line) |
+
+## R43 — Partition-DDL statement frames dropped from the L2 graph (user ruling, 2026-08-28, task #384)
+
+User ruling: "ALTER TABLE ADD PARTITION statements should not appear in the L2 graph — they are
+folder names, not dataflow." A partition ADD/DROP/MSCK statement creates a metadata slot on a
+table and moves no values; rendering its statement frame — a ⟐ output VT per ALTER plus two
+structure edges (the read-leg TABLE_FLOW into the VT and the REF back to the table) — was pure
+display noise on the data-flow picture (EAST5 carried ten such frames @L166–175).
+
+Decision: drop the pure-metadata DDL statement frames from the L2 graph ENTIRELY — full AND flow
+views. Implementation is DISPLAY-LAYER ONLY: `_drop_partition_ddl_frames` in
+`backend/app/services/l2_builder.py`, applied immediately after the graph-cache load and BEFORE
+the relevance filter, so every downstream phase (closure walk, DML trunk routing, payload,
+merged views) consumes the clean graph.
+
+- **Detection (conservative)**: a statement-level output VT (`label == "⟐ output"`,
+  `variable_type == virtual_table`, context `TOP{n}`) whose statement text — the SQL lines from
+  the node's own `line_start` through the statement-terminating `;` — matches
+  `ALTER TABLE … (ADD|DROP|MSCK) … PARTITION`. Column DDL (`ADD COLUMN`), CREATE TABLE/CTAS (a
+  real dataflow target) and SET (already produces no VT) are out of scope — no evidence they
+  frame anything but real structure.
+- **Extraction untouched**: no `EXTRACTOR_VERSION` bump; TOPn statement indexing unchanged
+  (benchmark pins like EAST5's rrcdm-INSERT `TOP11` stay valid).
+- **Cache**: NO `GRAPH_CACHE_PREFIX` bump — the suppression is a deterministic post-load
+  projection applied on EVERY consumption path, so caches written before R43 (which still
+  contain the frames — probe-verified: a pre-change graph cache serves the identical post-R43
+  display) remain valid. The cache stays extraction truth; the display is a projection of it.
+
+| ID | Requirement | Status | Notes |
+|----|-------------|--------|-------|
+| R43.1 | ALTER TABLE … ADD/DROP/MSCK PARTITION statement frames (the ⟐ output VTs + their structure edges) never appear in the L2 graph — full AND flow views | ✅ | EAST5 full L2: 129 → 119 nodes, 168 → 148 edges (the ten `output` VTs @L166–175 + their 20 edges gone; zero nodes with `line_start` in 166–175 and zero edges anchored there after). Flow closure `east5_stzfxxb.p_dt` UNCHANGED (5 nodes / 7 edges, `search_matched` true — no closure edge ever anchored on an ALTER line) |
+| R43.2 | Extraction / TOPn indexing unchanged | ✅ | `EXTRACTOR_VERSION` untouched (2026-08-26.1); `tests/test_jaccard_benchmark.py` all floors green incl. the EAST5 `TOP11` write-leg pin (22 passed with the invariants suite) |
+| R43.3 | INV-1 simplification | ✅ | The "DDL ADD PARTITION lines are the documented exception" carve-out is MOOT — R39.4 superseded: the frames are dropped from the GRAPH, not merely excluded from a closure that still displays them. `test_inv1_every_dml_field_line_has_an_edge_and_ddl_stays_excluded` keeps the two-sided assert — DML lines covered AND no closure edge on a partition-DDL line (the second side is now the R43 regression guard) |
+| R43.4 | Costs | ⏳ | Snapshot regeneration PENDING — `tests/test_l2_snapshot.py` (l2_snapshot_02 pins pre-R43 EAST5 full-graph counts) is EXPECTED TO FAIL until the orchestrator's unified regeneration (a parallel team owns the snapshots right now; not rebaselined here). `total_nodes` in the level2 response drops by the dropped raw nodes on the full view (display-only; no consumer pins it). **2026-08-29 note:** the red set is EXPECTED TO GROW (≈46 → ≈75 snapshots) until the unified rebaseline runs — drivers: R44's occurrence twins (incl. R45 family 3), the F-B1 chip `line_start` keys, the K3 sample repairs, the filter-operand twins (R44.4) — see the DRAFT/PENDING entry in `SNAPSHOT_CHANGELOG.md`. Snapshot failures before that point are expected rebaselines, NOT regressions |
+
+## R44 — Walker occurrence coverage (user ruling, 2026-08-28) — ✅ LANDED (pending release; R45 family 3 included)
+
+User ruling: **"flow-only must cover ALL occurrences"** of the searched field — the flow-only
+closure's purpose is every dataflow-relevant occurrence, not a first-hit walk. A 30-case audit
+measured **~50% occurrence coverage**; 17 walker misses fall into 5 classes: constant writes,
+rename-writes, predicates/window keys, derived passthrough, cross-statement asymmetry.
+
+Implementation landed in the working tree 2026-08-28 (tasks #385–#387), stamped
+`EXTRACTOR_VERSION 2026-08-28.3 → 2026-08-28.7` (see the changelog comment at the top of
+`backend/app/extractor/variable_extractor_v2.py`):
+
+- **Families 1/2 — write-side + derived-read twins** (`_register_flow_occurrence_twins`): a DML
+  statement's output projection materializes an occurrence-side `{target}.{col}` twin attributed
+  to the write target (source_columns deliberately EMPTY — the twin is the write slot, not a
+  read), and a read through a single-physical-source derived alias materializes `{P}.{col}` on
+  the physical owner. L-E4 folded into the same version bump (one cache invalidation).
+- **GROUP BY occurrence twins** (`_register_groupby_twins`): every GROUP BY item column with a
+  resolved physical owner registers a twin anchored on the item's own line (clause-keyword token
+  run) — PL L246/247-style group-key lines now anchor.
+- **WINDOW anchors move to the OVER line** (`highlight_strategies._anchor_line`): the edge rides
+  the window application's own line instead of the window var's `line_start`, so window-key lines
+  are reachable in flow-only closures (review finding M14).
+- **l2_builder write-target parenting** (#387 follow-up): when the SEARCH targets the write
+  table, a derived-alias write projection attributed to a real read source re-parents onto the
+  write target — display projection only, extraction untouched.
+- **R45 / family 3 — occurrence-line twins** (`_collapsed_occurrences` + family 3 of
+  `_register_flow_occurrence_twins`): `_add`'s (name, type, context) dedup keeps ONE node per
+  field per scope, so the 2nd..Nth occurrence of a field inside the same statement left NO node
+  at its own line. Concrete shapes fixed: a CASE's 2nd WHEN arm (RFN L439), an NVL fallback
+  operand (RFN L1029/L1314), a byte-identical repeated projection (RFN L525), the second leg of a
+  multi-line JOIN ON predicate (PL L250), an ELSE arm (EAST5 L52). Purely additive — no existing
+  var's line moves.
+- **2026-08-28.5** (deferred-findings M1/M3): write-side twins admit `VariableType.LITERAL`
+  (constant projections now materialize), and the bare-INSERT merge also merges a following
+  `Union`/`Intersect`/`Except` (a `SELECT … UNION ALL SELECT …` write source no longer severs).
+- **2026-08-28.7** (K4 ruling 3): the structural paren-balance check (`_paren_balance_errors`) —
+  diagnostics only, no extraction semantics change; bumps the version so caches written by .6
+  with `parse_errors: []` are invalidated.
+
+| ID | Requirement | Status | Notes |
+|----|-------------|--------|-------|
+| R44.1 | The flow-only closure covers every dataflow-relevant occurrence of the searched field (all 5 miss classes) | ✅ | 2026-08-28 (pending release) — all five families above landed (`variable_extractor_v2.py` + `dependency_graph.py` Phase 4d-gb + `highlight_strategies.py` + `l2_builder.py`). Verification caveat: the 30-case occurrence audit has not been RE-RUN against the landed walker — R44.2's re-derived benchmark is the gate that closes it |
+| R44.2 | Benchmark re-derivation follows the new walker | ⏳ | ground truth is re-derived independently (never from the system's own output); the gate stays set-equality (recall AND precision both 1.0), not a size check. IN FLIGHT: the PL stray-`;` repair (R13.7) moves 3 canonical rows and those are being re-pinned |
+| R44.3 | Unified snapshot regeneration lands with R44 | ⏳ | all L2 snapshots regenerate once at the next release (R43 DDL-drop + RFN #370 + R44 twins + the chip `line_start` keys + the K3 sample repairs together) — see R43.4 and the DRAFT entry in `SNAPSHOT_CHANGELOG.md`; snapshot failures before then are expected, not regressions |
+| R44.4 | **Filter-operand twin edges (F-E1, 2026-08-29 simulation finding)** — the seed's occurrence inside a filter's operand expression carries its own edge, so the operand line is reachable and the merged view can anchor it | ⏳ | IN FLIGHT — Team F-E1. Same occurrence-twin mechanism as family 3, extended to filter operands (e.g. the `NOT IN` / `CONCAT(...)` operand sides of a seed comparison) |
+
+## K4 rulings (2026-08-28) — contract amendments, recorded as design decisions
+
+Four rulings from the K4 walkthrough. Two amend a documented contract (the code was already
+right — the DOC moved, not the code), one is a new diagnostics gate, one closes the direction
+API. None of them changes extraction semantics.
+
+| ID | Ruling | Status | Trace |
+|----|--------|--------|-------|
+| K4.1 | **The ⟐ VT anchor is the creation line.** Top-level ⟐ output VT: the statement's OWN first token — never the `WITH` line (a CTE-bearing statement's anchor is the DML/SELECT keyword, so a click lands on the statement that produces the output, not on the clause that names an intermediate). Nested subquery/derived/EXISTS ⟐ VT: the body's first output line, falling back to the body's SELECT head | ✅ | R37.2/R37.5 amended; code unchanged (verified right) |
+| K4.2 | **`parse_errors` honesty via a structural paren-balance check** — `ErrorLevel.IGNORE` recovers a partial tree from almost anything, so a statement whose parens never close parsed into a plausible graph with a clean `parse_errors: []`. `_paren_balance_errors` now runs ONE tokenizer pass over the ORIGINAL script (string/comment aware), splits at `;` TOKENS and records every statement still holding `(` open at its end | ✅ | `EXTRACTOR_VERSION 2026-08-28.7` — diagnostics ONLY (no node/line/edge moves); extraction never rejects, the detail says the recovered tree may be incomplete. CLAUDE.md decision #23 |
+| K4.3 | **`direction` is accepted but NEVER honored** — every search and every L2 fetch runs downstream; an omitted value AND a legacy `"upstream"` coerce to `"downstream"` at the router boundary (`_normalize_direction`); only values outside {upstream, downstream} return 400. One direction, one mental model: "where does this field's value go" | ✅ | amends R29.4/R4.13 (R38, v3.3.180). The upstream walker machinery below the router is untouched (API-unreachable); retirement is a future work item. CLAUDE.md decision #29 |
+| K4.4 | **Never guess a line: a node with no valid `line_start` (integer ≥ 1) no-ops the SQL highlight** — visible feedback instead of a silent scroll-to-top (F-B2 landed the feedback; F-B1 lands the chip `line_start` payload) | ✅ / ⏳ | R37.3/R37.6 — the guard is shipped, the chip payload half is F-B1's in-flight work |
+
+## User-scenario simulation (2026-08-29) — 50 seeded targets, 4 teams
+
+A seeded end-to-end walkthrough of 50 realistic user targets (table.field searches across the
+four sample workspaces) run by four parallel teams (F-A backend search, F-B1/F-B2 frontend,
+F-C extraction, F-E1 walker). Headline result: **the click → SQL-highlight channel is exact** —
+30/30 browser PASS, and **0 parser-span violations across 16,129 edges / 7,745 nodes** (no
+highlighted span ever contradicts the SQL it claims to anchor).
+
+| Finding | Verdict | Trace |
+|---------|---------|-------|
+| Backend search was case-SENSITIVE while the frontend resolved case-insensitively — disjoint case-variant script sets (TEMP_RFN vs temp_rfn) made a correct search return `no_matches` | ✅ FIXED (F-A) | R2.11 (`resolve_name_ci` / `scripts_for_name_ci`) |
+| RFN rate-lookup block carried 2 missing closing parens; PL L19 carried a stray `;` splitting a statement | ✅ FIXED (K3, pixel evidence) | R13.7 (jaccard re-pin in flight → R44.2) |
+| Family-3 occurrence twins: the 2nd..Nth occurrence of a field inside one statement had no node at its own line | ✅ FIXED (F-C, R45) | R44.1 (2026-08-28.6) |
+| Chip-decoration leak, dropdown eating the neighbouring input's click, silent zero-line click, banner wording; Fit re-verified in the real UI | ✅ FIXED (F-B2) | R40.11 |
+| Field chips carry `line_start`; banner text; direction default flip | ⏳ IN FLIGHT (F-B1) | R37.6 |
+| Filter-operand occurrences lack their own twin edge | ⏳ IN FLIGHT (F-E1) | R44.4 |
+
+## Code-review decisions (2026-08-25) — SHIPPED v3.3.165
+
+One-by-one walkthrough of `wiki/CODE_REVIEW_2026-08-24.md`. Decisions recorded; the GO came and the
+whole batch shipped in v3.3.165 (commit `7e67f0e`, "code-review security hardening + notification
+removal + layout fixes"). See the `requirements_v2.md` "Code-review decisions" amendment for the
+full design. 2026-08-28: the 11 `⏸` rows below were flipped to ✅ against verified code — they had
+contradicted the ✅ requirement rows (R31.2/R31.9/R1.8) since v3.3.165.
 
 | ID | Decision | Status | Trace |
 |----|----------|--------|-------|
-| M-Po3 | REQUIRE_LOGIN fails **closed** — `config.py:29` default flips ON; test suite authenticates as `admin@hsbc.com` | ⏸ | #315 |
-| M-Po4 | Per-operation client IP in activity/audit (completes R31.2) | ⏸ | #316 |
-| M-Po5 | Access model: reads open to all authenticated users; creator-only on user-level mutations (filter/export-config, views) | ⏸ | #317 |
-| M-Po6 | `audit.json`/`activity.json` created `0600` (owner-only) | ⏸ | #318 |
-| M-Po7 | Session revocation on password change (zero-expiry kept, #279) | ⏸ | #319 |
-| M-S1 (D-M1) | Search scope = physical tables/fields only — folder_index Fix A curation (R1.8) | ⏸ | #308 |
-| M-L1 | L1 drags saved under their own level key (not the L2 key when L2 is open) | ⏸ | #309 |
-| M-L2 | Flow-only ↔ full toggle is pure visibility — camera-stable, never re-layout | ⏸ | #310 |
-| H1 | Login throttling — exponential backoff, per-username + per-IP, no lockout | ⏸ | #303 |
-| #322 | R31 notification subsystem removed (no producers remain post-#285) | ⏸ | #322 |
-| #320 | Low hardening backlog — 28 items, 2 covered (mark_read moot / empty-IP = M-Po4) | ⏸ | #320 |
+| M-Po3 | REQUIRE_LOGIN fails **closed** — `config.py:29` default flips ON; test suite authenticates as `admin@hsbc.com` | ✅ | #315 — shipped v3.3.165 (`config.py` default `"true"`; `test_r31_gate.py` subprocess-verifies) |
+| M-Po4 | Per-operation client IP in activity/audit (completes R31.2) | ✅ | #316 — shipped v3.3.165 (see R31.2 ✅ row) |
+| M-Po5 | Access model: reads open to all authenticated users; creator-only on user-level mutations (filter/export-config, views) | ✅ | #317 — shipped v3.3.165 (`workspace.py` creator checks on layout/filter/export/reset + view children) |
+| M-Po6 | `audit.json`/`activity.json` created `0600` (owner-only) | ✅ | #318 — shipped v3.3.165 (`audit_service.py:37` `os.open(..., 0o600)`, `users.json` tmp `chmod(0o600)`) |
+| M-Po7 | Session revocation on password change (zero-expiry kept, #279) | ✅ | #319 — shipped v3.3.165 (`revoke_user_sessions` on provision force-sync) |
+| M-S1 (D-M1) | Search scope = physical tables/fields only — folder_index Fix A curation (R1.8) | ✅ | #308 — shipped v3.3.165 (see R1.8 ✅ row) |
+| M-L1 | L1 drags saved under their own level key (not the L2 key when L2 is open) | ✅ | #309 — shipped v3.3.165 (explicit level key on `handlePositionsChange`; `resumeLayoutKey('l1'/'l2:{script}')`) |
+| M-L2 | Flow-only ↔ full toggle is pure visibility — camera-stable, never re-layout | ✅ | #310 — shipped v3.3.165 (`flowVisibility.js` `.show()`/`.hide()` only; still enforced by `test_flow_line_invariants.py`) |
+| H1 | Login throttling — exponential backoff, per-username + per-IP, no lockout | ✅ | #303 — shipped v3.3.165 (`auth_service.record_failed_login` backoff; residual M-A1 cardinality cap remains open) |
+| #322 | R31 notification subsystem removed (no producers remain post-#285) | ✅ | #322 — shipped v3.3.165 (see R31.9 ✅ row; no `/api/notifications` route remains) |
+| #320 | Low hardening backlog — 28 items, 2 covered (mark_read moot / empty-IP = M-Po4) | ✅ | #320 — shipped v3.3.165 (guards landed in folder_index, l1_builder, multi_script_service, workspace_service, audit_service, auth_service — commit `7e67f0e`) |
 
 ## Summary
 | Metric | Count |
 |--------|-------|
-| ✅ Implemented | 174 (all) — 90 R1–R16 + 17 R17–R20 + 16 R26–R28 + 8 R29 (R29.1–R29.6 + R29.7 #193 + R29.8 #252) + 11 R30 (R30.1–R30.5 flow cone + R30.6–R30.10 v3.3.159/160 amendments + R30.11 ROW_FLOW) — R5.10/R5.11 = #288/#289 (2026-08-24, Team C) + 29 R31 (R31.1–R31.29) + 3 R32 (R32.1–R32.3, v3.3.166) |
+| ✅ Implemented | 196 — 2026-08-29 additions: R44.1 flipped ⏳ → ✅ (occurrence coverage landed), NEW R2.11 (backend CI search, F5-extension), R5.13 (#386 CTE-scope ruling), R13.7 (simulation sample repairs, re-pin pending), R37.5 (K4 VT-anchor amendment), R40.11 (F-B2 UX hardening). 2026-08-28 additions (pending-release batch): R40.8, R41.1/R41.2, R2.9/R2.10 (F2/F5, audit #383), R5.12 (MERGE-target fold, #386), R13.6 (RFN OCR recovery #370), R40.10 (Joined/Transformed stage); prior composition: 90 R1–R16 + 17 R17–R20 + 16 R26–R28 + 8 R29 + 11 R30 + R5.10/R5.11 (#288/#289) + 29 R31 + 3 R32 + 11 R40 (R40.1–R40.11) + 2 R41 (R41.1/R41.2) |
 | 📝 Partial — in progress | 0 — none (R31.2 IP audit + R1.8 search scope both closed v3.3.165) |
-| ⏸ Awaiting GO — code-review batch (2026-08-25) | 11 tasks — #303, #308–#310, #315–#320, #322 (see "Code-review decisions" table; requirements_v2.md amendment is the coding reference) |
-| Version | 3.3.178 |
+| ⏳ In flight | 5 rows — R43.4 + R44.2/R44.3 (benchmark re-pin + unified snapshot regeneration), R44.4 (filter-operand twin edges, F-E1), R37.6 (F-B1 chip `line_start` + banner + direction flip) |
+| ✅ Code-review decisions batch (2026-08-25) | 11 tasks — #303, #308–#310, #315–#320, #322 — ALL SHIPPED v3.3.165 (commit `7e67f0e`); the "Code-review decisions" table rows were flipped ⏸ → ✅ 2026-08-28 |
+| ✅ Code review 2026-08-28 | 31 first-pass findings FULLY ADJUDICATED 2026-08-29 — 23 fixed, 6 false positives, 2 deferrals (verdict table: `wiki/CODE_REVIEW_2026-08-28.md` §"Resolution status (2026-08-29)") |
+| K4 rulings | 4 recorded 2026-08-28 as design decisions (see the "K4 rulings" section) |
+| Version | 3.3.190 (v3.3.191+ batch staged in the working tree, pending release) |
 
 ## Key Fixes since V3.2.1
 | Fix | Description |

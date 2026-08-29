@@ -3,6 +3,40 @@
     "edges": [
       {
         "data": {
+          "category": "combine",
+          "color": "#16A085",
+          "desc": "Subquery reference",
+          "edge_type": "SUBQUERY",
+          "flow_kind": "field flow",
+          "highlight_line": 35,
+          "id": "l2e_f34ea3a6ad2e",
+          "label": "SUBQUERY",
+          "line_style": "dotted",
+          "reason": "field flow (combine step) \u2014 \u2016dj@L35 \u2192 \u27d0 dj@L9\u2016",
+          "source": "l2_tbl_f1085ba7ce",
+          "target": "l2_tbl_5546b22aae",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 15,
+          "id": "l2e_27d1d1c8faef",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u27d0 dj.ss_ticket_number@L34 \u2192 \u2016household_demographics@L15 \u2192 \u27d0 dj@L9\u2016",
+          "source": "l2_tbl_b13449b8df",
+          "target": "l2_tbl_5546b22aae",
+          "width": 3
+        }
+      },
+      {
+        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -25,6 +59,23 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
+          "highlight_line": 6,
+          "id": "l2e_bbe977fab8c0",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L2 \u2192 ss_ticket_number@L6\u2016",
+          "source": "l2_tbl_3f5ccf500f",
+          "target": "fld_339aeda542",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
           "highlight_line": 9,
           "id": "l2e_e8a2c642153a",
           "label": "SCHEMA",
@@ -34,10 +85,72 @@
           "target": "fld_9020988bf7",
           "width": 1
         }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 15,
+          "id": "l2e_741f636d0376",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016\u27d0 dj.ss_ticket_number@L34 \u2192 household_demographics@L15\u2016",
+          "source": "fld_9020988bf7",
+          "target": "l2_tbl_b13449b8df",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 15,
+          "id": "l2e_5ce2f1fe1955",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016dj@L35 \u2192 household_demographics@L15\u2016",
+          "source": "l2_tbl_f1085ba7ce",
+          "target": "l2_tbl_b13449b8df",
+          "width": 1
+        }
       }
     ],
-    "filtered_nodes": 3,
+    "filtered_nodes": 6,
     "nodes": [
+      {
+        "data": {
+          "context": "TOP0",
+          "defined_in": "TOP0",
+          "id": "l2_tbl_3f5ccf500f",
+          "label": "output",
+          "line_end": 37,
+          "line_start": 2,
+          "original_id": "1b7acd868d73234c",
+          "table_name": "\u27d0 output",
+          "type": "intermediate_table",
+          "variable_type": "virtual_table"
+        }
+      },
+      {
+        "data": {
+          "context": "TOP0/subq/dj",
+          "defined_in": "FROM:TOP0",
+          "id": "l2_tbl_f1085ba7ce",
+          "label": "dj",
+          "line_end": 37,
+          "line_start": 35,
+          "original_id": "2fba0081ade67366",
+          "table_name": "dj",
+          "type": "intermediate_table",
+          "variable_type": "subquery"
+        }
+      },
       {
         "data": {
           "context": "TOP0/subq/dj",
@@ -54,10 +167,25 @@
       },
       {
         "data": {
+          "context": "TOP0/subq/dj",
+          "defined_in": "JOIN",
+          "id": "l2_tbl_b13449b8df",
+          "label": "household_demographics",
+          "line_end": 37,
+          "line_start": 15,
+          "original_id": "7abfce3309d74ca2",
+          "table_name": "household_demographics",
+          "type": "source_table",
+          "variable_type": "table"
+        }
+      },
+      {
+        "data": {
           "field_group": "direct",
           "id": "fld_9020988bf7",
           "is_target": true,
           "label": "ss_ticket_number",
+          "line_start": 9,
           "orig_type": "column",
           "original_id": "d17d14294d91445e",
           "parent": "l2_tbl_5546b22aae",
@@ -71,8 +199,10 @@
           "id": "fld_339aeda542",
           "is_target": true,
           "label": "ss_ticket_number",
+          "line_start": 6,
           "orig_type": "column",
           "original_id": "0d93015fa740b783",
+          "parent": "l2_tbl_f1085ba7ce",
           "type": "field",
           "variable_type": "field"
         }
@@ -81,8 +211,8 @@
     "script_name": "73.sql",
     "search_matched": true,
     "target": "dj.ss_ticket_number",
-    "total_edges": 2,
-    "total_nodes": 3
+    "total_edges": 7,
+    "total_nodes": 7
   },
   "full": {
     "edges": [
@@ -638,6 +768,40 @@
           "edge_type": "REF",
           "flow_kind": "read",
           "highlight_line": 15,
+          "id": "l2e_741f636d0376",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016\u27d0 dj.ss_ticket_number@L34 \u2192 household_demographics@L15\u2016",
+          "source": "l2_tbl_5546b22aae",
+          "target": "l2_tbl_b13449b8df",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 35,
+          "id": "l2e_5c55a72fed38",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016\u27d0 dj.ss_customer_sk@L37 \u2192 dj@L35\u2016",
+          "source": "l2_tbl_5546b22aae",
+          "target": "l2_tbl_f1085ba7ce",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 15,
           "id": "l2e_5ce2f1fe1955",
           "label": "REF",
           "line_style": "solid",
@@ -775,7 +939,7 @@
         "data": {
           "context": "TOP0/subq/dj",
           "defined_in": "JOIN",
-          "flow_role": "source",
+          "flow_role": "waypoint",
           "id": "l2_tbl_b13449b8df",
           "label": "household_demographics",
           "line_end": 37,
@@ -807,6 +971,7 @@
           "id": "fld_9020988bf7",
           "is_target": false,
           "label": "ss_ticket_number",
+          "line_start": 9,
           "orig_type": "column",
           "original_id": "d17d14294d91445e",
           "parent": "l2_tbl_5546b22aae",
@@ -820,6 +985,7 @@
           "id": "fld_d6b0a89e7b",
           "is_target": false,
           "label": "ss_customer_sk",
+          "line_start": 10,
           "orig_type": "column",
           "original_id": "634bcdeca763fc68",
           "parent": "l2_tbl_5546b22aae",
@@ -833,6 +999,7 @@
           "id": "fld_21f2fc8978",
           "is_target": false,
           "label": "cnt",
+          "line_start": 11,
           "orig_type": "aggregate",
           "original_id": "68f6fdcdb8ef792e",
           "parent": "l2_tbl_5546b22aae",
@@ -846,6 +1013,7 @@
           "id": "fld_75e77d57e4",
           "is_target": false,
           "label": "s_county",
+          "line_start": 30,
           "orig_type": "column",
           "original_id": "f8225556c3cbb3d2",
           "parent": "l2_tbl_0435318fd1",
@@ -859,6 +1027,7 @@
           "id": "fld_44613b9901",
           "is_target": false,
           "label": "d_year",
+          "line_start": 27,
           "orig_type": "column",
           "original_id": "4b30e11d30a49f3d",
           "parent": "l2_tbl_612cf07250",
@@ -872,6 +1041,7 @@
           "id": "fld_c34af5bd67",
           "is_target": false,
           "label": "hd_vehicle_count",
+          "line_start": 22,
           "orig_type": "column",
           "original_id": "0dc40d8b1d876cbd",
           "parent": "l2_tbl_b13449b8df",
@@ -885,6 +1055,7 @@
           "id": "fld_7248e42091",
           "is_target": false,
           "label": "d_dom",
+          "line_start": 19,
           "orig_type": "column",
           "original_id": "cd09d0554f505c98",
           "parent": "l2_tbl_612cf07250",
@@ -898,6 +1069,7 @@
           "id": "fld_a54e67ca6d",
           "is_target": false,
           "label": "ss_hdemo_sk",
+          "line_start": 18,
           "orig_type": "column",
           "original_id": "03ff8138935108d1",
           "parent": "l2_tbl_9882bb790e",
@@ -911,6 +1083,7 @@
           "id": "fld_c16be90931",
           "is_target": false,
           "label": "hd_demo_sk",
+          "line_start": 18,
           "orig_type": "column",
           "original_id": "2e90bf3df99e7054",
           "parent": "l2_tbl_b13449b8df",
@@ -924,6 +1097,7 @@
           "id": "fld_36f1b0f922",
           "is_target": false,
           "label": "hd_buy_potential",
+          "line_start": 20,
           "orig_type": "column",
           "original_id": "f0b54f5ca780a520",
           "parent": "l2_tbl_b13449b8df",
@@ -937,6 +1111,7 @@
           "id": "fld_fbdafde132",
           "is_target": false,
           "label": "ss_sold_date_sk",
+          "line_start": 16,
           "orig_type": "column",
           "original_id": "fa29199a402d8200",
           "parent": "l2_tbl_9882bb790e",
@@ -950,6 +1125,7 @@
           "id": "fld_8fc1bf1572",
           "is_target": false,
           "label": "d_date_sk",
+          "line_start": 16,
           "orig_type": "column",
           "original_id": "e1613f9393da6be8",
           "parent": "l2_tbl_612cf07250",
@@ -963,6 +1139,7 @@
           "id": "fld_6a3cfda40a",
           "is_target": false,
           "label": "ss_store_sk",
+          "line_start": 17,
           "orig_type": "column",
           "original_id": "8ac74c92a21680fe",
           "parent": "l2_tbl_9882bb790e",
@@ -976,6 +1153,7 @@
           "id": "fld_748a7c5f98",
           "is_target": false,
           "label": "s_store_sk",
+          "line_start": 17,
           "orig_type": "column",
           "original_id": "ed4f9418573179cd",
           "parent": "l2_tbl_0435318fd1",
@@ -989,6 +1167,7 @@
           "id": "fld_9c171e47bb",
           "is_target": false,
           "label": "hd_dep_count",
+          "line_start": 24,
           "orig_type": "column",
           "original_id": "2e67177137bf8547",
           "parent": "l2_tbl_b13449b8df",
@@ -1002,6 +1181,7 @@
           "id": "fld_e8ea46de49",
           "is_target": false,
           "label": "c_last_name",
+          "line_start": 2,
           "orig_type": "column",
           "original_id": "f628b0fc0147daea",
           "parent": "l2_tbl_be611a0ad5",
@@ -1015,6 +1195,7 @@
           "id": "fld_2e995c61d7",
           "is_target": false,
           "label": "c_first_name",
+          "line_start": 3,
           "orig_type": "column",
           "original_id": "e9e77f668730ebc5",
           "parent": "l2_tbl_be611a0ad5",
@@ -1028,6 +1209,7 @@
           "id": "fld_3392b8eca6",
           "is_target": false,
           "label": "c_salutation",
+          "line_start": 4,
           "orig_type": "column",
           "original_id": "6b213e4b1be6fd88",
           "parent": "l2_tbl_be611a0ad5",
@@ -1041,6 +1223,7 @@
           "id": "fld_c14e868b95",
           "is_target": false,
           "label": "c_preferred_cust_flag",
+          "line_start": 5,
           "orig_type": "column",
           "original_id": "c35d033968425809",
           "parent": "l2_tbl_be611a0ad5",
@@ -1054,6 +1237,7 @@
           "id": "fld_339aeda542",
           "is_target": false,
           "label": "ss_ticket_number",
+          "line_start": 6,
           "orig_type": "column",
           "original_id": "0d93015fa740b783",
           "parent": "l2_tbl_f1085ba7ce",
@@ -1067,6 +1251,7 @@
           "id": "fld_61737c9e58",
           "is_target": false,
           "label": "cnt",
+          "line_start": 7,
           "orig_type": "column",
           "original_id": "9bcee348ecb69b6d",
           "parent": "l2_tbl_f1085ba7ce",
@@ -1080,6 +1265,7 @@
           "id": "fld_6f6d0f8995",
           "is_target": false,
           "label": "ss_customer_sk",
+          "line_start": 35,
           "orig_type": "column",
           "original_id": "9b91fb092d41843a",
           "parent": "l2_tbl_f1085ba7ce",
@@ -1093,6 +1279,7 @@
           "id": "fld_41227ebaa4",
           "is_target": false,
           "label": "c_customer_sk",
+          "line_start": 37,
           "orig_type": "column",
           "original_id": "272b78ab567df03a",
           "parent": "l2_tbl_be611a0ad5",
@@ -1104,8 +1291,8 @@
     "script_name": "73.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 35,
-    "total_nodes": 31
+    "total_edges": 37,
+    "total_nodes": 36
   },
   "script_name": "73.sql",
   "seed": {

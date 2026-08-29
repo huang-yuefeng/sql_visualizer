@@ -42,12 +42,12 @@ const STRUCTURE_HIDDEN_CLASS = 'structure-hidden';
  * off-screen. This helper shows everything, fits, and re-applies the flow
  * visibility — never a layout, so node positions stay byte-identical.
  */
-export function fitAllElements(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedView } = {},
+export function fitAllElements(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedView, recenter } = {},
   padding = 50) {
   if (!cy || (typeof cy.destroyed === 'function' && cy.destroyed())) return;
   cy.elements().show();
   cy.fit(undefined, padding);
-  applyFlowVisibility(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedView });
+  applyFlowVisibility(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedView, recenter });
 }
 
 /**
@@ -62,7 +62,8 @@ export function fitAllElements(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedV
  * `mergedView` truthy → the displayed payload is a line-merged one
  * ('flow-merged'/'full-merged'); after the show/hide above, field chips with
  * no visible incident edge are hidden as well (#376 — merged edges are all
- * table-level, so an untouched field node would render as a floating orphan).
+ * table-level, so an untouched field node would render as a floating orphan;
+ * V2-N1: the searched `is_target` seed chips are exempt — they always render).
  * Detailed views never pass it: their field-level edges stay untouched.
  *
  * Pure visibility — calls only cytoscape `.show()` / `.hide()` (+`.batch()`),
@@ -86,6 +87,16 @@ export function fitAllElements(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedV
  * rare parentless-field case the promotion map skips the endpoint, so that
  * chip keeps its merged edge and must keep rendering. Pure visibility — no
  * positions are read or written.
+ *
+ * V2-N1 (2026-08-29): the SEARCHED field's own seed chips are exempt. The
+ * closure view exists because the user searched a table.field, and F-B1 made
+ * field chips clickable (chip tap → its SQL definition line) — hiding the
+ * searched chip left the default 'Flow only' view with ZERO chips in 5 of 7
+ * measured closures (the merged edge set is table-level, so the seed chip is
+ * exactly the edge-less case) and no way to click what the user came for.
+ * `is_target` is the builder's seed marker (P1 seed copies land on
+ * alias/CTE/target nodes too, all `is_target`), the same flag `centerOnSeed`
+ * uses. The chip still sits INSIDE its table box, so it adds no orphan.
  */
 function hideEdgelessFieldChips(cy) {
   // Collect the endpoints of every edge actually on screen. Stylesheet-hidden
@@ -103,6 +114,9 @@ function hideEdgelessFieldChips(cy) {
     cy.nodes().forEach(n => {
       const d = typeof n.data === 'function' ? n.data() : undefined;
       if (!d || d.type !== 'field') return;
+      // V2-N1: a searched seed chip is never an orphan however the merged
+      // edge set was promoted — it is the chip the user searched for.
+      if (d.is_target === true) return;
       const id = typeof n.id === 'function' ? n.id() : n.id;
       if (!linked.has(id)) n.hide();
     });
@@ -111,32 +125,59 @@ function hideEdgelessFieldChips(cy) {
 }
 
 /**
- * v3.3.183 — make absorbed FILTER edges BIG and readable in merged views.
+ * v3.3.183 (updated v3.3.191) — make absorbed FILTER edges BIG and readable
+ * in merged views.
  *
  * R32 promotion collapses `p_dt ──FILTER──► east5` into an `east5→east5`
  * self-loop that renders ~5x5 px at the zoom floor, and cytoscape paints
  * edge labels BENEATH node fills — so the single most important edge of a
  * search was effectively invisible (user-verified three times). Fix, purely
  * client-side:
- *   1. Enlarge every visible merged self-loop (control-point-distances),
- *      thicken it, and give its label an above-box text treatment.
+ *   1. Tag every visible merged self-loop with `filter-selfloop` — the
+ *      stylesheet (FILTER_LOOP_GEOM_STYLES) then draws it as a big red
+ *      bezier loop hugging the table's LEFT border (per-edge
+ *      control-point-step-size data + loop-direction -90deg). The edge
+ *      itself is the visible, clickable curve: its tap highlights the
+ *      absorbed SQL line (R37).
  *   2. Pin a CAPTION NODE at the loop midpoint — nodes paint above
  *      everything, so the caption is deterministically visible. The node is
  *      `synthetic`: non-interactive (`events: 'no'`), excluded from layout
  *      persistence (collectPositions skips type 'caption'), and removed/
  *      re-created on every visibility pass so it can never leak.
  */
+// v3.3.191 — target bulge of the self-loop arc PAST the table's left border,
+// in model units (≈42 screen px at the 0.28 zoom floor). cytoscape scales a
+// self-loop from the node CENTRE (ctrl pts = centre ± 1.4 × step along the
+// loop axis; with direction -90deg/sweep -90deg the horizontal reach is
+// ≈ 0.99 × step), so a fixed step that clears a small chip disappears inside
+// a wide table box — hence the per-edge measurement below.
+const SELFLOOP_BULGE = 150;
+
 function enlargeFilterSelfLoops(cy) {
-  // v3.3.185: runtime e.style() is a silent no-op — tag the edge and let the
-  // stylesheet (FILTER_SELFLOOP_STYLES, data-driven segment-points) draw a
-  // big polygonal loop OUTSIDE the box.
+  // v3.3.191: tag the edge and let the stylesheet draw the big curve. The
+  // v3.3.185 `data.segp` + `segment-points` hack never worked — cytoscape
+  // 3.34 has no `segment-points` property (the parsed stylesheet drops it
+  // silently), and a self-edge's geometry comes from findLoopPoints
+  // (control-point-step-size / loop-direction / loop-sweep) whatever
+  // curve-style says, so the loop rendered at the 40-unit default: 8×8 px
+  // at the 0.28 zoom floor. FILTER_LOOP_GEOM_STYLES maps this class to the
+  // loop properties with a per-edge `loopstep` sized from the endpoint box.
   cy.edges().forEach(e => {
     try {
       const d = (typeof e.data === 'function' ? e.data() : e.data) || {};
       const isSelf = d.source != null && d.source === d.target;
       if (!isSelf || (typeof e.hidden === 'function' && e.hidden())) return;
-      const pts = [[-460, -330], [-580, 0], [-460, 330]];
-      if (typeof e.data === 'function') e.data('segp', pts);
+      let halfW = 60; // sane floor for bare/fake nodes in unit tests
+      try {
+        const nb = e.source().boundingBox({ includeLabels: false,
+          includeNodes: true, includeEdges: false, includeOverlays: false });
+        if (nb && Number.isFinite(nb.w)) halfW = Math.max(20, nb.w / 2);
+      } catch (_) { /* keep the floor */ }
+      // data FIRST, then the class — the mapping resolves on the style
+      // recalc that follows this batch, so no missing-field warning fires.
+      if (typeof e.data === 'function') {
+        e.data('loopstep', Math.round(halfW + SELFLOOP_BULGE));
+      }
       if (typeof e.addClass === 'function') e.addClass('filter-selfloop');
     } catch (_) { /* fake cy in unit tests — best-effort */ }
   });
@@ -182,49 +223,17 @@ function upsertFilterCaptions(cy) {
       } else {
         cy.getElementById(id).position(e.midpoint()).data('caption_font', capFont);
       }
-      // v3.3.186 — the user wants THE EDGE BIG, not the label. Node-node
-      // edges render reliably (unlike self-loop curves), so draw the loop
-      // as a thick synthetic polyline edge.
-      // v3.3.187 FIX (user-reported "a red line separately on the screen"):
-      // the anchors used to park at sp.x - off — a detached floating bar with
-      // no visual tie to the table. Anchor the line to the table's LEFT
-      // BORDER instead: x = box.x1 - gap (~12 screen px), y spanning the
-      // node's vertical center and clamped to the box height — a bracket
-      // that visibly belongs to the table at any zoom (model-space anchor,
-      // so it never drifts on pan/zoom between upserts).
-      const src = e.source();
-      if (typeof src.position !== 'function') return;
-      const sp = src.position();
-      let half = Math.min(620, Math.max(120, 170 / z2)) * 0.7;
-      // v3.3.190 (diagnostic ruling B1): a 12px screen gap READS as
-      // detached — clamp to ~2px so the bracket visually touches the
-      // border.
-      const gap = Math.max(2, 2.5 / z2);
-      let bx1 = sp.x, by1 = sp.y, by2 = sp.y;
-      try {
-        const nb = src.boundingBox({ includeLabels: false });
-        bx1 = nb.x1; by1 = nb.y1; by2 = nb.y2;
-      } catch (_) { /* fake/bare node — fall back to the position */ }
-      const boxH = Math.max(0, by2 - by1);
-      if (boxH > 0) half = Math.min(half, boxH * 0.45);
-      const aId = 'capA_' + (typeof e.id === 'function' ? e.id() : e.id);
-      const bId = 'capB_' + (typeof e.id === 'function' ? e.id() : e.id);
-      const lId = 'capL_' + (typeof e.id === 'function' ? e.id() : e.id);
-      const mk = (nid, x, y) => {
-        if (!cy.getElementById(nid).length) {
-          cy.add({ data: { id: nid, label: '', type: 'caption', synthetic: true },
-                   position: { x, y }, classes: 'filter-caption' });
-        } else {
-          cy.getElementById(nid).position({ x, y });
-        }
-      };
-      mk(aId, bx1 - gap, sp.y - half);
-      mk(bId, bx1 - gap, sp.y + half);
-      if (!cy.getElementById(lId).length) {
-        cy.add({ data: { id: lId, label: '', type: 'caption', synthetic: true,
-                         source: aId, target: bId },
-                 classes: 'filter-loopline' });
-      }
+      // v3.3.186/187 capA/capB/capL bracket — RETIRED in v3.3.191. The
+      // bracket was a straight node-node line minted beside the table
+      // BECAUSE the real self-loop could not be enlarged (inert
+      // segment-points hack). Two user-reported defects came of it: the
+      // straight line read as "edge from and to the same table is a
+      // straight line", and clicking it did nothing (the bracket carried
+      // `events: 'no'`, and the tiny 8×8 px real loop beneath was
+      // un-hittable). The real edge now IS the big left-border curve
+      // (FILTER_LOOP_GEOM_STYLES) and takes the taps itself; only the
+      // caption NODE above the loop remains. removeCaptionNodes still
+      // sweeps any stale anchors on resumed graphs.
     } catch (_) { /* fake cy — captions are best-effort chrome */ }
   });
 }
@@ -264,7 +273,8 @@ function centerOnSeed(cy) {
   }
 }
 
-export function applyFlowVisibility(cy, { flowNodeIds, flowEdgeIds, flowOnly, mergedView } = {}) {
+export function applyFlowVisibility(
+  cy, { flowNodeIds, flowEdgeIds, flowOnly, mergedView, recenter = true } = {}) {
   if (!cy || (typeof cy.destroyed === 'function' && cy.destroyed())) return;
   removeCaptionNodes(cy);
   if (!flowOnly) {
@@ -320,5 +330,7 @@ export function applyFlowVisibility(cy, { flowNodeIds, flowEdgeIds, flowOnly, me
     enlargeFilterSelfLoops(cy);
     upsertFilterCaptions(cy);
   }
-  centerOnSeed(cy);
+  // R41: recenter=false (user clicked Fit) skips the seed re-center —
+  // the fit's whole-graph viewport must survive the visibility pass.
+  if (recenter) centerOnSeed(cy);
 }

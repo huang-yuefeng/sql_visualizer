@@ -41,6 +41,21 @@ _EXPRESSION_BUILDING_TYPES = _SOURCE_COLUMN_TYPES - {
 }
 
 
+# R45 (2026-08-28.6, F-C family 3): occurrence-line twins carry an
+# `OCCURRENCE`-prefixed `defined_in` — the marker says "this var is an
+# occurrence-side twin", while the rest of the string is the clause the
+# occurrence was collected in. `_clause_of` recovers that clause for the
+# SCHEMA-connectivity / FILTER / JOIN gates below.
+_OCCURRENCE_PREFIX = "OCCURRENCE"
+
+
+def _clause_of(defined_in: str | None) -> str:
+    di = (defined_in or "").strip().upper()
+    if di.startswith(_OCCURRENCE_PREFIX):
+        return di[len(_OCCURRENCE_PREFIX):].strip()
+    return di
+
+
 def build_dependency_graph(
     result: ExtractionResult, sql_text: str = ""
 ) -> list[VariableDependency]:
@@ -524,6 +539,53 @@ def build_dependency_graph(
                 _add_edge(v, t, "REF", "READ")
                 break
 
+    # Phase 4d-gb: GROUP BY occurrence twins → SCHEMA connectivity.
+    # (#387, R44 family 3) `_register_groupby_twins` registers an
+    # occurrence-side twin `{owner}.{col}` (defined_in="GROUP BY",
+    # is_output=False, source_columns populated, source_tables=[owner]) so
+    # group-key lines anchor. The GROUP BY family is the ONLY twin family
+    # that populates source_columns — the R45 occurrence-line twins below
+    # are minted with an EMPTY list (`_mint_occurrence_twin`). The twin's
+    # qualifier is the PHYSICAL owner,
+    # not the read alias, so Phase 4a skips it (the owner is the
+    # original-name source) and Phase 4d's prefix match misses it — the
+    # twin's data-flow REF/READ is emitted by Phase 8's bridge, but no
+    # INCOMING SCHEMA edge reaches it, which trips the column_connectivity
+    # topology check ("no connection from source table"). Give each twin
+    # its structural belongs-to edge from the owner's same-context table
+    # instance (the original name or a bare self-attributed read — the
+    # twin's source_tables[0] names the physical owner either way).
+    for v in variables:
+        if v.variable_type != VariableType.COLUMN:
+            continue
+        # R45: also admit the occurrence-line twins — same owner/shape
+        # ({owner}.{col}, not an output), same connectivity need, but NOT
+        # the same source_columns: `_mint_occurrence_twin` mints them with
+        # an EMPTY list (family-1 precedent), only the GROUP BY family
+        # above populates it — which is why the admission gate below is
+        # source_tables only. Their `defined_in` is the OCCURRENCE marker +
+        # the collected clause, never "GROUP BY".
+        if _clause_of(v.defined_in) != "GROUP BY" \
+                and not (v.defined_in or "").strip().upper().startswith(
+                    _OCCURRENCE_PREFIX):
+            continue
+        # R45: occurrence twins deliberately carry an EMPTY
+        # source_columns (family-1 precedent — see
+        # `_mint_occurrence_twin`), so the gate is source_tables only.
+        if v.is_output or not v.source_tables:
+            continue
+        owner = v.source_tables[0]
+        ctx = v.context or "TOP"
+        for t in variables:
+            if t.variable_type not in (VariableType.TABLE, VariableType.VIEW,
+                                       VariableType.FUNCTION_TABLE):
+                continue
+            if (t.context or "TOP") != ctx:
+                continue
+            if t.name == owner and t.id != v.id:
+                _add_edge(t, v, "SCHEMA", "TABLE_COLUMN")
+                break
+
     # ══════════════════════════════════════════════════════════════════
     # Phase 5: INDIRECT — bare column → defined variable (HAVING→SELECT)
     # ══════════════════════════════════════════════════════════════════
@@ -598,6 +660,51 @@ def build_dependency_graph(
     # general column references do NOT get FILTER edges.
     _FILTER_CLAUSES = {"WHERE", "HAVING", "QUALIFY"}
     _JOIN_CLAUSES = {"JOIN ON"}
+
+    # R45/F-E1 (2026-08-28) — occurrence-twin group clauses. A family-3
+    # twin is named `{owner}.{col}` and carries `defined_in` =
+    # "OCCURRENCE <clause>", where <clause> is the clause the COLLAPSED
+    # occurrence was collected in. `_add` records those collapses in WALK
+    # order (a JOIN-key operand pass before the WHERE pass), while the
+    # LINE each twin gets is handed out in TEXTUAL order
+    # (`_occurrence_lines`) — so inside one twin group the two can be
+    # crossed. SUP_M, CTE{rollover_loan_info}/subq1/subq:join:p2, field
+    # podtao: twins at L37 (`AND podtao <> pofddt`) and L41
+    # (`LPAD(p2.podtao, 8, '0')`); the L37 twin carries the join-key
+    # collapse's "SELECT expr" and the L41 twin carries "WHERE". The
+    # group's clause MULTISET is still a fact of the SQL — only the
+    # per-line pairing is not — so a twin whose own label lost the
+    # crossing keeps its group's predicate participation: the L37 line is
+    # a genuine occurrence of the field in that scope and its
+    # FILTER/SCHEMA edges are the only own-line edges it can carry (its
+    # belongs-to SCHEMA and REF/READ edges anchor at / fold into the
+    # owner-table pair). Grouping is per (context, casefolded
+    # owner.field) — never a bare-name match, so a DIFFERENT table's
+    # same-named field (DigL's two data_dt owners) can never lend its
+    # clause.
+    _twin_clause_by_group: dict[tuple[str, str], set] = defaultdict(set)
+    for v in variables:
+        di = (v.defined_in or "").strip().upper()
+        if not di.startswith(_OCCURRENCE_PREFIX):
+            continue
+        if v.variable_type != VariableType.COLUMN or not v.source_tables:
+            continue
+        _twin_clause_by_group[
+            (v.context or "TOP", v.name.casefold())
+        ].add(di[len(_OCCURRENCE_PREFIX):].strip())
+
+    def _twin_group_admits(v, clauses) -> bool:
+        """True when `v` is an occurrence twin whose group collected one of
+        `clauses`, but the twin's OWN label is a different one (the honest
+        twins keep their own typing — Phase 6/6b already cover them)."""
+        di = (v.defined_in or "").strip().upper()
+        if not di.startswith(_OCCURRENCE_PREFIX):
+            return False
+        if _clause_of(di) in clauses:
+            return False
+        return bool(_twin_clause_by_group.get(
+            (v.context or "TOP", v.name.casefold()), set()) & clauses)
+
     for v in variables:
         if v.variable_type != VariableType.COLUMN:
             continue
@@ -606,7 +713,8 @@ def build_dependency_graph(
         if "." not in v.name:
             continue
         # Only columns from filter clauses
-        if (v.defined_in or "").upper().strip() not in _FILTER_CLAUSES:
+        if _clause_of(v.defined_in) not in _FILTER_CLAUSES \
+                and not _twin_group_admits(v, _FILTER_CLAUSES):
             continue
         ctx = v.context or "TOP"
         if ctx not in vt_map:
@@ -629,7 +737,8 @@ def build_dependency_graph(
             continue
         if "." not in v.name:
             continue
-        if (v.defined_in or "").upper().strip() not in _JOIN_CLAUSES:
+        if _clause_of(v.defined_in) not in _JOIN_CLAUSES \
+                and not _twin_group_admits(v, _JOIN_CLAUSES):
             continue
         ctx = v.context or "TOP"
         if ctx not in vt_map:
@@ -646,7 +755,7 @@ def build_dependency_graph(
     for v in variables:
         if v.variable_type != VariableType.EXPRESSION:
             continue
-        if (v.defined_in or "").upper().strip() != "JOIN ON":
+        if _clause_of(v.defined_in) != "JOIN ON":
             continue
         for sid in (v.source_variables or []):
             other = next((x for x in variables if x.id == sid), None)
@@ -844,7 +953,7 @@ def build_dependency_graph(
         land on a type the strict walker classifies: REF is
         FIELD_WALKABLE, FILTER/JOIN/DML/TABLE_FLOW are CONDITIONAL,
         SUBSET is NEVER_WALKED."""
-        di = (v.defined_in or "").strip().upper()
+        di = _clause_of(v.defined_in)
         ai = (anchor.defined_in or "").upper()
         if v.variable_type == VariableType.COLUMN \
                 and di in ("WHERE", "HAVING", "QUALIFY"):

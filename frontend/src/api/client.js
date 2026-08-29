@@ -204,10 +204,11 @@ export async function uploadFilterConfig(wsId, scriptTableFile, tableColFile) {
   return res.json();
 }
 
-// R29: direction — 'upstream' (writing flow) or 'downstream' (reading flow).
-// The frontend ALWAYS sends it explicitly; the client default is upstream
-// (the documented writing-flow contract — CR7 ruling 2026-08-13).
-export async function searchDataFlow(wsId, table, field, direction = 'upstream') {
+// K4 ruling 4 (2026-08-28): one direction, downstream. The router coerces
+// every legacy value to downstream at the boundary, so the client default
+// matches it — an omitted argument must not re-introduce the upstream
+// contract the API no longer honors.
+export async function searchDataFlow(wsId, table, field, direction = 'downstream') {
   const res = await gatedFetch(`/api/workspace/${wsId}/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

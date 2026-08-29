@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterNames, levenshteinLe1 } from '../nameFilter';
+import { filterNames, levenshteinLe1, resolveNameCi } from '../nameFilter';
 
 describe('levenshteinLe1', () => {
   it('is true for equal strings', () => {
@@ -69,5 +69,34 @@ describe('filterNames', () => {
     const many = Array.from({ length: 50 }, (_, i) => `field_${i}`);
     expect(filterNames(many, 'field').length).toBe(20);
     expect(filterNames(many, '').length).toBe(20);
+  });
+});
+
+describe('resolveNameCi (F5: case-insensitive index-key resolution)', () => {
+  it('exact key wins and is returned as-is', () => {
+    expect(resolveNameCi(['TEMP_RFN', 'temp_kmbh_gl'], 'TEMP_RFN'))
+      .toBe('TEMP_RFN');
+  });
+
+  it('resolves a wrong-case typed name to the canonical index key', () => {
+    // the audit F5 shape: index key TEMP_RFN, user types temp_rfn
+    expect(resolveNameCi(['TEMP_RFN', 'temp_kmbh_gl'], 'temp_rfn'))
+      .toBe('TEMP_RFN');
+    expect(resolveNameCi(['dkjjbm'], 'DKJJBM')).toBe('dkjjbm');
+  });
+
+  it('multiple case variants pick the dropdown-collation first (deterministic)', () => {
+    // several scripts wrote the same identifier in different cases
+    expect(resolveNameCi(['dkjjbm', 'DKJJBM'], 'DkjjBm')).toBe('dkjjbm');
+  });
+
+  it('whole-name equality only — never a substring match', () => {
+    expect(resolveNameCi(['east5_stzfxxb_old'], 'east5_stzfxxb')).toBeNull();
+  });
+
+  it('no hit (any casing) or empty typed value → null', () => {
+    expect(resolveNameCi(['TEMP_RFN'], 'temp_rfn_2')).toBeNull();
+    expect(resolveNameCi([], 'x')).toBeNull();
+    expect(resolveNameCi(['TEMP_RFN'], '')).toBeNull();
   });
 });

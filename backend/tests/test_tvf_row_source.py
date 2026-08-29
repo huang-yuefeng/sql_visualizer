@@ -106,3 +106,25 @@ def test_tvf_join_form():
     key = _vars(res, name="f.k", vtype=VariableType.COLUMN, ctx="TOP0")
     assert key and key[0].source_tables == [FUNC_NAME], key
     assert res.resolution_stats["unresolved_count"] == 0
+
+
+def test_tvf_columns_covered_by_column_connectivity_check():
+    """L-T1: `_check_column_connectivity` must treat `function_table` as a
+    known table prefix (like the table-type sets in the other checks) — a
+    TVF-owned dotted column is inside the check's scope: a connected one is
+    not flagged, a genuinely disconnected one IS flagged (pre-fix both were
+    silently skipped)."""
+    from app.services.topology_checker import _check_column_connectivity
+    fn = {"id": "v1", "name": FUNC_NAME, "variable_type": "function_table"}
+    col = {"id": "c1", "name": f"{FUNC_NAME}.df_dfzh", "variable_type": "column"}
+    schema_edge = {"source_id": "v1", "target_id": "c1", "relationship": "SCHEMA"}
+    # connected TVF column → no issue
+    assert _check_column_connectivity([fn, col], [schema_edge]) == []
+    # disconnected TVF column → flagged (skipped entirely before the fix).
+    # Assert the STABLE parts (the offending column name + the connection
+    # phrase), not the exact production message string — a cosmetic wording
+    # change upstream must not break this behavioral test.
+    issues = _check_column_connectivity([fn, col], [])
+    assert len(issues) == 1, issues
+    assert f"{FUNC_NAME}.df_dfzh" in issues[0]
+    assert "no connection from source table" in issues[0]

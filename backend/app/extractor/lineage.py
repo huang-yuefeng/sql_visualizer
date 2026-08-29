@@ -65,6 +65,14 @@ PRODUCTION_EDGES = {k for k, v in EDGE_SEMANTICS.items() if v["propagates_value"
 # Structural edges always bidirectionally followed by the BFS.
 ALWAYS_BIDIR_EDGES = {k for k, v in EDGE_SEMANTICS.items() if v["always_bidir"]}
 
+# ── #399 option b′ (2026-08-29): alias-aware W1 seed expansion ──
+# The switch IS the feature: the W1 downstream seed path below gates the
+# alias-key union on it, so flipping it to False restores the pre-#399
+# seeding exactly (test_alias_seed_expansion.py flips it to prove
+# additivity for searches that already work). False disables the expansion
+# entirely — an alias-named search target stays `search_matched: false`.
+_ALIAS_SEED_EXPANSION = True
+
 
 def compute_field_lineage(graph_data: dict, target_table: str,
                           target_field: str,
@@ -621,6 +629,29 @@ def compute_field_flow(graph_data, target_table, target_field,
     accepted for signature parity with compute_field_lineage but unused.
     Returns the set of node ids in the strict closure.
 
+    R44 (2026-08-28, user ruling "covering all occurrences of the target
+    field is the PURPOSE of flow-only") — downstream-only admission
+    extensions, all ADDITIVE (existing closures only gain members):
+      R0  W1 entity match is case-insensitive (CR11 mirror) — the
+          extractor canonicalizes physical spelling by majority vote.
+      R1  write-completion: an in-closure OUTPUT projection of the
+          searched field carries its statement's write by itself (a
+          constant `NULL AS Reserved_Field3` owns no DML edge) — the
+          statement's ⟐ output VT is admitted so the table-level write
+          leg renders; the _dml_write_leg index is extended with the
+          CONSTANT projections' field parts (reads stay Phase-1c's
+          domain — duplicating them amplifies the R29 effect-column
+          continuation over the whole projection list).
+      R3  derived-product admission: every field var carrying the target
+          field part whose HOLDER (the owner entity's occurrence labeled
+          source_tables[0], READ occurrences preferred over DML targets)
+          reads the searched table inside its own scope is an occurrence
+          of the searched field — derived pass-throughs (`p2.product`,
+          `a.rn`, `p8.X5GMAB`), alias reads (`c.p_dt`), and subquery
+          births (`row_number() … AS rn` on ⟐a) alike; the feeding read
+          joins too (the value's origin and the display compound the
+          extractor's physical-attributed twins parent under).
+
     ROW_FLOW (2026-08-13, #226): when `row_flow_out` is a list (not
     None) AND direction is "downstream", the closure fixpoint is
     followed by the row-level-flow bridge emission: the R29 continuation
@@ -665,7 +696,7 @@ def compute_field_flow(graph_data, target_table, target_field,
     #     var of the statement (the write→read link admits only when the
     #     reader statement actually consumes the searched field).
     # (Built before the seed selection: R29 upstream seeds are the DML
-    # write targets — the index gates them.)
+    #     write targets — the index gates them.)
     _dml_write_leg = {}
     for _E in pm.edges:
         if _E.edge_type != "DML":
@@ -677,6 +708,44 @@ def compute_field_flow(graph_data, target_table, target_field,
             _part = _occ_field_part(_so).lower()
             if _part:
                 _dml_write_leg.setdefault(_E.target_id, set()).add(_part)
+    # R44 class 1 (2026-08-28, user ruling "covering all occurrences of the
+    # target field is the PURPOSE of flow-only"): a statement's SELECT
+    # PROJECTION that carries no read (a constant — `NULL AS Reserved_Field3`)
+    # has no DML edge of its own, so its written column never entered the
+    # write-leg index and the D2 gate rejected the statement's write target.
+    # The occurrence IS the write: every CONSTANT projection (is_output,
+    # field-like, NO source_columns — exactly the vars dependency_graph
+    # Phase 1c cannot link) adds its field part to that statement's DML
+    # targets' legs (targets reached from the statement's own ⟐ output VT).
+    # Read-carrying projections are NOT added here: they already own DML
+    # edges, and duplicating them into the leg would amplify the R29
+    # effect-column continuation over the whole projection list (DigL
+    # data_dt closure 9 → 41 nodes — every co-written column pulling its
+    # FILTER/JOIN scope in).
+    for _vid, _o in pm.occurrences.items():
+        if not _o.get("is_output"):
+            continue
+        if _o.get("variable_type") not in FIELD_LIKE:
+            continue
+        if _o.get("source_columns"):
+            continue          # read-carrying projection — Phase 1c's domain
+        _part = _occ_field_part(_o).lower()
+        _ctx = _o.get("context") or ""
+        if not _part or not _ctx:
+            continue
+        for _E in pm.edges:
+            if _E.edge_type != "DML":
+                continue
+            if (_E.operation or "").upper() == "WRITE_READ":
+                continue
+            _sv = occ(_E.source_id)
+            if _sv is None:
+                continue
+            if _sv.get("variable_type") != "virtual_table":
+                continue
+            if (_sv.get("context") or "") != _ctx:
+                continue
+            _dml_write_leg.setdefault(_E.target_id, set()).add(_part)
     _stmt_field_parts = {}
     for _vid, _o in pm.occurrences.items():
         _stmt = (_o.get("context") or "TOP").split("/", 1)[0]
@@ -760,8 +829,73 @@ def compute_field_flow(graph_data, target_table, target_field,
             if target_field.lower() in _dml_write_leg.get(E.target_id, ()):
                 seeds.add(E.target_id)
     else:
+        # R44 rule 0: the entity-name match is case-insensitive (CR11
+        # mirror of the upstream seed rule) — the extractor canonicalizes
+        # physical-table spelling by majority vote, so a searched
+        # 'ods_hub_ssinrtp' must find the entity spelled 'ODS_HUB_SSINRTP'
+        # (a case mismatch previously yielded NO seeds and the not-in-flow
+        # full-graph fallback).
+        _tl = target_table.lower()
+        _tkeys_ci = {k for k, t in pm.tables.items()
+                     if t.name.lower() == _tl}
+        # #399 option b′ (2026-08-29): the searched TABLE part may name a
+        # SQL ALIAS (`a.data_dt`, `SSALSFP.ALCBP1`) rather than an entity.
+        # An alias is never an entity (build_physical_model resolves alias
+        # occurrences onto their canonical entity and records them only in
+        # `alias_by_var_id`), so the entity probes find nothing to seed from
+        # and the walker seeded from NOTHING — an empty closure, the
+        # not-in-flow banner and the full-graph fallback (18 of the 21 S1
+        # not-in-flow L2 fetches). DOWNSTREAM only: the upstream branch
+        # above seeds from DML write targets keyed by entity name and is
+        # API-unreachable since K4 ruling 4.
+        #
+        # Expansion: union the canonical ENTITY keys of every ALIAS
+        # occurrence whose name casefolds to the searched table. Per-
+        # occurrence truth only — never the label-keyed alias map
+        # (physical_model pass 0), which is first-wins per script and
+        # provably misses bindings (the derived `t` in RFN) and
+        # mis-resolves others. The target is the alias's OWNING ENTITY
+        # whatever its kind (physical, CTE or derived container) —
+        # resolving to "the physical table" is measured impossible (9/12
+        # S1 targets workspace-ambiguous, 2/12 CTE-owned).
+        #
+        # GATE (field-aware): expand ONLY when NO entity named the searched
+        # table HOSTS the searched field — a bare "no entity named X" gate
+        # wrongly preempts RFN `P1.INT_OD_DT`, where a subquery container
+        # happens to be named `P1` but hosts no INT_OD_DT. A search that
+        # already has its host keeps it (test 1: a real table named `a`
+        # beats the alias `a`), so every working path is untouched — the
+        # in-flow closures stay byte-identical (the Jaccard-gate /
+        # L2-snapshot promise).
+        #
+        # AMBIGUITY: one alias name may bind to several owning entities in
+        # ONE statement (the RFN `t.acct_no` shape — CTE `w` AND physical
+        # `lbl_fin`). ALL of them join the seed set: the union closure.
+        # Never "pick none" (that is today's full-graph fallback) and never
+        # "pick one" (that silently drops the other owner's compound).
+        if _ALIAS_SEED_EXPANSION:
+            _alias_keys = set()
+            for _avid, _akey in pm.alias_by_var_id.items():
+                _ao = occ(_avid)
+                if _ao is not None and ((_ao.get("name") or "").lower() == _tl):
+                    _alias_keys.add(_akey)
+            if _alias_keys:
+                # The FIELD-AWARE gate: an entity named the searched table
+                # preempts only when it actually HOSTS the searched field.
+                _named = target_keys | _tkeys_ci
+                _fk = target_field.lower()
+                _hosted = any(tkey in _named and fname.lower() == _fk
+                              for (tkey, fname) in pm.fields)
+                if not _hosted:
+                    target_keys |= _alias_keys
+                    _log.info(
+                        '#399: alias seed expansion for %s.%s — '
+                        'owning entities %s', target_table, target_field,
+                        sorted(pm.tables[k].name for k in _alias_keys
+                               if k in pm.tables))
         for (tkey, fname), fld in pm.fields.items():
-            if tkey not in target_keys or fname != target_field:
+            if (tkey not in target_keys and tkey not in _tkeys_ci) \
+                    or fname.lower() != target_field.lower():
                 continue
             for vid in fld.occurrence_ids:
                 o = occ(vid)
@@ -1063,9 +1197,6 @@ def compute_field_flow(graph_data, target_table, target_field,
                                         continue
                                     for _vid in _fld.occurrence_ids:
                                         if _vid not in visited:
-                                            if __import__("os").environ.get("TRACE_FLOW"):
-                                                _vo = occ(_vid) or {}
-                                                print(f"[TRACE-contcols] DML fwd target={nid} add {_vid} {_vo.get('name')!r}/{_vo.get('variable_type')!r}@{_vo.get('line_start')} ctx={_vo.get('context')!r}")
                                             visited.add(_vid)
                                             changed = True
                                             _register(_vid)
@@ -1107,9 +1238,6 @@ def compute_field_flow(graph_data, target_table, target_field,
                 else:
                     admit = False  # NEVER types and anything unknown
                 if admit:
-                    if __import__("os").environ.get("TRACE_FLOW"):
-                        _no = occ(nb) or {}
-                        print(f"[TRACE-expand] {nid} -> {nb} et={et} fwd={fwd} read={read} op={op} nb={_no.get('name')!r}/{_no.get('variable_type')!r}@{_no.get('line_start')} ctx={_no.get('context')!r}")
                     visited.add(nb)
                     changed = True
                     _register(nb)
@@ -1167,9 +1295,6 @@ def compute_field_flow(graph_data, target_table, target_field,
                     holder = _pick_occurrence(pm, owner, st[0],
                                               o.get("context") or "", occ)
                 if holder and holder not in visited:
-                    if __import__("os").environ.get("TRACE_FLOW"):
-                        _ho = occ(holder) or {}
-                        print(f"[TRACE-ownerholder] for {nid} add holder {holder} {_ho.get('name')!r}/{_ho.get('variable_type')!r}@{_ho.get('line_start')}")
                     visited.add(holder)
                     changed = True
                     _register(holder)
@@ -1184,9 +1309,6 @@ def compute_field_flow(graph_data, target_table, target_field,
                             tv = _pick_occurrence(pm, hkey, hst[0],
                                                   ho.get("context") or "", occ)
                             if tv and tv not in visited:
-                                if __import__("os").environ.get("TRACE_FLOW"):
-                                    _tvo = occ(tv) or {}
-                                    print(f"[TRACE-phystable] for {nid} add {tv} {_tvo.get('name')!r}/{_tvo.get('variable_type')!r}@{_tvo.get('line_start')}")
                                 visited.add(tv)
                                 changed = True
                                 _register(tv)
@@ -1196,12 +1318,138 @@ def compute_field_flow(graph_data, target_table, target_field,
                 if seg.startswith("CTE{") and "}" in seg:
                     cte_id = _cte_occurrence(pm, seg[4:seg.index("}")], occ)
                     if cte_id and cte_id not in visited:
-                        if __import__("os").environ.get("TRACE_FLOW"):
-                            _co = occ(cte_id) or {}
-                            print(f"[TRACE-cte] for {nid} add cte {cte_id} {_co.get('name')!r}/{_co.get('variable_type')!r}@{_co.get('line_start')}")
                         visited.add(cte_id)
                         changed = True
                         _register(cte_id)
+        # ── R44 write-completion round (class 1, downstream only) ──
+        # An in-closure OUTPUT projection of the searched field carries its
+        # statement's write by itself (the occurrence IS the write — user
+        # ruling 2026-08-28): admit the statement's ⟐ output VT so the
+        # table-level DML write leg (⟐VT → target, whose _dml_write_leg the
+        # index above already extends with the projection's field part)
+        # renders through the normal DML forward rule. Without this, a
+        # constant projection (`NULL AS Reserved_Field3`, no DML edge of its
+        # own) left the write target and the ⟐ VT out of the closure — the
+        # seed rendered with ZERO touching edges.
+        if direction == "downstream":
+            for nid in list(visited):
+                o = occ(nid)
+                if not o or o.get("variable_type") not in FIELD_LIKE:
+                    continue
+                if not o.get("is_output"):
+                    continue
+                if _occ_field_part(o).lower() != target_field.lower():
+                    continue
+                _ctx = o.get("context") or ""
+                if not _ctx:
+                    continue
+                for vid2, o2 in pm.occurrences.items():
+                    if vid2 in visited:
+                        continue
+                    if o2.get("variable_type") != "virtual_table":
+                        continue
+                    if (o2.get("context") or "") != _ctx:
+                        continue
+                    visited.add(vid2)
+                    changed = True
+                    _register(vid2)
+        # ── R44 derived-product admission round (classes 3/4, downstream) ──
+        # Every occurrence of the searched field on a reader of the searched
+        # table joins the closure: a field var V (field part == target)
+        # whose HOLDER (the occurrence labeled source_tables[0] in V's
+        # scope) reads the searched table INSIDE its own scope (an equal or
+        # "/"-nested context) is an occurrence of the table's field — the
+        # derived pass-through (`p2.product`, `a.rn`, `p8.X5GMAB`), the
+        # alias read (`c.p_dt`), and the subquery-internal birth
+        # (`row_number() … AS rn` on ⟐a) alike. The feeding read T joins
+        # too (the value's origin — and the display compound the twin's
+        # field node parents under).
+        if direction == "downstream":
+            _tl2 = target_table.lower()
+            # READS only, and REAL table-like occurrences only: a DML-target
+            # occurrence (defined_in INSERT/UPDATE/DELETE/MERGE) sitting in a
+            # statement's scope must not turn every same-named sibling column
+            # of that statement into an occurrence of the searched field
+            # (DigL: the INSERT target bdm_acc_loan_info@99 shares TOP0 with
+            # `D.DATA_DT` of BDM_PUB_BRANCH — D.DATA_DT is NOT
+            # bdm_acc_loan_info.data_dt; and the write-side twin columns
+            # carry source_tables=[target] but are fields, not reads).
+            _REAL_TABLE_TYPES = {"table", "view", "cte", "virtual_table",
+                                 "subquery", "merge_target", "union_branch",
+                                 "function_table"}
+            _tgt_occs = [(tv, to) for tv, to in pm.occurrences.items()
+                         if to.get("variable_type") in _REAL_TABLE_TYPES
+                         and _occ_identity(to).lower() == _tl2
+                         and (to.get("defined_in") or "").upper()
+                         not in ("INSERT", "UPDATE", "DELETE", "MERGE")]
+            for vid2, o2 in pm.occurrences.items():
+                if o2.get("variable_type") not in FIELD_LIKE:
+                    continue
+                if _occ_field_part(o2).lower() != target_field.lower():
+                    continue
+                st2 = o2.get("source_tables") or []
+                if not st2 or not st2[0]:
+                    continue
+                owner2 = owner_by_id.get(vid2)
+                if owner2 is None:
+                    continue
+                # Holder resolution through the OWNER ENTITY's own
+                # occurrences (label == source_tables[0]) — a derived
+                # alias's var lives in the subquery's own scope (deeper
+                # than the read site), so the ancestor-context picker
+                # (_pick_occurrence) cannot find it; the entity's
+                # occurrence list is the model's attribution truth. READ
+                # occurrences win over DML-target occurrences (the value
+                # flows through the read, and the target's own scope is
+                # the whole statement).
+                holder2 = None
+                _otbl = pm.tables.get(owner2)
+                if _otbl is not None:
+                    o2_ctx = o2.get("context") or ""
+                    for _hv in _otbl.occurrence_ids:
+                        _ho = occ(_hv)
+                        if _ho is None or (_ho.get("name") or "") != st2[0]:
+                            continue
+                        if ((_ho.get("defined_in") or "").upper()
+                                in ("INSERT", "UPDATE", "DELETE", "MERGE")):
+                            if holder2 is None:
+                                holder2 = _hv      # fallback of last resort
+                            continue
+                        # Prefer the holder whose context is the read's own
+                        # scope or an ancestor of it — a derived alias is
+                        # only usable from its own/descendant scopes, so a
+                        # same-named holder in another statement (a
+                        # cross-statement over-inclusion) must not win.
+                        _hctx = _ho.get("context") or ""
+                        if (_hctx == o2_ctx or o2_ctx.startswith(_hctx + "/")
+                                or o2_ctx.startswith(_hctx + ":")):
+                            holder2 = _hv
+                            break
+                        if holder2 is None:
+                            holder2 = _hv   # first non-DML fallback
+                if holder2 is None:
+                    continue
+                hctx = (occ(holder2) or {}).get("context") or ""
+                if not hctx:
+                    continue
+                for tv, to in _tgt_occs:
+                    tctx = to.get("context") or ""
+                    if not (tctx == hctx or tctx.startswith(hctx + "/")
+                            or tctx.startswith(hctx + ":")):
+                        continue
+                    if vid2 not in visited:
+                        visited.add(vid2)
+                        changed = True
+                        _register(vid2)
+                    if holder2 not in visited:
+                        visited.add(holder2)
+                        changed = True
+                        _register(holder2)
+                    if tv not in visited:
+                        visited.add(tv)
+                        changed = True
+                        _register(tv)
+                    break
         # Issue 3 (same-table physical-identity admission, R19.2 read
         # recognition — ruling 2026-08-11): a BARE TABLE/VIEW instance
         # (physical identity == its own label) whose physical identity
@@ -1256,9 +1504,6 @@ def compute_field_flow(graph_data, target_table, target_field,
                             break
                 if not scoped:
                     continue
-                if __import__("os").environ.get("TRACE_FLOW"):
-                    _bo = occ(nid) or {}
-                    print(f"[TRACE-bare] add {nid} {_bo.get('name')!r}/{_bo.get('variable_type')!r}@{_bo.get('line_start')}")
                 visited.add(nid)
                 changed = True
                 _register(nid)
@@ -1368,14 +1613,36 @@ def filter_by_field_flow(graph_data, target_table, target_field,
     nodes = graph_data.get("nodes", []) or []
     edges = graph_data.get("edges", []) or []
     node_map = {n.get("data", n).get("id"): n.get("data", n) for n in nodes}
-    filtered_nodes = [n for n in nodes if n.get("data", n).get("id") in closure]
+    # R44 / audit #383 (INV-2, 2026-08-28): closure edges with NO valid
+    # anchor (highlight_line < 1 — the exists-subquery legs through line-0
+    # synthetic ⟐ containers) are excluded cleanly instead of served: an
+    # unanchorable edge cannot highlight in the SQL panel and cannot render
+    # in the merged views (R32 rule 5). Keyed on the model's PhysicalEdge
+    # twins — an endpoint/type key is excluded only when NO twin carries a
+    # valid line.
+    _anchorless = set()
+    _anchored = set()
+    if physical_model is not None:
+        for _E in physical_model.edges:
+            _k = (_E.source_id, _E.target_id, _E.edge_type)
+            if (_E.highlight_line or 0) >= 1:
+                _anchored.add(_k)
+            else:
+                _anchorless.add(_k)
+        _anchorless -= _anchored
     filtered_edges = [e for e in edges
                       if (e.get("data", e).get("source") in closure and
                           e.get("data", e).get("target") in closure and
                           not _is_containment(e.get("data", e)) and
                           not _is_spurious_ref_copy(
                               e.get("data", e),
-                              node_map.get(e.get("data", e).get("source"))))]
+                              node_map.get(e.get("data", e).get("source"))) and
+                          ((e.get("data", e).get("source"),
+                            e.get("data", e).get("target"),
+                            (e.get("data", e).get("edge_type")
+                             or e.get("data", e).get("relationship") or ""))
+                           not in _anchorless))]
+    filtered_nodes = [n for n in nodes if n.get("data", n).get("id") in closure]
     # ROW_FLOW bridges: only when both endpoints are served nodes (they
     # are — the walker only emits for closure members).
     for _rf in row_flow_out:

@@ -1,20 +1,21 @@
-"""Flow-only line invariants (user requirement, 2026-08-27).
+"""Flow-only line invariants (user requirement, 2026-08-27; R43 2026-08-28).
 
 For a searched table.field, the downstream Flow-only closure must satisfy:
 
   INV-1  every SQL line that references the target field AS A DATA REFERENCE
          (DML contexts — INSERT/SELECT/WHERE) carries at least one closure
          edge anchored on that line.
-         Documented exception: DDL partition-spec lines (`ALTER TABLE … ADD
-         PARTITION (P_DT=…)`) create metadata slots and move no values — they
-         are excluded from a value-flow closure by the semantics recorded in
-         R4.13/R5.9 (R38) and §"Flow only reasonability". The invariant
-         enforces exactly that carve-out: if an ALTER line ever grows an
-         edge, this test fails loudly so the semantics change is conscious.
 
   INV-2  every closure edge is assigned a SQL line (highlight_line is an
          integer >= 1). Edges without lines are unanchorable in the SQL
          panel and unrenderable in the merged views (R32 rule 5).
+
+R43 (2026-08-28, task #384, user ruling): partition-DDL statements
+(`ALTER TABLE … ADD PARTITION`) are dropped from the L2 graph entirely —
+"they are folder names, not dataflow." There is no DDL exception to INV-1
+anymore: those statement frames never enter the graph, so the test asserts
+no closure edge anchors on a partition-DDL line — the R43 regression guard
+(frames or edges reappearing there fails loudly).
 
 Fixture: EAST5_STZFXXB_M.sql, search east5_stzfxxb.p_dt, downstream.
 """
@@ -34,8 +35,9 @@ from app.services.workspace_service import create_workspace, delete_workspace
 SCRIPT = "EAST5_STZFXXB_M.sql"
 SAMPLE = (BACKEND_DIR.parent / "samples" / "sql_sample_v1" / SCRIPT)
 TABLE, FIELD = "east5_stzfxxb", "p_dt"
-# DDL lines are exactly the ALTER TABLE … ADD PARTITION statements; a field
-# reference there is a partition-spec identifier, not a data reference.
+# DDL lines are exactly the ALTER TABLE … ADD PARTITION statements (R43:
+# their statement frames are dropped from the L2 graph — folder names, not
+# dataflow — so a field reference there never produces a closure edge).
 DDL_LINE = re.compile(r"^\s*ALTER\s+TABLE\b", re.IGNORECASE)
 
 
@@ -80,12 +82,21 @@ def test_inv1_every_dml_field_line_has_an_edge_and_ddl_stays_excluded():
 
     edge_lines = {e["data"].get("highlight_line") for e in graph["edges"]}
 
+    # R43 guard sanity: the fixture must actually contain partition-DDL
+    # lines that reference the target field — otherwise `ddl_covered` is
+    # trivially empty and the guard below silently stops testing.
+    ddl_field_lines = [ln for ln in field_lines
+                       if DDL_LINE.match(lines[ln - 1])]
+    assert ddl_field_lines, \
+        "fixture lost its ALTER TABLE … p_dt lines — the R43 guard is vacuous"
+
     dml_uncovered, ddl_covered = [], []
     for ln in field_lines:
         if DDL_LINE.match(lines[ln - 1]):
-            # Documented carve-out: DDL partition specs stay OUT of the flow.
-            # An edge here would mean the value-flow semantics changed —
-            # surface it instead of silently passing.
+            # R43 regression guard: partition-DDL statement frames are
+            # dropped from the L2 graph entirely — no closure edge may
+            # anchor on an ALTER line. An edge here means the frames
+            # regressed into the display; surface it, never silently pass.
             if ln in edge_lines:
                 ddl_covered.append(ln)
         elif ln not in edge_lines:
@@ -95,6 +106,6 @@ def test_inv1_every_dml_field_line_has_an_edge_and_ddl_stays_excluded():
         "INV-1 violated — DML lines referencing the searched field carry no "
         f"closure edge: {dml_uncovered}")
     assert not ddl_covered, (
-        "INV-1 carve-out drift — DDL ADD PARTITION lines gained flow edges "
-        f"(metadata-only semantics changed; update R38 docs consciously): "
+        "R43 violated — partition-DDL (ALTER TABLE … ADD PARTITION) frames "
+        f"reappeared in the L2 graph (folder names, not dataflow): "
         f"{ddl_covered}")

@@ -26,6 +26,7 @@ from app.extractor.physical_model import build_physical_model
 
 from app.services.l1_builder import _build_l1_graph
 from app.services.l2_builder import _build_l2_graph, build_line_merged_edges
+from app.services.folder_index_service import resolve_name_ci, scripts_for_name_ci
 
 @dataclass
 class SearchView:
@@ -40,7 +41,7 @@ class SearchView:
 async def create_search(ws_id: str, table: str, field: str,
                         table_index: dict, field_index: dict,
                         lineage_mode: bool = True,
-                        direction="upstream") -> dict:
+                        direction="downstream") -> dict:
     """Find scripts touching table AND field, build L1 graph.
 
     1. Find scripts from field_index that contain this field
@@ -49,22 +50,49 @@ async def create_search(ws_id: str, table: str, field: str,
     4. Build L1 graph via analyze_multiple_scripts()
     5. Store view in views.json (async — the write runs off the event loop, L9)
 
-    R29 (2026-08-12): `direction` ("upstream" default / "downstream")
-    selects the field flow direction — threaded into _build_l1_graph (the
-    L1 directional projection), persisted on the view, and honored in the
-    no-flow message. Field queries keep the EXACT script set (no
+    R29 (2026-08-12) + K4 ruling 4 (2026-08-28): `direction` defaults to
+    "downstream" (the only honored direction — the router coerces the
+    legacy "upstream" before this sees it) — threaded into _build_l1_graph
+    (the L1 directional projection), persisted on the view, and honored in
+    the no-flow message. Field queries keep the EXACT script set (no
     transitive table-closure expansion — that is a table-only search
     behavior) and skip the R18 lineage filter (the directional L1 already
     IS the field flow).
+
+    F5 (audit #383, R2.10): `table` / `field` resolve case-insensitively
+    against the index (`resolve_name_ci` in folder_index_service) — the
+    matched SCRIPT set is the union of every case variant, and the
+    canonical spelling replaces the typed one on the persisted view, the
+    response and the L1 build (the no_matches message quotes the resolved
+    name too; an unresolved name keeps the typed spelling).
     """
     ws_dir = get_workspace_dir(ws_id)
     from app.services.logger import api_request
     api_request('POST', f'/workspace/{ws_id}/search', 200, f'table={table} field={field}', ws_id=ws_id)
     cache_dir = ws_dir / "cache"
 
-    # Find scripts touching this table AND this field
-    field_scripts = set(field_index.get(field, {}).get("scripts", []))
-    table_scripts = set(table_index.get(table, {}).get("scripts", []))
+    # Find scripts touching this table AND this field.
+    #
+    # F5 (audit #383, R2.10) at the search layer — SQL identifiers are
+    # case-insensitive, but the index keys carry whatever casing each
+    # script wrote, so an exact-key lookup made `bdm_acc_loan_info.dm_flag2`
+    # and `...DM_FLAG2` resolve to DISJOINT script sets and a
+    # natural-spelling query (`BDM_ACC_LOAN_INFO.lending_ref`) miss the
+    # index outright. Resolve case-insensitively instead:
+    #   * the SCRIPT set is the UNION over every case variant (ISSUE-4 —
+    #     one index identity, never disjoint alternatives);
+    #   * the canonical spelling (exact key first, else the ISSUE-4
+    #     majority spelling) is what the view, the response and the L1/L2
+    #     builders see.
+    table_canon, _table_group = resolve_name_ci(table_index, table)
+    field_canon, _field_group = resolve_name_ci(field_index, field)
+    field_scripts = scripts_for_name_ci(field_index, field)
+    table_scripts = scripts_for_name_ci(table_index, table)
+    # The view + graphs carry the RESOLVED canonical spelling (the typed
+    # casing is only a handle); an unresolved name keeps the typed string
+    # so the no_matches message still quotes what the user asked for.
+    table = table_canon or table
+    field = field_canon or field
     matching_scripts = sorted(field_scripts & table_scripts)
 
     match_mode = "exact"
@@ -199,7 +227,7 @@ async def create_search(ws_id: str, table: str, field: str,
 
 
 async def _no_matches_result(ws_id: str, table: str, field: str, message: str,
-                             direction="upstream") -> dict:
+                             direction="downstream") -> dict:
     """BE2: no-matches search result (field absent from index / no pair flow).
 
     Returns the banner-compatible shape the frontend renders for
@@ -239,7 +267,7 @@ async def _no_matches_result(ws_id: str, table: str, field: str, message: str,
 
 async def _no_flow_result(ws_id: str, table: str, field: str, message: str,
                           script_ids: list[str] | None = None,
-                          direction="upstream") -> dict:
+                          direction="downstream") -> dict:
     """R29: no-flow search result (the field IS in the scripts, but the
     directional flow is EMPTY — read but never written for upstream,
     written but never read for downstream).
@@ -419,7 +447,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
 
 def get_level2_graph(ws_id: str, view_id: str, script_name: str,
                      table: str, field: str, filter_relevant_nodes: bool = True,
-                     direction="upstream") -> dict:
+                     direction="downstream") -> dict:
     """Build L2 graph for a script. Loads pre-computed graph cache,
     applies relevance filter, returns {graph, parse_errors}.
 
@@ -428,10 +456,9 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     — the old response-level `highlights` and the `highlight_strategy`
     query param are gone (R25 item 3).
 
-    R29 (2026-08-12): `direction` ("upstream" default / "downstream")
-    threads into the strict flow filter AND the L2 builder — downstream
-    is byte-identical legacy behavior; upstream filters to the field's
-    WRITING flow, and the not-in-flow message names the writing side."""
+    R29 (2026-08-12) + K4 ruling 4 (2026-08-28): `direction` defaults to
+    "downstream" (the only honored direction) and threads into the strict
+    flow filter AND the L2 builder."""
     ws_dir = get_workspace_dir(ws_id)
     from app.services.logger import api_request, stage_graph
 
@@ -628,17 +655,23 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
             response["search_matched"] = False
             if direction == "upstream":
                 # R29: upstream searched the WRITING flow — the field is
-                # not written in this script.
+                # not written in this script. (API-unreachable since K4
+                # ruling 4 — the router coerces upstream to downstream —
+                # kept for the internal callers that still pass it.)
                 response["message"] = (
                     f"Script {script_name} is not in the writing flow of "
                     f"{table}.{field} — the field is not written in this "
                     "script. Showing the full script graph."
                 )
             else:
+                # S4 (2026-08-28): the old text — "the field is not queried
+                # in this script" — was factually WRONG: search_matched is
+                # False because the script sits outside the searched field's
+                # downstream closure, not because the field is absent (it is
+                # frequently queried right there). Say the truthful reason.
                 response["message"] = (
-                    f"Script {script_name} is not in the data flow of "
-                    f"{table}.{field} — the field is not queried in this script. "
-                    "Showing the full script graph."
+                    f"Script {script_name} is not in the downstream flow of "
+                    f"{table}.{field} — showing the full graph."
                 )
         else:
             # New L2 flow toggle (View 1 / View 2): when a search seed was
