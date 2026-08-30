@@ -4,7 +4,8 @@
  *
  * The L2 debugger answers "where does this field's value go" with a
  * graph; this module re-tells the SAME closure as an ordered story the
- * user can step through: born → written → read → joined → filtered → consumed.
+ * user can step through: born → written → read → reappears → joined →
+ * filtered → consumed.
  * It is a pure projection of the served payload — no React, no
  * cytoscape, no fetches, and no SQL text (the module never sees the
  * script, so every `detail` is built from endpoint labels + line only;
@@ -32,6 +33,10 @@
  *        written   write (flow_kind 'write') INTO the searched table;
  *        read      REF|TABLE_FLOW of kind read/chain OUT of the
  *                  searched table;
+ *        reappears SCHEMA from the searched table's OWN compound INTO the
+ *                  seed chip, at a line the chip itself does not occupy
+ *                  (v3.3.193, R40.12 — STRICT, all four conditions; see the
+ *                  reappears branch in classifyEdge);
  *        joined    JOIN|TRANSFORM|COMPUTED|WINDOW|AGGREGATE touching
  *                  the seed or the searched table;
  *        filtered  FILTER touching the seed or the searched table —
@@ -48,13 +53,13 @@
  *      anchor line.
  *   3. Steps group per (kind, line) — the fixed point of "merge
  *      consecutive same-kind groups at the same line" — and are ordered
- *      by STORY KIND first (born → written → read → joined → filtered →
- *      consumed), line ascending within a kind. Pure line-ascending
- *      would bury the narrative: a consuming INSERT that starts at L179
- *      reads at L189 and filters at L190, while its write leg anchors
- *      at the statement start L179 (§8.3 rule 3 — a write anchors at
- *      the DML statement's own line). The story keeps that write LAST,
- *      after its own read/filter legs.
+ *      by STORY KIND first (born → written → read → reappears → joined →
+ *      filtered → consumed), line ascending within a kind. Pure
+ *      line-ascending would bury the narrative: a consuming INSERT that
+ *      starts at L179 reads at L189 and filters at L190, while its write
+ *      leg anchors at the statement start L179 (§8.3 rule 3 — a write
+ *      anchors at the DML statement's own line). The story keeps that
+ *      write LAST, after its own read/filter legs.
  *   4. Step ids are stable: `${kind}-${line}`. Titles carry no
  *      numbering — the renderer prefixes the circled number.
  *
@@ -98,13 +103,27 @@
 // 8 COMPUTED + 7 AGGREGATE + 6 WINDOW + 4 TRANSFORM — leaving source-side
 // fields (whose interesting life IS joins/transforms) at 1-2 steps. One
 // extra stage closes it; SCHEMA/ALIAS/SUBSET stay non-narrative by design.
-const KIND_RANK = { birth: 0, written: 1, read: 2, joined: 3, filtered: 4, consumed: 5 };
+// (That SCHEMA sentence is what R40.12 narrows — see below: one SCHEMA
+// shape, own-table → seed chip, is narrative.)
+// v3.3.193 (R40.12, field-story audit 2026-08-30 — AD-quality evidence, the
+// 9 examples verified against real served payloads): the REAPPEARS stage,
+// one extra stage taking the slot AFTER read and BEFORE joined. Placement
+// is not cosmetic: a reappears step is the field's OWN occurrence evidence
+// — "it occurs again here, on a line its chip doesn't show" — and it is
+// frequently the very evidence that explains the joined/filtered steps
+// that follow it. The label names NO clause on purpose: 4 of the audit's
+// 9 admitted lines are not GROUP BY (a JOIN ON, an OVER(PARTITION BY), a
+// SELECT list), so "Grouped" would be wrong 4 times out of 9.
+const KIND_RANK = {
+  birth: 0, written: 1, read: 2, reappears: 3, joined: 4, filtered: 5, consumed: 6,
+};
 
 // Bare titles (no numbering — the renderer prefixes the circled number).
 const KIND_TITLES = {
   birth: 'Birth',
   written: 'Written',
   read: 'Read',
+  reappears: 'Reappears',
   joined: 'Joined/Transformed',
   filtered: 'Filtered',
   consumed: 'Consumed',
@@ -173,7 +192,7 @@ function buildNodeIndex(graph) {
  * First match wins, in the story-rule order (see the module header for
  * why birth must outrank read).
  */
-function classifyEdge(e, { seedId, tableId, tableLine, byId }) {
+function classifyEdge(e, { seedId, tableId, tableLine, seedLine, byId }) {
   const src = byId.get(e.source);
   const tgt = byId.get(e.target);
   // Dangling endpoint (edge pointing outside the payload) — skip rather
@@ -204,6 +223,27 @@ function classifyEdge(e, { seedId, tableId, tableLine, byId }) {
     && (fk === 'read' || fk === 'chain')
     && (srcId === tableId || (touchesSeed && tgtId === tableId))) {
     return 'read';
+  }
+  // reappears — the field occurring again on a line its chip doesn't show
+  // (v3.3.193, R40.12 — the ruling is STRICT, all of it, because the audit
+  // measured the alternatives as over-admitting):
+  //   * edge_type SCHEMA — the belongs-to family; the only edge a compound
+  //     emits straight INTO a field chip;
+  //   * source === the searched table's compound AND target === the seed
+  //     chip. The same field instance is carried on ⟐output/alias/CTE
+  //     compounds too, and those emit their own SCHEMA edges INTO this very
+  //     chip (measured: 1-4 per real closure) — those are other boxes'
+  //     copies, not this field's occurrence on its own table, and they
+  //     would re-tell one line as many steps;
+  //   * the line must NOT be the chip's own line — what the chip already
+  //     shows is told by birth/read, and a reappears step there would say
+  //     "it appears here" about the line the user is already looking at.
+  //     (`line` is a valid INV-2 integer ≥ 1 here — the builder gates that
+  //     for every edge before classifying; a chip without a usable
+  //     line_start excludes nothing.)
+  if (et === 'SCHEMA' && srcId === tableId && tgtId === seedId
+    && line !== seedLine) {
+    return 'reappears';
   }
   // joined — the field/table participates in a join key, transform,
   // computed/window/aggregate expression (audit Q2: without this, source
@@ -307,9 +347,10 @@ function buildStep(group, byId) {
  * @returns {{searched: string, seedNodeId: string|null, steps:
  *   Array<{id: string, kind: string, title: string, line: number,
  *   edgeIds: string[], nodeIds: string[], detail: string}>}}
- *   `steps` is ordered born → written → read → joined → filtered → consumed
- *   (line ascending within a kind); `{steps: [], seedNodeId: null}` when
- *   no seed matches. Never throws on malformed payloads.
+ *   `steps` is ordered born → written → read → reappears → joined →
+ *   filtered → consumed (line ascending within a kind); `{steps: [],
+ *   seedNodeId: null}` when no seed matches. Never throws on malformed
+ *   payloads.
  */
 export function buildFieldStory({ graph, fullGraph, mergedGraph, table, field } = {}) {
   // fullGraph stays untouched on purpose — see the JSDoc above.
@@ -389,6 +430,11 @@ export function buildFieldStory({ graph, fullGraph, mergedGraph, table, field } 
     seedId: seed.id,
     tableId: tableNode ? tableNode.id : null,
     tableLine: tableNode ? tableNode.line_start : null,
+    // The chip's own line — the one line a reappears step must never claim
+    // (null when the chip carries no usable line, which excludes nothing).
+    seedLine: Number.isInteger(seed.line_start) && seed.line_start >= 1
+      ? seed.line_start
+      : null,
     byId,
   };
   // Endpoint map for the closure edges (A1 merged-id resolution reads

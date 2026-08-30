@@ -58,7 +58,7 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 | `utils/elkLayout.js` | 239 | ELK layered layout |
 | `utils/resolutionReport.js` | 93 | Stats normalization (prefers unified `unresolved_count`/`coverage_pct`) |
 | `utils/flowVisibility.js` | 322 | L2 two-view toggle helper: resolves initial flow-only state and applies `.show()/.hide()` visibility from `flow_node_ids`/`flow_edge_ids` (never re-layout — positions preserved across toggles). v3.3.183–190 merged-view filter chrome: synthetic `⟂` caption nodes + table-border loop-line (`capA_/capB_/capL_<edgeId>` via `upsertFilterCaptions`, zoom-compensated caption font) + `centerOnSeed` post-toggle re-center. v3.3.191+: data-driven `loopstep` per self-edge (`halfWidth + 150`) for `control-point-step-size` (R40.8 — the real self-loop geometry knob); R41 `recenter:false` on user-initiated Fit. **V2-N1 (2026-08-29)**: the searched `is_target` seed chips are EXEMPT from the merged-view zero-edge chip hiding — they are the chips the user searched for (5 of 7 measured closures otherwise rendered zero chips in the default Flow-only view) |
-| `utils/fieldStory.js` | 432 | Field Story derivation (v3.3.188, R40.3): the searched field's closure as ordered steps birth→written→read→**joined**→filtered→consumed (Joined/Transformed added v3.3.191, R40.10 — 6 stages, user-authorized ≤10) — PURE projection of the served payload; each step carries BOTH edge-id namespaces (detailed `l2e_*` + merged `l2m_*` via `mergedEdgeIds`) |
+| `utils/fieldStory.js` | 432 | Field Story derivation (v3.3.188, R40.3): the searched field's closure as ordered steps birth→written→read→**reappears**→joined→filtered→consumed (R40.12: Reappears = own-table SCHEMA occurrence-twin edge at a foreign line — strict admission, user-ruled 2026-08-30; Joined/Transformed added R40.10 — 7 stages, budget ≤10) — PURE projection of the served payload; each step carries BOTH edge-id namespaces (detailed `l2e_*` + merged `l2m_*` via `mergedEdgeIds`) |
 | `utils/nameFilter.js` | 90 | Autocomplete name-filter mirror: typo-tolerant matcher (Levenshtein-≤1 fallback) mirroring backend `folder_index_service.autocomplete()`; F5 (audit #383): `resolveNameCi()` case-insensitive resolution to the canonical index key |
 | `hooks/useCytoscapeGraph.js` | 512 | Cytoscape lifecycle: init, drag (recomputes from frozen offsets), layout dispatch, L2 flow-only ↔ full toggle via `applyFlowVisibility` (pure .show()/.hide() — never re-layout). R41 (v3.3.191+): `minZoom` 0.08 + Fit passes `recenter:false`; `CY_CORE_OPTIONS` exported (frozen shared core options: `wheelSensitivity` 0.3, `minZoom` 0.08, `maxZoom` 5) |
 | `config/layout.js` | 49 | Layout constants (single source of truth) |
@@ -287,15 +287,34 @@ curl -s http://192.168.0.66:8000/api/health       # health check
     CREATE TABLE/SET/column-DDL stay. EAST5 full L2 129→119 nodes /
     168→148 edges; flow closures unchanged. Snapshot regeneration pending
     (test_l2_snapshot expected to fail until the unified rebaseline).
-37. **Field Story Joined/Transformed stage (R40.10, 2026-08-28 — pending
-    release)**: a 6th stage (user-authorized ≤10) — edges of type
+37. **Field Story Joined/Transformed (R40.10, 2026-08-28) + Reappears 7th
+    stage (R40.12, audit 2026-08-30)**: edges of type
     JOIN/TRANSFORM/COMPUTED/WINDOW/AGGREGATE touching the seed/table are
-    told as their own step, ordered between Read and Filtered
-    (`KIND_RANK` birth/written/read/joined/filtered/consumed, label
-    "Joined/Transformed"); SCHEMA/ALIAS/SUBSET stay non-narrative by
-    design. Evidence: random-10 field audit — 49 previously-unclassified
-    narrative edges left source-side fields at 1–2 steps; +30 projected
-    steps across 7/10 fields.
+    told as their own step (label "Joined/Transformed"), and a SCHEMA edge
+    from the searched table's OWN compound INTO the seed chip is told as
+    "Reappears" — the field occurs again here, on a line its chip doesn't
+    show (a group/join/partition/predicate occurrence). Order:
+    `KIND_RANK` birth/written/read/**reappears**/joined/filtered/consumed —
+    7 stages, the occurrence evidence preceding the joined/filtered steps it
+    explains. Reappears admission is STRICT, all four conditions: `SCHEMA` +
+    `source` = the searched table's compound + `target` = the seed chip +
+    valid `highlight_line` ≠ the chip's own `line_start`. The ⟐output/
+    alias/CTE twins of the same field emit their own SCHEMA edges INTO that
+    chip and stay out (they are other boxes' copies, and one line would be
+    re-told as many steps); the chip's own line stays out (birth/read
+    already tell it). The label names NO clause — 4 of the audit's 9
+    admitted lines are not GROUP BY. Evidence (AD-quality, payloads built
+    in-process via the service layer over the 4 samples): the 9 examples
+    each gain exactly one reappears step — bdm_fin_lrr_key_base_info.product
+    PL@246, lending_ref SUP_M@59, BDM_ACC_WRITEOFF.busi_no RFN@277,
+    bdm_acc_loan_info.repay_acct_no RFN@1413, ODS_HUB_SSINRTP.X5GMAB RFN@489,
+    ODS_CUPD_CLD_ACCTMASTER_NEW.acnw DL@64, lrr_key PL@247, product DL@529,
+    acnw PL@21; the ruled strict trade-off is dm_flag2 RFN keeping exactly
+    written-768 / written-1168 / consumed×2 (its L1119 mask line reaches the
+    chip from an ⟐output compound, not from its own table). R40.10's
+    evidence: random-10 field audit — 49 previously-unclassified narrative
+    edges left source-side fields at 1–2 steps; +30 projected steps across
+    7/10 fields.
 38. **MERGE targets join the physical fold (R5.12, #386, 2026-08-28)**:
     the table-duplication audit's ONE real bug — a table MERGE-INTO'd in
     one statement and read/written in another rendered as TWO compound
