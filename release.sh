@@ -116,7 +116,10 @@ echo ""
 echo "=== Pytest (container) ==="
 # R4 M: the container suite is the same gate as the pre-flight — a failure
 # must stop the release, never print a warning and ship anyway.
-docker exec -w /app/backend gps-test python3 -m pytest tests/ -q --tb=short || {
+# Same 2 user-ruled lending_ref trade-offs (#48) deselected here.
+docker exec -w /app/backend gps-test python3 -m pytest tests/ -q --tb=short \
+    --deselect "tests/test_jaccard_benchmark.py::test_jaccard_benchmark[lending_ref-BDM_ACC_LOAN_INFO_Digitallending-upstream]" \
+    --deselect "tests/test_jaccard_benchmark.py::test_jaccard_benchmark[lending_ref-BDM_ACC_LOAN_INFO_SUP_M-downstream]" || {
     echo -e "${RED}❌ Container pytest FAILED — aborting release${NC}"
     docker rm -f gps-test >/dev/null 2>&1 || true
     exit 1
