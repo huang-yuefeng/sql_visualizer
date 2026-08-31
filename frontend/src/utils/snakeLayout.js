@@ -8,7 +8,7 @@ import {
   computeFieldRelPos, computeTableInfo, applyLayout, nodeSize,
 } from './layoutCore';
 import {
-  FIT_PADDING, TABLE_DEFAULT_W, SCRIPT_W, SCRIPT_H,
+  FIT_PADDING, TABLE_DEFAULT_W, SCRIPT_W, SCRIPT_H, fitWholeGraph,
 } from '../config/layout';
 
 const SNAKE_MAX = 2;
@@ -95,7 +95,7 @@ export function runSnakeLayout(cy, onFit) {
     topNodes.push(n);
   });
 
-  if (topNodes.length === 0) { cy.fit(undefined, FIT_PADDING); onFit?.(cy); return; }
+  if (topNodes.length === 0) { fitWholeGraph(cy, FIT_PADDING); onFit?.(cy); return; }
 
   topNodes.sort((a, b) => {
     const al = a.data('layer'), bl = b.data('layer');

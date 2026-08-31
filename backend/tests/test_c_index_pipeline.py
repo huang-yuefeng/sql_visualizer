@@ -164,10 +164,17 @@ class TestC2GraphCacheInvalidation:
 
     def test_index_deletes_stale_graph_caches_keeps_other_artifacts(self):
         """After the S4b pass, every graph cache — OLD prefix (3_2_16) and
-        NEW prefix (3_2_17) — is deleted; schemas_*, analysis_* and
-        filtered_index.json survive. Fixture exercises a real S4b
-        attribution (schema counter == 1) so the graphs written during
-        the per-script loop are genuinely pre-S4b."""
+        NEW prefix (3_2_17) — is deleted; schemas_* and analysis_* survive.
+        P1 (2026-08-31, item 3-ii) PIN CHANGE: filtered_index.json is now
+        DELETED by an index, no longer kept — it is derived by
+        filter_service.apply_filter_config from the PREVIOUS index and
+        _load_index PREFERS it, so a kept scope would run every later search
+        inside stale boundaries (a script added since invisible, a deleted
+        one still matching). The CSVs are not persisted, so the only honest
+        refresh is to drop the derived scope and surface it
+        (`filtered_index_cleared` in the index return). Fixture exercises a
+        real S4b attribution (schema counter == 1) so the graphs written
+        during the per-script loop are genuinely pre-S4b."""
         ws = _make_ws({
             "ddl.sql": "CREATE TABLE web_sales (ws_web_page_sk INT);\n",
             "q.sql": ("SELECT ws_web_page_sk FROM web_sales JOIN web_page "
@@ -188,7 +195,9 @@ class TestC2GraphCacheInvalidation:
                 "graph caches must be gone after indexing: %s" % sorted(names)
             assert "schemas_deadbeef.json" in names, names
             assert "analysis_deadbeef.json" in names, names
-            assert "filtered_index.json" in names, names
+            # P1: the stale filter scope is dropped AND surfaced, never kept
+            assert "filtered_index.json" not in names, sorted(names)
+            assert result["filtered_index_cleared"] is True, result
         finally:
             delete_workspace(ws)
 

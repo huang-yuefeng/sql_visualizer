@@ -1099,44 +1099,31 @@ export const L2_UNIFORM_EDGE_STYLES = [
 ];
 
 // ══════════════════════════════════════════════════════════════════
-// R32: self-loop FILTER captions on the line-merged views (2026-08-27).
+// R32: self-loop FILTER captions on the line-merged views (2026-08-27) —
+// RETIRED v3.3.194 (user ruling 2026-08-31).
 //
-// WHY: the R32 merge pass promotes every absorbed field edge to its parent
-// table, so a filter whose endpoints both live on one table collapses into
-// that table's SELF-LOOP (build_line_merged_edges rule 4) — e.g.
-// `p_dt → east5` @190 becomes `east5_stzfxxb → east5_stzfxxb`. The merged
-// edge is untyped ("FLOW", label "FLOW"), so its meaning is erased on
-// screen: an unlabeled tiny arc nobody can read. The label restores it
-// client-side — DataFlowApp's l2GraphData memo recomputes WHICH fields were
-// absorbed into each self-loop from payloads it already holds and writes
-// `data.filterLabel = "⟂ <fields> (filtered @L<line>)"`; backend payloads,
-// snapshots and benchmarks are untouched.
+// WHY IT EXISTED: the R32 merge pass promotes every absorbed field edge to
+// its parent table, so a filter whose endpoints both live on one table
+// collapses into that table's SELF-LOOP (build_line_merged_edges rule 4) —
+// e.g. `p_dt → east5` @190 becomes `east5_stzfxxb → east5_stzfxxb`. The
+// merged edge is untyped ("FLOW", label "FLOW"), and the rule below painted
+// `⟂ <fields> (filtered @L<line>)` on it (DataFlowApp's l2GraphData memo
+// recomputes WHICH fields were absorbed from payloads it already holds and
+// writes `data.filterLabel`; backend payloads, snapshots and benchmarks are
+// untouched).
 //
-// MUST be appended AFTER L2_UNIFORM_EDGE_STYLES in the assembled sheet
-// (useCytoscapeGraph spreads it last): the uniform rule sets an explicit
-// `'label': ''`, which would otherwise win the specificity tie against
-// this `edge[filterLabel]` attribute selector (element+attribute ==
-// element+class in cytoscape — same tie-break convention as
-// edge.structure-hidden / HOVER_EMPHASIS_STYLES above) and leave the arc
-// blank forever.
-// ══════════════════════════════════════════════════════════════════
-export const FILTER_SELFLOOP_STYLES = [
-  {
-    selector: 'edge[filterLabel]',
-    style: {
-      'label': 'data(filterLabel)',
-      'font-size': 10,
-      'color': '#ffd700',
-      'text-background-color': '#1a1a2e',
-      'text-background-opacity': 0.9,
-      'text-background-padding': 3,
-      'text-background-shape': 'roundrectangle',
-      'text-valign': 'center',
-      'text-wrap': 'wrap',
-      'text-max-width': 160,
-    },
-  },
-];
+// WHY IT IS GONE: the same text was painted TWICE. v3.3.190 added a caption
+// NODE (FILTER_CAPTION_STYLES) because edge labels paint beneath node fills
+// — but the enlarged loop's midpoint lies OUTSIDE the table box, so nothing
+// covered the edge label any more and both copies rendered at the same
+// midpoint: the user saw two identical `⟂ p_dt (filtered @L190)` texts on
+// one loop. The loop's line is now its only on-canvas form; the absorbed
+// line number still travels through the single click→SQL channel (R37) and
+// the Field Story "Filtered" step. The export stays (useCytoscapeGraph
+// spreads it) but the array is empty, so no rule matches `edge[filterLabel]`
+// and the residual `data.filterLabel` written by DataFlowApp renders
+// nothing.
+export const FILTER_SELFLOOP_STYLES = [];
 
 // ══════════════════════════════════════════════════════════════════
 // Dynamic hover-enlarge (2026-08-27) — display-only emphasis.
@@ -1153,32 +1140,12 @@ export const FILTER_SELFLOOP_STYLES = [
 // cards…): class == attribute selector specificity in cytoscape, the
 // later rule wins (same reasoning as edge.structure-hidden above).
 // ══════════════════════════════════════════════════════════════════
-// v3.3.183 — merged-view filter caption node: a tiny transparent NODE that
-// carries the `⟂ field (filtered @L…)` text ABOVE the box fill (edge labels
-// paint beneath nodes and were unreadable). `events: 'no'` keeps it
-// click-through; `synthetic` keeps it out of layout persistence.
-export const FILTER_CAPTION_STYLES = [
-  {
-    selector: 'node[type="caption"]',
-    style: {
-      'width': 4, 'height': 4,
-      'background-opacity': 0, 'border-width': 0,
-      'label': 'data(label)',
-      // v3.3.190: zoom-compensated via data (upsertFilterCaptions computes
-      // it; 14 model px rendered ~4px at the zoom floor — unreadable).
-      'font-size': 'data(caption_font)',
-      'font-weight': 'bold',
-      'color': '#FF6B6B',
-      'text-valign': 'center', 'text-halign': 'center',
-      'text-background-color': '#111',
-      'text-background-opacity': 0.85,
-      'text-background-padding': 3,
-      'text-background-shape': 'round-rectangle',
-      'z-index': 40,
-      'events': 'no',
-    },
-  },
-];
+// v3.3.183 — merged-view filter caption node: RETIRED v3.3.194 together with
+// the edge-label copy above (see FILTER_SELFLOOP_STYLES for the duplicate-
+// caption root cause). flowVisibility no longer mints `cap_` nodes, so no
+// `node[type="caption"]` can exist; the export stays empty because
+// useCytoscapeGraph spreads it.
+export const FILTER_CAPTION_STYLES = [];
 
 // v3.3.191 — the enlarged filter self-loop, for real this time.
 //
@@ -1199,11 +1166,17 @@ export const FILTER_CAPTION_STYLES = [
 //     table box and writes a per-edge step, because cytoscape scales the loop
 //     from the node CENTRE (1.4 × step along the loop axis): a fixed step
 //     that clears a small chip disappears inside a wide table box. The
-//     per-edge step targets a ~150 model-unit bulge past the LEFT border
-//     (≈42 px at the 0.28 zoom floor) for every table size.
-//   - loop-direction -90deg + sweep -90deg → the arc attaches to the table's
-//     LEFT border (top-left to bottom-left), the side the eye already
-//     associates with the filter (where the retired v3.3.186 bracket sat).
+//     per-edge step targets a ~111 model-unit bulge past the LEFT border
+//     (≈31 px at the 0.28 zoom floor) for every table size — measured with
+//     `edge.controlPoints()`: control points reach 0.99 × step from the node
+//     centre, the drawn bezier 0.7425 × step − 0.75 × halfW.
+//   - `loop-direction: data(loopdir)` + sweep -90deg → the arc attaches to a
+//     table BORDER. The first loop on a box keeps the established LEFT side
+//     (loopdir -90deg, where the retired v3.3.186 bracket sat); further
+//     parallel loops alternate to the RIGHT (loopdir 90deg) so two absorbed
+//     filters on one table draw as two separate mirror arcs instead of
+//     coincident lines (v3.3.194 — measured: cytoscape's own nesting only
+//     separates same-side loops by 62 model units, ~5 px at the 0.08 floor).
 // `edge.filter-selfloop` is composed AFTER L2_UNIFORM_EDGE_STYLES in the
 // assembled sheet (useCytoscapeGraph), so width/colour win the usual
 // specificity tie. flowVisibility.enlargeFilterSelfLoops writes the data and
@@ -1215,7 +1188,7 @@ export const FILTER_LOOP_GEOM_STYLES = [
     style: {
       'curve-style': 'bezier',
       'control-point-step-size': 'data(loopstep)',
-      'loop-direction': '-90deg',
+      'loop-direction': 'data(loopdir)',
       'loop-sweep': '-90deg',
       'width': 7,
       'line-color': '#E74C3C',
@@ -1290,10 +1263,11 @@ export const STORY_STYLES = [
   { selector: '.story-dim', style: { opacity: 0.15 } },
   { selector: 'edge.story-active', style: { width: 5, 'z-index': 25 } },
   // Guard (f648 finding, updated v3.3.191): in merged views the Filtered
-  // step's visible form is now the REAL self-loop edge (edge.filter-selfloop,
-  // the big left-border curve) plus the ⟂ caption node — the synthetic
-  // loop-line bracket is retired. A story step lights the self-loop through
-  // its merged edge id, and it must GROW, never shrink (edge.story-active
+  // step's visible form is the REAL self-loop edge (edge.filter-selfloop,
+  // the big border curve) — the synthetic loop-line bracket is retired and,
+  // since v3.3.194, so is the ⟂ caption node that used to sit above it (see
+  // FILTER_SELFLOOP_STYLES). A story step lights the self-loop through its
+  // merged edge id, and it must GROW, never shrink (edge.story-active
   // width 5 < selfloop's 7): later rule wins the specificity tie. The legacy
   // loop-line guard is kept for resumed graphs that still carry the class.
   { selector: 'edge.filter-selfloop.story-active',
@@ -1302,7 +1276,4 @@ export const STORY_STYLES = [
   { selector: 'edge.filter-loopline.story-active',
     style: { width: 9, 'z-index': 36, 'line-color': '#FF6B6B',
              'target-arrow-color': '#FF6B6B', 'source-arrow-color': '#FF6B6B' } },
-  { selector: 'node.filter-caption.story-emph',
-    style: { 'font-size': 13, color: '#FFD700', 'z-index': 37,
-             'text-outline-color': '#0a0a1a', 'text-outline-width': 4 } },
 ];

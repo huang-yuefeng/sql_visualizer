@@ -439,10 +439,14 @@ def _atomic_write_text(path: Path, text: str) -> None:
     crash or disk-full, which a later unguarded json.loads turns into a
     500. The temp-name suffix makes concurrent writers safe (each writes
     its own temp file); os.replace is atomic on the same filesystem.
+
+    P1 (item 3-i): promoted to the shared app.services.atomic_io helper so
+    the index-layer writers (folder_index_service) and the graph/view
+    writers here share ONE implementation. Kept as an alias — the call
+    sites and any test double keep working unchanged.
     """
-    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
-    tmp.write_text(text)
-    os.replace(tmp, path)
+    from app.services.atomic_io import atomic_write_text
+    atomic_write_text(path, text)
 
 
 def get_level2_graph(ws_id: str, view_id: str, script_name: str,
@@ -606,6 +610,26 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     # reconstruction.
     parse_errors = graph_data.get("parse_errors", [])
 
+    # PERF (v3.3.194, fix 1 — load once per request): the graph, the
+    # schemas and the physical model this request needs are already
+    # loaded above — hand the triple to `_build_l2_graph` so it does not
+    # re-read the caches (the request runs that build TWICE: the flow
+    # view and the full view). The hand-over only happens when the loaded
+    # graph passes `_load_or_build_graph`'s own cache-acceptance test
+    # (format_version >= 4 + current extractor — mirror of the loader's
+    # cache-read gate); anything else keeps the loader's stale-cache
+    # rebuild path exactly as before.
+    _shared_load = None
+    if (graph_data.get("format_version", 0) >= 4
+            and graph_data.get("extractor_version") == EXTRACTOR_VERSION):
+        _shared_load = (graph_data, table_schemas, physical_model)
+
+    # PERF (v3.3.194, fix 6): one strict-walk cache per REQUEST — the
+    # response-level filter below, the L2 flow view's filter and the
+    # flow-role pass all walk the same graph for the same
+    # (table, field, direction), so only the first of them walks.
+    _flow_memo = {}
+
     # Apply relevance filter (if requested)
     # v3.3.140: the strict table.field flow filter (filter_by_field_flow)
     # replaces filter_relevant — the requirement changed from table-level
@@ -614,13 +638,16 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         filtered = filter_by_field_flow(graph_data, table, field,
                                         table_schemas=table_schemas,
                                         physical_model=physical_model,
-                                        direction=direction)
+                                        direction=direction,
+                                        _flow_memo=_flow_memo)
     else:
         filtered = graph_data
 
     # Build the transformed L2 graph with compound nodes
     l2_result = _build_l2_graph(ws_id, script_name, sql_text, table, field,
-                                filter_relevant_nodes, direction)
+                                filter_relevant_nodes, direction,
+                                _shared_load=_shared_load,
+                                _flow_memo=_flow_memo)
 
     # BE2 (issues b+c): the script is not in the searched field's data flow.
     # `search_matched` is emitted by _build_l2_graph (BE1 contract): False
@@ -633,7 +660,8 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     not_in_flow = bool(table and field) and filter_relevant_nodes and search_matched is False
     if not_in_flow:
         l2_result = _build_l2_graph(ws_id, script_name, sql_text, table, field,
-                                    False, direction)
+                                    False, direction, _shared_load=_shared_load,
+                                    _flow_memo=_flow_memo)
         filtered = graph_data  # fallback counts reflect the full graph
 
     if not l2_result.get("error"):
@@ -711,7 +739,9 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
                     "edges": build_line_merged_edges(flow_edges, flow_nodes),
                 }
                 full_l2 = _build_l2_graph(ws_id, script_name, sql_text,
-                                          table, field, False, direction)
+                                          table, field, False, direction,
+                                          _shared_load=_shared_load,
+                                          _flow_memo=_flow_memo)
                 if not full_l2.get("error"):
                     full_nodes = full_l2.get("nodes", [])
                     full_edges = full_l2.get("edges", [])

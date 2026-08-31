@@ -14,10 +14,24 @@ import * as api from './api/client';
 import pickAutoEdge from './utils/pickAutoEdge';
 import { buildFieldStory } from './utils/fieldStory';
 import { resolveFlowOnly } from './utils/flowVisibility';
+import {
+  computeStringMatches, classifyMatches, flowLineSet,
+} from './utils/stringMatch';
 import { resumeLayoutKey } from './utils/layoutPersistence';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useResizable } from './utils/useResizable';
 import './styles/resizable.css';
+
+// R40.13: the layer's "hidden" payload — no bands at all (AC2). One shared
+// instance, so a hidden render never allocates.
+const EMPTY_MATCH_SET = new Set();
+
+// P4 (2026-08-31): the catch-up poller's cadence and its TRANSIENT-failure
+// budget. 1.5s ticks × 20 ≈ 30s of failing polls before the hold gives up on
+// the honest "did not complete" exit — long enough to ride out a network
+// blip, short enough that a dead backend never withholds search for good.
+const CATCHUP_POLL_INTERVAL = 1500;
+const CATCHUP_POLL_TICKS = 20;
 
 export default function DataFlowApp({
   openWorkspaceId = null,
@@ -91,6 +105,16 @@ export default function DataFlowApp({
   // never inherits the previous story's focus or clock.
   const [storyActiveIndex, setStoryActiveIndex] = useState(null);
   const [storyAutoplay, setStoryAutoplay] = useState(false);
+  // ── R40.13: the naive string-match diff layer (frontend-only) ──────
+  // stringMatchCursor is the SEPARATE browse channel: 0-based index into the
+  // ascending match list, null = inactive (no active line, no extra scroll —
+  // the bands alone are the post-search state, so browsing never fights the
+  // engine's own post-search scroll). It NEVER writes the R37
+  // `sqlHighlightLine` channel. stringMatchVisible is the show/hide toggle
+  // (default ON after every search, per design point 2) — session component
+  // state, never persisted.
+  const [stringMatchCursor, setStringMatchCursor] = useState(null);
+  const [stringMatchVisible, setStringMatchVisible] = useState(true);
   // Search recovery (2026-08-27): when a PERSISTED view is opened from the
   // tree (old workspace → L1/L2), the search panel would stay empty and the
   // graph has no visible trace of which table.field it belongs to. The
@@ -112,6 +136,28 @@ export default function DataFlowApp({
   // A1: schema_evidence {present, tables, columns} (index response)
   const [schemaEvidence, setSchemaEvidence] = useState(null);
 
+  // ── P2 fast-open (v3.3.194): index staleness + catching-up window ──
+  // indexedAt is the index's own timestamp when the backend serves one (P1
+  // may add/move the field) — absent → nothing rendered, never a guess.
+  const [indexedAt, setIndexedAt] = useState(null);
+  // Role, from the resume row. Purely a LABELLING gate: destructive-looking
+  // controls must say what they actually do for THIS user (a participant's
+  // "delete" only drops her own link, and view deletion is creator-only
+  // server-side, #272). No write is gated here — the backend decides.
+  const [isCreator, setIsCreator] = useState(false);
+  // ── P1 catching-up window ──────────────────────────────────────────
+  // While an incremental re-index is in flight the search scope (the index)
+  // is missing the fresh content, so a search could return a FALSE
+  // no_matches: search is withheld behind the honest progress bar and a
+  // one-line status explains the wait. null = not catching up (the common
+  // case). `canFix` says whether THIS user can rebuild (creator auto-trigger)
+  // or is waiting on someone else's / cannot rebuild at all.
+  const [catchUp, setCatchUp] = useState(null);
+  // A participant (or anyone) opening a workspace whose index is STALE but
+  // not being rebuilt: informational only, never a block — they cannot fix
+  // it, and the creator's open is what refreshes it.
+  const [staleHint, setStaleHint] = useState(false);
+
   // ── R31: layout persistence + concurrent-edit notice (A-M4/A-M5) ──
   // state_version drives the CAS save; resumeLayouts holds the shared
   // `{"l1": {node:[x,y]}, "l2:{script}": {...}}` map re-applied on render.
@@ -127,6 +173,11 @@ export default function DataFlowApp({
   const pendingLayoutRef = useRef(new Map()); // key -> {level, script, positions, version}
   const layoutTimerRef = useRef(null);
   const openedRef = useRef(null);          // guards the open-existing effect
+  // The open tree's SQL files — the catch-up re-fire's POST /index body.
+  // The backend ignores the list (#257: it always rebuilds the WHOLE
+  // workspace index); it is sent for symmetry with the other call sites.
+  const openScriptsRef = useRef([]);
+  openScriptsRef.current = selectedScripts;
 
   const setVersion = useCallback((v) => {
     stateVersionRef.current = v;
@@ -298,6 +349,12 @@ export default function DataFlowApp({
     // inactive (no stale dimming from the previous script) and paused.
     setStoryActiveIndex(null);
     setStoryAutoplay(false);
+    // R40.13: the diff layer is ON after every search with no user action,
+    // and the browse cursor starts inactive (the identity-reset effect below
+    // is the general rule; this is the same contract applied at the same
+    // site as the story reset so neither can go stale).
+    setStringMatchCursor(null);
+    setStringMatchVisible(true);
     // F-B2: a fresh script never inherits the previous one's no-SQL-line
     // notice.
     setSqlLineNotice(null);
@@ -318,7 +375,42 @@ export default function DataFlowApp({
     setShowLog(true);
     setStoryActiveIndex(null); setStoryAutoplay(false);
     setSqlLineNotice(null);
+    setStringMatchCursor(null); setStringMatchVisible(true);
+    setIndexedAt(null);
+    setIsCreator(false);
+    setCatchUp(null);
+    setStaleHint(false);
+    pendingSearchRef.current = null;
   }, [setVersion]);
+
+  // ── One site for "this is the index we serve" ────────────────────────
+  // The upload-create path (POST /index response), the open-existing read
+  // (GET /index) and the explicit re-index all land here, so the three can
+  // never drift apart on which fields they apply. The staleness read is
+  // defensive on purpose: P1 owns the payload and may add/move `indexed_at`
+  // (today it rides inside the `indexed` status object), so both spellings
+  // are accepted and neither is required.
+  const applyIndexResult = useCallback((idxResult) => {
+    const r = idxResult || {};
+    setTableIndex(r.table_index || {});
+    setFieldIndex(r.field_index || {});
+    setFullTableIndex(r.table_index || {});
+    setFullFieldIndex(r.field_index || {});
+    setResolutionStats(r.resolution_stats || null);
+    setOrphanFieldSamples(r.orphan_field_samples || null);
+    setSchemaCandidates(r.schema_candidates_summary || null);
+    setSchemaEvidence(r.schema_evidence || null);
+    const at = r.freshness?.indexed_at ?? r.index_change?.indexed_at
+      ?? r.indexed_at ?? r.indexed?.indexed_at ?? null;
+    setIndexedAt(typeof at === 'string' && at ? at : null);
+    // P4 (2026-08-31): `indexed` is what mounts the search panel, so it is a
+    // CLAIM ABOUT THE PAYLOAD, not a marker that "an index response arrived".
+    // A corrupt/missing index cache reads as {} server-side; blindly flipping
+    // the flag here would open search on a guaranteed no_matches. Real = the
+    // payload carries a non-empty table_index, or an `indexed` status that
+    // itself says indexed.
+    setIndexed(hasServedIndex(r));
+  }, []);
 
   // ── Upload (create) & Analyze ─────────────────────────────────────
   const handleUpload = useCallback(async (file) => {
@@ -340,35 +432,36 @@ export default function DataFlowApp({
       // Auto-index (fire-and-forget with polling)
       setProgress({ current: 0, total: scripts.length, phase: 'analyzing' });
       const idxResult = await api.indexWorkspace(result.workspace_id, scripts);
-      setTableIndex(idxResult.table_index || {});
-      setFieldIndex(idxResult.field_index || {});
-      setFullTableIndex(idxResult.table_index || {});
-      setFullFieldIndex(idxResult.field_index || {});
-      setResolutionStats(idxResult.resolution_stats || null);
-      setOrphanFieldSamples(idxResult.orphan_field_samples || null);
-      setSchemaCandidates(idxResult.schema_candidates_summary || null);
-      setSchemaEvidence(idxResult.schema_evidence || null);
-      setIndexed(true);
+      applyIndexResult(idxResult);
       setProgress(null);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [resetWorkspaceState]);
+  }, [resetWorkspaceState, applyIndexResult]);
 
   // ── R31: open an existing workspace (dashboard Open / shared ?ws= link) ──
-  // resume → tree → index. state_version + saved layouts come from resume so
-  // the CAS save and saved-position re-application start from the shared state.
+  // resume → GET /tree → GET /index. state_version + saved layouts come from
+  // resume so the CAS save and saved-position re-application start from the
+  // shared state.
   //
-  // AD2-A (2026-08-29): the open path is role-split. Scan and index are
-  // CREATOR-only (#272/#380 — both rewrite shared workspace state), so a
-  // participant opening a shared link used to 403 mid-open and land on an
-  // empty debugger. Now: the tree comes from G3's GET /tree when it exists
-  // (scan stays the fallback — the creator's pre-G3 path is byte-identical),
-  // and the index comes from GET /index for a participant, POST /index for
-  // the creator. `progress` is creator-only too: GET /index is a single read,
-  // so an "analyzing…" spinner would be a lie for a participant.
+  // P2 fast-open (v3.3.194): BOTH roles now take the SAME read-only path —
+  // the creator's automatic POST /scan + POST /index on open is GONE. That
+  // was a full re-parse of every script on every open (the log panel scrolled
+  // parse/profile for minutes on a 100-script workspace) for state the
+  // backend already persists (G3 GET /tree + GET /index, since v3.3.192).
+  // There is no manual re-index control anywhere (user ruling 2026-08-31):
+  // changed scripts are caught up automatically in the background (the
+  // catch-up branch below), so a plain open is silent — no parse/profile
+  // lines, no spinner, no 403 risk.
+  //
+  // The remaining build paths are the two "nothing to read" cases, and only
+  // the creator may run them (both writes are creator-only, #272/#380):
+  //  - no stored tree (GET /tree 409s) = never indexed — a fresh upload keeps
+  //    working end-to-end; a participant gets the reason instead of a raw 403;
+  //  - a stored tree whose index caches are gone (GET /index says
+  //    indexed:false with empty indexes).
   const handleOpenExisting = useCallback(async (targetWsId) => {
     resetWorkspaceState();
     setLoading(true);
@@ -377,38 +470,117 @@ export default function DataFlowApp({
       setVersion(resume.state_version || 0);
       setResumeLayouts(resume.layouts || {});
       setWsId(targetWsId);
-      const isCreator = !!username && resume.creator_username === username;
+      const creator = !!username && resume.creator_username === username;
+      setIsCreator(creator);
+
       let tree = await api.getWorkspaceTree(targetWsId);
+      let idxResult = null;
       if (!tree) {
-        // No served tree (pre-G3 backend, or the workspace was never indexed).
-        // Only the creator can build one — a participant gets the reason, not
-        // a raw 403 from the creator-only scan.
-        if (!isCreator) {
+        if (!creator) {
           throw new Error(
             'This workspace has no file index yet - its creator must open it once to build one.');
         }
+        // Never-indexed: build it once, honestly labelled (a real scan +
+        // index IS running — this is the only spinner the open path shows).
         tree = await api.scanWorkspace(targetWsId);
-      }
-      setFileTree(tree);
-      const scripts = collectSqlFiles(tree);
-      setSelectedScripts(scripts);
-      let idxResult;
-      if (isCreator) {
+        const scripts = collectSqlFiles(tree);
         setProgress({ current: 0, total: scripts.length, phase: 'analyzing' });
         idxResult = await api.indexWorkspace(targetWsId, scripts);
-      } else {
-        idxResult = await api.getWorkspaceIndex(targetWsId);
       }
-      setTableIndex(idxResult.table_index || {});
-      setFieldIndex(idxResult.field_index || {});
-      setFullTableIndex(idxResult.table_index || {});
-      setFullFieldIndex(idxResult.field_index || {});
-      setResolutionStats(idxResult.resolution_stats || null);
-      setOrphanFieldSamples(idxResult.orphan_field_samples || null);
-      setSchemaCandidates(idxResult.schema_candidates_summary || null);
-      setSchemaEvidence(idxResult.schema_evidence || null);
-      setIndexed(true);
+      setFileTree(tree);
+      setSelectedScripts(collectSqlFiles(tree));
+
+      // ── P1 auto-trigger (c): a STALE index must never serve search ────
+      // If the served index is stale (scripts changed, or the extractor
+      // version moved on) the incremental rebuild has NOT run yet — there is
+      // no catching_up flag to wait for, so waiting would open search straight
+      // onto the stale index (the false-no_matches window). The creator fires
+      // POST /index NOW and holds search until it lands; the in-flight call
+      // flips the backend's catching_up state, whose 409 gate protects every
+      // other reader. A participant cannot write (#272/#380): informational
+      // hint, no block. Staleness is read from /resume's index_change first,
+      // then from the served index's own freshness object.
+      const needsRebuild = (f) => f.present && (f.stale || (f.changed ?? 0) > 0);
+      const rebuild = async (info, scripts) => {
+        setCatchUp({ changed: info.changed, canFix: true });
+        setProgress({ current: 0, total: info.changed ?? scripts.length, phase: 'catching up' });
+        try {
+          const built = await api.indexWorkspace(targetWsId, scripts);
+          applyIndexResult(built);
+          setStaleHint(false);
+          setCatchUp(null);
+          setProgress(null);
+          return built;
+        } catch (reindexError) {
+          // Never leave the workspace unusable because a refresh failed:
+          // serve the (still stale) index and say why. If the backend IS
+          // still rebuilding, the read below re-arms the hold.
+          setError(`Index refresh failed - showing the previous index. ${reindexError.message}`);
+          setCatchUp(null);
+          setProgress(null);
+          return null;
+        }
+      };
+
+      let autoTriggered = false;
+      const fromResume = readFreshness(resume.index_change);
+      if (needsRebuild(fromResume)) {
+        if (creator) {
+          idxResult = await rebuild(fromResume, collectSqlFiles(tree));
+          autoTriggered = true;
+        } else {
+          setStaleHint(true);
+        }
+      }
+
+      if (!idxResult) {
+        idxResult = await api.getWorkspaceIndex(targetWsId);
+        // A tree without an index means the index caches were wiped while the
+        // tree file survived (or an index was cancelled): for a creator that
+        // is the same never-indexed case as a missing tree — build once
+        // rather than open an empty debugger. A participant still sees the
+        // empty index (they cannot write).
+        const status = idxResult?.indexed;
+        const indexedNow = !status || (typeof status === 'boolean'
+          ? status
+          : status.indexed !== false);
+        if (!indexedNow && creator
+          && Object.keys(idxResult?.table_index || {}).length === 0) {
+          const scripts = collectSqlFiles(tree);
+          setProgress({ current: 0, total: scripts.length, phase: 'analyzing' });
+          idxResult = await api.indexWorkspace(targetWsId, scripts);
+          autoTriggered = true;
+        }
+        // The same trigger, detected on the index payload itself (a /resume
+        // without index_change, or freshness only GET /index carries) — but
+        // NEVER while a rebuild is already in flight: that one is doing the
+        // work, and a second POST would just queue another full pass.
+        if (!autoTriggered && !readCatchUp(idxResult).catchingUp) {
+          const served = readFreshness(idxResult);
+          if (needsRebuild(served)) {
+            if (creator) {
+              const rebuilt = await rebuild(served, collectSqlFiles(tree));
+              if (rebuilt) idxResult = rebuilt;
+              autoTriggered = true;
+            } else {
+              setStaleHint(true);
+            }
+          }
+        }
+      }
+      applyIndexResult(idxResult);
       setProgress(null);
+      // ── P1 catching-up window ────────────────────────────────────────
+      // The served index may report a rebuild IN FLIGHT (this user's auto
+      // trigger, another reader's, or a participant who opened mid-pass):
+      // until it lands the index is missing the fresh content, so search
+      // could answer a FALSE no_matches. Withhold search behind the honest
+      // bar and explain the wait. No flag → no bar, no hold.
+      const cue = readCatchUp(idxResult);
+      if (cue.catchingUp) {
+        setCatchUp({ changed: cue.changed, canFix: creator });
+        setProgress({ current: 0, total: cue.changed ?? 0, phase: 'catching up' });
+      }
       // #292: populate the persisted view tree (search views + their L2
       // children) from views.json so the left-panel ViewBar shows them.
       // R23 clean start: NO auto-activation — the user clicks a view to load
@@ -424,7 +596,140 @@ export default function DataFlowApp({
     } finally {
       setLoading(false);
     }
-  }, [resetWorkspaceState, setVersion, username]);
+  }, [resetWorkspaceState, setVersion, username, applyIndexResult]);
+
+  // ── P1 catching-up poller: hand search back only when the index is whole ──
+  // While an incremental re-index runs, GET /index is re-read until the
+  // payload stops reporting `catching_up` — and, for a user who can rebuild,
+  // until `freshness.stale` has flipped too (their own POST is what flips
+  // it). On completion the served index is applied through the SAME path the
+  // build path uses — one refresh site — and search is handed back. A
+  // participant who is still stale once nothing is in flight gets the hint
+  // instead of a lockout (they cannot rebuild).
+  //
+  // P4 (2026-08-31) — the poller must never be an infinite hold. Three ways
+  // out besides the clean one, all honest:
+  //   • the workspace GONE mid-hold (deleted in another tab → 404) — no poll
+  //     brings it back: reset to the no-workspace state and say so;
+  //   • the session EXPIRED (401) — the shared 401 interceptor (E-M1) is
+  //     already handing the shell to login: exit the hold quietly;
+  //   • a TRANSIENT failure (dropped connection, 5xx) — retried, but BOUNDED
+  //     (CATCHUP_POLL_TICKS ticks ≈ 30s), then the hold exits on the previous
+  //     index with the failed-refresh message. Waiting forever would withhold
+  //     search for good and surface nothing.
+  // And the stale-stays-true hole: if nothing is in flight any more but the
+  // index STILL reads stale, a further file landed on disk DURING the window
+  // — the run that was being waited for is over, so waiting longer waits for
+  // nothing. The (idempotent, cheap: 0.5s on a zero diff) incremental
+  // rebuild is re-fired ONCE per open; if it is stale again after that, the
+  // hold exits with "re-open to catch up fully" and search back ON, instead
+  // of polling until the tab closes.
+  const catchUpRef = useRef(null);
+  catchUpRef.current = catchUp;
+  // A search that hit the catching-up 409 gate, replayed when the hold clears.
+  const pendingSearchRef = useRef(null);
+  // The re-fire is capped at ONE per OPEN, not per hold — a ref, so a re-render
+  // (or a second hold armed inside the same visit) cannot reset the cap.
+  const catchUpRefireRef = useRef(false);
+  useEffect(() => {
+    if (!wsId || !catchUp) return undefined;
+    let alive = true;
+    let failures = 0;      // consecutive transient poll failures
+    let lastStale = false; // staleness as of the last read that succeeded
+    let refire = catchUpRefireRef.current;
+    const timer = setInterval(async () => {
+      // ── terminal exits ────────────────────────────────────────────
+      const exitGone = () => {
+        stop();
+        // Reset to the no-workspace state, with the reason ON SCREEN: this was
+        // nobody's action in THIS tab, so it has to say what happened. The
+        // shell is deliberately NOT asked to unmount the app (onClose) — the
+        // message would die with the component. The open guard is cleared
+        // instead, so the same id can be re-opened from the list (it will
+        // simply report the same 404 through the open path).
+        openedRef.current = null;
+        resetWorkspaceState();
+        setError('This workspace is no longer available — it was deleted while it was open.');
+      };
+      const exitUnauthorized = () => {
+        // The interceptor already fired the shell's session-expired handler
+        // (the login form is taking over) — no banner on top of it.
+        stop();
+        setCatchUp(null);
+        setProgress(null);
+      };
+      const exitOnPreviousIndex = (message) => {
+        stop();
+        setError(message);
+        setStaleHint(lastStale);
+        setCatchUp(null);
+        setProgress(null);
+      };
+      const stop = () => { alive = false; clearInterval(timer); };
+
+      // ── the ONE re-fire (P4: stale with nothing in flight) ─────────
+      const refireIndex = async () => {
+        setProgress({ current: 0, total: catchUp.changed ?? 0, phase: 'catching up' });
+        try {
+          const built = await api.indexWorkspace(wsId, openScriptsRef.current || []);
+          if (!alive) return;
+          const after = readFreshness(built);
+          applyIndexResult(built);
+          if (readCatchUp(built).catchingUp || after.stale) {
+            // One re-fire per open — no loop: the honest exit says what a
+            // re-open would finish, and search is handed back.
+            exitOnPreviousIndex(
+              'Changes remain after the refresh — re-open this workspace to catch up fully.');
+            return;
+          }
+          setStaleHint(false);
+          setCatchUp(null);
+          setProgress(null);
+        } catch (e) {
+          if (!alive) return;
+          const kind = classifyIndexPollError(e);
+          if (kind === POLL_GONE) { exitGone(); return; }
+          if (kind === POLL_UNAUTHORIZED) { exitUnauthorized(); return; }
+          exitOnPreviousIndex(
+            `Index refresh failed - showing the previous index. ${e.message}`);
+        }
+      };
+
+      let idx;
+      try {
+        idx = await api.getWorkspaceIndex(wsId);
+      } catch (e) {
+        if (!alive) return;
+        const kind = classifyIndexPollError(e);
+        if (kind === POLL_GONE) { exitGone(); return; }
+        if (kind === POLL_UNAUTHORIZED) { exitUnauthorized(); return; }
+        failures += 1;
+        if (failures > CATCHUP_POLL_TICKS) {
+          exitOnPreviousIndex(
+            `Index refresh did not complete - showing the previous index. ${e.message}`);
+        }
+        return; // transient — retry on the next tick
+      }
+      if (!alive) return;
+      const cue = readCatchUp(idx);
+      const now = readFreshness(idx);
+      failures = 0;
+      lastStale = now.present && now.stale;
+      if (cue.catchingUp || (catchUp.canFix && now.stale)) { // still catching up
+        if (!cue.catchingUp && !refire) { // stale with NOTHING in flight
+          refire = true;
+          catchUpRefireRef.current = true;
+          refireIndex();
+        }
+        return;
+      }
+      applyIndexResult(idx);
+      setStaleHint(!catchUp.canFix && now.stale);
+      setCatchUp(null);
+      setProgress(null);
+    }, CATCHUP_POLL_INTERVAL);
+    return () => { alive = false; clearInterval(timer); };
+  }, [wsId, catchUp, applyIndexResult, resetWorkspaceState]);
 
   // ── R31: open-existing entry — runs once when the workspace id arrives
   //     (dashboard Open or a shared ?ws= link). Guarded by openedRef so it
@@ -447,7 +752,11 @@ export default function DataFlowApp({
           setProgress(status.progress);
           if (status.progress.phase === 'done') {
             clearInterval(progressTimerRef.current);
-            setTimeout(() => setProgress(null), 1500);
+            // P1 catching-up: the incremental re-index can report 'done'
+            // before the GET /index poller above confirms it — THAT poller
+            // clears the bar (and refreshes the index), so search is never
+            // handed back against a half-written index.
+            if (!catchUpRef.current) setTimeout(() => setProgress(null), 1500);
           }
         }
       } catch (e) { /* ignore poll errors */ }
@@ -494,11 +803,41 @@ export default function DataFlowApp({
       setActiveL1Table(null);
       setSelectedEdge(null); setSqlHighlightLine(null);
     } catch (e) {
+      // MSC-1: a search can get TWO different 409s and only one of them is a
+      // reason to wait. P1's index-catch-up gate ("Index is being updated for
+      // this workspace — retry in a moment") means the scope is mid-rebuild:
+      // hold search behind the honest bar and replay THIS search once the
+      // index is whole (never surface it). The R31 heavy gate ("system busy —
+      // please wait") means another user's heavy op holds the SERVER: no
+      // /index poll will ever clear it, a hold would lock search up for
+      // nothing, and a silent replay would spin until the server frees. That
+      // one is surfaced as the transient condition it is — the user retries.
+      if (isIndexCatchUp409(e)) {
+        pendingSearchRef.current = { table, field, direction };
+        setCatchUp({ changed: null, canFix: false });
+        setProgress({ current: 0, total: 0, phase: 'catching up' });
+        setLoading(false);
+        return;
+      }
+      if (e?.status === 409) {
+        setError(BUSY_409_MESSAGE);
+        return;
+      }
       setError(e.message);
     } finally {
       setLoading(false);
     }
   }, [wsId]);
+
+  // A search that hit the catching-up gate is replayed once the hold clears —
+  // exactly once, and only while the same workspace is still open.
+  useEffect(() => {
+    const pending = pendingSearchRef.current;
+    if (catchUp || !pending) return;
+    pendingSearchRef.current = null;
+    if (!wsId) return;
+    handleSearch(pending.table, pending.field, pending.direction);
+  }, [catchUp, wsId, handleSearch]);
 
   // ── Open L2 (double-click on L1 script node) ──────────────────────
   const handleOpenL2 = useCallback(async (scriptId, scriptName) => {
@@ -719,9 +1058,10 @@ export default function DataFlowApp({
 
   // ── T8 (#295): embedded "My workspaces" section (left panel) ──────
   // Upload creates a NEW workspace server-side, then opens it — the open
-  // effect (handleOpenExisting) runs resume→scan→index ONCE on remount. We
-  // deliberately do NOT call handleUpload's inline index path here (it would
-  // double-index after the keyed remount).
+  // effect (handleOpenExisting) reads the persisted tree + index once on
+  // remount (the upload itself already built the index). We deliberately do
+  // NOT call handleUpload's inline index path here (it would double-index
+  // after the keyed remount).
   const handleSectionUpload = useCallback(async (file) => {
     const result = await api.uploadWorkspace(file);
     onOpenWorkspace?.(result.workspace_id);
@@ -1049,6 +1389,97 @@ export default function DataFlowApp({
     setStoryAutoplay(v => !v);
   }, []);
 
+  // ── R40.13: the naive string-match diff layer ──────────────────────
+  // The searched field's canonical name. An L2 child row carries no
+  // table/field of its own — its PARENT search row does (same resolution as
+  // storyTarget above), and that echoed name is canonical post-R2.11. No
+  // target ⇒ no active search ⇒ the layer is hidden (design point 7).
+  const stringMatchField = storyTarget ? storyTarget.field : null;
+
+  // The naive matches themselves: a dumb case-insensitive boundary scan of
+  // the WHOLE rendered script. Guarded on graphLevel (the SQL panel only
+  // mounts in L2), a non-empty canonical field name and non-empty sqlText —
+  // any of them unmet ⇒ [] ⇒ no bands.
+  const stringMatches = useMemo(
+    () => (graphLevel === 'L2' ? computeStringMatches(sqlText, stringMatchField) : []),
+    [graphLevel, sqlText, stringMatchField],
+  );
+
+  // The ENGINE's claim: the flow closure's highlight set, read from the
+  // DETAILED `l2Result.graph` namespace (never the merged projection), so the
+  // coloring is identical across the flow-only / full / merged toggle.
+  // Absent/empty flow sets ⇒ empty baseline ⇒ every match reads not-in-flow —
+  // the truthful reading for a not-in-flow script.
+  const stringMatchFlowLines = useMemo(() => flowLineSet(l2Result), [l2Result]);
+
+  // The green/red split — disjoint Sets, ascending.
+  const stringMatchSets = useMemo(
+    () => classifyMatches(stringMatches, stringMatchFlowLines),
+    [stringMatches, stringMatchFlowLines],
+  );
+
+  // The bar's counter. Non-null whenever an L2 search is active (INCLUDING
+  // total: 0 — a 0-match search still renders the bar and the counter);
+  // null = no active search, so the whole cluster stays unrendered.
+  const stringMatchSummary = useMemo(() => {
+    if (graphLevel !== 'L2' || !stringMatchField || !sqlText) return null;
+    return {
+      total: stringMatches.length,
+      inFlow: stringMatchSets.covered.size,
+      notInFlow: stringMatchSets.missed.size,
+    };
+  }, [graphLevel, stringMatchField, sqlText, stringMatches, stringMatchSets]);
+
+  // Cursor (0-based) → the SQL line it points at. Invalid/out-of-range
+  // positions read as inactive rather than guessing a line.
+  const stringMatchActiveLine = useMemo(() => {
+    if (stringMatchCursor == null) return null;
+    const m = stringMatches[stringMatchCursor];
+    return m && Number.isInteger(m.line) && m.line >= 1 ? m.line : null;
+  }, [stringMatchCursor, stringMatches]);
+
+  // What the SQL panel actually receives: hidden ⇒ no bands and no active
+  // outline, while the counter above stays visible (AC2). The shared empty
+  // set keeps the hidden render stable.
+  const layerCovered = stringMatchVisible ? stringMatchSets.covered : EMPTY_MATCH_SET;
+  const layerMissed = stringMatchVisible ? stringMatchSets.missed : EMPTY_MATCH_SET;
+  const layerActiveLine = stringMatchVisible ? stringMatchActiveLine : null;
+
+  // Reset the cursor whenever the match set's identity changes —
+  // (scriptName, fieldName, sqlText): a new search, a script change or a
+  // payload change always starts browsing inactive (AC4).
+  useEffect(() => {
+    setStringMatchCursor(null);
+  }, [currentScriptName, stringMatchField, sqlText]);
+
+  // …and clamp instead of guessing if the cursor is out of range after a
+  // payload change that kept the identity (a re-fetch with fewer matches).
+  useEffect(() => {
+    if (stringMatchCursor == null) return;
+    const n = stringMatches.length;
+    if (n === 0) setStringMatchCursor(null);
+    else if (stringMatchCursor >= n) setStringMatchCursor(n - 1);
+    else if (stringMatchCursor < 0) setStringMatchCursor(null);
+  }, [stringMatchCursor, stringMatches]);
+
+  // The SEPARATE browse channel's single write site. The bar owns the ring
+  // arithmetic (it renders the `3/17` readout and knows N) and hands over the
+  // wrapped index; DataFlowApp only bounds-checks and stores it. Nothing here
+  // touches `sqlHighlightLine` or `selectedEdge` — browsing never moves the
+  // engine's amber line.
+  const handleStringMatchStep = useCallback((i) => {
+    if (!Number.isInteger(i) || i < 0) return;
+    setStringMatchCursor(i);
+  }, []);
+  const handleStringMatchPrev = handleStringMatchStep;
+  const handleStringMatchNext = handleStringMatchStep;
+
+  const handleToggleStringMatch = useCallback(() => {
+    // Toggling hides the bands + the outline only — it never resets the
+    // cursor, so re-showing lands where the browse left off.
+    setStringMatchVisible(v => !v);
+  }, []);
+
   // Breadcrumb navigation
   const breadcrumb = [];
   if (activeView) {
@@ -1116,8 +1547,9 @@ export default function DataFlowApp({
             debugger's left panel — list (role badges + quota + remove),
             📁 Select Folder, + Upload a folder (zip), and the open-by-id
             box. Each keyed remount refetches the list. Uploads create then
-            open (handleOpenExisting runs resume→scan→index ONCE); the
-            WorkspacePanel below no longer duplicates the upload pickers. */}
+            open (handleOpenExisting reads the persisted tree + index — no
+            rebuild); the WorkspacePanel below owns the explicit creator-only
+            re-index control and no longer duplicates the upload pickers. */}
         <MyWorkspaces
           open
           onOpen={onOpenWorkspace}
@@ -1129,6 +1561,8 @@ export default function DataFlowApp({
           onUpload={handleUpload} onDelete={handleDeleteWorkspace}
           onError={setError}
           showUploads={false}
+          indexedAt={indexedAt}
+          isCreator={isCreator}
         />
         {fileTree && (
           <FolderTree
@@ -1137,7 +1571,30 @@ export default function DataFlowApp({
             indexed={indexed}
           />
         )}
-        {indexed && (
+        {/* P1 catching-up window: the search panel is WITHHELD (not merely
+            disabled) — its autocomplete reads the same in-flux index, so
+            showing it would invite picking a table that is mid-update. The
+            notice says why and for how long; the workspace itself (tree,
+            open views, graphs) stays usable. */}
+        {catchUp && (
+          <div className="catchup-panel" data-testid="catchup-panel" role="status">
+            <div className="catchup-title">Catching up…</div>
+            <div className="catchup-line">
+              {catchUp.changed == null
+                ? 'Re-indexing changed scripts — search reopens when the index is whole.'
+                : `Catching up: ${catchUp.changed} changed script${catchUp.changed === 1 ? '' : 's'}… search reopens when the index is whole.`}
+            </div>
+          </div>
+        )}
+        {/* P1 freshness, informational: a participant (who cannot rebuild,
+            #272/#380) reading a stale-but-idle index is told so — search stays
+            available, the creator's next open is what refreshes it. */}
+        {indexed && !catchUp && staleHint && (
+          <div className="stale-hint" data-testid="stale-hint" role="note">
+            Index may be outdated — the creator's next open refreshes it.
+          </div>
+        )}
+        {indexed && !catchUp && (
           <FilterPanel
             wsId={wsId}
             username={username}
@@ -1177,6 +1634,7 @@ export default function DataFlowApp({
         <ViewBar
           views={views} activeViewId={activeViewId}
           onSelect={handleViewTreeClick}
+          canManageViews={isCreator}
           onRemove={handleDeleteView}
           onRemoveChild={async (parentId, childId) => {
             try {
@@ -1371,6 +1829,9 @@ export default function DataFlowApp({
                   wsId={wsId}
                   table={activeView?.table || ""}
                   field={activeView?.field || ""}
+                  stringMatchCovered={layerCovered}
+                  stringMatchMissed={layerMissed}
+                  stringMatchActiveLine={layerActiveLine}
                 />
               </div>
               {/* Field Story step-through bar — BELOW the SQL panel (the
@@ -1379,10 +1840,15 @@ export default function DataFlowApp({
                   its edges/nodes (storyFocus) and scrolls the SQL panel
                   via the R37 channel; ✕ dismisses (focus null → dim
                   cleared). R10-#18: only rendered when there is a script
-                  (sqlText) to scroll to. */}
-              {fieldStory && fieldStory.steps.length > 0 && (
+                  (sqlText) to scroll to.
+                  R40.13: the gate WIDENS — the bar also renders when an L2
+                  search is active with no story steps, because that is where
+                  the string-match browse controls live; the story chips +
+                  autoplay still render only when steps exist. */}
+              {(fieldStory && fieldStory.steps.length > 0)
+                || stringMatchSummary != null ? (
                 <FieldStoryBar
-                  steps={fieldStory.steps}
+                  steps={(fieldStory && fieldStory.steps) || []}
                   activeIndex={storyActiveIndex}
                   onStep={handleStoryStep}
                   onPrev={handleStoryPrev}
@@ -1390,8 +1856,14 @@ export default function DataFlowApp({
                   autoplay={storyAutoplay}
                   onToggleAutoplay={handleStoryToggleAutoplay}
                   onDismiss={handleStoryDismiss}
+                  stringMatchSummary={stringMatchSummary}
+                  stringMatchCursor={stringMatchCursor}
+                  stringMatchVisible={stringMatchVisible}
+                  onToggleStringMatch={handleToggleStringMatch}
+                  onPrevStringMatch={handleStringMatchPrev}
+                  onNextStringMatch={handleStringMatchNext}
                 />
-              )}
+              ) : null}
             </>
           )}
         </div>
@@ -1490,4 +1962,124 @@ function collectSqlFiles(tree) {
 // basename only, so a deep script still fits the banner box.
 function scriptBaseName(path) {
   return String(path || '').split('/').pop();
+}
+
+// ════════════════════════════════════════════════════════════════════
+// P1 index-freshness contract (v3.3.194) — read defensively, require nothing.
+//
+//   GET /resume, GET /workspace/{id}/status → index_change
+//   GET /index                              → freshness + catching_up
+//   POST /index response                    → catching_up:false (+ reused/
+//                                             extracted_scripts, filtered_index_cleared)
+//
+// `freshness` and `index_change` carry the SAME object:
+//   { changed_scripts, changed_count (alias), added_count, removed_count,
+//     schema_changed_count, total, indexed_at, extractor_version,
+//     current_extractor_version, stale, reason }
+// Counts are pipeline-scoped: changed_count is exactly what an incremental
+// rebuild would extract.
+function readFreshness(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  const status = p.indexed && typeof p.indexed === 'object' ? p.indexed : null;
+  // Accept either a WRAPPER payload ({freshness}|{index_change}|{indexed:{…}})
+  // or the freshness object itself ({stale, changed_count, …}) — /resume hangs
+  // the object off `index_change`, so the call site reads
+  // readFreshness(resume.index_change) and lands here directly.
+  const isFreshnessItself = p.stale !== undefined || p.changed_count !== undefined
+    || p.changed_scripts !== undefined || p.reason !== undefined;
+  const f = isFreshnessItself ? p
+    : (p.freshness || p.index_change
+      || (status && (status.freshness || status.index_change)) || null);
+  if (!f || typeof f !== 'object') {
+    return { present: false, stale: false, changed: null, indexedAt: null };
+  }
+  const raw = f.changed_count ?? f.changed_scripts;
+  const changed = typeof raw === 'number' ? raw : Array.isArray(raw) ? raw.length : null;
+  return {
+    present: true,
+    stale: f.stale === true,
+    changed,
+    indexedAt: typeof f.indexed_at === 'string' && f.indexed_at ? f.indexed_at : null,
+  };
+}
+
+// A catch-up is IN FLIGHT only when a flag says so. `freshness.stale` alone
+// must NEVER start a hold: a stale index nobody is rebuilding would hold
+// search forever. Staleness is the AUTO-TRIGGER's signal (fire POST /index —
+// the in-flight call then flips `catching_up` and the 409 gate protects the
+// other readers); a participant who cannot rebuild gets a hint, not a lockout.
+function readCatchUp(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  const status = p.indexed && typeof p.indexed === 'object' ? p.indexed : null;
+  const flag = [p.catching_up, p.reindexing, status && status.catching_up, status && status.reindexing]
+    .find(v => typeof v === 'boolean');
+  if (typeof flag !== 'boolean') return { catchingUp: false, changed: null };
+  return { catchingUp: flag, changed: readFreshness(p).changed };
+}
+
+// ════════════════════════════════════════════════════════════════════
+// MSC-1 (2026-08-31): the two 409s a search can get.
+//
+//   P1 index catch-up  "Index is being updated for this workspace — retry in
+//                       a moment"   → hold + poll + replay (the search is
+//                       fine, its SCOPE is mid-rebuild)
+//   R31 heavy gate     "system busy — please wait"   → transient service
+//                       condition: surface it, never hold, never replay
+//
+// The catch-up is recognised by its own words, not by the status code alone —
+// the heavy gate returns the SAME 409 with a different detail. Both spellings
+// of the catch-up sentence (em dash and plain hyphen) match; the match is
+// case-insensitive because the sentence belongs to the backend.
+// ════════════════════════════════════════════════════════════════════
+const BUSY_409_MESSAGE = 'The service is busy — please retry in a moment';
+
+function isIndexCatchUp409(e) {
+  if (e?.status !== 409) return false;
+  return /index is being updated/i.test(String(e?.message || ''));
+}
+
+// ════════════════════════════════════════════════════════════════════
+// P4 (2026-08-31): what a FAILED catch-up poll means — and the "is this
+// payload an index at all" read.
+//
+// A poll failure is one of three very different things:
+//   404  the workspace is GONE (deleted in another tab mid-hold) — no number
+//        of retries brings it back;
+//   401  the session EXPIRED — the shared interceptor (E-M1) is already
+//        handing the shell to login;
+//   else TRANSIENT (a dropped connection, a 5xx) — worth retrying, bounded.
+//
+// The status is read off the error object when the client carries it
+// (`searchDataFlow` does; a client that attaches it everywhere is the real
+// fix), then off the server's own detail wording ("Workspace not found",
+// "Not logged in"), then off the client's `HTTP <code>` fallback for a
+// non-JSON body. The wording is the backend's, so the match is
+// case-insensitive and deliberately narrow — an unknown error must classify
+// as TRANSIENT, never as a terminal one.
+// ════════════════════════════════════════════════════════════════════
+const POLL_GONE = 'gone';
+const POLL_UNAUTHORIZED = 'unauthorized';
+
+function classifyIndexPollError(e) {
+  const status = typeof e?.status === 'number' ? e.status : null;
+  const message = String(e?.message || '');
+  if (status === 404 || /workspace not found/i.test(message)) return POLL_GONE;
+  if (status === 401 || /not logged in/i.test(message) || /http 401\b/i.test(message)) {
+    return POLL_UNAUTHORIZED;
+  }
+  return 'transient';
+}
+
+// Does this index payload describe an index that can serve a search? The
+// corrupt/missing-cache convention reads as {} (never 500), so a payload can
+// legitimately carry nothing: an empty table_index AND no `indexed` status,
+// or a status that says indexed:false, must not switch search on.
+function hasServedIndex(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  if (p.table_index && Object.keys(p.table_index).length > 0) return true;
+  const status = p.indexed;
+  const flag = typeof status === 'boolean'
+    ? status
+    : (status && typeof status === 'object' ? status.indexed : undefined);
+  return flag === true;
 }

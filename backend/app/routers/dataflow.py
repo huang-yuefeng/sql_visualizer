@@ -6,10 +6,12 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from app.routers.workspace import _session_ctx
+from app.routers.workspace import _session_ctx, _audit
 from app.services.workspace_service import get_workspace, get_workspace_dir
 from app.services.logger import _push, _ts
-from app.services.folder_index_service import resolve_name_ci, scripts_for_name_ci
+from app.services.folder_index_service import (
+    resolve_name_ci, scripts_for_name_ci, is_index_catching_up,
+)
 from app.services.dataflow_service import (
     _load_views, _save_views, _persist_search_view,
     create_search, get_level2_graph,
@@ -89,10 +91,19 @@ def _load_index(ws_id: str) -> tuple[dict, dict, bool, int, int]:
     # Prefer filtered index if available
     filtered_path = cache_dir / "filtered_index.json"
     if filtered_path.exists():
-        filtered = json.loads(filtered_path.read_text())
-        ti = filtered.get("table_index", {})
-        fi = filtered.get("field_index", {})
-        return ti, fi, True, len(ti), len(fi)
+        try:
+            filtered = json.loads(filtered_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            filtered = None  # M1-D2: torn/corrupt scope file — fall through to the main index instead of 500ing every search
+        # A VALID file is used as-is, including a legitimately EMPTY
+        # intersection ({"table_index": {}} — a filter that empties the
+        # scope): returning the unfiltered main index there would turn the
+        # filter's honest no_matches into a whole-workspace exact search.
+        # Only an unparseable/malformed file falls through.
+        if isinstance(filtered, dict) and "table_index" in filtered:
+            ti = filtered.get("table_index", {})
+            fi = filtered.get("field_index", {})
+            return ti, fi, True, len(ti), len(fi)
     ti_path = cache_dir / "table_index.json"
     fi_path = cache_dir / "field_index.json"
     ti = json.loads(ti_path.read_text()) if ti_path.exists() else {}
@@ -186,14 +197,30 @@ def _load_base_index(ws_id: str) -> tuple[dict, dict]:
 
 
 @router.post("/workspace/{ws_id}/search")
-async def search_dataflow(ws_id: str, body: dict):
-    """Search for data flow of table.field. body: {table, field}"""
+async def search_dataflow(ws_id: str, body: dict, request: Request = None):
+    """Search for data flow of table.field. body: {table, field}
+
+    MSC-3: a successful search (including the "filter matched nothing" one)
+    appends a `search` activity record for the calling session. ``request``
+    defaults to None only so the in-process test callers that invoke this
+    handler directly keep working — a direct call records nothing.
+    """
     ws = get_workspace(ws_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
     if not ws.get("indexed"):
         raise HTTPException(status_code=400, detail="Workspace not indexed. Run index first.")
+    # P1 (catching-up): the search's script set IS the index, and while an
+    # index run is in flight that index describes the PREVIOUS content — a
+    # field that exists only in a just-added script would come back as a
+    # false "not queried by any script". Refuse explicitly with a retry-able
+    # 409 for the (short) window instead of lying.
+    if is_index_catching_up(ws_id):
+        raise HTTPException(
+            status_code=409,
+            detail=("Index is being updated for this workspace — retry in a moment"),
+        )
 
     table = body.get("table", "").strip()
     field = body.get("field", "").strip()
@@ -252,6 +279,8 @@ async def search_dataflow(ws_id: str, body: dict):
                 "direction": direction,
                 "children": [],
             })
+            # MSC-3: the search DID happen — it just matched nothing.
+            _audit(request, ws_id, "search", f"{table}.{field}")
             return result
         raise HTTPException(status_code=400, detail="Indexes not found. Run index first.")
 
@@ -272,6 +301,8 @@ async def search_dataflow(ws_id: str, body: dict):
                             *_search_diagnostic_values(table, field, ti, fi, result,
                                                        filtered_active, scope_tables, scope_fields,
                                                        base_table_in_index, base_field_in_index))
+    # MSC-3: the History panel's `search` record — who queried what, when.
+    _audit(request, ws_id, "search", f"{table}.{field}")
     return result
 
 
@@ -378,7 +409,8 @@ async def get_level1(ws_id: str, view_id: str,
 @router.get("/workspace/{ws_id}/views/{view_id}/level2")
 def get_level2(ws_id: str, view_id: str, script: str = Query(...),
                filter: bool = Query(True),
-               direction: str | None = Query(None)):
+               direction: str | None = Query(None),
+               request: Request = None):
     """Get L2 per-script graph for a view's script.
 
     R29: `direction` query param overrides the view's persisted direction
@@ -433,6 +465,9 @@ def get_level2(ws_id: str, view_id: str, script: str = Query(...),
 
     result = get_level2_graph(ws_id, view_id, script, table, field, filter,
                               direction)
+    # MSC-3: opening a script's L2 graph is a participant action worth a
+    # trail record (detail = the script that was opened).
+    _audit(request, ws_id, "l2_opened", script)
     return result
 
 
@@ -483,6 +518,11 @@ async def debug_graph_layout(ws_id: str, body: dict):
         raise HTTPException(status_code=404, detail="Workspace not found")
     if not ws.get("indexed"):
         raise HTTPException(status_code=400, detail="Workspace not indexed")
+    if is_index_catching_up(ws_id):
+        raise HTTPException(
+            status_code=409,
+            detail=("Index is being updated for this workspace — retry in a moment"),
+        )
 
     table = body.get("table", "").strip()
     field = body.get("field", "").strip()

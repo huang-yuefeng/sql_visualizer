@@ -1,5 +1,8 @@
 """Folder index service — scan directory tree, build table/field indexes."""
+import gzip
+import hashlib
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -7,8 +10,11 @@ import sqlglot
 from sqlglot import exp
 
 from app.extractor.variable_extractor_v2 import EXTRACTOR_VERSION
+from app.services.atomic_io import atomic_write_bytes, atomic_write_text
 from app.services.cache_keys import GRAPH_CACHE_PREFIX
-from app.services.workspace_service import get_workspace_dir, get_script_path
+from app.services.workspace_service import (
+    get_workspace_dir, get_script_path, read_meta, write_meta_cas,
+)
 from app.services.logger import _push
 from app.services.filter_service import resolve_script
 
@@ -50,6 +56,33 @@ def _is_top_statement_context(context: str) -> bool:
     if "/subq" in context or "/exists" in context or ":join" in context:
         return False
     return True
+
+
+def _is_renamed_output(v: dict, field_name: str) -> bool:
+    """R46b: True when this output var's NAME RENAMES the value it projects.
+
+    The extractor stamps the projected source text on the var —
+    ``b.org_no AS nbjgh`` → ``sql_expression="b.org_no"`` (mirrored in
+    ``source_columns``), ``name="nbjgh"``. Only a rename can produce a
+    phantom pair: when the projected column's own bare name IS the var's
+    name (``SELECT c.c_first_name …``, ``a.TAG_COUNTRY AS TAG_COUNTRY``)
+    the name IS the read column's name, so attributing it to the read
+    source is the ordinary S1-S3 read-column attribution (true schema
+    evidence, e.g. every unaliased projection of a plain SELECT), never a
+    phantom.
+
+    No projected text (`sql_expression`/`source_columns` absent — old
+    caches) → False, i.e. the historical read-source attribution stands:
+    the discriminator must be extraction-time evidence, never a guess.
+    """
+    expr = str(v.get("sql_expression") or "").strip()
+    if not expr:
+        cols = [c for c in (v.get("source_columns") or []) if isinstance(c, str)]
+        expr = cols[0].strip() if cols else ""
+    if not expr:
+        return False
+    base = expr.split(".")[-1].strip("`\"'[] ").strip()
+    return base.casefold() != str(field_name).casefold()
 
 
 def _is_plain_field_name(field_name: str) -> bool:
@@ -173,9 +206,11 @@ def _invalidate_graph_caches(cache_dir) -> int:
     L2 cache hits. Delete BOTH the current GRAPH_CACHE_PREFIX files and
     older-prefix leftovers (the whole `graph_3_*_*.json` shape: any
     graph_3_<ver>_<hash>.json). schemas_*, analysis_* and
-    filtered_index.json are never touched — the analysis caches are the
-    S4b-mutated source of truth and must survive. Returns the number of
-    files deleted.
+    filtered_index.json are never touched by THIS deletion — the analysis
+    caches are the S4b-mutated source of truth and must survive. (P1: the
+    filtered scope is dropped separately, at the end of index_scripts — it
+    is derived from the PREVIOUS index.) Returns the number of files
+    deleted.
     """
     n = 0
     for p in cache_dir.glob("graph_3_*.json"):
@@ -280,7 +315,355 @@ def get_index_progress(ws_id: str) -> dict:
             "phase": entry.get("phase", ""),
             "errors": list(entry.get("errors", []))}
 
-def scan_folder(ws_id: str, parsed_cache: dict | None = None) -> dict:
+# ── P1 (v3.3.194): incremental re-index + freshness metadata ────────────
+# A creator re-opening an existing workspace re-ran the whole extraction
+# pipeline on every POST /index. Measured on the 106-pipeline-script
+# tpcds_qualified corpus (dev container, v3.3.193): POST /scan 0.15s,
+# POST /index 2.28–2.37s — identical on the 2nd and 3rd open, because
+# nothing was reused: the per-script analysis caches (analysis_{key}.json,
+# 7.4MB for this corpus) were REWRITTEN every run and never read back.
+# Breakdown of the 2.2s index: run_full_analysis 1.50–1.63s (70%),
+# S4b cache mutation 0.146s (7%), aggregation + star expansion + artifact
+# writes ~0.43s (20%), analysis-cache writes 0.03s (1.4%).
+#
+# The index therefore persists, per script, the PRISTINE (pre-S4b) analysis
+# result it extracted — keyed by the SAME md5(EXTRACTOR_VERSION|rel_path|
+# sql_text) the analysis cache uses — plus the C-5 star detection and the
+# A1 file class, gzipped (measured 10x: 7.4MB → 0.77MB). A later index
+# whose script hashes to the same key REPLAYS that evidence instead of
+# re-extracting:
+#   * the pristine analysis is re-written to analysis_{key}.json exactly as
+#     a fresh run would write it, so S4b starts from the same baseline —
+#     the analysis cache is S4b-MUTATED in place, so replaying from a
+#     mutated cache would move resolved_by["schema"], find no
+#     schema_candidates records to remove and no unattributed var to
+#     attribute, and the report would diverge from a full re-index;
+#   * the aggregation, S4b (workspace-wide by design — it always re-runs,
+#     on cached extracts) and the C-5 star expansion then run unchanged.
+# ⇒ the artifacts are byte-identical to a full re-index for unchanged
+# inputs (pinned by tests/test_incremental_index.py). Deletions, additions
+# and edits all fall out of the same rule: a script absent from the caller's
+# list contributes nothing, a new/changed key has no usable evidence and is
+# extracted.
+# mtimes are recorded ONLY for the advisory freshness hint (Job 2) — never
+# for a reuse decision, which is content-md5 based.
+EVIDENCE_PREFIX = "ixevidence_"          # + md5 key + ".json.gz"
+MANIFEST_NAME = "index_manifest.json"    # per-file identity + freshness
+_GZIP_LEVEL = 1                          # measured 10x at 5ms/40 scripts
+
+
+def _script_cache_key(rel_path: str, sql_text: str) -> str:
+    """The analysis-cache key — md5(EXTRACTOR_VERSION|rel_path|sql_text)[0:12].
+
+    Single source for BOTH the analysis cache name and the evidence key, so
+    a script's evidence can only ever be replayed onto its own cache.
+    """
+    return hashlib.md5(
+        (EXTRACTOR_VERSION + "|" + rel_path + sql_text).encode()).hexdigest()[:12]
+
+
+def _sql_md5(sql_text: str) -> str:
+    """Content md5 of a script — the reuse/`changed` discriminator."""
+    return hashlib.md5(sql_text.encode()).hexdigest()
+
+
+def _evidence_name(cache_key: str) -> str:
+    return f"{EVIDENCE_PREFIX}{cache_key}.json.gz"
+
+
+def _load_manifest(cache_dir: Path, require_version: bool) -> dict | None:
+    """Read cache/index_manifest.json.
+
+    ``require_version=True`` (the reuse path) returns None unless the
+    manifest was written by THIS extractor version — an older manifest is
+    unusable as evidence even though its keys still match (the key embeds
+    the version, so a mismatch is already a miss; this is the belt to that
+    braces). ``require_version=False`` (the freshness read) returns whatever
+    is on disk so the UI can say "indexed by an older engine".
+    """
+    try:
+        data = json.loads((cache_dir / MANIFEST_NAME).read_text("utf-8"))
+    except Exception:
+        return None  # absent / corrupt → no evidence, no freshness
+    if not isinstance(data, dict) or not isinstance(data.get("scripts"), dict):
+        return None
+    if require_version and data.get("extractor_version") != EXTRACTOR_VERSION:
+        return None
+    return data
+
+
+def _write_json_atomic(path: Path, data: str) -> None:
+    """Temp file + os.replace — a reader never sees a torn artifact.
+
+    P1 (item 3-i): EVERY index/cache write goes through this (the shared
+    `app.services.atomic_io` helper) — a concurrent reader (participant
+    search, GET /index, l2_builder's cache read) previously observed a
+    half-written file as a 500 or a silently-empty index.
+    """
+    atomic_write_text(path, data)
+
+
+def _persist_evidence(cache_dir: Path, rel_path: str, cache_key: str,
+                      sql_md5: str, file_class: str, star_tables: list,
+                      result: dict, schemas_json: str | None = None) -> None:
+    """Write the pristine pre-S4b analysis + star detection for one script.
+
+    ``result`` is the run_full_analysis return BEFORE any S4b mutation —
+    exactly the object index_scripts aggregates and the exact JSON the
+    analysis cache receives, so a replay is byte-exact by construction.
+    """
+    payload = {
+        "cache_key": cache_key,
+        "rel_path": rel_path,
+        "extractor_version": EXTRACTOR_VERSION,
+        "sql_md5": sql_md5,
+        "file_class": file_class,
+        # C-5 detection (per script, order-preserving): the FROM/JOIN tables
+        # of every unqualified star. Workspace-wide m_ws can change, so the
+        # EXPANSION always re-runs — only the parse walk is cached.
+        "star_tables": star_tables,
+        "analysis": result,
+        # the EXACT schemas_{key}.json text (already default=str-serialized),
+        # so a replay restores it byte-identically if it went missing
+        "schemas_json": schemas_json,
+    }
+    raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    try:
+        atomic_write_bytes(cache_dir / _evidence_name(cache_key),
+                           gzip.compress(raw, _GZIP_LEVEL))
+    except OSError:
+        pass  # best-effort — a missing evidence file is a cache miss
+
+
+def _detect_star_tables(parsed) -> list:
+    """C-5 star DETECTION for one script — the FROM/JOIN tables of every
+    UNQUALIFIED star, in parse-walk order, deduped.
+
+    Purely local to the parse, so the list is replayable: the workspace-wide
+    m_ws can change between runs, and the expansion (which consults it) is
+    re-run every index — only this parse walk is cached.
+    """
+    if not parsed:
+        return []
+    out, seen = [], set()
+    for _sel in _iter_select_nodes(parsed):
+        for _t in _star_from_tables(_sel):
+            if _t not in seen:
+                seen.add(_t)
+                out.append(_t)
+    return out
+
+
+def _record_manifest(manifest_scripts: dict, rel_path: str, cache_key: str,
+                     sql_md5: str, file_class: str, sp: Path) -> None:
+    """Record one covered SQL file's identity for cache/index_manifest.json.
+
+    `cache_key`/`sql_md5` are BOTH the reuse decision (index time) and the
+    change hint (read time) — content, never mtime. `size`/`mtime_ns` ride
+    along as context for debugging only.
+    """
+    try:
+        st = sp.stat()
+        size, mtime_ns = st.st_size, st.st_mtime_ns
+    except OSError:
+        size, mtime_ns = None, None
+    manifest_scripts[rel_path] = {
+        "cache_key": cache_key,
+        "sql_md5": sql_md5,
+        "file_class": file_class,
+        "size": size,
+        "mtime_ns": mtime_ns,
+    }
+
+
+def _load_evidence(cache_dir: Path, cache_key: str) -> dict | None:
+    """Load + validate one script's evidence (None = cache miss)."""
+    path = cache_dir / _evidence_name(cache_key)
+    try:
+        payload = json.loads(gzip.decompress(path.read_bytes()).decode("utf-8"))
+    except Exception:
+        return None  # absent / corrupt / truncated → miss, re-extract
+    if not isinstance(payload, dict):
+        return None
+    if (payload.get("cache_key") != cache_key
+            or payload.get("extractor_version") != EXTRACTOR_VERSION
+            or not isinstance(payload.get("analysis"), dict)
+            or not isinstance(payload["analysis"].get("variables"), list)):
+        return None
+    return payload
+
+
+def _restore_analysis_cache(cache_dir: Path, cache_key: str, evidence: dict) -> None:
+    """Re-write analysis_{key}.json from evidence — PRISTINE, pre-S4b.
+
+    The analysis cache is the S4b-mutated serving copy (C-3/C-10); a replay
+    must reset it to the baseline a fresh extraction would have written, or
+    the S4b pass below would apply to an already-mutated file.
+    """
+    _write_json_atomic(cache_dir / f"analysis_{cache_key}.json",
+                       json.dumps(evidence["analysis"], indent=2,
+                                  ensure_ascii=False))
+
+
+def _restore_schemas_cache(cache_dir: Path, cache_key: str,
+                           evidence: dict) -> None:
+    """Re-create schemas_{key}.json from the evidence when it went missing —
+    the exact bytes a full index would have written (the serialized form is
+    snapshotted, not recomputed)."""
+    if not evidence.get("schemas_json"):
+        return  # never inferred (optional precompute) — nothing to restore
+    path = cache_dir / f"schemas_{cache_key}.json"
+    if path.exists():
+        return
+    try:
+        _write_json_atomic(path, evidence["schemas_json"])
+    except Exception:
+        pass  # optional precompute — a missing file rebuilds on demand
+
+
+def _prune_stale_evidence(cache_dir: Path, live_keys: set) -> int:
+    """Delete evidence files no current script maps to (deleted scripts,
+    superseded content, an older extractor version). Analysis caches are
+    NOT touched here — their retention is l1_builder's business."""
+    n = 0
+    for p in cache_dir.glob(f"{EVIDENCE_PREFIX}*.json.gz"):
+        if p.name[len(EVIDENCE_PREFIX):-len(".json.gz")] not in live_keys:
+            try:
+                p.unlink()
+                n += 1
+            except OSError:
+                pass
+    return n
+
+
+def manifest_class_cache(ws_id: str) -> dict:
+    """Per-file A1 class records from the last index — for a caller that
+    scans BEFORE indexing (POST /index), so scan_folder need not re-parse
+    files whose content is unchanged.
+
+    {} when there is no usable manifest (never indexed, or built by another
+    extractor version). Values are {"sql_md5", "file_class"} only — mtime is
+    never consulted here (content decides, always).
+    """
+    manifest = _load_manifest(get_workspace_dir(ws_id) / "cache",
+                              require_version=True)
+    out = {}
+    for rel, rec in ((manifest or {}).get("scripts") or {}).items():
+        if (isinstance(rec, dict) and isinstance(rel, str)
+                and rec.get("file_class") in ("script", "schema")
+                and isinstance(rec.get("sql_md5"), str)):
+            out[rel] = {"sql_md5": rec["sql_md5"],
+                        "file_class": rec["file_class"]}
+    return out
+
+
+def _iter_sql_files(ws_id: str) -> list:
+    """Every SQL file in the workspace, as (rel_path, text) — a real os.walk
+    over the directory (NEVER the persisted tree: a file added since the last
+    index would be invisible to a tree walk), reading each file's content
+    because the change signal is the CONTENT hash. Measured 0.002s for the
+    108-file tpcds_qualified corpus."""
+    scripts_dir = get_workspace_dir(ws_id) / "scripts"
+    out = []
+    if not scripts_dir.exists():
+        return out
+    for root, _dirs, files in os.walk(scripts_dir):
+        for name in files:
+            p = Path(root) / name
+            if p.suffix.lower() in SQL_EXTENSIONS or p.suffix.lower() \
+                    in SCHEMA_EXTENSIONS:
+                try:
+                    txt = p.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    txt = ""  # unreadable → hash of nothing (still counted)
+                out.append((str(p.relative_to(scripts_dir)), txt))
+    return sorted(out)
+
+
+def index_change_diff(ws_id: str) -> dict | None:
+    """Content-hash diff between the last index and the scripts on disk.
+
+    The per-script identity the last index persisted
+    (cache/index_manifest.json — md5 of the sql text + the derived
+    EXTRACTOR_VERSION cache key) is compared against the CURRENT content of
+    every SQL file. This is the same discriminator POST /index uses to decide
+    which scripts to re-extract, so a zero diff means an index would replay
+    every script from evidence and change nothing.
+
+    P2 contract (catch-up UI): the counts are PIPELINE-scoped, so
+    `changed_count` is exactly the number of scripts the incremental will
+    re-extract and `total` is exactly the `progress.total` the existing
+    /status poller already serves (both count pipeline scripts; DDL evidence
+    files are evidence-only and never enter the script list). DDL churn is
+    reported separately in `schema_changed_count` and still flips `stale` —
+    lost DDL evidence would change S4b resolution. `added_count` covers new
+    SQL files of either class: an un-indexed file's class is unknown until
+    the scan parses it, so it self-corrects at index time.
+
+    `changed_scripts` is a COUNT, not a list — the alias P2's readCatchUp()
+    already reads; keep both spellings in sync if this ever grows a list.
+
+    Returns None before the first index (nothing to diff against). O(files).
+    """
+    cache_dir = get_workspace_dir(ws_id) / "cache"
+    manifest = _load_manifest(cache_dir, require_version=False)
+    if manifest is None:
+        return None
+    recorded = manifest.get("scripts") or {}
+    current = {rel: txt for rel, txt in _iter_sql_files(ws_id)}
+    version_current = manifest.get("extractor_version") == EXTRACTOR_VERSION
+    changed = added = removed = schema_changed = 0
+    for rel, rec in recorded.items():
+        if not isinstance(rec, dict):
+            continue
+        is_pipeline = rec.get("file_class") != "schema"
+        if rel not in current:
+            if is_pipeline:
+                removed += 1
+            else:
+                schema_changed += 1
+        elif (not version_current
+              or _sql_md5(current[rel]) != rec.get("sql_md5")):
+            if is_pipeline:
+                changed += 1
+            else:
+                schema_changed += 1
+    for rel in current:
+        if rel not in recorded:
+            added += 1  # class unknown until indexed — counted as pipeline
+    total = sum(1 for rec in recorded.values()
+                if isinstance(rec, dict) and rec.get("file_class") != "schema")
+    if not version_current:
+        # an older engine's index is stale wholesale: every recorded pipeline
+        # script must be re-extracted, whatever its content did
+        changed = max(changed, total)
+        reason = "extractor_version"
+    elif changed or added or removed or schema_changed:
+        reason = "scripts_changed"
+    else:
+        reason = None
+    return {
+        "changed_scripts": changed,          # P2 alias (count, not a list)
+        "changed_count": changed,
+        "added_count": added,
+        "removed_count": removed,
+        "schema_changed_count": schema_changed,
+        "total": total,
+        "indexed_at": manifest.get("indexed_at"),
+        "extractor_version": manifest.get("extractor_version"),
+        "current_extractor_version": EXTRACTOR_VERSION,
+        "stale": bool(changed or added or removed or schema_changed),
+        "reason": reason,
+    }
+
+
+# Backwards-compatible alias for the first landing of the hint (Job 2) — the
+# signal is now content-based, not the advisory size+mtime guess.
+get_index_freshness = index_change_diff
+
+
+def scan_folder(ws_id: str, parsed_cache: dict | None = None,
+                *, class_cache: dict | None = None) -> dict:
     """Walk workspace scripts/ dir, return hierarchical tree with is_sql flag.
 
     A1: every SQL file node (is_sql: .sql/.ddl/.schema) also carries
@@ -294,6 +677,18 @@ def scan_folder(ws_id: str, parsed_cache: dict | None = None) -> dict:
     star pass. .ddl/.schema files short-circuit on extension — never
     parsed. Unreadable/unparsable files classify "script" (conservative)
     and export no parse.
+
+    P1: `class_cache` (keyword-only) is the per-file identity the last index
+    persisted — {rel_path: {"sql_md5", "file_class"}} (see
+    `manifest_class_cache`). A .sql file whose CONTENT md5 matches its
+    record is classified from that record and NOT parsed: the A1 class is
+    content-derived, so an md5 match yields exactly the class a parse would,
+    and the tree is byte-identical to a parsing scan. No parse is exported
+    for such a file (there is none) — index_scripts replays it from
+    evidence. Files with no record, or whose md5 differs, are parsed as
+    always, so a fresh/edited/never-indexed workspace behaves exactly as
+    before. Without `class_cache` (POST /scan, workspace create, the tests)
+    the parse walk is untouched.
     """
     ws_dir = get_workspace_dir(ws_id)
     scripts_dir = ws_dir / "scripts"
@@ -316,16 +711,29 @@ def scan_folder(ws_id: str, parsed_cache: dict | None = None) -> dict:
                     entry["file_class"] = "schema"
                 else:
                     parsed = None
+                    _txt = None
                     try:
                         _txt = path.read_text(encoding="utf-8",
                                               errors="replace")
-                        parsed = sqlglot.parse(_txt, read="mysql")
                     except Exception:
-                        # unreadable/unparsable → script (conservative)
+                        # unreadable → script (conservative, no parse)
                         entry["file_class"] = "script"
-                    else:
-                        entry["file_class"] = classify_sql_text(_txt,
-                                                                parsed=parsed)
+                    if _txt is not None:
+                        _rec = (class_cache or {}).get(entry["path"])
+                        # P1: content-md5 match → the recorded A1 class IS the
+                        # class this parse would produce; skip the parse.
+                        if (_rec is not None
+                                and _rec.get("sql_md5") == _sql_md5(_txt)):
+                            entry["file_class"] = _rec["file_class"]
+                        else:
+                            try:
+                                parsed = sqlglot.parse(_txt, read="mysql")
+                            except Exception:
+                                # unparsable → script (conservative)
+                                entry["file_class"] = "script"
+                            else:
+                                entry["file_class"] = classify_sql_text(
+                                    _txt, parsed=parsed)
                     if parsed_cache is not None and parsed is not None:
                         parsed_cache[entry["path"]] = parsed
         if path.is_dir():
@@ -340,12 +748,14 @@ def scan_folder(ws_id: str, parsed_cache: dict | None = None) -> dict:
 
 def index_scripts(ws_id: str, script_paths: list[str],
                   tree: dict | None = None,
-                  parsed_cache: dict | None = None) -> dict:
+                  parsed_cache: dict | None = None,
+                  *, incremental: bool = True) -> dict:
     """Analyze selected scripts, build table_index and field_index.
 
     For each script:
       1. Read SQL from workspace/scripts/{path}
-      2. Call run_full_analysis()
+      2. Call run_full_analysis() — or REPLAY the persisted per-script
+         evidence when EXTRACTOR_VERSION and the sql text are unchanged
       3. Extract table/column variables
       4. Build indexes
 
@@ -361,6 +771,16 @@ def index_scripts(ws_id: str, script_paths: list[str],
     cache/index_report.json — the two artifacts the participant-readable
     GET /workspace/{ws_id}/tree and GET /workspace/{ws_id}/index serve,
     since POST /scan + /index are creator-only.
+
+    P1: `incremental=False` disables evidence REUSE for this call (a full
+    extraction of every script) while still persisting evidence — the knob
+    the equivalence tests use to prove the two paths agree. Production
+    callers keep the default: reuse is keyed on content (see the P1 block
+    above), so a changed script is always re-extracted and a fresh workspace
+    simply has no evidence to reuse. Artifacts written: table_index.json,
+    field_index.json, pair_index.json, orphan_fields.json, index_report.json,
+    file_tree.json, index_manifest.json (per-file identity + freshness) and
+    ixevidence_{key}.json.gz (per-script pristine analysis).
 
     Returns: {table_index, field_index, precomputed_count,
               star_expanded_fields, script_count, errors,
@@ -414,7 +834,18 @@ def index_scripts(ws_id: str, script_paths: list[str],
     # empty-cache default.
     if parsed_cache is None:
         parsed_cache = {}
-    parse_by_script: dict = {}  # rel_path -> sqlglot statements (C-5 pass)
+    # P1: C-5 star detection per pipeline script (insertion order = script
+    # order). The extraction path detects from the C-13(a) single parse; the
+    # replay path reads the detection the same run persisted.
+    star_by_script: dict = {}
+    # P1: the per-file identity THIS index covers → cache/index_manifest.json
+    manifest_scripts: dict = {}
+    n_replayed = 0
+    n_extracted = 0
+    cache_dir = get_workspace_dir(ws_id) / "cache"
+    prev_manifest = _load_manifest(cache_dir, require_version=True) \
+        if incremental else None
+    prev_scripts = (prev_manifest or {}).get("scripts") or {}
 
     # ── A1: schema evidence pass (DDL-only files are NOT pipeline scripts) ──
     # DDL files (all statements CREATE TABLE/VIEW/MATERIALIZED VIEW, GRANT,
@@ -432,11 +863,15 @@ def index_scripts(ws_id: str, script_paths: list[str],
     # path) it is used as-is; otherwise the fallback scan happens HERE
     # instead of inside _collect_schema_files — same single scan, same
     # parsed_cache exports (C-13(a) one-parse-per-script is unchanged),
-    # and the result is no longer discarded.
+    # and the result is no longer discarded. P1: the fallback scan reuses
+    # the persisted A1 classes (content-md5 keyed) so an unchanged file is
+    # not re-parsed here either.
     covered_tree = tree
     if covered_tree is None:
         try:
-            covered_tree = scan_folder(ws_id, parsed_cache=parsed_cache)
+            covered_tree = scan_folder(ws_id, parsed_cache=parsed_cache,
+                                       class_cache=manifest_class_cache(ws_id)
+                                       if incremental else None)
         except Exception as e:
             errors.append({"script": "(schema discovery)", "error": str(e)})
     if covered_tree is not None:
@@ -454,7 +889,10 @@ def index_scripts(ws_id: str, script_paths: list[str],
                        "error": "workspace scan failed — no file tree"})
     for _rel in sorted(schema_evidence_paths):
         _process_schema_evidence(ws_id, _rel, m_ws,
-                                 schema_evidence_by_script, errors)
+                                 schema_evidence_by_script, errors,
+                                 cache_dir=cache_dir,
+                                 prev_scripts=prev_scripts,
+                                 manifest_scripts=manifest_scripts)
 
     for i, rel_path in enumerate(script_paths):
         sp = get_script_path(ws_id, rel_path)
@@ -472,62 +910,135 @@ def index_scripts(ws_id: str, script_paths: list[str],
 
         try:
             sql_text = sp.read_text(encoding="utf-8", errors="replace")
-            # C-13(a): reuse the scan_folder parse (one parse per script);
-            # fall back to parsing here only when the scan parse is missing
-            # (unparsable files export none — classify re-tries and yields
-            # the same conservative "script").
-            parsed = parsed_cache.get(rel_path)
-            if parsed is None:
-                try:
-                    parsed = sqlglot.parse(sql_text, read="mysql")
-                except Exception:
-                    parsed = None
-            if classify_sql_text(sql_text, parsed=parsed) == "schema":
-                # A1: DDL-only content in a .sql file (not in the discovered
-                # set, e.g. the tree was stale) → evidence pass, never a
-                # pipeline script.
-                _process_schema_evidence(ws_id, rel_path, m_ws,
-                                         schema_evidence_by_script, errors)
+            # P1: the script's identity. The key is content-derived, so an
+            # unchanged script (same EXTRACTOR_VERSION + same text) hashes to
+            # the same key — the ONLY reuse signal. mtime is never consulted.
+            cache_key = _script_cache_key(rel_path, sql_text)
+            sql_md5 = _sql_md5(sql_text)
+            cache_path = cache_dir / f"analysis_{cache_key}.json"
+
+            # ── P1: evidence replay (incremental re-index) ──
+            # A previous index recorded this exact content (same key) and its
+            # pristine analysis survived intact → replay it instead of
+            # re-running the extraction pipeline. The replay is byte-exact:
+            # the same pristine `result` enters the same aggregation and the
+            # same S4b / star passes below; only the analysis cache is
+            # re-written (from pristine — the on-disk copy is the S4b-mutated
+            # serving copy of the previous run and must be reset, see
+            # `_restore_analysis_cache`).
+            _prev = prev_scripts.get(rel_path)
+            evidence = (_load_evidence(cache_dir, cache_key)
+                        if (incremental and isinstance(_prev, dict)
+                            and _prev.get("cache_key") == cache_key) else None)
+            if evidence is not None and evidence.get("file_class") == "schema":
+                # A1: an explicitly-named DDL-only file whose DDL is
+                # unchanged — replay its script_schemas (no analysis cache is
+                # written for schema evidence, same as the fresh path).
+                _merge_script_schemas(evidence["analysis"], rel_path, m_ws,
+                                      schema_evidence_by_script)
+                _record_manifest(manifest_scripts, rel_path, cache_key,
+                                 sql_md5, "schema", sp)
                 _set_progress(ws_id, i + 1, total, "analyzing")
                 continue
-            result = run_full_analysis(sql_text, rel_path, ws_id=ws_id)
+
+            if evidence is None:
+                # C-13(a): reuse the scan_folder parse (one parse per script);
+                # fall back to parsing here only when the scan parse is missing
+                # (unparsable files export none — classify re-tries and yields
+                # the same conservative "script").
+                parsed = parsed_cache.get(rel_path)
+                if parsed is None:
+                    try:
+                        parsed = sqlglot.parse(sql_text, read="mysql")
+                    except Exception:
+                        parsed = None
+                if classify_sql_text(sql_text, parsed=parsed) == "schema":
+                    # A1: DDL-only content in a .sql file (not in the discovered
+                    # set, e.g. the tree was stale) → evidence pass, never a
+                    # pipeline script.
+                    _process_schema_evidence(ws_id, rel_path, m_ws,
+                                             schema_evidence_by_script, errors,
+                                             cache_dir=cache_dir,
+                                             prev_scripts=prev_scripts,
+                                             manifest_scripts=manifest_scripts)
+                    _set_progress(ws_id, i + 1, total, "analyzing")
+                    continue
+                result = run_full_analysis(sql_text, rel_path, ws_id=ws_id)
+                n_extracted += 1
+                # C-5: the C-13(a) single parse is reused for star detection —
+                # never a new parse. None (unparsable) → nothing detected.
+                star_tables = _detect_star_tables(parsed)
+
+                # C-3 (review): the analysis cache key discriminates the
+                # extractor engine — md5 over (EXTRACTOR_VERSION, rel_path,
+                # sql_text). A stale cache written by an older engine can never
+                # match this key (the load-time extractor_version stamps in
+                # l2_builder/dataflow_service guard SERVING; the discriminator
+                # guards the key itself — exact-key consumers miss and rebuild
+                # lazily, same philosophy as the J12-8 cache-purge ruling:
+                # caches are a rebuild-time optimization). Glob consumers
+                # (l1_builder, filter_service) are key-agnostic, so the legacy
+                # versionless file for the same script is deleted below —
+                # otherwise it would coexist and could serve pre-this-run
+                # analysis under a sorted-name pick.
+                _legacy_path = cache_dir / ("analysis_"
+                                            + hashlib.md5(
+                                                (rel_path + sql_text).encode())
+                                            .hexdigest()[:12] + ".json")
+                if _legacy_path.exists():
+                    try:
+                        _legacy_path.unlink()  # best-effort — leftover rebuilds on demand
+                    except OSError:
+                        pass
+                _write_json_atomic(cache_path,
+                                   json.dumps(result, indent=2,
+                                              ensure_ascii=False))
+
+                # C-2: index-time GRAPH caches are no longer precomputed here —
+                # any graph written before the S4b pass is pre-S4b and stale, so
+                # the post-S4b invalidation (_invalidate_graph_caches) would
+                # delete it moments later (pure double-analysis per script). L2
+                # rebuilds on demand from the post-S4b analysis cache and its
+                # miss path writes the graph cache itself. Only the schema
+                # precompute survives — L2 cache hits use it without re-analysis.
+                # P1: the serialized form rides the evidence snapshot too, so a
+                # replayed script can restore a missing schemas_{key}.json
+                # byte-identically (a full index would have recomputed it).
+                schemas_json = None
+                try:
+                    from app.extractor.schema_inference import infer_table_schemas
+                    schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
+                    if not schemas_cache_path.exists():
+                        schemas_json = json.dumps(
+                            infer_table_schemas(result.get("variables", []),
+                                                result.get("dependencies", [])),
+                            default=str)
+                        _write_json_atomic(schemas_cache_path, schemas_json)
+                except Exception:
+                    schemas_json = None  # schema pre-computation is optional
+
+                # P1: the pristine pre-S4b copy this script can be replayed
+                # from on the next index.
+                _persist_evidence(cache_dir, rel_path, cache_key, sql_md5,
+                                  "script", star_tables, result,
+                                  schemas_json=schemas_json)
+                _record_manifest(manifest_scripts, rel_path, cache_key,
+                                 sql_md5, "script", sp)
+            else:
+                n_replayed += 1
+                result = evidence["analysis"]
+                star_tables = evidence.get("star_tables") or []
+                _restore_analysis_cache(cache_dir, cache_key, evidence)
+                _restore_schemas_cache(cache_dir, cache_key, evidence)
+                _record_manifest(manifest_scripts, rel_path, cache_key,
+                                 sql_md5, evidence.get("file_class")
+                                 or "script", sp)
+
             script_count += 1
             pipeline_paths.append(rel_path)
-            # C-5: the C-13(a) single parse is reused for star detection —
-            # never a new parse. None (unparsable) → script skipped there.
-            parse_by_script[rel_path] = parsed
-            _set_progress(ws_id, i + 1, total, "analyzing")
-
-            # Cache analysis result
-            cache_dir = get_workspace_dir(ws_id) / "cache"
-            import hashlib
-            # C-3 (review): the analysis cache key discriminates the
-            # extractor engine — md5 over (EXTRACTOR_VERSION, rel_path,
-            # sql_text). A stale cache written by an older engine can never
-            # match this key (the load-time extractor_version stamps in
-            # l2_builder/dataflow_service guard SERVING; the discriminator
-            # guards the key itself — exact-key consumers miss and rebuild
-            # lazily, same philosophy as the J12-8 cache-purge ruling:
-            # caches are a rebuild-time optimization). Glob consumers
-            # (l1_builder, filter_service) are key-agnostic, so the legacy
-            # versionless file for the same script is deleted below —
-            # otherwise it would coexist and could serve pre-this-run
-            # analysis under a sorted-name pick.
-            cache_key = hashlib.md5(
-                (EXTRACTOR_VERSION + "|" + rel_path + sql_text)
-                .encode()).hexdigest()[:12]
-            cache_path = cache_dir / f"analysis_{cache_key}.json"
-            _legacy_path = cache_dir / ("analysis_"
-                                        + hashlib.md5((rel_path + sql_text)
-                                                      .encode())
-                                        .hexdigest()[:12] + ".json")
-            if _legacy_path.exists():
-                try:
-                    _legacy_path.unlink()  # best-effort — leftover rebuilds on demand
-                except OSError:
-                    pass
-            cache_path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
+            star_by_script[rel_path] = star_tables
             cache_by_script[rel_path] = str(cache_path)  # S4b persists attributions
+            _set_progress(ws_id, i + 1, total, "analyzing")
 
             # ── R20: aggregate per-script resolution stats ──
             # The extractor emits `resolution_stats` in new analyses; old
@@ -544,8 +1055,21 @@ def index_scripts(ws_id: str, script_paths: list[str],
             # never an average of per-script percentages (double-counting
             # names across scripts would skew both numerator and denominator).
             rs = result.get("resolution_stats")
-            stats_seen = isinstance(rs, dict)
-            if stats_seen:
+            # X2 (review): ANY script carrying resolution_stats arms the
+            # extractor-driven report — this was `stats_seen = isinstance(...)`,
+            # so the LAST script's analysis decided the gate for the WHOLE
+            # report. A corpus whose final script is an old/shapeless analysis
+            # (an evidence snapshot predating resolution_stats, or a legacy
+            # cache) silently flipped the report to the tables==[] fallback:
+            # every container-resolved field (⟐/CTE) became a phantom orphan,
+            # while total_columns stayed a partial sum — coverage_pct wrong in
+            # both directions, and order-dependent (the same workspace indexed
+            # in a different script order reported differently).
+            stats_seen = stats_seen or isinstance(rs, dict)
+            # …and the per-script ACCUMULATION still reads only scripts that
+            # actually have the key (this script's `rs` may be None while an
+            # earlier one armed the gate).
+            if isinstance(rs, dict):
                 total_columns += rs.get("total_columns", 0) or 0
                 rb = rs.get("resolved_by")
                 if isinstance(rb, dict):
@@ -585,24 +1109,6 @@ def index_scripts(ws_id: str, script_paths: list[str],
                             or ("schema_candidates" in rs
                                 and "script_schemas" in rs
                                 and "r6_collision" in rs))
-
-            # C-2: index-time GRAPH caches are no longer precomputed here —
-            # any graph written before the S4b pass is pre-S4b and stale, so
-            # the post-S4b invalidation (_invalidate_graph_caches) would
-            # delete it moments later (pure double-analysis per script). L2
-            # rebuilds on demand from the post-S4b analysis cache and its
-            # miss path writes the graph cache itself. Only the schema
-            # precompute survives — L2 cache hits use it without re-analysis.
-            try:
-                from app.extractor.schema_inference import infer_table_schemas
-                schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
-                if not schemas_cache_path.exists():
-                    schemas_cache_path.write_text(json.dumps(
-                        infer_table_schemas(result.get("variables", []),
-                                            result.get("dependencies", [])),
-                        default=str))
-            except Exception:
-                pass  # schema pre-computation is optional
 
             # Build indexes from variables
             variables = result.get("variables", [])
@@ -648,11 +1154,45 @@ def index_scripts(ws_id: str, script_paths: list[str],
                     # Skip ⟐-prefixed entries (output containers + S5/S6 markers
                     # are script-scoped) and CTE names (script-scoped; must not
                     # become workspace-wide tables or S4 candidates).
+                    #
+                    # R46b (AD3, 2026-08-31): a top-level statement OUTPUT whose
+                    # NAME renames the value it projects (`b.lending_ref AS
+                    # xdjjh`) is the TARGET column produced here, not a column
+                    # of the table the value was read from — the alias NAME is
+                    # attributed to the DML WRITE TARGET only
+                    # (dml_target_by_src_id, Fix A's map), NEVER to the value's
+                    # read source. Attributing it to `source_tables` indexed a
+                    # column the source table does not own (7 phantom pairs on
+                    # the S1 corpus:
+                    # bdm_acc_loan_info.{nbjgh,xdhth,xdjjh,dkje} and
+                    # bdm_acc_entrusted_payment.{bz,RESERVED_6,COM_RESERVED_1});
+                    # search then offered those pairs and the model hosts no
+                    # such column there — zero-seed closures / mis-parented
+                    # chips (#37). This is the SAME convention the Fix A branch
+                    # below (#308) already applies to non-column expression
+                    # aliases: write target only, and a bare SELECT's renamed
+                    # output alias stays un-attributed (no write target → no
+                    # table). Nothing is lost on the read side: a renamed
+                    # projection's value column is a SEPARATE non-output var
+                    # (`a.ccy_code`), and it keeps indexing ccy_code under the
+                    # read source. A projection that does NOT rename its value
+                    # (`SELECT c.c_first_name`, `a.TAG_COUNTRY AS TAG_COUNTRY`)
+                    # is not a phantom — the name is the read column's own name
+                    # and keeps the S1-S3 read attribution
+                    # (_is_renamed_output). Subquery-interior / JOIN / EXISTS
+                    # scopes are excluded by _is_top_statement_context, exactly
+                    # as in Fix A — their aliases are not workspace-wide
+                    # fields.
                     if not table_name:
-                        for _st in v.get("source_tables", []):
-                            if _st and not _st.startswith("⟐") and _st not in cte_names:
-                                table_name = _st
-                                break
+                        if (v.get("is_output") and _is_top_statement_context(context)
+                                and _is_renamed_output(v, field_name)):
+                            table_name = dml_target_by_src_id.get(v.get("id", ""), "")
+                        else:
+                            for _st in v.get("source_tables", []):
+                                if (_st and not _st.startswith("⟐")
+                                        and _st not in cte_names):
+                                    table_name = _st
+                                    break
                     field_index.setdefault(field_name, {"tables": set(), "scripts": set()})
                     field_index[field_name]["scripts"].add(rel_path)
                     # Bug 49: also register the physical table (alias → canonical),
@@ -916,9 +1456,12 @@ def index_scripts(ws_id: str, script_paths: list[str],
     # The index-time graph precompute ran DURING the per-script loop —
     # BEFORE the S4b attribution/revocation above mutated the analysis
     # caches — so every graph cache can serve pre-attribution data on L2
-    # cache hits. Delete them all (current prefix + older-prefix
-    # leftovers); L2 rebuilds on demand from the S4b-mutated analysis.
-    _invalidate_graph_caches(get_workspace_dir(ws_id) / "cache")
+    # cache hits. Delete them all (current prefix + older-prefix leftovers);
+    # L2 rebuilds on demand from the S4b-mutated analysis.
+    # P1 (item 3-i): the deletion itself moved to the END of the index (after
+    # the last artifact write) — a graph cache a concurrent L2 build wrote
+    # from the PREVIOUS run's analysis caches mid-index must not survive into
+    # the new state.
 
     # ── C-5: star expansion (POST-LOOP pass) ──
     # `SELECT * FROM t` / `INSERT INTO x SELECT * FROM t` produce NO
@@ -932,7 +1475,16 @@ def index_scripts(ws_id: str, script_paths: list[str],
     # columns. No schema evidence → skip silently (BE2: no padding — a
     # star without visible columns is honest "no data", never a guess).
     # Star DETECTION reuses the C-13(a) single per-script parse — no new
-    # parse.
+    # parse. P1: a replayed script contributes the detection its own
+    # extraction persisted (`star_tables` in the evidence) — m_ws is
+    # workspace-wide, so the EXPANSION always re-runs against the current
+    # evidence pool; only the parse walk is cached.
+    # P1 (determinism): `_evidence_columns` returns the m_ws SET, whose
+    # iteration order is hash-seed dependent — the field_index/table_index
+    # KEY ORDER (and pair_index's, which derives from it) differed between
+    # processes for the same input. Iterating the sorted columns makes the
+    # artifacts byte-stable (the per-entry lists were already sorted before
+    # serialization, so no content changes).
     star_expanded_fields = 0
     _star_seen = set()
     # C-5↔C-3 (review): fields S4b revoked (ambiguous — claimed by ≥2
@@ -946,33 +1498,30 @@ def index_scripts(ws_id: str, script_paths: list[str],
     # mixed-case field would otherwise resurrect via star. Lowered set
     # computed once, outside the loop.
     _star_excluded_lower = {x.lower() for x in _star_excluded}
-    for _rel, _stmts in parse_by_script.items():
-        if not _stmts:
-            continue  # unparsable script — nothing to detect
-        for _sel in _iter_select_nodes(_stmts):
-            for _t in _star_from_tables(_sel):
-                _cols = _evidence_columns(m_ws, _t)
-                if not _cols:
-                    continue  # no schema evidence → skip silently
-                for _c in _cols:
-                    if _c.lower() in _star_excluded_lower:
-                        continue  # revoked/unresolved — never resurrect
-                    if (_rel, _t, _c) in _star_seen:
-                        continue
-                    _star_seen.add((_rel, _t, _c))
-                    field_index.setdefault(_c,
-                                           {"tables": set(), "scripts": set()})
-                    field_index[_c]["tables"].add(_t)
-                    field_index[_c]["scripts"].add(_rel)
-                    table_index.setdefault(_t,
-                                           {"fields": set(), "scripts": set()})
-                    table_index[_t]["fields"].add(_c)
-                    # F2 (audit #383): star expansion is a field-attribution
-                    # site too — the star over _t in this script implies the
-                    # script on the table entry (fields-without-scripts
-                    # zombies break the create_search intersection).
-                    table_index[_t]["scripts"].add(_rel)
-                    star_expanded_fields += 1
+    for _rel, _tables in star_by_script.items():
+        for _t in _tables:
+            _cols = _evidence_columns(m_ws, _t)
+            if not _cols:
+                continue  # no schema evidence → skip silently
+            for _c in sorted(_cols):
+                if _c.lower() in _star_excluded_lower:
+                    continue  # revoked/unresolved — never resurrect
+                if (_rel, _t, _c) in _star_seen:
+                    continue
+                _star_seen.add((_rel, _t, _c))
+                field_index.setdefault(_c,
+                                       {"tables": set(), "scripts": set()})
+                field_index[_c]["tables"].add(_t)
+                field_index[_c]["scripts"].add(_rel)
+                table_index.setdefault(_t,
+                                       {"fields": set(), "scripts": set()})
+                table_index[_t]["fields"].add(_c)
+                # F2 (audit #383): star expansion is a field-attribution
+                # site too — the star over _t in this script implies the
+                # script on the table entry (fields-without-scripts
+                # zombies break the create_search intersection).
+                table_index[_t]["scripts"].add(_rel)
+                star_expanded_fields += 1
 
     # P1: Build pair_index[(table,field)] → {scripts} for fast seed-script lookup.
     # Used by Algorithm 2 step 2a to find seed scripts without scanning all data.
@@ -980,12 +1529,17 @@ def index_scripts(ws_id: str, script_paths: list[str],
     cache_dir = get_workspace_dir(ws_id) / "cache"
     pair_index = {}
     for field_name, fdata in field_index.items():
-        for table_name in fdata.get("tables", []):
+        # P1 (determinism): `tables` is still a SET here (the sorted-list
+        # conversion happens below) — its iteration order is hash-seed
+        # dependent, so pair_index.json's KEY order differed between
+        # processes for identical input. Sorting changes nothing else (the
+        # values are sorted lists already).
+        for table_name in sorted(fdata.get("tables", [])):
             key = f"{table_name}.{field_name}"
             pair_index.setdefault(key, set()).update(fdata.get("scripts", []))
 
     # Cache pair_index
-    (cache_dir / "pair_index.json").write_text(json.dumps(
+    _write_json_atomic(cache_dir / "pair_index.json", json.dumps(
         {k: sorted(v) for k, v in pair_index.items()}, indent=2))
 
     # Convert sets to sorted lists for JSON
@@ -998,8 +1552,10 @@ def index_scripts(ws_id: str, script_paths: list[str],
 
     # Cache indexes
     cache_dir = get_workspace_dir(ws_id) / "cache"
-    (cache_dir / "table_index.json").write_text(json.dumps(table_index, indent=2))
-    (cache_dir / "field_index.json").write_text(json.dumps(field_index, indent=2))
+    _write_json_atomic(cache_dir / "table_index.json",
+                       json.dumps(table_index, indent=2))
+    _write_json_atomic(cache_dir / "field_index.json",
+                       json.dumps(field_index, indent=2))
 
     # #380 (AD2-A, participant reads): persist the tree THIS index covered —
     # the same scan_folder shape the create path returns inline (name/path/
@@ -1010,8 +1566,8 @@ def index_scripts(ws_id: str, script_paths: list[str],
     # serves this file to any session. Skipped only when the scan itself
     # failed (already surfaced in `errors`) — no tree, nothing to serve.
     if covered_tree is not None:
-        (cache_dir / "file_tree.json").write_text(
-            json.dumps(covered_tree, indent=2))
+        _write_json_atomic(cache_dir / "file_tree.json",
+                           json.dumps(covered_tree, indent=2))
 
     # ── R20: orphan resolution coverage report (supersedes Bug 54) ──
     # Post-S4 orphans = fields with no table attribution. The report is the
@@ -1034,7 +1590,8 @@ def index_scripts(ws_id: str, script_paths: list[str],
         orphan_fields = {fname: sorted(fdata.get("scripts", []))
                          for fname, fdata in field_index.items()
                          if not fdata.get("tables")}
-    (cache_dir / "orphan_fields.json").write_text(json.dumps(orphan_fields, indent=2))
+    _write_json_atomic(cache_dir / "orphan_fields.json",
+                       json.dumps(orphan_fields, indent=2))
 
     # E1 (reviewer): fields resolved to script-scoped containers (⟐ output,
     # CTE) are counted resolved by the extractor but have NO usable table in
@@ -1127,18 +1684,82 @@ def index_scripts(ws_id: str, script_paths: list[str],
             "columns": sum(len(c) for c in m_ws.values()),
         },
     }
-    (cache_dir / "index_report.json").write_text(
-        json.dumps(index_report, indent=2))
+    _write_json_atomic(cache_dir / "index_report.json",
+                       json.dumps(index_report, indent=2))
 
-    # Update workspace meta
-    ws_dir = get_workspace_dir(ws_id)
-    meta = json.loads((ws_dir / "meta.json").read_text())
-    meta["indexed"] = True
-    # A1: only pipeline scripts — schema files are evidence-only, never
-    # part of the workspace's script list.
-    meta["indexed_scripts"] = pipeline_paths
-    meta["indexed_at"] = __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
-    (ws_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+    # ── P1 (Job 3): the per-file identity manifest ──
+    # Written on EVERY index (full or incremental) so the next open can
+    # decide, per script, whether its evidence is reusable, and so
+    # GET /workspace/{id}/index and /resume can serve the change hint
+    # (P1 Job 2 → superseded by the content-hash diff the same manifest
+    # drives). Content hash + cache key are the reuse truth; size/mtime_ns
+    # ride along as context only.
+    from datetime import datetime, timezone as _tz
+    manifest = {
+        "indexed_at": datetime.now(_tz.utc).isoformat(),
+        "extractor_version": EXTRACTOR_VERSION,
+        "index_kind": "incremental" if n_replayed else "full",
+        "reused_scripts": n_replayed,
+        "extracted_scripts": n_extracted,
+        "schema_files": sum(1 for v in manifest_scripts.values()
+                            if v.get("file_class") == "schema"),
+        "scripts": manifest_scripts,
+    }
+    _write_json_atomic(cache_dir / MANIFEST_NAME,
+                       json.dumps(manifest, indent=2))
+    # Evidence for scripts that no longer exist (deleted, or superseded by
+    # an edit / an extractor bump) is dead weight — drop it. Analysis caches
+    # are intentionally NOT pruned here (their retention is l1_builder's).
+    _prune_stale_evidence(cache_dir,
+                          {v["cache_key"] for v in manifest_scripts.values()})
+
+    # ── P1 (item 3-ii): the filter scope is derived from the PREVIOUS index ──
+    # filtered_index.json is built by filter_service.apply_filter_config from
+    # the table/field index at upload time (the CSVs are NOT persisted), and
+    # every index consumer PREFERS it over the full index — so after any
+    # re-index the search kept running inside the OLD scope: a script added
+    # since was invisible, a deleted one still matched. Rebuilding would need
+    # the CSVs, which do not exist on disk, so the only honest refresh is to
+    # drop the derived scope and say so: the creator re-uploads the CSVs (the
+    # workspace's index content changed under them anyway).
+    filtered_cleared = False
+    _fp = cache_dir / "filtered_index.json"
+    if _fp.exists():
+        try:
+            _fp.unlink()
+            filtered_cleared = True
+        except OSError:
+            pass  # a stale scope survives; surfaced as an error below
+    if filtered_cleared:
+        _push(ws_id, "profile",
+              "│ Filter scope cleared: the index was re-indexed, so the "
+              "previous table/field filter no longer matches it — re-upload "
+              "the CSVs to re-apply.")
+
+    # ── C-2(a): stale graph caches vs the S4b pass — LAST ──
+    # Deleted after every artifact write so a graph cache a concurrent L2
+    # build wrote from the PREVIOUS run's analysis caches mid-index cannot
+    # survive into the new state (pre-S4b / pre-re-index data on an L2 cache
+    # hit).
+    _invalidate_graph_caches(cache_dir)
+
+    # Update workspace meta — CAS (P1 item 4): a read-modify-write here used
+    # to race a concurrent layout save (which bumps state_version) and drop
+    # its bump. Merge OUR keys onto whatever is stored now, and retry on a
+    # stale version instead of overwriting it.
+    meta = read_meta(ws_id)
+    for _attempt in range(5):
+        if meta is None:
+            break  # no meta.json — nothing to update (create path owns it)
+        expected = int(meta.get("state_version", 0))
+        meta["indexed"] = True
+        # A1: only pipeline scripts — schema files are evidence-only, never
+        # part of the workspace's script list.
+        meta["indexed_scripts"] = pipeline_paths
+        meta["indexed_at"] = manifest["indexed_at"]
+        if write_meta_cas(ws_id, meta, expected):
+            break
+        meta = read_meta(ws_id)  # someone else wrote — merge onto theirs
 
     _set_progress(ws_id, total, total, "done")
     return {
@@ -1150,6 +1771,13 @@ def index_scripts(ws_id: str, script_paths: list[str],
         # schema-evidence tables). 0 when no unqualified star has schema
         # evidence — no padding.
         "star_expanded_fields": star_expanded_fields,
+        # P1 (item 3-ii): a filter scope derived from the PREVIOUS index was
+        # dropped — the index it filtered no longer describes the workspace.
+        "filtered_index_cleared": filtered_cleared,
+        # P1: how much of this index was replayed from per-script evidence
+        # (0 on a first index / after an extractor bump).
+        "reused_scripts": n_replayed,
+        "extracted_scripts": n_extracted,
         # #380 (AD2-A): the persisted index_report — identical values, so
         # the HTTP return and cache/index_report.json can never diverge.
         **index_report,
@@ -1195,7 +1823,9 @@ def _merge_script_schemas(result: dict, rel_path: str, m_ws: dict,
 
 def _process_schema_evidence(ws_id: str, rel_path: str, m_ws: dict,
                              schema_evidence_by_script: dict,
-                             errors: list) -> None:
+                             errors: list, cache_dir: Path | None = None,
+                             prev_scripts: dict | None = None,
+                             manifest_scripts: dict | None = None) -> None:
     """A1: schema-file evidence pass — run a DDL-only file through the
     analysis pipeline and merge its script_schemas into the S4b maps.
 
@@ -1204,6 +1834,12 @@ def _process_schema_evidence(ws_id: str, rel_path: str, m_ws: dict,
     analysis/graph caches. Analysis failures are surfaced in `errors` —
     lost DDL evidence silently changes S4b resolution, so it must be
     visible.
+
+    P1: when `cache_dir` + `manifest_scripts` are given the DDL analysis is
+    persisted as per-script evidence too (DDL is re-analysed on every index
+    otherwise — the same cost class as a pipeline script), and an unchanged
+    DDL file is replayed from it. No analysis_*.json is written for schema
+    evidence, before or after this change.
     """
     sp = get_script_path(ws_id, rel_path)
     if not sp or not sp.exists():
@@ -1211,7 +1847,26 @@ def _process_schema_evidence(ws_id: str, rel_path: str, m_ws: dict,
     from app.extractor.adapter import run_full_analysis
     try:
         sql_text = sp.read_text(encoding="utf-8", errors="replace")
+        cache_key = _script_cache_key(rel_path, sql_text)
+        sql_md5 = _sql_md5(sql_text)
+        _prev = (prev_scripts or {}).get(rel_path)
+        evidence = (_load_evidence(cache_dir, cache_key)
+                    if (cache_dir is not None
+                        and manifest_scripts is not None
+                        and isinstance(_prev, dict)
+                        and _prev.get("cache_key") == cache_key) else None)
+        if evidence is not None:
+            _merge_script_schemas(evidence["analysis"], rel_path, m_ws,
+                                  schema_evidence_by_script)
+            _record_manifest(manifest_scripts, rel_path, cache_key, sql_md5,
+                             evidence.get("file_class") or "schema", sp)
+            return
         result = run_full_analysis(sql_text, rel_path, ws_id=ws_id)
+        if cache_dir is not None and manifest_scripts is not None:
+            _persist_evidence(cache_dir, rel_path, cache_key, sql_md5,
+                              "schema", [], result)
+            _record_manifest(manifest_scripts, rel_path, cache_key, sql_md5,
+                             "schema", sp)
     except Exception as e:
         errors.append({"script": rel_path, "error": str(e)})
         return
@@ -1347,8 +2002,10 @@ def _apply_s4b_cache_update(cache_path, field: str, owner: str,
                                     if isinstance(t, str))) == vis_key)]
     if changed:
         try:
-            Path(cache_path).write_text(
-                json.dumps(cdata, indent=2, ensure_ascii=False))
+            # P1 (item 3-i): atomic — a reader (l1_builder glob, L2 cache
+            # load) must never see a half-written analysis cache.
+            _write_json_atomic(Path(cache_path),
+                               json.dumps(cdata, indent=2, ensure_ascii=False))
         except Exception:
             pass  # cache persistence is best-effort
     return n_attributed  # M15: vars actually modified (0 = no event)
@@ -1416,8 +2073,9 @@ def _revoke_s4b_cache_update(cache_path, field: str,
                 if not (isinstance(c, dict) and c.get("field") == field)]
     if n_revoked:
         try:
-            Path(cache_path).write_text(
-                json.dumps(cdata, indent=2, ensure_ascii=False))
+            # P1 (item 3-i): atomic — see _apply_s4b_cache_update.
+            _write_json_atomic(Path(cache_path),
+                               json.dumps(cdata, indent=2, ensure_ascii=False))
         except Exception:
             pass  # cache persistence is best-effort
     return n_revoked  # vars actually revoked (0 = no-op)
@@ -1719,8 +2377,60 @@ def fields_for_table(index: dict, table: str) -> list[str]:
     return index.get(canonical, {}).get("fields", [])
 
 
+# ── P1 (item: catching-up window) ───────────────────────────────────────
+# While an index run is in flight the served index is BY CONSTRUCTION the
+# previous one: a search whose script set comes from that index returns a
+# FALSE no_matches for content that only exists in the not-yet-indexed
+# scripts. The creator's open marks the run (only when it actually fires
+# POST /index — a zero-diff open never does), and a search during the window
+# gets an explicit, retry-able 409 instead of a lying no_matches.
+# A registry, not the progress phase: `done`/`analyzing` is a UI progress
+# value that a crashed run would leave non-terminal, which would block
+# searches forever; a begin/end pair in a `finally` cannot leak.
+_INDEX_RUNS: dict = {}  # ws_id -> in-flight run COUNT
+_INDEX_RUNS_LOCK = threading.Lock()
+
+
+def begin_index_run(ws_id: str) -> None:
+    """Mark ONE index run in flight for `ws_id` (searches now 409)."""
+    with _INDEX_RUNS_LOCK:
+        _INDEX_RUNS[ws_id] = _INDEX_RUNS.get(ws_id, 0) + 1
+
+
+def end_index_run(ws_id: str) -> None:
+    """Clear THIS run's mark — once per `begin_index_run`, from a `finally`."""
+    with _INDEX_RUNS_LOCK:
+        n = _INDEX_RUNS.get(ws_id, 0) - 1
+        if n > 0:
+            _INDEX_RUNS[ws_id] = n
+        else:
+            _INDEX_RUNS.pop(ws_id, None)  # clamped at 0 — never sticky
+
+
+def is_index_catching_up(ws_id: str) -> bool:
+    """True while ANY index run is in flight — the index on disk is the
+    PREVIOUS one, so index-derived answers (the search script set) are about
+    to change. False for a zero-diff open, which never re-indexes.
+
+    X2 (review): a COUNT, not a set. add/discard cleared the flag on the FIRST
+    finisher while a second concurrent run was still mid-flight — the search
+    409 gate lifted (and P2's poller handed search back) onto a half-written
+    index, the exact false-answer the gate exists to prevent. Two runs for one
+    workspace are reachable without any malice: the creator's fast-open
+    auto-triggers POST /index on a stale/never-indexed workspace, so two tabs
+    of the same creator (or a stale tab alongside a fresh one) both fire."""
+    with _INDEX_RUNS_LOCK:
+        return _INDEX_RUNS.get(ws_id, 0) > 0
+
+
 def get_index_status(ws_id: str) -> dict:
-    """Return current indexing status."""
+    """Return current indexing status.
+
+    P1 (Job 2): `freshness` carries the advisory staleness hint (None before
+    the first index — nothing has been recorded to compare against), so an
+    open path can decide whether a re-index is worth its cost without a
+    second round trip.
+    """
     ws_dir = get_workspace_dir(ws_id)
     meta_path = ws_dir / "meta.json"
     if not meta_path.exists():
@@ -1730,4 +2440,5 @@ def get_index_status(ws_id: str) -> dict:
         "indexed": meta.get("indexed", False),
         "script_count": len(meta.get("indexed_scripts", [])),
         "indexed_at": meta.get("indexed_at"),
+        "freshness": get_index_freshness(ws_id),
     }

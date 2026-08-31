@@ -44,19 +44,20 @@ async function loadBuildFieldStory() {
 // { id, source, target, edge_type, highlight_line }):
 //
 //   L41   INSERT INTO east5_stzfxxb ... p_dt
-//           p_dt ──REF──▶ ⟐ output@41          (seed edge, birth)
-//           p_dt ──TABLE_FLOW──▶ ⟐ output@41   (seed edge, birth)
+//           p_dt ──REF──▶ ⟐ output@41          (seed edge, birth: the value
+//           p_dt ──TABLE_FLOW──▶ ⟐ output@41   (  leg routes to p_dt's OWN
+//                                                 table, so 41 is its birth)
 //           ⟐ output@41 ──TABLE_FLOW(write)──▶ east5
-//   L189  east5 ──TABLE_FLOW(chain)──▶ ⟐ output@179
-//         p_dt ──REF──▶ east5                 (read back out of east5)
+//   L189  east5 ──TABLE_FLOW(chain)──▶ ⟐ output@179   (table path)
+//         p_dt ──REF──▶ east5                 (not p_dt's own line)
 //   L190  p_dt ──FILTER──▶ east5              (WHERE predicate)
-//   L179  ⟐ output@179 ──TABLE_FLOW(write)──▶ rrcdm
+//   L179  ⟐ output@179 ──TABLE_FLOW(write)──▶ rrcdm  (table path)
 //
-// Story: 5 steps — birth@41 (BOTH seed edges merged), written@41,
-// read@189, filtered@190, consumed@179. Note the lines are NOT globally
-// ascending: the consumed step reports the rrcdm write anchor (179) while
-// the reads feeding it sit at 189/190 — the order is the story order
-// [birth, written, read, filtered, consumed].
+// Story: 3 steps — birth@41 (BOTH seed edges merged), written@41,
+// filtered@190. The audit (2026-08-31) re-ruled the other three: L189 is
+// the compound's scan line (no p_dt on it) and the log INSERT writes
+// constants + COUNT(1) only — neither is true of p_dt, so those edges are
+// the table's path, not the field's, and are DROPPED rather than told.
 function east5Closure() {
   const nodes = [
     { data: { id: 'east5', type: 'source_table', label: 'east5_stzfxxb', line_start: 41 } },
@@ -69,7 +70,7 @@ function east5Closure() {
     { data: { id: 'e-ref-41', source: 'east5.p_dt', target: 'out41',
               edge_type: 'REF', flow_kind: 'read', highlight_line: 41 } },
     { data: { id: 'e-tf-41', source: 'east5.p_dt', target: 'out41',
-              edge_type: 'TABLE_FLOW', highlight_line: 41 } },
+              edge_type: 'TABLE_FLOW', flow_kind: 'write', highlight_line: 41 } },
     { data: { id: 'e-write-41', source: 'out41', target: 'east5',
               edge_type: 'TABLE_FLOW', flow_kind: 'write', highlight_line: 41 } },
     { data: { id: 'e-chain-189', source: 'east5', target: 'out179',
@@ -88,13 +89,18 @@ const CLOSURE_EDGE_IDS = [
   'e-ref-41', 'e-tf-41', 'e-write-41',
   'e-chain-189', 'e-write-179', 'e-ref-189', 'e-filter-190',
 ];
+// The edges the 2026-08-31 audit re-ruled out of the story: every one of
+// them is true of the TABLE, not of `p_dt`.
+const TABLE_PATH_EDGE_IDS = ['e-chain-189', 'e-write-179', 'e-ref-189'];
+const TOLD_EDGE_IDS = CLOSURE_EDGE_IDS.filter(id => !TABLE_PATH_EDGE_IDS.includes(id));
 const sorted = a => [...a].sort();
-// Set equality, never a size check: every closure edge must land in exactly
-// one step (partition) and no non-closure id may leak in.
+// Every told edge is a closure edge, no edge is told twice, and no
+// non-closure id leaks in. (Not a partition any more: the table-path edges
+// are deliberately untold — dropping them IS the Fix-M rule.)
 const edgeUnion = steps => steps.flatMap(s => s.edgeIds || []);
 
 storySuite('buildFieldStory — EAST5 p_dt canonical closure', () => {
-  it('builds exactly the five story steps in story order', async () => {
+  it('builds exactly the three story steps in story order', async () => {
     const buildFieldStory = await loadBuildFieldStory();
     const { nodes, edges } = east5Closure();
     const res = buildFieldStory({
@@ -107,13 +113,12 @@ storySuite('buildFieldStory — EAST5 p_dt canonical closure', () => {
     expect(res).toBeTruthy();
     expect(res.searched).toBeTruthy();
     expect(res.seedNodeId).toBe('east5.p_dt');
-    expect(res.steps).toHaveLength(5);
-    expect(res.steps.map(s => s.kind))
-      .toEqual(['birth', 'written', 'read', 'filtered', 'consumed']);
-    expect(res.steps.map(s => s.line)).toEqual([41, 41, 189, 190, 179]);
+    expect(res.steps).toHaveLength(3);
+    expect(res.steps.map(s => s.kind)).toEqual(['birth', 'written', 'filtered']);
+    expect(res.steps.map(s => s.line)).toEqual([41, 41, 190]);
   });
 
-  it('merges BOTH L41 seed edges into the single birth step', async () => {
+  it('merges BOTH L41 seed edges into the single birth step (no read beside it)', async () => {
     const buildFieldStory = await loadBuildFieldStory();
     const { nodes, edges } = east5Closure();
     const res = buildFieldStory({
@@ -122,14 +127,11 @@ storySuite('buildFieldStory — EAST5 p_dt canonical closure', () => {
     });
 
     expect(sorted(res.steps[0].edgeIds)).toEqual(sorted(['e-ref-41', 'e-tf-41']));
-    // The remaining steps own exactly their own line's edges.
     expect(sorted(res.steps[1].edgeIds)).toEqual(['e-write-41']);
-    expect(sorted(res.steps[2].edgeIds)).toEqual(sorted(['e-chain-189', 'e-ref-189']));
-    expect(sorted(res.steps[3].edgeIds)).toEqual(['e-filter-190']);
-    expect(sorted(res.steps[4].edgeIds)).toEqual(['e-write-179']);
+    expect(sorted(res.steps[2].edgeIds)).toEqual(['e-filter-190']);
   });
 
-  it('partitions the closure edges exactly — nothing dropped, nothing invented', async () => {
+  it('tells exactly the field-level edges and DROPS the table-path ones (Fix M)', async () => {
     const buildFieldStory = await loadBuildFieldStory();
     const { nodes, edges } = east5Closure();
     const res = buildFieldStory({
@@ -138,8 +140,27 @@ storySuite('buildFieldStory — EAST5 p_dt canonical closure', () => {
     });
 
     const union = edgeUnion(res.steps);
-    expect(union).toHaveLength(CLOSURE_EDGE_IDS.length);        // no duplicates
-    expect(sorted([...new Set(union)])).toEqual(sorted(CLOSURE_EDGE_IDS)); // set equality
+    expect(union).toHaveLength(TOLD_EDGE_IDS.length);                     // no duplicates
+    expect(sorted([...new Set(union)])).toEqual(sorted(TOLD_EDGE_IDS));   // set equality
+    for (const id of TABLE_PATH_EDGE_IDS) expect(union).not.toContain(id);
+  });
+
+  it('drops the three table-path edges for the audited reason', async () => {
+    const buildFieldStory = await loadBuildFieldStory();
+    const { nodes, edges } = east5Closure();
+    const res = buildFieldStory({
+      graph: { nodes, edges }, fullGraph: { nodes, edges },
+      table: 'east5_stzfxxb', field: 'p_dt',
+    });
+
+    // e-chain-189 / e-write-179: neither endpoint is the field's chip — the
+    // compound's own path to the log write. e-ref-189: the chip IS an
+    // endpoint but at 189, a line that is not the chip's own (41) — the
+    // compound's scan re-parented onto the field. None of the three may
+    // come back as a read/consumed step.
+    expect(res.steps.filter(s => s.line === 189 || s.line === 179)).toEqual([]);
+    expect(res.steps.map(s => s.kind)).not.toContain('consumed');
+    expect(res.steps.map(s => s.kind)).not.toContain('read');
   });
 
   it('steps come from the CLOSURE graph only — fullGraph noise is ignored', async () => {
@@ -155,7 +176,7 @@ storySuite('buildFieldStory — EAST5 p_dt canonical closure', () => {
       table: 'east5_stzfxxb', field: 'p_dt',
     });
 
-    expect(res.steps).toHaveLength(5);
+    expect(res.steps).toHaveLength(3);
     expect(edgeUnion(res.steps)).not.toContain('noise-join');
   });
 
@@ -178,7 +199,7 @@ storySuite('buildFieldStory — EAST5 p_dt canonical closure', () => {
       expect(Array.isArray(st.nodeIds)).toBe(true);
       expect(typeof st.detail).toBe('string');
     });
-    expect(new Set(res.steps.map(s => s.id)).size).toBe(5); // ids unique
+    expect(new Set(res.steps.map(s => s.id)).size).toBe(3); // ids unique
   });
 });
 
@@ -194,10 +215,9 @@ storySuite('buildFieldStory — seed matching', () => {
     });
 
     expect(res.seedNodeId).toBe('east5.p_dt');
-    expect(res.steps).toHaveLength(5);
-    expect(res.steps.map(s => s.kind))
-      .toEqual(['birth', 'written', 'read', 'filtered', 'consumed']);
-    expect(res.steps.map(s => s.line)).toEqual([41, 41, 189, 190, 179]);
+    expect(res.steps).toHaveLength(3);
+    expect(res.steps.map(s => s.kind)).toEqual(['birth', 'written', 'filtered']);
+    expect(res.steps.map(s => s.line)).toEqual([41, 41, 190]);
   });
 
   it('no seed → empty steps, no throw (field absent, or parented elsewhere)', async () => {
@@ -241,24 +261,49 @@ storySuite('buildFieldStory — robustness (never throws)', () => {
       .toEqual([]);
   });
 
-  it('classifies JOIN/TRANSFORM legs as the Joined stage, ordered between read and filtered (audit Q2)', async () => {
+  it('classifies a chip-endpoint JOIN/TRANSFORM leg as Joined, ordered between read and filtered (audit Q2)', async () => {
     const buildFieldStory = await loadBuildFieldStory();
     const { nodes, edges } = east5Closure();
+    // The field's own chip feeds / is produced by the expression: the chip
+    // is an ENDPOINT of both edges, at a line neither the compound (41) nor
+    // the chip (41) owns.
     const graph = {
-      nodes,
+      nodes: [...nodes,
+        { data: { id: 'a', type: 'alias_table', label: 'a@141', table_name: 'a', line_start: 141 } }],
       edges: [...edges,
-        { data: { id: 'e-join-144', source: 'east5', target: 'out41',
+        { data: { id: 'e-join-144', source: 'east5.p_dt', target: 'a',
                   edge_type: 'JOIN', flow_kind: 'field flow', highlight_line: 144 } },
-        { data: { id: 'e-tr-150', source: 'east5', target: 'out41',
+        { data: { id: 'e-tr-150', source: 'a', target: 'east5.p_dt',
                   edge_type: 'TRANSFORM', flow_kind: 'field flow', highlight_line: 150 } }],
     };
     const r = buildFieldStory({ graph, table: 'east5_stzfxxb', field: 'p_dt' });
-    // story order: birth, written, read, JOINED (×2, per (kind,line)),
-    // filtered, consumed
+    // story order: birth, written, JOINED (×2, per (kind,line)), filtered
     expect(r.steps.map(x => x.kind)).toEqual(
-      ['birth', 'written', 'read', 'joined', 'joined', 'filtered', 'consumed']);
+      ['birth', 'written', 'joined', 'joined', 'filtered']);
     const joined = r.steps.filter(x => x.kind === 'joined');
     expect(sorted(joined.flatMap(x => x.edgeIds))).toEqual(['e-join-144', 'e-tr-150']);
+    expect(joined.map(x => x.title)).toEqual(['Joined/Transformed', 'Joined/Transformed']);
+  });
+
+  it('an expression that only touches the searched TABLE is another field\'s story (Fix M)', async () => {
+    const buildFieldStory = await loadBuildFieldStory();
+    const { nodes, edges } = east5Closure();
+    // The audit's `CASE WHEN a.charge_department … ` shape: the compute edge
+    // lands on the compound, carries no field-level endpoint, and its line
+    // is another field's expression. Touching the searched table compound is
+    // NOT provenance.
+    const graph = {
+      nodes,
+      edges: [...edges,
+        { data: { id: 'e-comp-51', source: 'east5', target: 'out41',
+                  edge_type: 'COMPUTED', flow_kind: 'field flow', highlight_line: 51 } },
+        { data: { id: 'e-agg-52', source: 'out179', target: 'east5',
+                  edge_type: 'AGGREGATE', flow_kind: 'field flow', highlight_line: 52 } }],
+    };
+    const r = buildFieldStory({ graph, table: 'east5_stzfxxb', field: 'p_dt' });
+    expect(r.steps.map(x => x.kind)).toEqual(['birth', 'written', 'filtered']);
+    expect(edgeUnion(r.steps)).not.toContain('e-comp-51');
+    expect(edgeUnion(r.steps)).not.toContain('e-agg-52');
   });
 
   it('skips malformed closure edges (no highlight_line / no endpoints) without throwing', async () => {
@@ -282,10 +327,10 @@ storySuite('buildFieldStory — robustness (never throws)', () => {
     let res;
     expect(() => { res = buildFieldStory({ graph, fullGraph: graph, table: 'east5_stzfxxb', field: 'p_dt' }); })
       .not.toThrow();
-    expect(res.steps).toHaveLength(5);
-    expect(res.steps.map(s => s.line)).toEqual([41, 41, 189, 190, 179]);
+    expect(res.steps).toHaveLength(3);
+    expect(res.steps.map(s => s.line)).toEqual([41, 41, 190]);
     const union = edgeUnion(res.steps);
-    expect(sorted([...new Set(union)])).toEqual(sorted(CLOSURE_EDGE_IDS)); // only real edges
+    expect(sorted([...new Set(union)])).toEqual(sorted(TOLD_EDGE_IDS)); // only real edges
   });
 
   it('non-narrative edge types (SCHEMA / ALIAS / SUBSET) produce no steps', async () => {
@@ -342,10 +387,10 @@ storySuite('buildFieldStory — Reappears stage (R40.12)', () => {
     expect(rep.nodeIds).toEqual(['east5', 'east5.p_dt']);
     expect(rep.detail).toBe('east5_stzfxxb → p_dt @L250');
     // Nothing else moved: the step count grew by exactly one and the rest of
-    // the closure still partitions exactly.
-    expect(res.steps).toHaveLength(6);
+    // the closure still tells exactly the field-level edges.
+    expect(res.steps).toHaveLength(4);
     expect(sorted(edgeUnion(res.steps)))
-      .toEqual(sorted([...CLOSURE_EDGE_IDS, 'e-schema-250']));
+      .toEqual(sorted([...TOLD_EDGE_IDS, 'e-schema-250']));
   });
 
   it("the chip's own line never becomes a Reappears step", async () => {
@@ -357,7 +402,7 @@ storySuite('buildFieldStory — Reappears stage (R40.12)', () => {
     const res = buildFieldStory({ graph, table: 'east5_stzfxxb', field: 'p_dt' });
 
     expect(res.steps.map(s => s.kind)).not.toContain('reappears');
-    expect(res.steps).toHaveLength(5);
+    expect(res.steps).toHaveLength(3);
     expect(edgeUnion(res.steps)).not.toContain('e-schema-41');
   });
 
@@ -379,7 +424,7 @@ storySuite('buildFieldStory — Reappears stage (R40.12)', () => {
     const res = buildFieldStory({ graph, table: 'east5_stzfxxb', field: 'p_dt' });
 
     expect(res.steps.filter(s => s.kind === 'reappears')).toEqual([]);
-    expect(res.steps).toHaveLength(5);
+    expect(res.steps).toHaveLength(3);
     const union = edgeUnion(res.steps);
     expect(union).not.toContain('e-schema-from-vt');
     expect(union).not.toContain('e-schema-from-alias');
@@ -389,19 +434,20 @@ storySuite('buildFieldStory — Reappears stage (R40.12)', () => {
     const buildFieldStory = await loadBuildFieldStory();
     const { nodes, edges } = east5Closure();
     const graph = {
-      nodes,
+      nodes: [...nodes,
+        { data: { id: 'a', type: 'alias_table', label: 'a@141', table_name: 'a', line_start: 141 } }],
       edges: [...edges,
         schemaEdge('e-schema-250', 250),
-        { data: { id: 'e-join-260', source: 'east5', target: 'out41',
+        { data: { id: 'e-join-260', source: 'east5.p_dt', target: 'a',
                   edge_type: 'JOIN', flow_kind: 'field flow', highlight_line: 260 } }],
     };
     const res = buildFieldStory({ graph, table: 'east5_stzfxxb', field: 'p_dt' });
 
     expect(res.steps.map(s => s.kind)).toEqual(
-      ['birth', 'written', 'read', 'reappears', 'joined', 'filtered', 'consumed']);
+      ['birth', 'written', 'reappears', 'joined', 'filtered']);
     // The occurrence evidence precedes the join/filter it explains — even the
     // filter at the EARLIER line 190 stays after both (rank beats line).
-    expect(res.steps.map(s => s.line)).toEqual([41, 41, 189, 250, 260, 190, 179]);
+    expect(res.steps.map(s => s.line)).toEqual([41, 41, 250, 260, 190]);
   });
 });
 
@@ -591,11 +637,11 @@ storySuite('buildFieldStory — Reappears over the audit\'s real payloads (R40.1
     expect(res.steps.filter(s => s.kind === 'reappears')).toEqual([]);
   });
 
-  it('dm_flag2 keeps exactly its audit steps on its real closure (written×2, consumed×2)', async () => {
+  it('dm_flag2 keeps its two write anchors — the two ⟐-routed "consume" legs drop (2026-08-31 audit)', async () => {
     const buildFieldStory = await loadBuildFieldStory();
     const fx = REAL_CLOSURES.find(f => f.field === 'dm_flag2');
     // The write/consume legs around the mask line, spliced in verbatim from
-    // the same served closure — the story must stay exactly as it was.
+    // the same served closure.
     const legs = [
       { id: 'l2e_8d3bf142ceaa_dml_out', source: 'l2_tbl_fd251e9cfa',
         target: 'l2_tbl_2a2a3ba1c1', edge_type: 'TABLE_FLOW',
@@ -624,8 +670,13 @@ storySuite('buildFieldStory — Reappears over the audit\'s real payloads (R40.1
       graph: { nodes: el(nodes), edges: el([...fx.edges, ...legs]) },
       table: fx.table, field: fx.field,
     });
-    expect(res.steps.map(s => s.id))
-      .toEqual(['written-768', 'written-1168', 'consumed-1382', 'consumed-1422']);
+    // The two writes INTO the searched table stay (they are the compound's
+    // own DML anchors, 63/63 true in the audit). The two "consume" legs do
+    // NOT come back: `⟐ output@867 → A@1382 / B@1422` carries no dm_flag2
+    // chip — it is the mask line's routing, another field's value in
+    // transit. That is the audited Fix-H shape (235/267 wrong before).
+    expect(res.steps.map(s => s.id)).toEqual(['written-768', 'written-1168']);
+    expect(res.steps.map(s => s.kind)).not.toContain('consumed');
   });
 
   it('mergedEdgeIds needs no change: the merged self-loop rides along, a foreign pair never does', async () => {
@@ -651,5 +702,261 @@ storySuite('buildFieldStory — Reappears over the audit\'s real payloads (R40.1
     expect(withMerged.map(f => f.expectMergedIds[0])).toEqual([
       'l2m_c06160e84e2a', 'l2m_6cc57b037902', 'l2m_bebd245bc967', 'l2m_95f839718c7e',
     ]);
+  });
+});
+
+// ── The 2026-08-31 rule audit: four rules re-ruled ──────────────────────────
+// Evidence: 117 searchable (table, field) pairs of EAST5_STZFXXB_M.sql, 597
+// told steps, 167 true of the field (28%). Every fixture below is the SERVED
+// shape — a routing intermediate is typed `intermediate_table` and labelled
+// `output` (0 `output_table` nodes exist in the 117 payloads) — and every
+// expectation is the audit's verdict for that exact shape.
+storySuite('buildFieldStory — Fix H: the dead ⟐output guard, birth vs consumed', () => {
+  const routingNode = (id, line) => ({
+    data: { id, type: 'intermediate_table', label: 'output', table_name: 'output', line_start: line },
+  });
+
+  it('an AS-alias production line is BIRTH, not a consumption (the audited cjrq@74)', async () => {
+    const buildFieldStory = await loadBuildFieldStory();
+    // REPLACE("$(load_date)","-","") AS cjrq @L74 — the field's own value leg
+    // into the routing intermediate that feeds its OWN table's INSERT.
+    const nodes = [
+      { data: { id: 'east5', type: 'source_table', label: 'east5_stzfxxb',
+                table_name: 'east5_stzfxxb', line_start: 41 } },
+      { data: { id: 'east5.cjrq', type: 'field', parent: 'east5', label: 'cjrq',
+                line_start: 74, is_target: true } },
+      routingNode('out41', 41),
+    ];
+    const edges = [
+      { data: { id: 'e-val-74', source: 'east5.cjrq', target: 'out41',
+                edge_type: 'TABLE_FLOW', flow_kind: 'write', highlight_line: 74 } },
+      { data: { id: 'e-out-41', source: 'out41', target: 'east5',
+                edge_type: 'TABLE_FLOW', flow_kind: 'write', highlight_line: 41 } },
+      { data: { id: 'e-twin-74', source: 'out41', target: 'east5.cjrq',
+                edge_type: 'SCHEMA', flow_kind: 'structure', highlight_line: 74 } },
+    ];
+    const res = buildFieldStory({ graph: { nodes, edges }, table: 'east5_stzfxxb', field: 'cjrq' });
+
+    expect(res.seedNodeId).toBe('east5.cjrq');
+    expect(res.steps.map(s => s.id)).toEqual(['birth-74', 'written-41']);
+    expect(res.steps[0].title).toBe('Birth');
+    expect(res.steps[0].detail).toBe('cjrq → output @L74');
+    // the dead guard's defect shape, twice over: no `Consumed` for the field's
+    // own production line, and no `Reappears` from the ⟐output twin at 74
+    expect(res.steps.map(s => s.kind)).not.toContain('consumed');
+    expect(res.steps.map(s => s.kind)).not.toContain('reappears');
+  });
+
+  it('a value leg ANOTHER table takes is Consumed at the DML anchor (the audited bz@47)', async () => {
+    const buildFieldStory = await loadBuildFieldStory();
+    // a.ccy_code AS bz @L47 — bz's value is routed into ANOTHER table's
+    // INSERT, so the step anchors at the consuming statement's line (41, the
+    // routing intermediate's line_start), never at 47: that line is the
+    // production line and would tell the same fact twice (the audit's H).
+    const nodes = [
+      { data: { id: 'src', type: 'source_table', label: 'bdm_acc_entrusted_payment',
+                table_name: 'bdm_acc_entrusted_payment', line_start: 141 } },
+      { data: { id: 'src.bz', type: 'field', parent: 'src', label: 'bz', line_start: 47 } },
+      routingNode('out41', 41),
+      { data: { id: 'east5', type: 'source_table', label: 'east5_stzfxxb',
+                table_name: 'east5_stzfxxb', line_start: 41 } },
+    ];
+    const edges = [
+      { data: { id: 'e-val-47', source: 'src.bz', target: 'out41',
+                edge_type: 'TABLE_FLOW', flow_kind: 'write', highlight_line: 47 } },
+      { data: { id: 'e-out-41', source: 'out41', target: 'east5',
+                edge_type: 'TABLE_FLOW', flow_kind: 'write', highlight_line: 41 } },
+      // the two table-path shapes the audit measured 8/8 and 20/20 wrong:
+      { data: { id: 'e-copy-47', source: 'src', target: 'src.bz',
+                edge_type: 'REF', flow_kind: 'read', highlight_line: 47 } },  // compound → chip
+      { data: { id: 'e-anchor-141', source: 'src.bz', target: 'src',
+                edge_type: 'REF', flow_kind: 'read', highlight_line: 141 } }, // FROM anchor
+    ];
+    const res = buildFieldStory({
+      graph: { nodes, edges }, table: 'bdm_acc_entrusted_payment', field: 'bz',
+    });
+
+    expect(res.seedNodeId).toBe('src.bz');
+    expect(res.steps.map(s => s.id)).toEqual(['consumed-41']);
+    const step = res.steps[0];
+    expect(step.title).toBe('Consumed');
+    expect(step.line).toBe(41);                  // the DML anchor, not 47
+    // the routing leg rides the step's evidence, so the reader sees WHO takes it
+    expect(sorted(step.edgeIds)).toEqual(sorted(['e-val-47', 'e-out-41']));
+    expect(step.detail).toBe('bz → output, output → east5_stzfxxb @L41');
+    expect(step.nodeIds).toContain('src');       // the chip's owning box lights up too
+    expect(step.nodeIds).toContain('east5');
+  });
+
+  it('never consumes a leg it cannot route — no single destination, no step', async () => {
+    const buildFieldStory = await loadBuildFieldStory();
+    const nodes = [
+      { data: { id: 'src', type: 'source_table', label: 't_src', table_name: 't_src', line_start: 10 } },
+      { data: { id: 'src.f', type: 'field', parent: 'src', label: 'f', line_start: 12 } },
+      { data: { id: 'out', type: 'intermediate_table', label: 'output',
+                table_name: 'output', line_start: 9 } },
+      { data: { id: 'dst', type: 'source_table', label: 't_dst', table_name: 't_dst', line_start: 20 } },
+    ];
+    // the routing intermediate has NO write leg out (first graph) and TWO
+    // (second) — an unresolved or ambiguous destination is dropped, never guessed.
+    // (Both legs point at a table that is NOT the searched one, so neither
+    // can be the compound's own `written` anchor either.)
+    const dangling = { nodes, edges: [{ data: { id: 'e1', source: 'src.f', target: 'out',
+      edge_type: 'TABLE_FLOW', flow_kind: 'write', highlight_line: 12 } }] };
+    const ambiguous = { nodes, edges: [
+      { data: { id: 'e1', source: 'src.f', target: 'out',
+                edge_type: 'TABLE_FLOW', flow_kind: 'write', highlight_line: 12 } },
+      { data: { id: 'e2', source: 'out', target: 'dst',
+                edge_type: 'TABLE_FLOW', flow_kind: 'write', highlight_line: 9 } },
+      { data: { id: 'e3', source: 'out', target: 'dst',
+                edge_type: 'TABLE_FLOW', flow_kind: 'write', highlight_line: 9 } },
+    ] };
+    expect(buildFieldStory({ graph: dangling, table: 't_src', field: 'f' }).steps).toEqual([]);
+    expect(buildFieldStory({ graph: ambiguous, table: 't_src', field: 'f' }).steps).toEqual([]);
+  });
+});
+
+storySuite('buildFieldStory — Fix M: table-path exclusion, source-side birth, provenance', () => {
+  it('a source-side field is never BORN here — its first occurrence is a Read', async () => {
+    const buildFieldStory = await loadBuildFieldStory();
+    // a.TAG_BRANCH AS TAG_BRANCH @L81: the chip sources a read onto its own
+    // table's alias at its own line, and the compound anchor (141) is a
+    // different line — the audit's 46 fake `Birth @LEFT JOIN …` steps.
+    const nodes = [
+      { data: { id: 'src', type: 'source_table', label: 'bdm_acc_entrusted_payment',
+                table_name: 'bdm_acc_entrusted_payment', line_start: 141 } },
+      { data: { id: 'src.a', type: 'alias_table', label: 'a@141', table_name: 'a', line_start: 141 } },
+      { data: { id: 'src.f', type: 'field', parent: 'src', label: 'TAG_BRANCH', line_start: 81 } },
+    ];
+    const edges = [
+      { data: { id: 'e-own-81', source: 'src.f', target: 'src.a',
+                edge_type: 'REF', flow_kind: 'read', highlight_line: 81 } },
+      { data: { id: 'e-anchor-141', source: 'src.f', target: 'src',
+                edge_type: 'REF', flow_kind: 'read', highlight_line: 141 } },
+    ];
+    const res = buildFieldStory({
+      graph: { nodes, edges }, table: 'bdm_acc_entrusted_payment', field: 'TAG_BRANCH',
+    });
+
+    expect(res.seedNodeId).toBe('src.f');
+    expect(res.steps.map(s => s.id)).toEqual(['read-81']);
+    expect(res.steps[0].title).toBe('Read');
+    expect(res.steps.map(s => s.kind)).not.toContain('birth');   // no fake birth
+    expect(edgeUnion(res.steps)).not.toContain('e-anchor-141');  // the anchor is not a read
+  });
+
+  it('a compound→chip value copy is not a Read even on the chip’s own line (8/8 wrong)', async () => {
+    const buildFieldStory = await loadBuildFieldStory();
+    // The audit's leaked-alias shape: the compound "reads" into its own chip
+    // at the chip's line, but the line is the SOURCE column's (`a.ccy_code AS
+    // bz`). A read needs the chip to SOURCE the leg.
+    const nodes = [
+      { data: { id: 'src', type: 'source_table', label: 'bdm_acc_entrusted_payment',
+                table_name: 'bdm_acc_entrusted_payment', line_start: 141 } },
+      { data: { id: 'src.bz', type: 'field', parent: 'src', label: 'bz', line_start: 47 } },
+      { data: { id: 'src.a', type: 'alias_table', label: 'a@141', table_name: 'a', line_start: 141 } },
+    ];
+    const edges = [
+      { data: { id: 'e-copy-47', source: 'src', target: 'src.bz',
+                edge_type: 'REF', flow_kind: 'read', highlight_line: 47 } },
+      { data: { id: 'e-real-47', source: 'src.bz', target: 'src.a',
+                edge_type: 'REF', flow_kind: 'read', highlight_line: 47 } },
+    ];
+    const res = buildFieldStory({
+      graph: { nodes, edges }, table: 'bdm_acc_entrusted_payment', field: 'bz',
+    });
+
+    expect(res.steps.map(s => s.id)).toEqual(['read-47']);
+    expect(sorted(res.steps[0].edgeIds)).toEqual(['e-real-47']);
+    expect(edgeUnion(res.steps)).not.toContain('e-copy-47');
+  });
+
+  it('a field whose closure holds only table-path edges tells an EMPTY story', async () => {
+    const buildFieldStory = await loadBuildFieldStory();
+    // The audit's `bdm_acc_entrusted_payment.COM_RESERVED_1`: the only
+    // chip-endpoint edges are the compound anchor and a compound→chip value
+    // copy. Nothing in the closure is true of the field, so nothing is told —
+    // the bar simply does not render (it gates on steps.length > 0).
+    const nodes = [
+      { data: { id: 'src', type: 'source_table', label: 't_src', table_name: 't_src', line_start: 141 } },
+      { data: { id: 'src.f', type: 'field', parent: 'src', label: 'COM_RESERVED_1', line_start: 132 } },
+    ];
+    const edges = [
+      { data: { id: 'e-anchor', source: 'src.f', target: 'src',
+                edge_type: 'REF', flow_kind: 'read', highlight_line: 141 } },
+      { data: { id: 'e-copy', source: 'src', target: 'src.f',
+                edge_type: 'REF', flow_kind: 'read', highlight_line: 132 } },
+    ];
+    const res = buildFieldStory({ graph: { nodes, edges }, table: 't_src', field: 'COM_RESERVED_1' });
+    expect(res.seedNodeId).toBe('src.f');   // the seed is found
+    expect(res.steps).toEqual([]);          // but nothing here is true of it
+  });
+
+  it('an occurrence twin chip of the SAME field carries the field’s legs too', async () => {
+    const buildFieldStory = await loadBuildFieldStory();
+    // Two chips of `charge_department` on its own compound (R44 occurrence
+    // twins): the seed @51 and a twin @54. The twin's value leg, the write it
+    // routes into, and the own table's SCHEMA twin onto the twin are all THIS
+    // field's story — the seed chip is the anchor, not the only chip.
+    const nodes = [
+      { data: { id: 'src', type: 'source_table', label: 'bdm_acc_entrusted_payment',
+                table_name: 'bdm_acc_entrusted_payment', line_start: 141 } },
+      { data: { id: 'src.cd', type: 'field', parent: 'src', label: 'charge_department',
+                line_start: 51 } },
+      { data: { id: 'src.cd2', type: 'field', parent: 'src', label: 'charge_department',
+                line_start: 54 } },
+      { data: { id: 'out41', type: 'intermediate_table', label: 'output',
+                table_name: 'output', line_start: 41 } },
+      { data: { id: 'east5', type: 'source_table', label: 'east5_stzfxxb',
+                table_name: 'east5_stzfxxb', line_start: 41 } },
+    ];
+    const edges = [
+      { data: { id: 'e-twin-val-54', source: 'src.cd2', target: 'out41',
+                edge_type: 'TABLE_FLOW', flow_kind: 'write', highlight_line: 54 } },
+      { data: { id: 'e-out-41', source: 'out41', target: 'east5',
+                edge_type: 'TABLE_FLOW', flow_kind: 'write', highlight_line: 41 } },
+      { data: { id: 'e-own-schema-76', source: 'src', target: 'src.cd2',
+                edge_type: 'SCHEMA', flow_kind: 'structure', highlight_line: 76 } },
+    ];
+    const res = buildFieldStory({
+      graph: { nodes, edges }, table: 'bdm_acc_entrusted_payment', field: 'charge_department',
+    });
+
+    expect(res.seedNodeId).toBe('src.cd');   // payload order keeps the first chip
+    // the twin's value leg is a consumption of THIS field (routed to another
+    // table), and the own-table twin onto the twin chip is its reappears
+    expect(res.steps.map(s => s.id)).toEqual(['reappears-76', 'consumed-41']);
+    expect(sorted(res.steps[1].edgeIds)).toEqual(sorted(['e-twin-val-54', 'e-out-41']));
+    expect(res.steps[0].edgeIds).toEqual(['e-own-schema-76']);
+  });
+
+  it('a JOINISH edge on the chip’s own line is a Read; a FILTER there is still a Filter', async () => {
+    const buildFieldStory = await loadBuildFieldStory();
+    // data_dt's WHERE twin: the predicate line IS the chip's own line, so the
+    // FILTER stays a filter, while a TRANSFORM typed onto that same line is
+    // the line's own expression — the field's occurrence, i.e. a Read (the
+    // audit's correction for every such step was `read @L<line>`).
+    const nodes = [
+      { data: { id: 'src', type: 'source_table', label: 'bdm_acc_entrusted_payment',
+                table_name: 'bdm_acc_entrusted_payment', line_start: 141 } },
+      { data: { id: 'src.a', type: 'alias_table', label: 'a@141', table_name: 'a', line_start: 141 } },
+      { data: { id: 'src.f', type: 'field', parent: 'src', label: 'data_dt', line_start: 159 } },
+    ];
+    const edges = [
+      { data: { id: 'e-tr-159', source: 'src.f', target: 'src.a',
+                edge_type: 'TRANSFORM', flow_kind: 'field flow', highlight_line: 159 } },
+      { data: { id: 'e-filter-159', source: 'src.f', target: 'src',
+                edge_type: 'FILTER', flow_kind: 'field flow', highlight_line: 159 } },
+      { data: { id: 'e-tr-143', source: 'src.f', target: 'src.a',
+                edge_type: 'TRANSFORM', flow_kind: 'field flow', highlight_line: 143 } },
+    ];
+    const res = buildFieldStory({
+      graph: { nodes, edges }, table: 'bdm_acc_entrusted_payment', field: 'data_dt',
+    });
+
+    expect(res.steps.map(s => s.id)).toEqual(['read-159', 'joined-143', 'filtered-159']);
+    expect(res.steps[0].edgeIds).toEqual(['e-tr-159']);      // own-line TRANSFORM → Read
+    expect(res.steps[1].edgeIds).toEqual(['e-tr-143']);      // foreign-line TRANSFORM → Joined
+    expect(res.steps[2].edgeIds).toEqual(['e-filter-159']);  // own-line FILTER stays a Filter
   });
 });

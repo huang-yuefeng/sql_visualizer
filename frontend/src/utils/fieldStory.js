@@ -1,6 +1,7 @@
 /**
  * Field Story — the step-through narrative of one searched table.field
- * (2026-08-27).
+ * (2026-08-27; stage rules re-ruled 2026-08-31 after the per-field audit —
+ * see "The 2026-08-31 rule audit" below).
  *
  * The L2 debugger answers "where does this field's value go" with a
  * graph; this module re-tells the SAME closure as an ordered story the
@@ -11,6 +12,17 @@
  * script, so every `detail` is built from endpoint labels + line only;
  * nothing is guessed, no sample text is hardcoded).
  *
+ * THE ONE GOVERNING IDEA (2026-08-31): a step is told only when the
+ * payload carries FIELD-LEVEL provenance for the searched field — an
+ * edge endpoint that IS one of the searched field's chips. An edge that
+ * merely touches the searched table's compound (table→table, or
+ * chip→table at a line that is not the field's own) carries the TABLE's
+ * path, not the field's, and telling it as the field's step was the
+ * single largest defect class the audit measured (191 TABLE-PATH +
+ * 52 PHANTOM steps out of 597). Where the payload is silent about the
+ * field, the story is silent too: the step is DROPPED, never re-anchored
+ * onto a line the field was not on.
+ *
  * Derivation (data-driven, all from `graph` — the detailed flow closure
  * that `l2Result.graph` carries):
  *
@@ -20,37 +32,76 @@
  *      (#288: the entity key is lowercased, so EAST5_STZFXXB @L189 and
  *      east5_stzfxxb @L41 are ONE compound; alias/CTE/output compounds
  *      keep exact keys). No seed → empty story, never a guess.
+ *      The seed is also the ANCHOR chip, not the only one: the closure
+ *      carries the same field on several occurrence chips of the SAME
+ *      compound (R44 family-3 occurrence twins), and every one of them
+ *      is this field's leg — `chips` is that set.
  *   2. Only closure edges with a valid `highlight_line` (integer ≥ 1 —
  *      INV-2 says every closure edge carries one; malformed edges are
- *      skipped, never repaired) participate. Each edge is classified
- *      from edge_type + flow_kind + endpoints, FIRST MATCH WINS in the
- *      story-rule order:
- *        birth     REF|TABLE_FLOW touching the SEED at the searched
- *                  table's own anchor (highlight_line === the table
- *                  node's line_start) — the field's binding legs at its
- *                  defining statement (e.g. the INSERT's PARTITION
- *                  clause);
- *        written   write (flow_kind 'write') INTO the searched table;
- *        read      REF|TABLE_FLOW of kind read/chain OUT of the
- *                  searched table;
- *        reappears SCHEMA from the searched table's OWN compound INTO the
- *                  seed chip, at a line the chip itself does not occupy
- *                  (v3.3.193, R40.12 — STRICT, all four conditions; see the
- *                  reappears branch in classifyEdge);
- *        joined    JOIN|TRANSFORM|COMPUTED|WINDOW|AGGREGATE touching
- *                  the seed or the searched table;
- *        filtered  FILTER touching the seed or the searched table —
- *                  keyed on edge_type FILTER *or* flow_kind 'filter':
- *                  a FILTER edge carries flow_kind 'field flow' (only
- *                  INDIRECT is kinded 'filter'), so either signal alone
- *                  would miss half the filters;
- *        consumed  write into any OTHER table compound (⟐ output VTs —
- *                  type 'output_table' — are DML routing intermediates,
- *                  never a consumption);
+ *      skipped, never repaired) participate. Classification, first
+ *      match wins:
+ *
+ *        write legs (flow_kind 'write', TABLE_FLOW/DML)
+ *          written   the write lands ON the searched table's compound —
+ *                    the table's own write anchor (the INSERT's line);
+ *                    no chip needed, the DML writes the whole row;
+ *          birth     a chip of the searched field SOURCES the value leg
+ *                    and the leg resolves (through the ⟐ routing
+ *                    intermediate, if any) to the field's OWN table —
+ *                    the field's production line in this script (the
+ *                    SELECT-list line where its value is computed, e.g.
+ *                    `REPLACE("$(load_date)","-","") AS cjrq` @74);
+ *          consumed  the same, but the leg resolves to a DIFFERENT
+ *                    table — another table takes this value. The step
+ *                    anchors at the DML statement's own line (the
+ *                    routing intermediate's line_start), NOT at the
+ *                    field's production line (that line is the birth
+ *                    line and would be told twice), and the step's
+ *                    evidence carries the resolved write leg too, so
+ *                    the reader sees WHO consumes the value;
+ *          a write leg sourced by anything else (a table compound) is
+ *          another field's value in transit — never this story.
+ *
+ *        reappears  SCHEMA from the searched table's OWN compound INTO
+ *                   one of the field's chips, at a line that chip does
+ *                   not occupy (v3.3.193, R40.12 — STRICT; see the
+ *                   reappears branch in classifyEdge);
+ *        read       REF|TABLE_FLOW kinded read/chain, endpoint = one of
+ *                   the field's chips, AT THAT CHIP'S OWN LINE — the one
+ *                   line the payload vouches for as the field's own
+ *                   occurrence. The same edge shape at any OTHER line is
+ *                   the table's hop re-parented onto the field (the
+ *                   audit's `FROM bdm_acc_entrusted_payment a` /
+ *                   `FROM EAST5_STZFXXB` mis-tells) and is dropped;
+ *        joined     JOIN|TRANSFORM|COMPUTED|WINDOW|AGGREGATE with a
+ *                   chip endpoint, at a line the table compound does not
+ *                   own — the field feeds, or is produced by, that
+ *                   expression (an expression whose only contact with
+ *                   the story is the searched TABLE belongs to some
+ *                   other field's story);
+ *        filtered   FILTER (or any edge kinded 'filter') with a chip
+ *                   endpoint, same line rule as joined — a FILTER edge
+ *                   carries flow_kind 'field flow' (only INDIRECT is
+ *                   kinded 'filter'), so either signal alone would miss
+ *                   half the filters;
+ *        the table's OWN anchor line (its compound `line_start`) is the
+ *        compound's line, never the field's: a chip edge sitting there
+ *        is the compound's registration and tells nothing about the
+ *        field — unless the field's own chip line IS that line
+ *        (partition fields: `p_dt` lives on the PARTITION clause of the
+ *        INSERT that defines the table), which the chip-line test
+ *        already admits for read and the birth absorption below.
  *        anything else → skipped. No step is ever invented.
- *      birth must outrank read: the seed's binding edge is read-shaped
- *      but is the field's BIRTH, and it sits exactly at the table's
- *      anchor line.
+ *
+ *      BIRTH ABSORPTION: when a birth step exists at a line, the other
+ *      chip-endpoint REF/TABLE_FLOW edges on that same line are part of
+ *      the same production and join the birth step instead of being
+ *      re-told as a read of the field's own definition line (the audit:
+ *      `p_dt`'s L41 read-shaped edge is the PARTITION binding, not a
+ *      read). A field that is NOT written by its own table in this
+ *      script has NO birth line — a source-side column is only read
+ *      here, and its first occurrence is told as `read`, which is the
+ *      honest stage (the audit: 46 fake `Birth @LEFT JOIN …` steps).
  *   3. Steps group per (kind, line) — the fixed point of "merge
  *      consecutive same-kind groups at the same line" — and are ordered
  *      by STORY KIND first (born → written → read → reappears → joined →
@@ -77,20 +128,49 @@
  *   L190 WHERE p_dt = '$(load_date)'
  *
  *   closure edges →
- *     p_dt ─REF─► east5_stzfxxb                        @41  (PARTITION binding)
- *     output@41 ─TABLE_FLOW (write)─► east5_stzfxxb    @41
- *     east5_stzfxxb ─TABLE_FLOW (read)─► output@179    @189
- *     p_dt ─FILTER─► output@179                        @190
- *     output@179 ─TABLE_FLOW (write)─► rrcdm_job_log_exec_par  @179
+ *     p_dt ─REF─► ⟐output@41                          @41  (value leg)
+ *     p_dt ─TABLE_FLOW (write)─► ⟐output@41           @41  (value leg)
+ *     ⟐output@41 ─TABLE_FLOW (write)─► east5          @41  (→ written)
+ *     east5 ─TABLE_FLOW (chain)─► ⟐output@179         @189 (table path — dropped)
+ *     p_dt ─REF─► east5                               @189 (not p_dt's line — dropped)
+ *     p_dt ─FILTER─► east5                            @190 (→ filtered)
+ *     ⟐output@179 ─TABLE_FLOW (write)─► rrcdm         @179 (table path — dropped)
  *
  *   → { searched: 'east5_stzfxxb.p_dt',
  *       steps: [
  *         { id: 'birth-41',     kind: 'birth',    title: 'Birth',    line: 41, … },
  *         { id: 'written-41',   kind: 'written',  title: 'Written',  line: 41, … },
- *         { id: 'read-189',     kind: 'read',     title: 'Read',     line: 189, … },
  *         { id: 'filtered-190', kind: 'filtered', title: 'Filtered', line: 190, … },
- *         { id: 'consumed-179', kind: 'consumed', title: 'Consumed', line: 179, … },
  *       ] }
+ *
+ *   The two dropped edges are the audit's finding, not a loss of
+ *   information: L189 is the table's scan line (no `p_dt` on it) and
+ *   L179's INSERT writes constants + COUNT(1) only — neither is true of
+ *   `p_dt`. The log write would only be `p_dt`'s consumption if `p_dt`'s
+ *   value reached it, which the payload does not claim.
+ *
+ * THE 2026-08-31 RULE AUDIT (117 searchable (table, field) pairs of
+ * EAST5_STZFXXB_M.sql, 597 told steps, ground truth = the script text +
+ * a hand-verified token/alias model, built independently of this
+ * module): 167/597 steps were true of the field (28%). Per stage —
+ * birth 3/49, written 63/63, read 0/95, reappears 14/14, joined 51/105,
+ * filtered 4/4, consumed 32/267. Four rules were re-ruled:
+ *   Fix H  `consumed` had no field-leg requirement AND its ⟐output
+ *          exclusion tested `type === 'output_table'`, a type that does
+ *          not exist in served payloads (real routing intermediates are
+ *          `intermediate_table`; the guard was dead) — so every write
+ *          leg in every closure landed there (267 steps, 235 wrong),
+ *          including each field's own AS-alias birth line;
+ *   Fix M  table-path inheritance — an edge became a step for touching
+ *          the searched table compound alone;
+ *   Fix M  birth required `highlight_line === the table's line_start`,
+ *          which is the FROM/JOIN anchor for source tables (46 fake
+ *          births) and never the AS-alias line where a target column is
+ *          actually produced;
+ *   Fix M  `joined` admitted another field's compute expression because
+ *          it touched the searched table.
+ * Re-run of the same audit over the same 117 payloads with these rules:
+ * see CLAUDE.md #37 (before 28% → after 96%).
  *
  * Malformed payloads never throw: missing nodes/edges/keys degrade to
  * skipped edges (or an empty story), never to a guessed step.
@@ -99,21 +179,11 @@
 // The story order — the rank IS the step order (born first, consumed
 // last); the line breaks ties within one kind.
 // v3.3.191 (random-10 audit, user-authorized ≤10 stages): the JOINED stage.
-// 49 narrative edges were unclassified across 10 audited fields — 24 JOIN +
-// 8 COMPUTED + 7 AGGREGATE + 6 WINDOW + 4 TRANSFORM — leaving source-side
-// fields (whose interesting life IS joins/transforms) at 1-2 steps. One
-// extra stage closes it; SCHEMA/ALIAS/SUBSET stay non-narrative by design.
-// (That SCHEMA sentence is what R40.12 narrows — see below: one SCHEMA
-// shape, own-table → seed chip, is narrative.)
-// v3.3.193 (R40.12, field-story audit 2026-08-30 — AD-quality evidence, the
-// 9 examples verified against real served payloads): the REAPPEARS stage,
-// one extra stage taking the slot AFTER read and BEFORE joined. Placement
-// is not cosmetic: a reappears step is the field's OWN occurrence evidence
-// — "it occurs again here, on a line its chip doesn't show" — and it is
-// frequently the very evidence that explains the joined/filtered steps
-// that follow it. The label names NO clause on purpose: 4 of the audit's
-// 9 admitted lines are not GROUP BY (a JOIN ON, an OVER(PARTITION BY), a
-// SELECT list), so "Grouped" would be wrong 4 times out of 9.
+// v3.3.193 (R40.12, field-story audit 2026-08-30): the REAPPEARS stage,
+// taking the slot AFTER read and BEFORE joined. Placement is not cosmetic:
+// a reappears step is the field's OWN occurrence evidence — "it occurs
+// again here, on a line its chip doesn't show" — and it is frequently the
+// very evidence that explains the joined/filtered steps that follow it.
 const KIND_RANK = {
   birth: 0, written: 1, read: 2, reappears: 3, joined: 4, filtered: 5, consumed: 6,
 };
@@ -137,8 +207,14 @@ const WRITE_EDGE_TYPES = new Set(['TABLE_FLOW', 'DML']);
 const JOINISH_EDGE_TYPES = new Set(['JOIN', 'TRANSFORM', 'COMPUTED', 'WINDOW', 'AGGREGATE']);
 
 // The ⟐ output compounds are DML routing intermediates — a write into one
-// is a leg of the write, never a consumption.
-const OUTPUT_TABLE_TYPE = 'output_table';
+// is a leg of the write, never a consumption. The audit (2026-08-31) found
+// the served type is `intermediate_table` (0 `output_table` nodes in 117
+// payloads — the old single-type guard was dead code), so the family is
+// matched by type AND by the `⟐` name marker the builder stamps on the
+// virtual-table name (B5), which also covers the older `virtual_table`
+// spelling. A write into anything else IS a destination.
+const ROUTING_TABLE_TYPES = new Set(['intermediate_table', 'virtual_table', 'output_table']);
+const ROUTING_NAME_MARK = '⟐';
 
 // #288 mirror: physical compounds fold case-insensitively (the backend
 // lowercases the entity key); aliases/CTEs/outputs keep exact keys. JS
@@ -155,6 +231,23 @@ const isField = (d) => !!d && d.type === 'field';
 // intermediate tables all qualify; synthetic caption nodes are
 // frontend-only chrome and never appear in a served payload).
 const isTableLike = (d) => !!d && d.type !== 'field';
+
+/** A valid INV-2 line: integer ≥ 1. */
+const validLine = (n) => (Number.isInteger(n) && n >= 1 ? n : null);
+
+/**
+ * Is this compound a DML routing intermediate (an ⟐ output virtual
+ * table)? Type family first, then the name marker — either signal is
+ * enough, because the guard's failure mode is symmetric: treating a
+ * routing leg as a destination invents a consumption, and treating a
+ * destination as a routing leg would hide one.
+ */
+function isRoutingTable(d) {
+  if (!isTableLike(d)) return false;
+  if (ROUTING_TABLE_TYPES.has(d.type)) return true;
+  return fold(d.table_name).includes(ROUTING_NAME_MARK)
+    || fold(d.label).includes(ROUTING_NAME_MARK);
+}
 
 /**
  * Does this compound match the searched table? `table_name` is the raw
@@ -187,83 +280,143 @@ function buildNodeIndex(graph) {
   return idx;
 }
 
+/** The edge data this module classifies on, or null when the entry is
+ * not a usable closure edge (malformed entries are skipped, not repaired). */
+function edgeData(raw) {
+  const e = raw && raw.data;
+  if (!e || typeof e.source !== 'string' || typeof e.target !== 'string') return null;
+  return e;
+}
+
+const isWriteLeg = (e) => e.flow_kind === 'write' && WRITE_EDGE_TYPES.has(e.edge_type);
+
 /**
- * Classify one closure edge into a story kind, or null to skip it.
- * First match wins, in the story-rule order (see the module header for
- * why birth must outrank read).
+ * Classify one closure edge into a story step — `{ kind, line }`, or null
+ * to skip it. `line` is the step's line: the edge's own, EXCEPT for a
+ * consumed step, which anchors at the consuming DML statement's line (the
+ * routing intermediate's `line_start`) rather than at the field's
+ * production line. First match wins, in the story-rule order (see the
+ * module header).
+ *
+ * `ctx` carries: `chips` (ids of EVERY chip of the searched field on the
+ * searched table), `chipLine` (their line_starts, for the own-line test),
+ * `ownTableId`, `tableLine`, `birthLines` (lines where a chip sources a
+ * write leg back into its own table), `routingLeg` (the single write leg
+ * leaving a routing intermediate, or null), `byId`.
  */
-function classifyEdge(e, { seedId, tableId, tableLine, seedLine, byId }) {
-  const src = byId.get(e.source);
-  const tgt = byId.get(e.target);
+function classifyEdge(e, ctx) {
+  const src = ctx.byId.get(e.source);
+  const tgt = ctx.byId.get(e.target);
   // Dangling endpoint (edge pointing outside the payload) — skip rather
   // than guess at the missing node's role.
   if (!src || !tgt) return null;
-  const et = e.edge_type;
-  const fk = e.flow_kind;
-  const line = e.highlight_line;
+  const line = validLine(e.highlight_line);
+  if (line === null) return null; // INV-2 defense (also enforced upstream)
   const srcId = e.source;
   const tgtId = e.target;
-  const touchesSeed = srcId === seedId || tgtId === seedId;
-  const touchesTable = srcId === tableId || tgtId === tableId;
+  const srcIsChip = ctx.chips.has(srcId);
+  const tgtIsChip = ctx.chips.has(tgtId);
 
-  // birth — the seed is bound at the searched table's own anchor line.
-  if ((et === 'REF' || et === 'TABLE_FLOW') && touchesSeed
-    && Number.isInteger(tableLine) && tableLine >= 1 && line === tableLine) {
-    return 'birth';
+  // ── write legs ────────────────────────────────────────────────────────
+  // `written` keys on the destination compound only: the DML writes the
+  // whole row, so no chip is required (the audit measured 63/63 true).
+  if (isWriteLeg(e)) {
+    if (tgtId === ctx.ownTableId) return { kind: 'written', line };
+    // A value leg is this field's only when a chip of the field carries it.
+    if (!srcIsChip) return null;
+    const dest = writeDestination(tgtId, tgt, line, ctx);
+    if (!dest) return null; // unroutable → not told, never guessed
+    if (dest.tableId === ctx.ownTableId) return { kind: 'birth', line };
+    return { kind: 'consumed', line: dest.line };
   }
-  const isWrite = fk === 'write' && WRITE_EDGE_TYPES.has(et);
-  // written — a write leg lands ON the searched table.
-  if (isWrite && tgtId === tableId) return 'written';
-  // read — the searched table feeds a read/chain leg outward, OR the
-  // seed registers a read onto its OWN table (field→own-parent-table,
-  // non-FILTER — red-team ruling A4: endpoint position classifies; the
-  // L189 `p_dt → east5` REF is a read registration, and without this
-  // clause it fell through every branch and vanished from the story).
-  if ((et === 'REF' || et === 'TABLE_FLOW')
-    && (fk === 'read' || fk === 'chain')
-    && (srcId === tableId || (touchesSeed && tgtId === tableId))) {
-    return 'read';
-  }
+
+  // ── the field's own occurrence evidence ───────────────────────────────
   // reappears — the field occurring again on a line its chip doesn't show
   // (v3.3.193, R40.12 — the ruling is STRICT, all of it, because the audit
   // measured the alternatives as over-admitting):
   //   * edge_type SCHEMA — the belongs-to family; the only edge a compound
   //     emits straight INTO a field chip;
-  //   * source === the searched table's compound AND target === the seed
-  //     chip. The same field instance is carried on ⟐output/alias/CTE
-  //     compounds too, and those emit their own SCHEMA edges INTO this very
-  //     chip (measured: 1-4 per real closure) — those are other boxes'
-  //     copies, not this field's occurrence on its own table, and they
-  //     would re-tell one line as many steps;
-  //   * the line must NOT be the chip's own line — what the chip already
+  //   * source === the searched table's compound AND target === one of the
+  //     field's OWN chips. The same field instance is carried on
+  //     ⟐output/alias/CTE compounds too, and those emit their own SCHEMA
+  //     edges INTO this very chip (measured: 1-4 per real closure) — those
+  //     are other boxes' copies, not this field's occurrence on its own
+  //     table, and they would re-tell one line as many steps;
+  //   * the line must NOT be that chip's own line — what the chip already
   //     shows is told by birth/read, and a reappears step there would say
   //     "it appears here" about the line the user is already looking at.
-  //     (`line` is a valid INV-2 integer ≥ 1 here — the builder gates that
-  //     for every edge before classifying; a chip without a usable
-  //     line_start excludes nothing.)
-  if (et === 'SCHEMA' && srcId === tableId && tgtId === seedId
-    && line !== seedLine) {
-    return 'reappears';
+  if (e.edge_type === 'SCHEMA' && srcId === ctx.ownTableId && tgtIsChip) {
+    const chipLine = ctx.chipLine.get(tgtId);
+    if (chipLine === null || line !== chipLine) return { kind: 'reappears', line };
   }
-  // joined — the field/table participates in a join key, transform,
-  // computed/window/aggregate expression (audit Q2: without this, source
-  // fields' whole narrative vanished — JOIN already seed-zone-restricted
-  // by the walker, so touching the table is the right admission).
-  if (JOINISH_EDGE_TYPES.has(et) && (touchesSeed || touchesTable)) {
-    return 'joined';
+
+  // Everything below needs the field's own chip on the edge — a table
+  // compound's participation is the table's path, not the field's (Fix M:
+  // this alone removes the audit's 191 TABLE-PATH + 52 PHANTOM steps).
+  if (!srcIsChip && !tgtIsChip) return null;
+  const chipId = srcIsChip ? srcId : tgtId;
+  const chipLine = ctx.chipLine.get(chipId);
+
+  // birth absorption — the field's production line, told ONCE. Any other
+  // edge on a birth line is part of the same production (the PARTITION
+  // binding beside the value leg, the expression that computes it), not a
+  // separate read or join of the line the field is defined on.
+  if (ctx.birthLines.has(line)) {
+    if (e.edge_type === 'REF' || e.edge_type === 'TABLE_FLOW'
+      || JOINISH_EDGE_TYPES.has(e.edge_type)) return { kind: 'birth', line };
   }
-  // filtered — a FILTER edge, or any edge kinded 'filter' (INDIRECT
-  // correlated), touching the seed or the searched table.
-  if ((et === 'FILTER' || fk === 'filter') && (touchesSeed || touchesTable)) {
-    return 'filtered';
+
+  // read — the field's own occurrence line only, and the chip must SOURCE
+  // the leg: `chip ─read─► elsewhere` is this field's value being read,
+  // while `compound ─read─► chip` is the compound's scan registering its
+  // own chip (the audit measured that shape 8/8 wrong — every one a
+  // `table → chip` value copy onto a line the field's name is not on).
+  // The payload vouches for exactly one line per chip (its `line_start`,
+  // the keeper occurrence); the same edge shape at any other line is the
+  // compound's hop re-parented onto the field (`FROM …`, the table's scan
+  // line) and is dropped.
+  if ((e.edge_type === 'REF' || e.edge_type === 'TABLE_FLOW')
+    && (e.flow_kind === 'read' || e.flow_kind === 'chain')) {
+    if (srcIsChip && chipLine !== null && line === chipLine) return { kind: 'read', line };
+    return null;
   }
-  // consumed — a write leg lands on another TABLE compound (⟐ outputs are
-  // routing intermediates, not consumers).
-  if (isWrite && !touchesTable && isTableLike(tgt)
-    && tgt.type !== OUTPUT_TABLE_TYPE) {
-    return 'consumed';
+
+  // joined / filtered — the field feeds (or is produced by) an expression,
+  // or is filtered by a predicate, at a line the compound does not own: the
+  // compound's anchor line is the table's, never the field's. A JOINISH
+  // edge ON the chip's own line is that line's own expression, not a join
+  // leg — the honest stage there is the field's occurrence, `read` (the
+  // audit's own correction for every such step was `read @L<line>`, never
+  // a join). A FILTER edge is different: the line IS the field's predicate
+  // (`a.data_dt = …` is both the chip's line and the WHERE), so it stays a
+  // filter wherever it sits.
+  if (line === ctx.tableLine) return null;
+  if (JOINISH_EDGE_TYPES.has(e.edge_type)) {
+    if (chipLine !== null && line === chipLine) return { kind: 'read', line };
+    return { kind: 'joined', line };
   }
+  if (e.edge_type === 'FILTER' || e.flow_kind === 'filter') return { kind: 'filtered', line };
   return null;
+}
+
+/**
+ * Where does a chip-sourced write value leg land, and at which line?
+ * A routing intermediate is resolved through the ONE write leg leaving it
+ * (measured: exactly one on every real routing compound); the step then
+ * anchors at the DML statement's own line — the intermediate's
+ * `line_start` — rather than at the field's production line. No single
+ * outgoing leg (none, or several) → unresolved, and an unresolved leg is
+ * never told: guessing a destination would invent a consumption.
+ */
+function writeDestination(tgtId, tgt, line, ctx) {
+  if (isRoutingTable(tgt)) {
+    const leg = ctx.routingLeg(tgtId);
+    if (!leg) return null;
+    const dest = ctx.byId.get(leg.target);
+    if (!dest || !isTableLike(dest)) return null; // the leg must land on a compound
+    return { tableId: leg.target, line: validLine(dest.line_start) || line };
+  }
+  return { tableId: tgtId, line };
 }
 
 /** A node's label, falling back to its raw id when the label is missing
@@ -426,45 +579,98 @@ export function buildFieldStory({ graph, fullGraph, mergedGraph, table, field } 
     };
   })();
   const tableNode = byId.get(seed.parent);
+  const ownTableId = tableNode ? tableNode.id : null;
+
+  // The searched field's OWN chips: every occurrence chip of this field on
+  // the searched compound (the seed plus the R44 occurrence twins). These
+  // — and only these — are the endpoints that vouch for a field-level leg;
+  // an edge touching the compound itself carries the table's path.
+  const chips = new Set();
+  const chipLine = new Map();
+  for (const d of nodes) {
+    if (!isField(d) || fold(d.label) !== fieldKey) continue;
+    if (d.parent !== ownTableId) continue;
+    chips.add(d.id);
+    chipLine.set(d.id, validLine(d.line_start));
+  }
+
+  // Write legs by source, for routing-intermediate resolution: a routing
+  // compound has exactly ONE write leg out; anything else is ambiguous and
+  // unresolved on purpose.
+  const writeLegsFrom = new Map();
+  const closureEdges = [];
+  for (const raw of (g && g.edges) || []) {
+    const e = edgeData(raw);
+    if (!e) continue;
+    if (!validLine(e.highlight_line)) continue; // INV-2 defense
+    closureEdges.push(e);
+    if (isWriteLeg(e)) {
+      if (!writeLegsFrom.has(e.source)) writeLegsFrom.set(e.source, []);
+      writeLegsFrom.get(e.source).push(e);
+    }
+  }
+  const routingLeg = (id) => {
+    const legs = writeLegsFrom.get(id);
+    return Array.isArray(legs) && legs.length === 1 ? legs[0] : null;
+  };
   const ctx = {
-    seedId: seed.id,
-    tableId: tableNode ? tableNode.id : null,
-    tableLine: tableNode ? tableNode.line_start : null,
-    // The chip's own line — the one line a reappears step must never claim
-    // (null when the chip carries no usable line, which excludes nothing).
-    seedLine: Number.isInteger(seed.line_start) && seed.line_start >= 1
-      ? seed.line_start
-      : null,
+    chips,
+    chipLine,
+    ownTableId,
+    tableLine: tableNode ? validLine(tableNode.line_start) : null,
+    birthLines: null, // filled below (it needs writeDestination)
+    routingLeg,
     byId,
   };
+  // Birth lines: the lines where a chip of this field sources a write leg
+  // back into its OWN table — the field's production lines in this script.
+  const birthLines = new Set();
+  for (const e of closureEdges) {
+    if (!isWriteLeg(e) || !chips.has(e.source)) continue;
+    const tgt = byId.get(e.target);
+    if (!tgt) continue;
+    const dest = writeDestination(e.target, tgt, validLine(e.highlight_line), ctx);
+    if (dest && dest.tableId === ownTableId) {
+      const l = validLine(e.highlight_line);
+      if (l !== null) birthLines.add(l);
+    }
+  }
+  ctx.birthLines = birthLines;
+
   // Endpoint map for the closure edges (A1 merged-id resolution reads
   // source/target of each detailed edge when promoting to parent pairs).
   const closureEdgeById = new Map();
-  for (const e of ((g && g.edges) || [])) {
-    const d = e && e.data ? e.data : e;
-    if (d && d.id && d.source && d.target) closureEdgeById.set(d.id, d);
+  for (const e of closureEdges) {
+    if (e.id && typeof e.id === 'string') closureEdgeById.set(e.id, e);
   }
 
   // 2. Classify + group per (kind, line); `seq` records first-seen order
   //    as the final deterministic tie-break after (kind rank, line).
   const groups = new Map();
   let seq = 0;
-  for (const raw of (g && g.edges) || []) {
-    const e = raw && raw.data;
-    if (!e || typeof e.source !== 'string' || typeof e.target !== 'string') {
-      continue;
+  for (const e of closureEdges) {
+    const told = classifyEdge(e, ctx);
+    if (!told) continue;
+    const { kind, line } = told;
+    // A consumed step tells WHO takes the value: its routing write leg is
+    // part of the same fact and joins the step's evidence (it can never
+    // collide with another step of THIS story — its destination is another
+    // table, so it is not this story's `written` leg).
+    let edges = [e];
+    if (kind === 'consumed') {
+      const tgt = byId.get(e.target);
+      const leg = tgt ? routingLeg(e.target) : null;
+      if (leg && leg !== e) edges = [e, leg];
     }
-    const line = e.highlight_line;
-    if (!Number.isInteger(line) || line < 1) continue; // INV-2 defense
-    const kind = classifyEdge(e, ctx);
-    if (!kind) continue;
     const id = `${kind}-${line}`;
     let group = groups.get(id);
     if (!group) {
       group = { id, kind, line, edges: [], seq: seq++ };
       groups.set(id, group);
     }
-    group.edges.push(e);
+    for (const edge of edges) {
+      if (!group.edges.includes(edge)) group.edges.push(edge);
+    }
   }
 
   // 3. Story order: kind rank first, line ascending within a kind.

@@ -120,19 +120,87 @@
     "edges": [
       {
         "data": {
-          "category": "combine",
-          "color": "#16A085",
-          "desc": "Subquery reference",
-          "edge_type": "SUBQUERY",
+          "category": "compute",
+          "color": "#D35400",
+          "desc": "COALESCE/CAST/CONCAT",
+          "edge_type": "TRANSFORM",
           "flow_kind": "field flow",
-          "highlight_line": 13,
-          "id": "l2e_382e6b7abff4",
-          "label": "SUBQUERY",
-          "line_style": "dotted",
-          "reason": "field flow (combine step) \u2014 \u2016AT@L13 \u2192 \u27d0 AT@L3\u2016",
-          "source": "l2_tbl_dd53b467b2",
-          "target": "l2_tbl_20de9ab997",
+          "highlight_line": 1,
+          "id": "l2e_68124f1b5a3e",
+          "label": "TRANSFORM",
+          "line_style": "dashed",
+          "reason": "field flow (compute step) \u2014 \u2016pmc@L1 \u2192 am_pm_ratio@L1\u2016",
+          "source": "l2_tbl_3395a6b90c",
+          "target": "l2_tbl_284bad6fc1",
           "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "compute",
+          "color": "#D35400",
+          "desc": "COALESCE/CAST/CONCAT",
+          "edge_type": "TRANSFORM",
+          "flow_kind": "field flow",
+          "highlight_line": 1,
+          "id": "l2e_0098e53109db",
+          "label": "TRANSFORM",
+          "line_style": "dashed",
+          "reason": "field flow (compute step) \u2014 \u2016amc@L1 \u2192 am_pm_ratio@L1\u2016",
+          "source": "l2_tbl_dd53b467b2",
+          "target": "l2_tbl_284bad6fc1",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 1,
+          "id": "l2e_f6ec361cbdf3",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 am_pm_ratio@L1\u2016",
+          "source": "l2_tbl_284bad6fc1",
+          "target": "fld_3cd1e31718",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 3,
+          "id": "l2e_75ae25fe1e21",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 AT@L3 \u2192 amc@L3\u2016",
+          "source": "l2_tbl_20de9ab997",
+          "target": "fld_73dea4e6e3",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#C0392B",
+          "desc": "HAVING\u2192SELECT match",
+          "edge_type": "INDIRECT",
+          "flow_kind": "filter",
+          "highlight_line": 3,
+          "id": "l2e_2101b9fd4ecf",
+          "label": "INDIRECT",
+          "line_style": "dot-dash",
+          "reason": "filter (filter step) \u2014 \u2016amc@L3 \u2192 amc@L1\u2016",
+          "source": "l2_tbl_20de9ab997",
+          "target": "l2_tbl_dd53b467b2",
+          "width": 1
         }
       },
       {
@@ -205,19 +273,325 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 7,
+          "id": "l2e_aec2cb0bc35b",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016AT@L13 \u2192 web_page@L7\u2016",
+          "source": "l2_tbl_dd53b467b2",
+          "target": "l2_tbl_6248a07201",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 8,
+          "id": "l2e_410dfc12610f",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016time_dim@L6 \u2192 time_dim.t_time_sk@L8\u2016",
+          "source": "l2_tbl_84626b9114",
+          "target": "fld_cf5e68f916",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 8,
+          "id": "l2e_1a3d313f58a4",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016time_dim.t_time_sk@L8 \u2192 \u27d0 AT@L3\u2016",
+          "source": "l2_tbl_84626b9114",
+          "target": "l2_tbl_20de9ab997",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 8,
+          "id": "l2e_ee95d998d1c6",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016ws_sold_time_sk@L8 \u2192 web_page@L7\u2016",
+          "source": "fld_ee4529b6ef",
+          "target": "l2_tbl_6248a07201",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 9,
+          "id": "l2e_af409f814f3c",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016household_demographics@L5 \u2192 household_demographics.hd_demo_sk@L9\u2016",
+          "source": "l2_tbl_85b4374f1b",
+          "target": "fld_e5442d380d",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 9,
+          "id": "l2e_a1446d88a65e",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016household_demographics.hd_demo_sk@L9 \u2192 \u27d0 AT@L3\u2016",
+          "source": "l2_tbl_85b4374f1b",
+          "target": "l2_tbl_20de9ab997",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 9,
+          "id": "l2e_c8eaedf849d6",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016ws_ship_hdemo_sk@L9 \u2192 web_page@L7\u2016",
+          "source": "fld_10ab28306d",
+          "target": "l2_tbl_6248a07201",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 10,
+          "id": "l2e_2c61276883ae",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016web_page@L7 \u2192 web_page.wp_web_page_sk@L10\u2016",
+          "source": "l2_tbl_6248a07201",
+          "target": "fld_0366cc56b5",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 10,
+          "id": "l2e_1465052414c7",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016web_page.wp_web_page_sk@L10 \u2192 \u27d0 AT@L3\u2016",
+          "source": "l2_tbl_6248a07201",
+          "target": "l2_tbl_20de9ab997",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 10,
+          "id": "l2e_4b4063e2dfc3",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016ws_web_page_sk@L10 \u2192 web_page@L7\u2016",
+          "source": "fld_ab39aeb538",
+          "target": "l2_tbl_6248a07201",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 11,
+          "id": "l2e_156588250a35",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016time_dim@L6 \u2192 time_dim.t_hour@L11\u2016",
+          "source": "l2_tbl_84626b9114",
+          "target": "fld_b1f67b7873",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 11,
+          "id": "l2e_545991b500c8",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016time_dim.t_hour@L11 \u2192 \u27d0 AT@L3\u2016",
+          "source": "l2_tbl_84626b9114",
+          "target": "l2_tbl_20de9ab997",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 12,
+          "id": "l2e_f33dbf902b8b",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016household_demographics@L5 \u2192 household_demographics.hd_dep_count@L12\u2016",
+          "source": "l2_tbl_85b4374f1b",
+          "target": "fld_3078e57abd",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 12,
+          "id": "l2e_a82f87110a04",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016household_demographics.hd_dep_count@L12 \u2192 \u27d0 AT@L3\u2016",
+          "source": "l2_tbl_85b4374f1b",
+          "target": "l2_tbl_20de9ab997",
+          "width": 2
+        }
+      },
+      {
+        "data": {
           "category": "combine",
           "color": "#16A085",
           "desc": "Subquery reference",
           "edge_type": "SUBQUERY",
           "flow_kind": "field flow",
-          "highlight_line": 24,
-          "id": "l2e_fbe4e400b61e",
+          "highlight_line": 13,
+          "id": "l2e_382e6b7abff4",
           "label": "SUBQUERY",
           "line_style": "dotted",
-          "reason": "field flow (combine step) \u2014 \u2016pt@L24 \u2192 \u27d0 pt@L14\u2016",
-          "source": "l2_tbl_3395a6b90c",
-          "target": "l2_tbl_12867c4fef",
+          "reason": "field flow (combine step) \u2014 \u2016AT@L13 \u2192 \u27d0 AT@L3\u2016",
+          "source": "l2_tbl_dd53b467b2",
+          "target": "l2_tbl_20de9ab997",
           "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 13,
+          "id": "l2e_a450cfc58c8a",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016web_page@L7 \u2192 web_page.wp_char_count@L13\u2016",
+          "source": "l2_tbl_6248a07201",
+          "target": "fld_87511a4117",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 13,
+          "id": "l2e_1167739db75d",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016web_page.wp_char_count@L13 \u2192 \u27d0 AT@L3\u2016",
+          "source": "l2_tbl_6248a07201",
+          "target": "l2_tbl_20de9ab997",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 14,
+          "id": "l2e_f5cb8f03cd98",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 pt@L14 \u2192 pmc@L14\u2016",
+          "source": "l2_tbl_12867c4fef",
+          "target": "fld_1febf3289c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#C0392B",
+          "desc": "HAVING\u2192SELECT match",
+          "edge_type": "INDIRECT",
+          "flow_kind": "filter",
+          "highlight_line": 14,
+          "id": "l2e_9e2022f30c67",
+          "label": "INDIRECT",
+          "line_style": "dot-dash",
+          "reason": "filter (filter step) \u2014 \u2016pmc@L14 \u2192 pmc@L1\u2016",
+          "source": "l2_tbl_12867c4fef",
+          "target": "l2_tbl_3395a6b90c",
+          "width": 1
         }
       },
       {
@@ -290,52 +664,18 @@
       },
       {
         "data": {
-          "category": "compute",
-          "color": "#D35400",
-          "desc": "COALESCE/CAST/CONCAT",
-          "edge_type": "TRANSFORM",
-          "flow_kind": "field flow",
-          "highlight_line": 1,
-          "id": "l2e_68124f1b5a3e",
-          "label": "TRANSFORM",
-          "line_style": "dashed",
-          "reason": "field flow (compute step) \u2014 \u2016pmc@L1 \u2192 am_pm_ratio@L1\u2016",
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 18,
+          "id": "l2e_16c4ec6cbf16",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016pt@L24 \u2192 web_page@L18\u2016",
           "source": "l2_tbl_3395a6b90c",
-          "target": "l2_tbl_284bad6fc1",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "compute",
-          "color": "#D35400",
-          "desc": "COALESCE/CAST/CONCAT",
-          "edge_type": "TRANSFORM",
-          "flow_kind": "field flow",
-          "highlight_line": 1,
-          "id": "l2e_0098e53109db",
-          "label": "TRANSFORM",
-          "line_style": "dashed",
-          "reason": "field flow (compute step) \u2014 \u2016amc@L1 \u2192 am_pm_ratio@L1\u2016",
-          "source": "l2_tbl_dd53b467b2",
-          "target": "l2_tbl_284bad6fc1",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 13,
-          "id": "l2e_a450cfc58c8a",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016web_page@L7 \u2192 web_page.wp_char_count@L13\u2016",
-          "source": "l2_tbl_6248a07201",
-          "target": "fld_87511a4117",
+          "target": "l2_tbl_6248a07201",
           "width": 1
         }
       },
@@ -346,62 +686,11 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 12,
-          "id": "l2e_f33dbf902b8b",
+          "highlight_line": 19,
+          "id": "l2e_85551cc44e10",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "reason": "structure \u2014 \u2016household_demographics@L5 \u2192 household_demographics.hd_dep_count@L12\u2016",
-          "source": "l2_tbl_85b4374f1b",
-          "target": "fld_3078e57abd",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 11,
-          "id": "l2e_156588250a35",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016time_dim@L6 \u2192 time_dim.t_hour@L11\u2016",
-          "source": "l2_tbl_84626b9114",
-          "target": "fld_b1f67b7873",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 10,
-          "id": "l2e_2c61276883ae",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016web_page@L7 \u2192 web_page.wp_web_page_sk@L10\u2016",
-          "source": "l2_tbl_6248a07201",
-          "target": "fld_0366cc56b5",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 8,
-          "id": "l2e_410dfc12610f",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016time_dim@L6 \u2192 time_dim.t_time_sk@L8\u2016",
+          "reason": "structure \u2014 \u2016time_dim@L6 \u2192 time_dim.t_time_sk@L19\u2016",
           "source": "l2_tbl_84626b9114",
           "target": "fld_cf5e68f916",
           "width": 1
@@ -409,273 +698,18 @@
       },
       {
         "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 9,
-          "id": "l2e_af409f814f3c",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016household_demographics@L5 \u2192 household_demographics.hd_demo_sk@L9\u2016",
-          "source": "l2_tbl_85b4374f1b",
-          "target": "fld_e5442d380d",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 1,
-          "id": "l2e_f6ec361cbdf3",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 am_pm_ratio@L1\u2016",
-          "source": "l2_tbl_284bad6fc1",
-          "target": "fld_3cd1e31718",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 3,
-          "id": "l2e_75ae25fe1e21",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 AT@L3 \u2192 amc@L3\u2016",
-          "source": "l2_tbl_20de9ab997",
-          "target": "fld_73dea4e6e3",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 14,
-          "id": "l2e_f5cb8f03cd98",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 pt@L14 \u2192 pmc@L14\u2016",
-          "source": "l2_tbl_12867c4fef",
-          "target": "fld_1febf3289c",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#C0392B",
-          "desc": "HAVING\u2192SELECT match",
-          "edge_type": "INDIRECT",
-          "flow_kind": "filter",
-          "highlight_line": 3,
-          "id": "l2e_2101b9fd4ecf",
-          "label": "INDIRECT",
-          "line_style": "dot-dash",
-          "reason": "filter (filter step) \u2014 \u2016amc@L3 \u2192 amc@L1\u2016",
-          "source": "l2_tbl_20de9ab997",
-          "target": "l2_tbl_dd53b467b2",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#C0392B",
-          "desc": "HAVING\u2192SELECT match",
-          "edge_type": "INDIRECT",
-          "flow_kind": "filter",
-          "highlight_line": 14,
-          "id": "l2e_9e2022f30c67",
-          "label": "INDIRECT",
-          "line_style": "dot-dash",
-          "reason": "filter (filter step) \u2014 \u2016pmc@L14 \u2192 pmc@L1\u2016",
-          "source": "l2_tbl_12867c4fef",
-          "target": "l2_tbl_3395a6b90c",
-          "width": 1
-        }
-      },
-      {
-        "data": {
           "category": "filter",
           "color": "#E74C3C",
           "desc": "WHERE/JOIN ON condition",
           "edge_type": "FILTER",
           "flow_kind": "field flow",
-          "highlight_line": 13,
-          "id": "l2e_1167739db75d",
+          "highlight_line": 19,
+          "id": "l2e_14d211d2cbdc",
           "label": "FILTER",
           "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016web_page.wp_char_count@L13 \u2192 \u27d0 AT@L3\u2016",
-          "source": "l2_tbl_6248a07201",
-          "target": "l2_tbl_20de9ab997",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#E74C3C",
-          "desc": "WHERE/JOIN ON condition",
-          "edge_type": "FILTER",
-          "flow_kind": "field flow",
-          "highlight_line": 12,
-          "id": "l2e_a82f87110a04",
-          "label": "FILTER",
-          "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016household_demographics.hd_dep_count@L12 \u2192 \u27d0 AT@L3\u2016",
-          "source": "l2_tbl_85b4374f1b",
-          "target": "l2_tbl_20de9ab997",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#E74C3C",
-          "desc": "WHERE/JOIN ON condition",
-          "edge_type": "FILTER",
-          "flow_kind": "field flow",
-          "highlight_line": 11,
-          "id": "l2e_545991b500c8",
-          "label": "FILTER",
-          "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016time_dim.t_hour@L11 \u2192 \u27d0 AT@L3\u2016",
-          "source": "l2_tbl_84626b9114",
-          "target": "l2_tbl_20de9ab997",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#E74C3C",
-          "desc": "WHERE/JOIN ON condition",
-          "edge_type": "FILTER",
-          "flow_kind": "field flow",
-          "highlight_line": 24,
-          "id": "l2e_26e57824e2ed",
-          "label": "FILTER",
-          "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016web_page.wp_char_count@L24 \u2192 \u27d0 pt@L14\u2016",
-          "source": "l2_tbl_6248a07201",
-          "target": "l2_tbl_12867c4fef",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#E74C3C",
-          "desc": "WHERE/JOIN ON condition",
-          "edge_type": "FILTER",
-          "flow_kind": "field flow",
-          "highlight_line": 23,
-          "id": "l2e_e15c75ed3bc0",
-          "label": "FILTER",
-          "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016household_demographics.hd_dep_count@L23 \u2192 \u27d0 pt@L14\u2016",
-          "source": "l2_tbl_85b4374f1b",
-          "target": "l2_tbl_12867c4fef",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#E74C3C",
-          "desc": "WHERE/JOIN ON condition",
-          "edge_type": "FILTER",
-          "flow_kind": "field flow",
-          "highlight_line": 22,
-          "id": "l2e_1bd308370fc6",
-          "label": "FILTER",
-          "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016time_dim.t_hour@L22 \u2192 \u27d0 pt@L14\u2016",
+          "reason": "field flow (filter step) \u2014 \u2016time_dim.t_time_sk@L19 \u2192 \u27d0 pt@L14\u2016",
           "source": "l2_tbl_84626b9114",
           "target": "l2_tbl_12867c4fef",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#E74C3C",
-          "desc": "WHERE/JOIN ON condition",
-          "edge_type": "FILTER",
-          "flow_kind": "field flow",
-          "highlight_line": 10,
-          "id": "l2e_4b4063e2dfc3",
-          "label": "FILTER",
-          "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016ws_web_page_sk@L10 \u2192 web_page@L7\u2016",
-          "source": "fld_ab39aeb538",
-          "target": "l2_tbl_6248a07201",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#E74C3C",
-          "desc": "WHERE/JOIN ON condition",
-          "edge_type": "FILTER",
-          "flow_kind": "field flow",
-          "highlight_line": 8,
-          "id": "l2e_ee95d998d1c6",
-          "label": "FILTER",
-          "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016ws_sold_time_sk@L8 \u2192 web_page@L7\u2016",
-          "source": "fld_ee4529b6ef",
-          "target": "l2_tbl_6248a07201",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#E74C3C",
-          "desc": "WHERE/JOIN ON condition",
-          "edge_type": "FILTER",
-          "flow_kind": "field flow",
-          "highlight_line": 9,
-          "id": "l2e_c8eaedf849d6",
-          "label": "FILTER",
-          "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016ws_ship_hdemo_sk@L9 \u2192 web_page@L7\u2016",
-          "source": "fld_10ab28306d",
-          "target": "l2_tbl_6248a07201",
-          "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "filter",
-          "color": "#E74C3C",
-          "desc": "WHERE/JOIN ON condition",
-          "edge_type": "FILTER",
-          "flow_kind": "field flow",
-          "highlight_line": 21,
-          "id": "l2e_eba4114d77a0",
-          "label": "FILTER",
-          "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016ws_web_page_sk@L21 \u2192 web_page@L18\u2016",
-          "source": "fld_cda1fb269e",
-          "target": "l2_tbl_6248a07201",
           "width": 2
         }
       },
@@ -698,6 +732,40 @@
       },
       {
         "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 20,
+          "id": "l2e_9ba08327686a",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016household_demographics@L5 \u2192 household_demographics.hd_demo_sk@L20\u2016",
+          "source": "l2_tbl_85b4374f1b",
+          "target": "fld_e5442d380d",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 20,
+          "id": "l2e_e5f2f3b3aa4d",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016household_demographics.hd_demo_sk@L20 \u2192 \u27d0 pt@L14\u2016",
+          "source": "l2_tbl_85b4374f1b",
+          "target": "l2_tbl_12867c4fef",
+          "width": 2
+        }
+      },
+      {
+        "data": {
           "category": "filter",
           "color": "#E74C3C",
           "desc": "WHERE/JOIN ON condition",
@@ -715,36 +783,172 @@
       },
       {
         "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 7,
-          "id": "l2e_aec2cb0bc35b",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016AT@L13 \u2192 web_page@L7\u2016",
-          "source": "l2_tbl_dd53b467b2",
-          "target": "l2_tbl_6248a07201",
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 21,
+          "id": "l2e_f390962087af",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016web_page@L7 \u2192 web_page.wp_web_page_sk@L21\u2016",
+          "source": "l2_tbl_6248a07201",
+          "target": "fld_0366cc56b5",
           "width": 1
         }
       },
       {
         "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 18,
-          "id": "l2e_16c4ec6cbf16",
-          "label": "REF",
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 21,
+          "id": "l2e_06fc5d65dbc2",
+          "label": "FILTER",
           "line_style": "solid",
-          "reason": "read \u2014 \u2016pt@L24 \u2192 web_page@L18\u2016",
-          "source": "l2_tbl_3395a6b90c",
+          "reason": "field flow (filter step) \u2014 \u2016web_page.wp_web_page_sk@L21 \u2192 \u27d0 pt@L14\u2016",
+          "source": "l2_tbl_6248a07201",
+          "target": "l2_tbl_12867c4fef",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 21,
+          "id": "l2e_eba4114d77a0",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016ws_web_page_sk@L21 \u2192 web_page@L18\u2016",
+          "source": "fld_cda1fb269e",
           "target": "l2_tbl_6248a07201",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 22,
+          "id": "l2e_138dba13b999",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016time_dim@L6 \u2192 time_dim.t_hour@L22\u2016",
+          "source": "l2_tbl_84626b9114",
+          "target": "fld_b1f67b7873",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 22,
+          "id": "l2e_1bd308370fc6",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016time_dim.t_hour@L22 \u2192 \u27d0 pt@L14\u2016",
+          "source": "l2_tbl_84626b9114",
+          "target": "l2_tbl_12867c4fef",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 23,
+          "id": "l2e_e1a3339e79af",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016household_demographics@L5 \u2192 household_demographics.hd_dep_count@L23\u2016",
+          "source": "l2_tbl_85b4374f1b",
+          "target": "fld_3078e57abd",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 23,
+          "id": "l2e_e15c75ed3bc0",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016household_demographics.hd_dep_count@L23 \u2192 \u27d0 pt@L14\u2016",
+          "source": "l2_tbl_85b4374f1b",
+          "target": "l2_tbl_12867c4fef",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "combine",
+          "color": "#16A085",
+          "desc": "Subquery reference",
+          "edge_type": "SUBQUERY",
+          "flow_kind": "field flow",
+          "highlight_line": 24,
+          "id": "l2e_fbe4e400b61e",
+          "label": "SUBQUERY",
+          "line_style": "dotted",
+          "reason": "field flow (combine step) \u2014 \u2016pt@L24 \u2192 \u27d0 pt@L14\u2016",
+          "source": "l2_tbl_3395a6b90c",
+          "target": "l2_tbl_12867c4fef",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 24,
+          "id": "l2e_63a3a8b78043",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016web_page@L7 \u2192 web_page.wp_char_count@L24\u2016",
+          "source": "l2_tbl_6248a07201",
+          "target": "fld_87511a4117",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 24,
+          "id": "l2e_26e57824e2ed",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016web_page.wp_char_count@L24 \u2192 \u27d0 pt@L14\u2016",
+          "source": "l2_tbl_6248a07201",
+          "target": "l2_tbl_12867c4fef",
+          "width": 2
         }
       }
     ],
@@ -1116,7 +1320,7 @@
     "script_name": "90.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 37,
+    "total_edges": 49,
     "total_nodes": 36
   },
   "script_name": "90.sql",

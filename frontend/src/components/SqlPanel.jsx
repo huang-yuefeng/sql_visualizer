@@ -25,7 +25,24 @@ const CONFIG_LABELS = {
   target_only: 'Target variable only (no context)',
 };
 
-const SqlPanel = React.forwardRef(function SqlPanel({ sqlText, sqlHighlightLine, scriptName, wsId, table, field }, ref) {
+// R40.13: a Set-like with `.has` is read per line; anything else (undefined,
+// an array, null) simply bands nothing — absent props render nothing extra and
+// the panel stays byte-compatible with the pre-R40.13 DOM.
+const inSet = (set, line) => !!(set && typeof set.has === 'function' && set.has(line));
+
+const SqlPanel = React.forwardRef(function SqlPanel({
+  sqlText,
+  sqlHighlightLine,
+  scriptName,
+  wsId,
+  table,
+  field,
+  // R40.13 — the naive string-match diff layer (whole-line bands). Disjoint
+  // by construction; the active line is the SEPARATE browse cursor channel.
+  stringMatchCovered,
+  stringMatchMissed,
+  stringMatchActiveLine,
+}, ref) {
   const containerRef = useRef(null);
   const configRef = useRef(null);
   const [showConfig, setShowConfig] = useState(false);
@@ -54,12 +71,31 @@ const SqlPanel = React.forwardRef(function SqlPanel({ sqlText, sqlHighlightLine,
 
   const lines = sqlText ? sqlText.split('\n') : [];
 
-  // R11-3: imperative scroll API — the code-evidence rows in the reason
-  // panel call scrollToLine(line) to bring that SQL line into view.
+  // R11-3: imperative scroll API — the Field Story steps browse the script
+  // through scrollToLine(line).
+  //
+  // FTC E2E (v3.3.194): scroll ONLY the line list. The old
+  // `el.scrollIntoView()` walks EVERY ancestor scroll container, and
+  // `overflow: hidden` boxes ARE scroll containers programmatically — so
+  // centering a late line pushed the whole `.sql-panel` up inside its
+  // `.inline-l2-sql` slot, taking the header (Export / Config / status)
+  // with it and leaving nothing to scroll it back. Centering with a plain
+  // scrollTop write on the line list can never move an ancestor: the
+  // header is a sibling of the scroller (see app.css), so it stays put.
   const scrollToLine = useCallback((line) => {
-    if (!containerRef.current || !Number.isInteger(line) || line < 1) return;
-    const el = containerRef.current.querySelector(`[data-line="${line}"]`);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const box = containerRef.current;
+    if (!box || !Number.isInteger(line) || line < 1) return;
+    const el = box.querySelector(`[data-line="${line}"]`);
+    if (!el) return;
+    // Rect math rather than offsetTop: the panel's ancestors carry no
+    // positioning, so offsetParent is not guaranteed to be the line list.
+    const boxRect = box.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const topInContent = elRect.top - boxRect.top - box.clientTop;
+    const target = Math.max(0,
+      Math.round(topInContent - (box.clientHeight - elRect.height) / 2));
+    if (typeof box.scrollTo === 'function') box.scrollTo({ top: target, behavior: 'smooth' });
+    else box.scrollTop = target; // engines without Element.scrollTo
   }, []);
 
   useImperativeHandle(ref, () => ({ scrollToLine }), [scrollToLine]);
@@ -70,6 +106,17 @@ const SqlPanel = React.forwardRef(function SqlPanel({ sqlText, sqlHighlightLine,
       scrollToLine(sqlHighlightLine);
     }
   }, [sqlHighlightLine, scrollToLine]);
+
+  // R40.13 — the string-match browse cursor has its OWN declarative scroll
+  // channel (same shape as the engine channel's: scroll only when the value
+  // changes, integer ≥ 1 guard). It never reads or writes `sqlHighlightLine`,
+  // so browsing a match can never move the engine's amber line; whichever
+  // channel changed last simply scrolls last.
+  useEffect(() => {
+    if (Number.isInteger(stringMatchActiveLine) && stringMatchActiveLine >= 1) {
+      scrollToLine(stringMatchActiveLine);
+    }
+  }, [stringMatchActiveLine, scrollToLine]);
 
   // ── Enhanced Export ──
   const handleExport = useCallback(() => {
@@ -309,9 +356,19 @@ const SqlPanel = React.forwardRef(function SqlPanel({ sqlText, sqlHighlightLine,
         {lines.map((line, i) => {
           const lineNum = i + 1;
           const isEdgeHighlighted = edgeHighlightSet.has(lineNum);
+          // R40.13: whole-line band (green = the engine's flow closure covers
+          // this line, red = only the dumb grep sees it). No per-token markup —
+          // `.line-text` stays a plain string, so the diff layer never touches
+          // text rendering or the export path.
+          const band = inSet(stringMatchCovered, lineNum) ? 'covered'
+            : inSet(stringMatchMissed, lineNum) ? 'missed' : '';
+          const isActiveMatch = Number.isInteger(stringMatchActiveLine)
+            && stringMatchActiveLine >= 1 && stringMatchActiveLine === lineNum;
           const className = [
             'sql-line',
-            isEdgeHighlighted ? 'edge-highlighted' : ''
+            isEdgeHighlighted ? 'edge-highlighted' : '',
+            band ? `string-match ${band}` : '',
+            isActiveMatch ? 'string-match-active' : '',
           ].filter(Boolean).join(' ');
           return (
             <div key={`${scriptName || "sql"}-${lineNum}`} data-line={lineNum}

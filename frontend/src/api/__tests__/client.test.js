@@ -108,3 +108,38 @@ describe('api 401 interceptor (E-M1/#276)', () => {
     expect(cb).toHaveBeenCalledTimes(2);
   });
 });
+
+/**
+ * L2 child removal (v3.3.194) — the ViewBar child "×" used to address
+ * DELETE /views/{parentId}/children/{childId}, a route that does not exist,
+ * so it errored for EVERY role. The backend's DELETE /views/{view_id}
+ * documents that it deletes "a search view or child L2 entry", so both go
+ * through it; the parent id is not part of the address.
+ */
+describe('deleteViewChild routing (L2 child ×)', () => {
+  let fetchMock;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    global.fetch = fetchMock;
+    fetchMock.mockResolvedValue(new Response('{"deleted":true}', { status: 200 }));
+    api.resetSessionExpired();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('issues DELETE /views/{childId} — the route that actually exists', async () => {
+    await api.deleteViewChild('ws1', 'parent-view', 'child-9');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/workspace/ws1/views/child-9');
+    expect(init.method).toBe('DELETE');
+    expect(url).not.toContain('/children/');
+  });
+
+  it('surfaces a failure instead of silently doing nothing', async () => {
+    fetchMock.mockResolvedValue(new Response('{"detail":"View not found"}', { status: 404 }));
+    await expect(api.deleteViewChild('ws1', 'parent-view', 'gone')).rejects.toThrow('View not found');
+  });
+});

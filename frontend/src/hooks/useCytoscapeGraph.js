@@ -24,7 +24,7 @@ import { NODE_STYLES, COMPOUND_STYLES, L1_PIPELINE_EDGE_STYLES, TURN_EDGE_STYLES
   FILTER_CAPTION_STYLES, FILTER_LOOP_GEOM_STYLES, FILTER_LOOPLINE_STYLES,
   FILTER_SELFLOOP_STYLES } from '../utils/graphStyles';
 import { stripFieldParents, computeFieldRelPos, positionTableFields } from '../utils/layoutCore';
-import { TABLE_SELECTOR, FIT_PADDING } from '../config/layout';
+import { TABLE_SELECTOR, FIT_PADDING, fitWholeGraph, FIT_ONLY_MIN_ZOOM } from '../config/layout';
 import { runSnakeLayout } from '../utils/snakeLayout';
 import { decorateLabelWithLine } from '../utils/labelDecoration';
 import { applyFlowVisibility, fitAllElements } from '../utils/flowVisibility';
@@ -47,6 +47,12 @@ export const CY_CORE_OPTIONS = Object.freeze({
   minZoom: 0.08,
   maxZoom: 5,
 });
+
+// ── FIT-only zoom exception (FTC E2E, user ruling 2026-08-31) ──────
+// fitWholeGraph + FIT_ONLY_MIN_ZOOM live in config/layout.js (single source,
+// shared with layoutCore/snakeLayout). The runtime floor in CY_CORE_OPTIONS
+// above stays the MANUAL limit: only a fit may go below it, and only while
+// the fit runs.
 
 // R19.4/R19.6a: SCHEMA structure/containment edges are NOT flow — always
 // hidden (the display toggle was removed as seldom-used). The selector
@@ -120,7 +126,7 @@ function applySavedPositions(cy, savedPositions, fieldRel) {
     const level = (cy.container()?.closest?.('[data-level]')?.dataset?.level) || 'L1';
     const panelW = cy.container()?.offsetWidth || 800;
     const pad = level === 'L2' ? Math.max(16, Math.floor(panelW * 0.05)) : FIT_PADDING;
-    cy.fit(undefined, pad);
+    fitWholeGraph(cy, pad);
   }
 }
 
@@ -478,25 +484,35 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
   const fit = useCallback((p = undefined) => {
     const cy = cyRef.current;
     if (!cy || cy.destroyed()) return;
-    // E-M8 (#283): while a flow-only (View 1) filter is active, a plain fit
-    // bounds only the visible closure — View 2's non-closure nodes would sit
-    // off-screen after every resize. Fit the FULL graph, then restore the
-    // flow visibility (never a layout — positions are preserved).
-    const o = optsRef.current;
-    if (o.flowOnly || o.flowNodeIds || o.flowEdgeIds) {
-      fitAllElements(cy, {
-        flowOnly: o.flowOnly,
-        flowNodeIds: o.flowNodeIds,
-        flowEdgeIds: o.flowEdgeIds,
-        mergedView: o.mergedView,
-        // R41: an explicit Fit must SHOW THE WHOLE GRAPH — suppress the
-        // post-visibility centerOnSeed that re-pans onto the seed inside
-        // the same click (measured: kept 2/7 nodes off-screen even with
-        // the floor lifted). View-mode toggles keep the default recenter.
-        recenter: false,
-      }, p !== undefined ? p : 50);
-    } else {
-      cy.fit(undefined, p !== undefined ? p : 50);
+    const pad = p !== undefined ? p : 50;
+    // FIT-only zoom exception: the fit may go below the 0.08 manual floor so
+    // the whole closure is on screen (see fitWholeGraph). The floor is
+    // restored before this returns, so user zooming keeps its limit.
+    const floor = cy.minZoom();
+    cy.minZoom(FIT_ONLY_MIN_ZOOM);
+    try {
+      // E-M8 (#283): while a flow-only (View 1) filter is active, a plain fit
+      // bounds only the visible closure — View 2's non-closure nodes would sit
+      // off-screen after every resize. Fit the FULL graph, then restore the
+      // flow visibility (never a layout — positions are preserved).
+      const o = optsRef.current;
+      if (o.flowOnly || o.flowNodeIds || o.flowEdgeIds) {
+        fitAllElements(cy, {
+          flowOnly: o.flowOnly,
+          flowNodeIds: o.flowNodeIds,
+          flowEdgeIds: o.flowEdgeIds,
+          mergedView: o.mergedView,
+          // R41: an explicit Fit must SHOW THE WHOLE GRAPH — suppress the
+          // post-visibility centerOnSeed that re-pans onto the seed inside
+          // the same click (measured: kept 2/7 nodes off-screen even with
+          // the floor lifted). View-mode toggles keep the default recenter.
+          recenter: false,
+        }, pad);
+      } else {
+        cy.fit(undefined, pad);
+      }
+    } finally {
+      cy.minZoom(floor);
     }
   }, []);
 

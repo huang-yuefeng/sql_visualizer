@@ -10,6 +10,129 @@ module docstring in `test_l2_snapshot.py`).
 
 Entries read NEWEST-FIRST; "How to add an entry" is the last section.
 
+## PENDING — v3.3.194 release-gate regeneration (NOT yet executed)
+
+The v3.3.194 batch is staged in the working tree (`VERSION` still reads 3.3.193;
+committed baseline count 108). Snapshot failures against the committed baselines
+are EXPECTED until the release gate runs the unified regeneration — this entry
+records that expected-red state before it happens, not afterwards. No repin has
+been performed for this batch yet.
+
+| Pending driver | Expected snapshot effect |
+|----------------|--------------------------|
+| G7 extractor closure-defect fix (RC-C of the 10-difficult-case cross-check) | **LANDED, 49 of 108 snapshots shift** (measured by attribution, see the G7 entry below) — `EXTRACTOR_VERSION 2026-08-28.10` re-extracts every script |
+| P1 incremental index, `atomic_io`, meta CAS, MSC-3/MSC-6/MSC-1 multi-user work | index-layer and process behaviour only; no L2 node/line/edge change expected — re-verify rather than assume, the G1 entry below is the cautionary tale |
+| G6 Field Story rewrite, R40.13 string-match layer, self-loop caption retirement + border-scoring assignment, P2 fit-floor/header | frontend-only projections of the served payload — no snapshot effect by construction |
+
+## 2026-08-28 — G7 RC-C (fix team G7, `EXTRACTOR_VERSION 2026-08-28.10`): 49 of 108 snapshots shift; 1 of 20 jaccard cases re-derived
+
+**Attributed, not assumed** — per-script canonical L2 hash over the harness's
+own 108-script list (`PYTHONHASHSEED=0`, cold caches) run three ways: HEAD
+extractor vs the working tree with ONLY G7's three files reverted (isolates the
+other teams' in-flight work: **1** script, RFN), then that tree vs the working
+tree (**49** scripts: G7's shift). G7's 49 are the RFN/SUP_M/PL/DL flagships
+plus 45 tpcds_qualified scripts, and the shape is uniform: the closure gains
+the CTE/subquery CONTINUATION it used to stop at — the same seam RC-C is about
+(`02.sql` wscs 14 → 28 nodes: the `mon_sales/fri_sales/…` derived tables that
+consume `wscs.sales_price` are now on its chain; `65.sql` 4 → 12: the nested
+`sb/subq/sa` chain). 26 of the 49 change node/edge COUNTS (growth 1.2×–3.0×,
+the 3.0× being a 4-node closure); the other 23 are ordering/id-only. No
+canonical set loses an item — see the jaccard table below.
+
+**Jaccard: 19 of 20 cases unchanged at recall AND precision 1.0000** (bdm, sup,
+pl, dl, iiapty, east5, rrcdm — every direction). The one mover is the case G1
+withheld the edge for, `lending_ref/BDM_ACC_LOAN_INFO_SUP_M/downstream`, and
+the shape of the move is the point:
+
+| feature | baseline A | now A | canonical B | recall | precision |
+|---------|-----------|-------|-------------|--------|-----------|
+| nodes   | 16        | 21    | 40          | 1.0000 | 0.9074    |
+| edges   | 45        | 69    | 122         | 1.0000 | 0.8299    |
+| highlights | 28     | 33    | 28          | 1.0000 | 0.8485    |
+
+Nothing canonical is lost (recall 1.0000 on all three features, vs G1's
+prototype at edges recall **0.7905** with 22 canonical edges unmatched and
+nodes precision 0.8491). Every added item is the newly-lit chain itself —
+nodes `lending_ref@82` (the cross-check line), `lending_ref@163`,
+`reserved_field8@82`, `p6@155`, `p1@198`; highlights +82, +155, +163, +183,
++198. The canonical rows for this seed are re-derived by the canonical team
+(G8 owns `jaccard_canonical.py`).
+
+Landed (both adjudicated halves):
+
+* **Provenance edge** (dependency_graph Phase 3 — G1's withheld stage 2, landed
+  with a walk rule G1 did not have): a handle read attributed to a CONTAINER
+  (`p6.lending_ref` → CTE `rollover_loan_info`, `P1.REPAY_ACCT_NO` → CTE
+  `TEMP_BDM_ACC_LOAN_INFO_01`, `A.Reserved_Field9` → CTE
+  `TEMP_BDM_ACC_LOAN_INFO_02`) gains a REF edge from that container's own
+  projection of the same field name. Guards: the attributed source must be a
+  container (CTE/SUBQUERY/VIRTUAL_TABLE); the reader must live outside the
+  container body; the container must not already feed the reader; a body that
+  holds SEVERAL same-named projections is ambiguous and wires nothing (the
+  derived_single ambiguity test restated at the container seam); the producer
+  is the last same-name projection at or before the reader's line.
+* **The walk rule is the fix** — the edge is operation `PROVENANCE` and the
+  strict walker rides it the way it rides a READ edge (consumer → producer,
+  plus the searched-field reverse-read). With a plain REFERENCE operation the
+  same edges fan the container's column back out to its sibling readers and
+  the closure floods: RFN `reserved_field9` 16 → 267 nodes and jaccard
+  `lending_ref/SUP_M` nodes precision 0.8491 with edges recall 0.7905 — G1's
+  withheld numbers, reproduced. With `PROVENANCE` the closure is 16 → 72 and
+  the move is the 24 edges / 5 nodes tabulated above.
+* **Holder gate extension** (lineage `_holder_is_derived_single` branch 3): a
+  CTE holder that PROJECTS the searched field while that projection is
+  value-connected to the closure (AD1 option (a) AND option (b) — name-only is
+  the co-scope flood G1 closed) is the field's own birth container. Additive:
+  unqualified CTE holders keep the scope-presence rule, and G1's
+  `src_a`/`src_b` co-scope repros stay green (both containers are subqueries,
+  which branch 3 never touches). Measured: adds nothing on the benchmark
+  corpus or the six RC-C cases — the binding constraint was the missing edge,
+  not the gate; it is landed as the adjudicated design's completion.
+* **Case-insensitive reverse-read** (lineage): the Issue-3 reverse-read
+  exception now compares the field part case-insensitively — `REPAY_ACCT_NO`
+  vs a typed `repay_acct_no` silently dropped the admit (R44 R0/CR11 parity).
+
+Cross-check effect (RFN / SUP_M, served L2): `bdm_acc_loan_info.repay_acct_no`
+364/630/777 + 951/1236 lit (were 364/630/637/777 dark),
+`bdm_acc_loan_info.reserved_field9` 734 lit,
+`ods_hub_lsacmsp.lending_ref` 82 lit. **637 is still dark and is NOT this
+defect**: no variable and no edge carries line 637 — the extraction anchors the
+multi-line aliased projection `NVL(...) AS REPAY_ACCT_NO` (630-637) at the
+field name's first in-statement occurrence (630, inside the NVL) instead of at
+its AS site (637). The chain itself is fully connected (the CTE02 output column
+is in the closure); lighting the line needs the I1 def-line anchor to prefer
+the alias site for multi-line aliased projections — a corpus-wide anchor policy
+change (hundreds of vars move across 5 samples), filed separately, not landed
+here.
+
+Two suite consequences of the same seam becoming traversable, for the
+integrator:
+
+* `test_alias_seed_expansion.py::TestExpansionTargets::`
+  `test_alias_seed_expands_to_cte_entity` now fails on its LAST assertion —
+  `base_t not in comps`. That assertion was a proxy for "the alias seed
+  resolved to the CTE, not to the physical table", written when NO traversal
+  could reach the physical base; the seed-resolution assertions above it still
+  pass. `base_t` now enters as the value's ORIGIN (`a.x` ← CTE `cte_src`'s
+  projection ← `p.x` ← `base_t`), which is the upstream chain RC-C exists to
+  show. Recommended: keep the seed-chip assertions, drop/re-scope the
+  `base_t`-absence assertion to "base_t is not the SEED compound" — the
+  test's owner should adjudicate.
+* `test_k4_rulings_fb1.py::TestParenBalanceErrors::`
+  `test_extractor_version_bumped` compared the version STRING with `>=`, which
+  breaks at two digits (`2026-08-28.10` < `2026-08-28.7`). Fixed here
+  numerically per segment — the mandated bump is what exposed it.
+
+
+
+
+Gate procedure (unchanged from wave 2): clear stale caches FIRST
+(`workspaces/*/cache` + `analysis_cache/*.json` — the `EXTRACTOR_VERSION`-stamp
+trap the G1 entry below records), then
+`L2_SNAPSHOT_UPDATE=1 python3 -m pytest tests/test_l2_snapshot.py -q`, then an
+independent verify run, then replace this PENDING entry with the executed count
+and the per-driver attribution.
+
 ## 2026-08-29 — G1 adjudicated batch (fix team G1, `EXTRACTOR_VERSION 2026-08-28.9`): 48 of 109 repinned
 
 **NOT snapshot-neutral, contrary to the adjudication forecast — measured, not assumed.** Attribution

@@ -66,12 +66,23 @@ SUP_M = SAMPLES / "BDM_ACC_LOAN_INFO_SUP_M.sql"
 PL = SAMPLES / "BDM_ACC_LOAN_INFO_PL.sql"
 
 
-def _closure(sql: str, table: str, field: str, name: str = "probe"):
-    """The strict downstream closure as (name, line) pairs — the shape the
-    flow-only L2 view renders from."""
+def _build(sql: str, name: str = "probe"):
+    """extractor -> dependency graph -> physical model, plus the walker input
+    graph — the same chain the service runs, as four artifacts.
+
+    TEAM V3 REPAIR (2026-08-31, G7's flagged harness weakness): this used to
+    call `build_physical_model(res, deps)` — but the second POSITIONAL
+    parameter of `build_physical_model` is `script_name`
+    (`physical_model.py:283`), so the dependency list landed in the script
+    name, `dependencies` stayed None and `pm.edges` came out EMPTY. The strict
+    walker then ran its identity-admission rounds only and never walked an
+    edge, which is why every co-scope repro in this file stayed green
+    regardless of edge-level changes: the real co-scope protection lives in
+    guard 4 + the PROVENANCE walk rule (test_g7_rc_c_fixes.py). The call is
+    keyword-correct now; `TestHarnessPhysicalModel` guards the repair."""
     res = extract_variables_from_sql(sql, name)
     deps = build_dependency_graph(res, sql)
-    pm = build_physical_model(res, deps)
+    pm = build_physical_model(res, script_name=name, dependencies=deps)
     graph = {
         "nodes": [{"data": {"id": v.id, "label": v.name}} for v in res.variables],
         "edges": [{"data": {"source": d.source_id, "target": d.target_id,
@@ -79,11 +90,43 @@ def _closure(sql: str, table: str, field: str, name: str = "probe"):
                             "operation": d.operation,
                             "containment": d.containment}} for d in deps],
     }
+    return res, deps, pm, graph
+
+
+def _closure(sql: str, table: str, field: str, name: str = "probe"):
+    """The strict downstream closure as (name, line) pairs — the shape the
+    flow-only L2 view renders from. Returns (res, deps, pm, closure), the
+    same shape test_g7_rc_c_fixes._closure returns."""
+    res, deps, pm, graph = _build(sql, name)
     out = compute_field_flow(graph, table, field, physical_model=pm,
                              direction="downstream")
     byid = {v.id: v for v in res.variables}
-    return res, deps, {(byid[i].name, byid[i].line_start) for i in out
-                       if i in byid}
+    return res, deps, pm, {(byid[i].name, byid[i].line_start) for i in out
+                           if i in byid}
+
+
+class TestHarnessPhysicalModel:
+    """The harness hands the walker a model that actually carries the
+    dependency edges (team V3, 2026-08-31 — guards the signature repair)."""
+
+    def test_pm_edges_are_non_empty(self):
+        """`pm.edges` empty ⇒ the walker below never walked an edge and every
+        co-scope repro in this file is vacuous."""
+        _, deps, pm, _ = _build(SRC_A_SRC_B)
+        assert deps, "fixture broken: the dependency graph is empty"
+        assert pm.edges, (
+            "build_physical_model received no dependencies — the harness is "
+            "back in the positional-call trap (deps in the script_name slot) "
+            "and this file's walker tests prove nothing")
+        assert pm.script_name == "probe", pm.script_name
+
+    def test_pm_edges_cover_every_dependency(self):
+        """The model is built from the SAME deps the walker's graph is — a
+        comma-split relationship yields one PhysicalEdge per type, so the
+        model carries at least one edge per dependency."""
+        _, deps, pm, graph = _build(TWO_PHYSICAL_SOURCES)
+        assert len(graph["edges"]) == len(deps)
+        assert len(pm.edges) >= len(deps), (len(pm.edges), len(deps))
 
 
 def _twins(res, field: str):
@@ -130,19 +173,57 @@ class TestFixADerivedContainerScope:
     must not lend a same-named column to either source's field."""
 
     def test_two_source_container_does_not_join(self):
-        res, deps, closure = _closure(SRC_A_SRC_B, "src_a", "dt")
-        # the searched side stays in
+        """TEAM V3 RE-SCOPE (2026-08-31, G7's flagged harness weakness): the
+        old assertion — `k.dt`, `k`, `src_b`, `dt2` all stay OUT — was written
+        by a walker that never walked an edge (`build_physical_model(res,
+        deps)` put the dependency list into the `script_name` slot, so
+        `pm.edges` was empty and only the identity-admission rounds ran).
+        Under the real walk the container's own output column `k.dt`@3 joins,
+        and it is RIGHT that it does: `k.dt` IS downstream of src_a.dt (the
+        container projects `s1.dt` as `dt`), the same value path
+        `test_single_source_cte_pass_through_joins` pins on G7's one-source
+        CTE. G7's own two-source fixture (CTE_TWO_SOURCES, harness already
+        correct) serves the same members and deliberately leaves its closure
+        unpinned — so this is the walker's accepted answer, not a flood: the
+        closure stays inside the searched statement's own container (no
+        unrelated CTE body pours in; that class stays pinned by G7's
+        `TestProvenanceEdgeWalkRule`).
+
+        What Fix A stage 1 still guarantees is narrower and is what this
+        repro now pins: the container is nobody's DERIVED PRODUCT, so its
+        scope never LENDS the same-named column to src_a's occurrences — the
+        admission rides the value chain, never scope presence. Residual,
+        recorded not endorsed: src_b's same-named `dt` comes along through
+        the extractor's own sibling same-name REFERENCE edge (dt@7 → dt@6, a
+        graph-level fact `build_dependency_graph` emitted before this repair
+        too — deps count is identical before and after), so it is the
+        extractor's co-scope wiring, not the holder gate, that admits it."""
+        res, deps, pm, closure = _closure(SRC_A_SRC_B, "src_a", "dt")
+        # the searched side keeps its own occurrences
         assert {("dt", 6), ("s1", 6), ("src_a", 6)} <= closure, closure
-        # the ambiguous container column and its handle stay out
-        assert not any(n in ("k.dt", "k", "src_b", "dt2")
-                       for n, _ in closure), closure
+        # the container's output column arrives by VALUE (the real walk), and
+        # the container's own handle is still never admitted
+        assert ("k.dt", 3) in closure, closure
+        assert not any(n == "k" for n, _ in closure), closure
+        # ... and the admission was NOT the holder lending its scope: on an
+        # empty value chain the derived container still refuses to qualify.
+        from app.extractor.lineage import _holder_is_derived_single
+        occ = pm.occurrence
+        holder = next(vid for vid, o in pm.occurrences.items()
+                      if o.get("variable_type") == "subquery"
+                      and (o.get("name") or "").casefold() == "k")
+        assert _holder_is_derived_single(pm, occ, holder, "dt", {}, set()) \
+            is False, "the two-source container qualified as a derived product"
 
     def test_two_physical_source_container_does_not_join(self):
         """The container's own ambiguous output column never joins either
         source's closure — the holder IS the container, so the gate fires.
         (The sibling PLAIN table read `z.amt` is the part of AD1's exclusion
-        this implementation deliberately keeps; see the module docstring.)"""
-        res, deps, closure = _closure(TWO_PHYSICAL_SOURCES, "src_y", "amt")
+        this implementation deliberately keeps; see the module docstring.)
+        TEAM V3 (2026-08-31): still green with the repaired harness — the
+        container's output read here is `p.dt`, a different field, so the
+        real walk adds nothing named `p.*` to `amt`'s closure."""
+        res, deps, pm, closure = _closure(TWO_PHYSICAL_SOURCES, "src_y", "amt")
         assert {("y.amt", 5), ("src_y", 6)} <= closure, closure
         assert not any(n in ("p", "p.amt", "p.amt2")
                        for n, _ in closure), closure
@@ -156,8 +237,8 @@ class TestFixADerivedSingleTruePositives:
         row-selection, not a row source), so its `product` occurrences stay
         in the searched table's closure."""
         sql = PL.read_text(encoding="utf-8")
-        res, deps, closure = _closure(sql, "bdm_fin_lrr_key_base_info",
-                                      "product", "PL")
+        res, deps, pm, closure = _closure(sql, "bdm_fin_lrr_key_base_info",
+                                         "product", "PL")
         members = {n for n, _ in closure}
         assert "p2.product" in members, sorted(closure)
         assert "bdm_fin_lrr_key_base_info.product" in members, sorted(closure)
@@ -169,8 +250,8 @@ class TestFixADerivedSingleTruePositives:
         NOT delivered (it is undecidable at the occurrence level without
         emptying SUP_M's canonical closure)."""
         sql = PL.read_text(encoding="utf-8")
-        res, deps, closure = _closure(sql, "ODS_CUPD_PLOAN_ACCTM_NEW5",
-                                      "p_dt", "PL")
+        res, deps, pm, closure = _closure(sql, "ODS_CUPD_PLOAN_ACCTM_NEW5",
+                                         "p_dt", "PL")
         members = {n for n, _ in closure}
         assert "a.p_dt" in members, sorted(closure)
         assert any(n.casefold() == "ods_cupd_ploan_acctm_new5.p_dt"

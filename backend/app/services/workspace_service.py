@@ -1,11 +1,14 @@
 """Workspace service — zip extraction, directory management, multi-user isolation."""
 import json
+import threading
 import re
 import shutil
 import zipfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+from app.services.atomic_io import atomic_write_text
 
 WORKSPACE_ROOT = Path("/tmp/workspaces")
 
@@ -33,7 +36,7 @@ def cleanup_old_workspaces(max_age_hours: int = 24) -> int:
             continue
         try:
             import json as _json
-            meta = _json.loads(meta_path.read_text())
+            meta = _json.loads(meta_path.read_text(encoding="utf-8"))
             created = meta.get("created_at", "")
             if created:
                 from datetime import datetime, timezone
@@ -104,20 +107,23 @@ def create_workspace(zip_bytes: bytes, creator_username: str | None = None) -> s
         "opened_l2s": [],
         "layouts": {},
     }
-    (ws_dir / "meta.json").write_text(json.dumps(meta))
+    (ws_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
     return ws_id
 
 def get_workspace(ws_id: str) -> dict | None:
-    """Return workspace metadata, or None if not found."""
-    if not _WS_ID_RE.fullmatch(ws_id):
+    """Return workspace metadata, or None if not found.
+
+    X2 (review): reads through `read_meta`, which never raises. The inline
+    `json.loads(meta_path.read_text())` used here turned an unreadable/corrupt
+    meta.json (a torn write from a pre-atomic-io deploy, a full disk) into an
+    UNHANDLED exception on every route that asks "does this workspace exist" —
+    a 500 for the whole workspace instead of the 404 every caller already
+    handles. Same answer for a missing workspace, so no caller changes."""
+    meta = read_meta(ws_id)
+    if meta is None:
         return None
-    ws_dir = WORKSPACE_ROOT / ws_id
-    meta_path = ws_dir / "meta.json"
-    if not meta_path.exists():
-        return None
-    meta = json.loads(meta_path.read_text())
     # Count files
-    scripts_dir = ws_dir / "scripts"
+    scripts_dir = WORKSPACE_ROOT / ws_id / "scripts"
     file_count = sum(1 for _ in scripts_dir.rglob("*") if _.is_file()) if scripts_dir.exists() else 0
     meta["file_count"] = file_count
     return meta
@@ -160,9 +166,15 @@ def read_meta(ws_id: str) -> dict | None:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+_meta_cas_lock = threading.Lock()  # M1-D3: the version check + rename must be
+# one critical section — temp+replace alone atomizes the rename, not the CAS
+# compare, so two concurrent same-version writers could both "win" (the loser
+# silently overwriting the winner's layouts).
 
 
 def write_meta_cas(ws_id: str, meta: dict, expected_state_version: int) -> bool:
@@ -170,13 +182,20 @@ def write_meta_cas(ws_id: str, meta: dict, expected_state_version: int) -> bool:
 
     Applies only if the stored `state_version` still equals
     `expected_state_version`; on success the state_version is bumped, making
-    it genuinely monotonic (single worker, A-M8, makes check-and-rename
-    atomic). Returns False when stale — the caller replies 409 with the fresh
-    meta so the client reloads + re-applies.
+    it genuinely monotonic. Returns False when stale — the caller replies 409
+    with the fresh meta so the client reloads + re-applies. The check+rename
+    runs under _meta_cas_lock so two concurrent same-version writers cannot
+    both win (single worker, A-M8: a process lock is sufficient).
     """
     if not _WS_ID_RE.fullmatch(ws_id):
         return False
     path = WORKSPACE_ROOT / ws_id / "meta.json"
+    with _meta_cas_lock:
+        return _write_meta_cas_locked(ws_id, meta, expected_state_version, path)
+
+
+def _write_meta_cas_locked(ws_id: str, meta: dict,
+                           expected_state_version: int, path) -> bool:
     stored = read_meta(ws_id)
     if stored is None:
         return False
@@ -187,9 +206,15 @@ def write_meta_cas(ws_id: str, meta: dict, expected_state_version: int) -> bool:
     meta["created_at"] = stored.get("created_at", meta.get("created_at"))
     if "creator_username" in stored:
         meta["creator_username"] = stored["creator_username"]
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(meta))
-    tmp.replace(path)
+    # M1-D3: unique temp per writer — a fixed ".tmp" let two concurrent CAS
+    # writers rename each other's bytes (silent lost update) then 500 on the
+    # second replace. Same CAS semantics; only the temp name is per-writer.
+    # X2 (review): the hand-rolled temp+replace is now the shared
+    # `atomic_io.atomic_write_text` (same unique-temp + os.replace shape, plus
+    # a best-effort temp unlink on failure) and names its encoding — meta
+    # carries usernames, so the default-locale write was the same non-ASCII
+    # hazard the readers had.
+    atomic_write_text(path, json.dumps(meta))
     return True
 
 
@@ -208,7 +233,7 @@ def remove_legacy_workspaces() -> int:
         if not meta_path.exists():
             continue
         try:
-            meta = json.loads(meta_path.read_text())
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except Exception:
             continue
         if not meta.get("creator_username"):

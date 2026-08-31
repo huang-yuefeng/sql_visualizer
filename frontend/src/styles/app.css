@@ -194,15 +194,22 @@ body { background: var(--bg-app); color: var(--ink-900); }
 
 /* ── SQL Viewer Panel ────────────────────────────────────────────── */
 .sql-panel {
-  border-top: 2px solid var(--accent); background: var(--bg-app); flex-shrink: 0;
+  border-top: 2px solid var(--accent); background: var(--bg-app);
   max-height: 40vh; display: flex; flex-direction: column;
+  /* FTC E2E (v3.3.194): the panel is a column whose HEADER is pinned and
+     whose line list (.sql-content — NOT the legacy .sql-panel-body pre of
+     App.jsx) is the only scroller (see .inline-l2-sql). SqlPanel.scrollToLine
+     writes scrollTop on that list only, so no ancestor ever moves. */
+  overflow: hidden;
 }
 .sql-panel-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 8px 16px; background: var(--bg-surface); font-size: 0.8rem; color: var(--ink-400);
+  /* pinned: never scrolls away with the line list */
+  flex-shrink: 0;
 }
 .sql-panel-body {
-  flex: 1; overflow: auto; padding: 12px 16px; margin: 0;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 16px; margin: 0;
   font-size: 0.75rem; line-height: 1.5; color: var(--code-text);
   white-space: pre-wrap; word-break: break-all;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -314,6 +321,21 @@ body { background: var(--bg-app); color: var(--ink-900); }
 .upload-btn-secondary { background: transparent; border: 1px solid var(--border-strong); color: var(--ink-600); }
 .upload-btn-secondary:hover { border-color: var(--success); color: var(--success); background: transparent; }
 .ws-id { font-size: 0.75rem; color: var(--ink-400); font-family: monospace; margin: 4px 0; }
+/* P2 fast-open: index staleness line (passive) + the P1 catch-up notice that
+   withholds search while a background incremental re-index runs. */
+.ws-indexed-at { font-size: 0.68rem; color: var(--ink-400); margin: 2px 0 4px 0; }
+.catchup-panel {
+  margin: 8px 0; padding: 8px 10px; border-radius: 6px;
+  border: 1px solid var(--border-strong); background: var(--bg-surface);
+  font-size: 0.72rem; color: var(--ink-600);
+}
+.catchup-panel .catchup-title { font-weight: 600; color: var(--accent); margin-bottom: 2px; }
+.catchup-panel .catchup-line { font-size: 0.68rem; color: var(--ink-400); }
+.stale-hint {
+  margin: 8px 0; padding: 6px 8px; border-radius: 6px;
+  background: var(--bg-surface); border-left: 3px solid var(--border-strong);
+  font-size: 0.68rem; color: var(--ink-400);
+}
 .progress-bar { height: 8px; background: var(--bg-elevated); border-radius: 4px; margin: 8px 0; position: relative; }
 .progress-fill { height: 100%; background: var(--success); border-radius: 4px; transition: width 0.3s; }
 .progress-bar span { position: absolute; right: 4px; top: -18px; font-size: 0.65rem; color: var(--ink-400); }
@@ -407,6 +429,27 @@ body { background: var(--bg-app); color: var(--ink-900); }
   background: var(--bg-surface); user-select: none; white-space: nowrap;
 }
 .flow-only-toggle input { margin: 0; cursor: pointer; }
+/* R40.13: the string-match cluster inside the Field Story bar — the diff
+   counter (the summary that stays visible while the bands are hidden), the
+   `3/17` browse readout, and the divider separating it from the story chips.
+   Inline with the toolbar's own type scale. */
+.sm-divider {
+  width: 1px; align-self: stretch; margin: 0 2px;
+  background: var(--border); flex-shrink: 0;
+}
+.sm-counter {
+  font-size: 0.7rem; color: var(--ink-600); white-space: nowrap;
+  /* The diff summary is the point of the feature: it never shrinks into an
+     ellipsis. In the default 420px L2 panel the whole cluster wraps onto its
+     own row instead (the bar is flex-wrap: wrap) — the counter stays whole
+     and the browse controls stay reachable at every panel width. */
+  flex-shrink: 0;
+}
+.sm-readout {
+  font-size: 0.7rem; color: var(--ink-600); white-space: nowrap;
+  font-variant-numeric: tabular-nums; min-width: 34px; text-align: center;
+  flex-shrink: 0;
+}
 /* L2 4-way view toggle (#331) — toolbar select, styled like the small
    toolbar buttons (replaces the flow-only checkbox). */
 .flow-mode-toggle {
@@ -457,6 +500,18 @@ body { background: var(--bg-app); color: var(--ink-900); }
 .sql-line { display: flex; padding: 0; }
 /* R25: single-line edge highlight (the old field-level layer is gone) */
 .sql-line.edge-highlighted { background: var(--warning-soft); border-left: 3px solid var(--warning); }
+/* R40.13: the NAIVE string-match diff layer — whole-line bands, declared
+   AFTER .edge-highlighted so the layer's tint wins the background when a line
+   is BOTH an engine anchor and a naive match, while the engine's amber 3px
+   LEFT border stays legible beside the layer's 3px RIGHT border (three
+   channels, one token each: amber = engine anchor, green = naive match the
+   engine covers, red = naive match it does not). Whole lines only — no
+   per-token markup, so the .line-text DOM and the export path are untouched.
+   `.string-match-active` is an OUTLINE: it never shifts layout and reads over
+   either band. */
+.sql-line.string-match.covered { background: var(--success-soft); border-right: 3px solid var(--success); }
+.sql-line.string-match.missed { background: var(--danger-soft); border-right: 3px solid var(--danger); }
+.sql-line.string-match-active { outline: 2px solid var(--accent); outline-offset: -2px; }
 .line-num {
   width: 36px; text-align: right; padding-right: 8px;
   color: var(--ink-400); user-select: none; flex-shrink: 0;
@@ -916,10 +971,25 @@ body { background: var(--bg-app); color: var(--ink-900); }
 }
 .inline-l2-sql {
   /* max-height removed — user drags freely */
-  overflow-y: auto;
+  /* FTC E2E (v3.3.194): the SLOT no longer scrolls. It used to be the
+     scroller, so scrolling to a late highlighted line pushed the whole
+     .sql-panel (header with Export/Config included) out of the slot. Only
+     the line list (.sql-content) scrolls now, and only via its own
+     scrollTop — the header is pinned. */
+  overflow: hidden;
+  display: flex; flex-direction: column;
   /* R10-#18: as the flexible flex item, it must be allowed to shrink
      below its content height in tight windows */
   min-height: 0;
+}
+.inline-l2-sql .sql-panel {
+  /* fill the slot: the header row stays put while the line list scrolls */
+  height: 100%; max-height: none;
+}
+.inline-l2-sql .sql-content {
+  /* the LINE LIST is the scroller (its own max-height is for the legacy
+     standalone page; in the slot the panel's height governs) */
+  flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto;
 }
 
 /* ── Bundled Edge Tooltip ── */

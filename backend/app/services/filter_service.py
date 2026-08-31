@@ -351,9 +351,14 @@ async def apply_filter_config(ws_id: str, script_table, table_col, push=None) ->
         filtered_ti = {}
         filtered_fi = {}
 
-    # Save filtered index (L9: write off the event loop — large workspaces)
+    # Save filtered index (L9: write off the event loop — large workspaces).
+    # M1-D2: atomic (temp + os.replace) — a concurrent reader (POST /search via
+    # _load_index) must see either the whole old scope or the whole new one;
+    # a torn read here 500s every search until the next re-index.
+    from app.services.atomic_io import atomic_write_text
     await asyncio.to_thread(
-        (cache_dir / "filtered_index.json").write_text,
+        atomic_write_text,
+        cache_dir / "filtered_index.json",
         json.dumps({"table_index": filtered_ti, "field_index": filtered_fi}, indent=2),
     )
 

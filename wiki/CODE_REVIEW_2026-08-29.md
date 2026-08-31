@@ -16,7 +16,11 @@ implemented and verified them in the same working session. The R1/R2/R3 rows car
 adjudicated verdict and are marked **fix in flight (v3.3.192)** where the owning fix team had not
 landed when this record was written. AD2's numeric verdicts are recorded as measured; the
 per-finding IDs live in the review transcript and are referenced here by the row names the teams
-used.
+used. **§6–§9 (added 2026-08-31)** record the 2026-08-30/31 rounds — the Field Story audits, the
+multi-user audits and the hardening batch they produced, and the R40.13 acceptance cross-check.
+Every code claim in those sections was re-verified against the working tree by grep/read at
+writing time; where a measurement lives only in the session transcript and has no repo artifact,
+the row says so explicitly rather than citing a number nothing in the tree can reproduce.
 
 ---
 
@@ -171,3 +175,126 @@ for them would fabricate a schema fact.
 * `test_graph_integrity.py`'s tightened waiver + adjudication table is measured against
   `EXTRACTOR_VERSION 2026-08-28.8`; when G1 bumps to `.9` the counts must be re-measured and the
   waiver table re-verified (the "must keep firing" assert will name any entry the fix retires).
+
+---
+
+## 6 · Field Story audits (FSA/FSB/FSC) and the G6 rules rewrite (2026-08-30/31)
+
+Three audits of the Field Story classification, run in that order. Each widened the sample; the
+third is the one that decided the rewrite.
+
+| Audit | Scope | Headline result | Disposition |
+|-------|-------|-----------------|-------------|
+| **FSA** | Field Story stage classification, EAST5 | **167/597 told steps = 28% true of the searched field** (birth 3/49, read 0/95, consumed 32/267, joined 51/105; written/reappears/filtered 100%). Ground truth = the script text + a hand-verified token/alias model built independently of the module. | **Fixed by G6** — see below |
+| **FSB** | flow-only targeting | 168/168 seeds; 45.4% occurrence-index on CASE-chain fields; recall 80.3%. *Measured in the working session — the case list is transcript-only, no repo artifact.* | fed the FSC design |
+| **FSC** | corpus-wide, 3,922 `(table, field)` pairs | median occurrence-index 0%; three structural holes — **(a)** 24.1% of pairs have no flow / owner-less bare columns, **(b)** the closure is not a pure function of the script (snapshot integrity), **(c)** recall p10 33%; plus a 1.1 s per-field perf floor on the RFN-scale sample. *Measured in the working session — transcript-only.* | **v3.3.195-program**, not a v3.3.194 fix — the holes are engine-shape, not display-shape |
+
+### G6 — the rules rewrite (landed, frontend-only)
+
+`frontend/src/utils/fieldStory.js` re-ruled under ONE governing idea (file header, "THE ONE
+GOVERNING IDEA"): **a step is told only when the payload carries FIELD-level provenance for the
+searched field** — an edge endpoint that IS one of the searched field's chips. Where the payload
+is silent about the field, the story is silent too: the step is DROPPED, never re-anchored onto a
+line the field was not on. Four rules changed (`Fix H` + three `Fix M` sub-rules, `fieldStory.js`
+:158-171, enforced at `:354`):
+
+1. **Fix H (`consumed`)** — the stage had no field-leg requirement and its ⟐output exclusion
+   tested `type === 'output_table'`, a type absent from served payloads (real routing
+   intermediates are `intermediate_table`) — the guard was dead code, so every write leg in every
+   closure landed in `consumed`, including each field's own AS-alias birth line. Now: the routing
+   family is matched by type AND the `⟐` name marker; a value leg must be SOURCED by one of the
+   field's own chips; the leg resolves through the routing intermediate's single outgoing write
+   leg (no single leg → untold, never guessed) — own table ⇒ **birth**, other table ⇒
+   **consumed** at the consuming DML line.
+2. **Fix M (table-path)** — no chip endpoint ⇒ no step (the audit's 191 TABLE-PATH + 52 PHANTOM
+   steps).
+3. **Fix M (read)** — a read needs the chip to SOURCE the leg (`compound → chip` value copies
+   measured 8/8 wrong) at the chip's own `line_start`; joined/filtered need a line that is
+   neither the compound's anchor nor, for JOINISH types, the chip's own line.
+4. **Fix M (birth)** — `highlight_line === the table's line_start` is no longer the birth test
+   (it is the FROM/JOIN anchor for a source table — 46 fake births); a source-side field has NO
+   birth stage; a birth line absorbs the other chip edges on that line.
+
+**Re-run of the SAME audit over the SAME 117 EAST5 pairs: 207/216 = 95.8%** (birth 61/61 — up
+from 3/49, read 34/34, written 63/63, reappears 14/14, filtered 4/4, joined 10/13, consumed
+21/27), **0 H defects** (was 138), 597 → 216 steps, 116/117 stories non-empty. Scored by the
+audit's own published engine unchanged the figure is 69% — the whole delta is that engine's birth
+branch, which had no OK case for a target column's AS-alias line; the amendment rules (Fix 1c)
+that the AS-alias line IS the birth. The 9 residual M defects are NOT client-fixable (6× a
+SELECT-output alias the walker attributed to a SOURCE table; 3× a COMPUTED edge addressed to the
+wrong output chip) — backend follow-up, recorded at the R40.12-A row. Full numbers:
+`wiki/REQUIREMENTS_TRACEABILITY.md` R40.12-A, `CLAUDE.md` #37 amendment.
+
+## 7 · Multi-user audits (M1/M2/MSC) and the hardening batch (2026-08-31, landed)
+
+The audits found one CRITICAL, one HIGH and a set of contract breaks; the batch below is their
+output. Every row carries its own tree verification. New suites: **104 tests** across
+`test_incremental_index.py` (29), `test_multiuser_workspace.py` (19), `test_multiuser_sessions.py`
+(14), `test_audit_trail.py` (16), `test_heavy_gate.py` (12), `test_logger_broadcast.py` (14), plus
+`test_participant_reads.py` (9).
+
+| Row | Finding | Verdict / fix | Tree proof |
+|-----|---------|---------------|------------|
+| **MSC-1** | **CRITICAL.** `HeavyGate` kept per-call state on the MODULE-LEVEL SINGLETON every heavy-op endpoint shares; a refused (409) entrant overwrote the holder's `_acquired` before the holder unwound, so neither `__exit__` released and the module global `_busy` stayed True FOREVER — every search, any user, any workspace answered 409 "system busy" until the container restarted. Reproduced live at 0% CPU after one concurrent burst. | **fixed** — the acquisition lives on a per-call `_GateToken` holding its OWN acquired/released flags, kept on a `threading.local` LIFO stack; a refused entrant on another thread can never reach the holder's token. The singleton and the one global `_busy` stay (serialization unchanged), only the bookkeeping moved. | `backend/app/services/heavy_gate.py:13-19,45-70,79-113`; `tests/test_heavy_gate.py` (12 — the deterministic wedge sequence, 8-thread hammer, exception-inside-gate) |
+| **torn read** | Every index/cache/meta write was truncate+write, so a concurrent participant reader could see a half-written file — an intermittent 500, or a silently EMPTY index served as the truth. | **fixed** — `app/services/atomic_io.py` (`atomic_write_text`/`_bytes`: unique temp + `os.replace`); every index-layer and graph-layer writer routes through it; meta writes are a compare-and-swap under `_meta_cas_lock`. Proof has teeth: the same harness with the atomic write REMOVED reproduces the tear. | `atomic_io.py:26-51`; callers `folder_index_service.py:13,403,432`, `dataflow_service.py:448`, `filter_service.py:358`, `audit_service.py:34`; `workspace_service.py:169,188-211` (CAS); `tests/test_multiuser_workspace.py` (19 — matrix, capability-URL share path, torn-read + no-atomic control, catch-up 409 ×2 users, meta CAS, isolation) |
+| **#380 follow-up (AD2-A)** | Participants had no read path for the tree or the index, so opening a shared workspace meant re-scanning. | **fixed** — `GET /workspace/{id}/tree` + `GET /workspace/{id}/index` serve the PERSISTED artifacts (no re-scan, no re-extract, no membership side effect); missing/corrupt cache → 409 / `{}`, never 500; the creator's open refreshes them, a participant gets an informational hint. Creator-only `POST /scan` + `/index` unchanged. | `routers/workspace.py:273-360`; `routers/dataflow.py` search/`l2` reads; `frontend/src/api/client.js:200,206`; `tests/test_participant_reads.py` (9) |
+| **catch-up gate** | A search during a re-index answered from the PREVIOUS index — a field existing only in a just-added script came back as a false "not queried by any script". | **fixed** — an in-process catching-up registry; index-derived searches answer an explicit retry-able 409 for that window; the creator auto-fires the re-index on a stale open, the UI shows "Catching up: N changed script(s)…", search is withheld and replayed when the run ends. | `routers/dataflow.py:213-218,516-520`; `folder_index_service.py:2373-2398`; `DataFlowApp.jsx:468-490,697-722,1456-1470`; `tests/test_incremental_index.py:665`, `test_multiuser_workspace.py:641,664` |
+| **MSC-3** | The History panel labelled itself "who did what" but held exactly ONE record (`workspace_created`) no matter what a participant did — #285 had dropped visit logging and the other actions were never written. | **fixed** — the full action set is now written (`workspace_created`, `visit_start`, `search`, `l2_opened`, `layout_saved`, `visit_end`, creator `scan`+`index`), real sessions only, atomically appended, and BOUNDED at the last 200 records under a per-workspace `flock` (the MSC-5 views.json lesson). Note: workspace CLOSE is recorded as `visit_end`, not as a `close` action. | `services/audit_service.py:13-20,47,118-159`; `routers/workspace.py:50-80,118,216,240,369,404,481`; `routers/dataflow.py:278,300,465`; `tests/test_audit_trail.py` (16) |
+| **MSC-6** | The SSE log registry kept ONE ref-counted queue per WORKSPACE, so two participants (or two tabs) SPLIT the stream — every pushed line was `put` exactly once and drained by exactly one reader (a 13-line diagnostic block reached alice as 1 line and bob as 0). Each idle stream also parked a default-executor thread indefinitely. | **fixed** — the registry is a fan-out: one bounded queue per SUBSCRIBER (`_log_queues[ws] = {consumer_id: ConsumerQueue}`), every producer line delivered to ALL of them, bounded 500/consumer with drop-oldest, no parked executor thread. | `services/logger.py:7-13,33-60,127-150,178-238`; `routers/logs.py:34`; `tests/test_logger_broadcast.py` (14) |
+| **L2 child "×" routing** | The child "×" called a `DELETE …/views/{id}/children/{childId}` route that was never implemented — it 404'd for EVERY role, so no L2 child could ever be removed. | **fixed** — `deleteViewChild` routes to `DELETE /workspace/{id}/views/{childId}`, the route that exists. | `frontend/src/api/client.js:304-313` → `deleteView` `:258`; backend route `routers/dataflow.py:337`; call site `DataFlowApp.jsx:1520-1523`; `api/__tests__/client.test.js:114-143` |
+| **role-gated UI** | One button read "Delete Workspace" for a participant whose action only removed the workspace from their own list. | **fixed** — labelled by role (creator "Delete Workspace" / participant "Remove from my list"); the per-view "×" is creator-only (`canManageViews`); there is NO manual re-index control for anyone (user ruling 2026-08-31) — the automatic content-hash catch-up is the only re-index UI. | `components/WorkspacePanel.jsx:11-13,113-127`; `components/ViewBar.jsx:10-13,42,67`; `DataFlowApp.jsx:1519`; `WorkspacePanel.test.jsx:34-47`, `openExistingFlow.test.jsx:201-228` |
+| **scale** | — | 5 participants hammer the read paths while the creator re-indexes twice: zero 5xx, zero empty/shrunk index reads, every catch-up 409 inside the re-index window, p95 latency < 10 s, no cross-user view bleed. | `tests/test_multiuser_sessions.py:420-540` (14 — lifecycle, forged/absent cookies on every endpoint class, capability isolation, the scale read-hammer) |
+
+**Deferred / pending a user ruling (NOT fixed here):**
+
+* **Shared vs per-user views** — R31.4's "one shared current state, last-writer-wins" is now
+  load-bearing for the participant read path. Whether views should stay workspace-shared or become
+  per-user is a PRODUCT question, not an implementation defect; it needs a ruling before anyone
+  builds on either answer.
+* **The `#` boundary class** — the R40.13 lookaround covers `[A-Za-z0-9_$]` only, so `#` is a
+  boundary character and `p_dt#x` matches `p_dt`. Measured 0 `$`- or `#`-joined identifiers across
+  the whole `samples/` corpus, so the omission has zero effect today; changing the class needs a
+  new user ruling, never a silent amendment (see the R40.13 design section).
+* **`_write_meta_cas_locked`** (`workspace_service.py:208-210`) hand-rolls its own
+  temp+`replace` instead of calling `atomic_io` — same shape, but no OSError cleanup and outside
+  the shared helper. Cosmetic consistency item, not a tear risk; left for the release-gate pass.
+
+## 8 · R40.13 acceptance — the 10-difficult-case cross-check (2026-08-31, DONE)
+
+The string-match diff layer was cross-checked against 10 difficult cases, **62 SQL lines
+adjudicated**: **36 correct-covered, 11 correct-missed, 11 wrong-missed, 4 wrong-covered.**
+
+**The layer itself PASSED** — every band it painted was a true statement about the difference
+between the naive grep baseline and the engine's flow closure, which is all AC1/AC7 claim.
+
+**Acceptance FAILED on ENGINE closure defects**, not on the layer. Three root causes:
+
+| Root cause | Class | State at writing |
+|------------|-------|------------------|
+| **RC-A** | closure defect, class A | **ledgered for v3.3.195** — not scheduled for v3.3.194 |
+| **RC-B** | closure defect, class B | **fix in flight (G7)** |
+| **RC-C** | closure defect, class C | **fix in flight (G7/G8)** |
+
+> **Provenance note.** The 10 case scripts, the per-line verdicts and the RC-A/B/C definitions
+> live in the working-session transcript; no repo artifact records them yet. The team-internal
+> finding is recorded here at the confidence the tree supports — the layer's implementation and
+> its 42 tests are verified in the tree (`frontend/src/utils/stringMatch.js`,
+> `stringMatch.test.js`, `SqlPanel.test.jsx`, `fieldStoryBar.test.jsx`), the adjudication counts
+> and root-cause classes are not. When G7/G8 land, the RC-C/RC-B rows should be replaced by the
+> repro scripts and the before/after closure diff; until then this section is the only record.
+
+## 9 · Still in flight at the time of writing (2026-08-31)
+
+Recorded here so the release gate knows what to re-check; these are NOT landed as this record was
+written.
+
+| Item | Owner | Where it will land |
+|------|-------|--------------------|
+| G7 — extractor RC-C closure fix (from §8) | G7 | `variable_extractor_v2` / `dependency_graph`; expect an `EXTRACTOR_VERSION` bump (currently `2026-08-28.9`) and a snapshot rebaseline — see the PENDING entry in `SNAPSHOT_CHANGELOG.md` |
+| G8 — RC-B closure fix | G8 | same surface as G7 |
+| P2 — fit floor + panel header | P2 | frontend (`useCytoscapeGraph` / `layoutCore` / `app.css`) |
+| H8 — backend feature, scope not recoverable from the tree | H8 | flagged for the release gate — the working tree carries no H8-tagged change |
+| H9 audit trail, H10 SSE broadcast | landed | these two DID land — §7 rows MSC-3 and MSC-6; listed here only because they were briefed as in flight |
+| AD3 program — the corrected spec, the −64%-shrink re-derivation and the 72-row re-derivation, the RFN-scale perf flags | v3.3.195-program | the −64% / 72-row figures are transcript-only and need their own record before they are actionable |
+| FSC's three structural holes (§6) | v3.3.195-program | engine-shape work, not display |
+

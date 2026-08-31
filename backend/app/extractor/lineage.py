@@ -520,13 +520,68 @@ def _ctx_within(inner: str, outer: str) -> bool:
 _DERIVED_CONTAINER_TYPES = ("subquery", "virtual_table")
 
 
+def _cte_projects_target(pm, occ, holder_id: str, target_lower: str,
+                         scratch: dict, admitted: set | None) -> bool:
+    """G7 RC-C half 1 — the holder CTE is the searched field's own birth
+    container AND that birth is on the value chain the closure is walking.
+
+    Two model facts must both hold (AD1 option (a) AND option (b); neither
+    alone is safe):
+
+      (a) the CTE PROJECTS the searched field — a SCHEMA TABLE_COLUMN edge
+          from the holder CTE to a field-like occurrence whose field part is
+          the searched field. That edge is the extractor's own
+          "this CTE's output column" evidence (Phase 4b), so the CTE is
+          where the searched field is defined/aliased, never a container
+          that merely reads a same-named column of some other table;
+
+      (b) the model carries a value edge between that projection occurrence
+          and an ADMITTED node (the projection is itself in the closure, or
+          a FIELD_LAND neighbour of it is). Name-only matching (a) without
+          (b) is the co-scope flood G1 closed: a CTE over ten sources that
+          happens to project a same-named column would lend its scope to it.
+
+    `admitted` is the closure built so far — the value-provenance qualifier
+    is fixpoint-relative by design, so it is NOT memoized (the memo below
+    only ever stores the derived-single branch, which is closure-free).
+    """
+    if admitted is None:
+        return False
+    proj = scratch.get("cte_projections")
+    val = scratch.get("value_adjacency")
+    if proj is None or val is None:
+        proj = scratch["cte_projections"] = {}
+        val = scratch["value_adjacency"] = {}
+        for E in pm.edges:
+            if E.containment:
+                continue
+            if (E.edge_type == "SCHEMA"
+                    and (E.operation or "").upper() == "TABLE_COLUMN"):
+                proj.setdefault(E.source_id, []).append(E.target_id)
+            if E.edge_type in FIELD_LAND:
+                val.setdefault(E.source_id, set()).add(E.target_id)
+                val.setdefault(E.target_id, set()).add(E.source_id)
+    connected = False
+    for vid in proj.get(holder_id, ()):
+        o = occ(vid) or {}
+        if o.get("variable_type") not in FIELD_LIKE:
+            continue
+        if _occ_field_part(o).casefold() != target_lower:
+            continue
+        if vid in admitted or (val.get(vid, set()) & admitted):
+            connected = True
+            break
+    return connected
+
+
 def _holder_is_derived_single(pm, occ, holder_id: str, target_lower: str,
-                              memo: dict | None = None) -> bool:
+                              memo: dict | None = None,
+                              admitted: set | None = None) -> bool:
     """True when `holder_id` is a DERIVED PRODUCT of the searched table.
 
     R44 Fix A (2026-08-28.9), stage 1: the derived-product round may admit
     a field occurrence only when its holder actually delivers the searched
-    table's value. Two holders can:
+    table's value. Three holders can:
 
       1. the read itself — an occurrence whose physical identity IS the
          target (`_occ_identity(_ho) == target`), the alias read / the
@@ -535,13 +590,24 @@ def _holder_is_derived_single(pm, occ, holder_id: str, target_lower: str,
          EXACTLY ONE original physical TABLE/VIEW and that read's identity
          is the target — the extractor's own `derived_single` rule, mirrored
          here so the closure admits exactly the values the family-2 twins
-         were minted for.
+         were minted for;
+      3. G7 RC-C (2026-08-28.10): a CTE that PROJECTS the searched field
+         while that projection is value-connected to the closure — the
+         field's own birth container. RC-C's dark lines all sat inside
+         multi-source CTEs (RFN's TEMP_BDM_ACC_LOAN_INFO_01/_02 read 10+
+         physical tables), so the single-source test above can never admit
+         them; what makes such a holder a product of the SEARCHED table is
+         that the searched field is born there and its birth sits on the
+         value chain the closure is walking (the audit evidence: the model
+         carries `P5.HKZH@364 → REPAY_ACCT_NO@364`, the field's own birth).
+         Pass `admitted` (the closure so far) to enable this branch.
 
     A container with two or zero sources — or one whose single source is a
     DIFFERENT table — must not lend its scope to a same-named column of the
     searched table. Callers gate on this for DERIVED-CONTAINER holders only
-    (see the round comment for why a physical/CTE holder stays on the
-    scope-presence rule).
+    (see the round comment for why a physical holder stays on the
+    scope-presence rule); CTE holders take branch 3 when `admitted` is
+    given and stay on the scope-presence rule when it is not.
 
     Scope = the holder's own context plus its '/'- and ':'-nested bodies.
     An EXISTS/NOT-EXISTS body under the holder is row-SELECTION, not a row
@@ -550,15 +616,21 @@ def _holder_is_derived_single(pm, occ, holder_id: str, target_lower: str,
     `exists (select 1 from ODS_CDP_GDC_TABLE_COA_LIST …)`).
 
     Memoized per holder id + target for the length of one closure
-    computation (the fixpoint re-enters the round on every round).
+    computation (the fixpoint re-enters the round on every round) — but only
+    for the closure-free branches; the CTE branch is evaluated fresh (its
+    answer depends on the closure built so far).
     """
     if memo is None:
         memo = {}
+    ho = occ(holder_id) or {}
+    if ho.get("variable_type") == "cte" and admitted is not None:
+        # closure-relative — never memoized
+        return _cte_projects_target(pm, occ, holder_id, target_lower, memo,
+                                    admitted)
     key = (holder_id, target_lower)
     cached = memo.get(key)
     if cached is not None:
         return cached
-    ho = occ(holder_id) or {}
     result = False
     if ho.get("variable_type") in _DERIVED_CONTAINER_TYPES:
         hctx = ho.get("context") or ""
@@ -628,7 +700,7 @@ def _cte_occurrence(pm, name: str, occ):
 def compute_field_flow(graph_data, target_table, target_field,
                        table_schemas=None, physical_model=None,
                        direction="downstream",
-                       row_flow_out=None) -> set:
+                       row_flow_out=None, _flow_memo=None) -> set:
     """Strict table.field data flow closure (v3.3.140+, L2 only) —
     J12-10 stage 3: walks the PHYSICAL MODEL's edges and occurrences
     instead of the display graph with reconstruction heuristics. The
@@ -742,6 +814,20 @@ def compute_field_flow(graph_data, target_table, target_field,
     benchmark seed: comps == 1, zero cross-component containment edges —
     the Jaccard gate stays byte-identical). Appends edge dicts (raw
     graph shape) to `row_flow_out`; the returned node set is unchanged.
+
+    PERF (v3.3.194) `_flow_memo`: an optional CALLER-SCOPED dict (one per
+    request — never module state, so no cross-request staleness and
+    nothing shared between threads). One request runs this walker up to
+    four times over the SAME graph with the same (table, field,
+    direction) — the response-level filter, the L2 flow view's filter and
+    the flow-role pass (directly and through flow_targets) — and the walk
+    is a pure function of those inputs. Shaped
+    `{id(graph): (graph, {(table, field, direction): (closure, bridges)})}`:
+    each entry keeps the graph object itself alive, so its id can never be
+    recycled onto a different graph while an entry lives (the `is` guard
+    is belt-and-braces). A hit returns a fresh set and re-fills
+    `row_flow_out`, so the caller's output arguments behave exactly as on
+    a full walk.
     """
     if physical_model is None:
         raise TypeError(
@@ -749,6 +835,14 @@ def compute_field_flow(graph_data, target_table, target_field,
             "stage 3 — the walker consumes the physical model)")
     if not graph_data:
         return set()
+    if _flow_memo is not None:
+        _entries = _flow_memo.get(id(graph_data))
+        if _entries is not None and _entries[0] is graph_data:
+            _hit = _entries[1].get((target_table, target_field, direction))
+            if _hit is not None:
+                if isinstance(row_flow_out, list):
+                    row_flow_out.extend(_hit[1])
+                return set(_hit[0])
     nodes = graph_data.get("nodes", []) or []
 
     node_map = {}
@@ -797,6 +891,24 @@ def compute_field_flow(graph_data, target_table, target_field,
     # effect-column continuation over the whole projection list (DigL
     # data_dt closure 9 → 41 nodes — every co-written column pulling its
     # FILTER/JOIN scope in).
+    # PERF (v3.3.194): the statement's ⟐-VT write edges grouped by their
+    # context — the per-occurrence scan below used to re-filter ALL model
+    # edges for EVERY constant projection (O(occurrences x edges)); the
+    # grouped form walks the edges once and yields the same (target, part)
+    # pairs in the same per-occurrence edge order.
+    _dml_vt_edges_by_ctx = {}
+    for _E in pm.edges:
+        if _E.edge_type != "DML":
+            continue
+        if (_E.operation or "").upper() == "WRITE_READ":
+            continue
+        _sv = occ(_E.source_id)
+        if _sv is None:
+            continue
+        if _sv.get("variable_type") != "virtual_table":
+            continue
+        _dml_vt_edges_by_ctx.setdefault(_sv.get("context") or "",
+                                        []).append(_E)
     for _vid, _o in pm.occurrences.items():
         if not _o.get("is_output"):
             continue
@@ -808,18 +920,7 @@ def compute_field_flow(graph_data, target_table, target_field,
         _ctx = _o.get("context") or ""
         if not _part or not _ctx:
             continue
-        for _E in pm.edges:
-            if _E.edge_type != "DML":
-                continue
-            if (_E.operation or "").upper() == "WRITE_READ":
-                continue
-            _sv = occ(_E.source_id)
-            if _sv is None:
-                continue
-            if _sv.get("variable_type") != "virtual_table":
-                continue
-            if (_sv.get("context") or "") != _ctx:
-                continue
+        for _E in _dml_vt_edges_by_ctx.get(_ctx, ()):
             _dml_write_leg.setdefault(_E.target_id, set()).add(_part)
     _stmt_field_parts = {}
     for _vid, _o in pm.occurrences.items():
@@ -992,7 +1093,22 @@ def compute_field_flow(graph_data, target_table, target_field,
         # (forward), never from the table back out into sibling fields
         # (the L2 field-flood defect). Value-copy REF and all other
         # FIELD_LAND types keep both directions.
-        read = bool(E.edge_type == "REF" and E.operation == "READ")
+        # G7 RC-C (2026-08-28.10): the container PROVENANCE bridge rides the
+        # same one-way rule. Its direction is value direction (the
+        # container's output column → the reader that consumes it), so
+        # "forward" is producer → reader; the closure needs the OTHER half —
+        # admit the container's column from a consumer — which is exactly
+        # the reverse-read rule below (plus its searched-field exception).
+        # Riding the read rule is what keeps the bridge from fanning the
+        # container's column back out to its sibling readers (a plain
+        # REFERENCE edge here grew RFN reserved_field9's closure 16 → 267).
+        # X1 correction: the PROVENANCE edge is stored producer→reader
+        # (source=producer, target=reader), so read=True admits its FORWARD
+        # (producer→reader) half unconditionally and gates only the reverse
+        # (reader→producer) half on the searched field — the value-correct
+        # direction. (The old comment's "consumer to producer" was inverted.)
+        read = bool(E.edge_type == "REF"
+                    and E.operation in ("READ", "PROVENANCE"))
         adjacency.setdefault(E.source_id, []).append(
             (E.target_id, E.edge_type, True, read, E.operation))
         adjacency.setdefault(E.target_id, []).append(
@@ -1145,7 +1261,17 @@ def compute_field_flow(graph_data, target_table, target_field,
                     # edge renders — R19.3 no-bypass completion). Same
                     # guard as the DML value rule below.
                     if read:
-                        admit = fwd or (_occ_field_part(occ(nb)) == target_field)
+                        # G7 RC-C (2026-08-28.10): case-insensitive — the
+                        # field part arrives in the SQL's own casing
+                        # (`REPAY_ACCT_NO`) while the search may be typed in
+                        # any casing (`repay_acct_no`); the case-sensitive
+                        # comparison silently dropped every reverse-read
+                        # admit whose occurrence spelled the field in the
+                        # script's casing (R44 R0 / CR11 made the seed and
+                        # entity matches case-insensitive — this comparison
+                        # is the same rule).
+                        admit = fwd or (_occ_field_part(occ(nb)).casefold()
+                                        == target_field.casefold())
                     else:
                         admit = True
                 elif et == "ALIAS":
@@ -1539,13 +1665,43 @@ def compute_field_flow(graph_data, target_table, target_field,
                 # that is provably decidable, and that is what is gated
                 # here.
                 _ho = occ(holder2) or {}
-                if (_occ_identity(_ho).casefold() != _tl2
+                # G7 RC-C half 1 (2026-08-28.10): a CTE holder that PROJECTS
+                # the searched field while that projection is value-connected
+                # to the closure is the field's own birth container — it
+                # delivers the searched table's value whatever the number of
+                # tables its body reads. Qualified CTE holders are admitted
+                # directly below (their body context is a `CTE{...}` segment,
+                # so the scope-presence test further down — an ancestor-or-
+                # equal context match against the holder — can never see the
+                # searched table's occurrence inside a CTE body anyway).
+                _cte_birth = (
+                    _occ_identity(_ho).casefold() != _tl2
+                    and _ho.get("variable_type") == "cte"
+                    and _holder_is_derived_single(pm, occ, holder2, _tl2,
+                                                  _holder_memo, visited))
+                if (not _cte_birth
+                        and _occ_identity(_ho).casefold() != _tl2
                         and _ho.get("variable_type") in _DERIVED_CONTAINER_TYPES
                         and not _holder_is_derived_single(pm, occ, holder2,
                                                           _tl2, _holder_memo)):
                     continue
                 hctx = _ho.get("context") or ""
                 if not hctx:
+                    continue
+                if _cte_birth:
+                    # The CTE is the field's own birth container: the
+                    # occurrence and its holder join directly — the value
+                    # chain reaches them through the container's PROVENANCE
+                    # bridge, not through a searched-table occurrence inside
+                    # the holder's scope.
+                    if vid2 not in visited:
+                        visited.add(vid2)
+                        changed = True
+                        _register(vid2)
+                    if holder2 not in visited:
+                        visited.add(holder2)
+                        changed = True
+                        _register(holder2)
                     continue
                 for tv, to in _tgt_occs:
                     tctx = to.get("context") or ""
@@ -1688,12 +1844,22 @@ def compute_field_flow(graph_data, target_table, target_field,
                     "color": "#2ECC71",
                     "containment": False,
                 })
+    if _flow_memo is not None:
+        # Cache the walk: the closure as a snapshot + the ROW_FLOW bridges
+        # it emitted (a hit re-fills the caller's list from the copy).
+        _key = (target_table, target_field, direction)
+        _entries = _flow_memo.get(id(graph_data))
+        if _entries is not None and _entries[0] is graph_data:
+            _entries[1].setdefault(_key, (set(visited), list(row_flow_out or [])))
+        else:
+            _flow_memo[id(graph_data)] = (
+                graph_data, {_key: (set(visited), list(row_flow_out or []))})
     return visited
 
 
 def filter_by_field_flow(graph_data, target_table, target_field,
                          table_schemas=None, physical_model=None,
-                         direction="downstream") -> dict:
+                         direction="downstream", _flow_memo=None) -> dict:
     """Filter graph to the strict table.field flow closure (v3.3.140+, L2 only).
 
     Returns a dict identical to graph_data except nodes = those whose id is in
@@ -1717,6 +1883,9 @@ def filter_by_field_flow(graph_data, target_table, target_field,
     are appended to the filtered edge list (raw graph shape, wrapped in
     {"data": ...} like every other served edge). Never fires when the
     closure is already connected (every benchmark seed).
+
+    `_flow_memo` (PERF v3.3.194): the caller's request-scoped walker cache —
+    see compute_field_flow. None (the default) always walks.
     """
     if not graph_data:
         return graph_data
@@ -1724,7 +1893,8 @@ def filter_by_field_flow(graph_data, target_table, target_field,
     closure = compute_field_flow(graph_data, target_table, target_field,
                                  table_schemas, physical_model=physical_model,
                                  direction=direction,
-                                 row_flow_out=row_flow_out)
+                                 row_flow_out=row_flow_out,
+                                 _flow_memo=_flow_memo)
     nodes = graph_data.get("nodes", []) or []
     edges = graph_data.get("edges", []) or []
     node_map = {n.get("data", n).get("id"): n.get("data", n) for n in nodes}
@@ -1868,7 +2038,7 @@ def classify_flow_roles(edge_list, table_node_ids) -> dict:
 
 
 def flow_targets(graph_data, target_table, target_field,
-                 physical_model=None) -> set:
+                 physical_model=None, _flow_memo=None) -> set:
     """R19.2 flow targets of the searched table.field — J12-10 stage 3:
     model-backed decision procedure (the model's roles and DML edges
     carry the truth the display used to reconstruct).
@@ -1894,7 +2064,8 @@ def flow_targets(graph_data, target_table, target_field,
     if not graph_data or not target_table or not target_field:
         return set()
     closure = compute_field_flow(graph_data, target_table, target_field,
-                                 physical_model=physical_model)
+                                 physical_model=physical_model,
+                                 _flow_memo=_flow_memo)
     if not closure:
         return set()
     write_keys = {key for key, tbl in physical_model.tables.items()

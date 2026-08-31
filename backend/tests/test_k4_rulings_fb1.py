@@ -285,9 +285,18 @@ class TestParenBalanceErrors:
 
     def test_extractor_version_bumped(self):
         """2026-08-28.7 — the batch that taught the extractor the structural
-        check; analysis/graph caches written by 2026-08-28.6 are stale."""
+        check; analysis/graph caches written by 2026-08-28.6 are stale.
+        G7 (2026-08-28.10): the comparison must be numeric per segment — a
+        lexicographic `>=` breaks as soon as a segment reaches two digits
+        (`2026-08-28.10` < `2026-08-28.7` as strings)."""
         from app.extractor.variable_extractor_v2 import EXTRACTOR_VERSION
-        assert EXTRACTOR_VERSION >= "2026-08-28.7", EXTRACTOR_VERSION
+
+        def _nums(v):
+            date, rev = v.split(".", 1)
+            return tuple(int(x) for x in date.split("-")), int(rev)
+
+        assert _nums(EXTRACTOR_VERSION) >= _nums("2026-08-28.7"), \
+            EXTRACTOR_VERSION
 
 
 # ════════════════════════════════════════════════════════════════════════

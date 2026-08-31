@@ -10,8 +10,8 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 
 - **Backend**: FastAPI + sqlglot (MySQL dialect), Docker `gps-sql-backend` on port 8000
 - **Frontend**: React 18 + Vite + Cytoscape.js, served from `frontend/dist/`
-- **Tests**: vitest (frontend, 281 tests across 26 files, all green), pytest (backend, 1139 tests collected in `backend/tests/` — 1026 passed / 5 skipped / 108 failed, every failure an expected `test_l2_snapshot.py` rebaseline awaiting the unified regen; jaccard benchmark gate 20/20, all floors 1.0000)
-- **Version**: See `/VERSION` (currently 3.3.190; the v3.3.191+ batch is staged in the working tree, pending release)
+- **Tests**: vitest (frontend, **424 tests across 33 files**, all green — measured 2026-08-31), pytest (backend, **1298 collected** in `backend/tests/` — re-measure the pass/skip split at the release gate, three teams were still landing code when this was written; +104 of those are the v3.3.194 multi-user/incremental-index suites; jaccard benchmark gate 20/20, all floors 1.0000). L2 snapshots: **108 committed baselines, EXPECTED RED** until the release gate runs the unified regeneration — see the PENDING entry in `SNAPSHOT_CHANGELOG.md`
+- **Version**: See `/VERSION` (currently 3.3.193 released, commit `7a450d3`; the **v3.3.194 batch is staged in the working tree** — fast reopen + incremental index + multi-user hardening)
 - **Service IP**: `192.168.0.66:8000` (never use `localhost`)
 
 ## File Map (Key Source Files)
@@ -20,19 +20,22 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 
 | File | Lines | Role |
 |------|-------|------|
-| `routers/dataflow.py` | 535 | `GET /api/workspace/{ws_id}/views/{view_id}/level1`, `GET .../level2?script=&filter=`, `POST .../search`, view CRUD, `GET .../scripts/{name}/highlight` (R22: level1 lineage filter, base-index diagnostics). **K4 ruling 4**: `_normalize_direction` — omitted and legacy "upstream" both coerce to "downstream" at the boundary; only a value outside the allowlist returns 400 |
-| `routers/workspace.py` | 437 | `/api/workspace` CRUD (DELETE: 400 malformed / 404 missing / 200 deleted), scan, index, filter-config, export-config, autocomplete. **#380 (2026-08-28)**: POST scan + index are creator-only (same rule as layout/filter-config #272 — participants get 403; a scan/index rewrites shared workspace state) |
+| `routers/dataflow.py` | 639 | `GET /api/workspace/{ws_id}/views/{view_id}/level1`, `GET .../level2?script=&filter=`, `POST .../search`, view CRUD, `GET .../scripts/{name}/highlight` (R22: level1 lineage filter, base-index diagnostics). **K4 ruling 4**: `_normalize_direction` — omitted and legacy "upstream" both coerce to "downstream" at the boundary; only a value outside the allowlist returns 400. **P1 catch-up gate (v3.3.194)**: the index-derived endpoints (`POST .../search`, the second index-derived route) refuse with a retry-able **409** "Index is being updated for this workspace — retry in a moment" while `is_index_catching_up(ws_id)` — answering from the previous index would return a false "not queried by any script" for a field that exists only in a just-added script. **MSC-3**: `search` and `l2_opened` are recorded in the bounded activity trail |
+| `routers/workspace.py` | 628 | `/api/workspace` CRUD (DELETE: 400 malformed / 404 missing / 200 deleted), scan, index, filter-config, export-config, autocomplete. **#380 (2026-08-28)**: POST scan + index are creator-only (same rule as layout/filter-config #272 — participants get 403; a scan/index rewrites shared workspace state). **#380 follow-up (AD2-A, v3.3.194)**: `GET .../tree` + `GET .../index` are the participant READ half of Open — they serve the PERSISTED artifacts (`cache/file_tree.json`, the two index JSONs + `index_report.json` + the `freshness` content diff + the `catching_up` flag), never re-scan and never rebuild; missing/corrupt cache → 409 / `{}`, never 500, no membership side effect. **MSC-3**: `_audit` funnels `workspace_created` / `visit_start` / `layout_saved` / `visit_end` / `scan` / `index` into the bounded per-workspace activity trail (close is recorded as `visit_end`) |
 | `routers/analysis.py` | 73 | Legacy `/api/analyze`, `/api/scripts`, `/api/analyze_multi` |
 | `services/filter_service.py` | 531 | **Filter logic** (R19): CSV parse → scopes → A∩B intersection → filter application + diagnostics (F6); shared `resolve_script` (R5, path-containment-checked); F3/F4/F5 (COL_NAME-only rows dropped + `ignored_rows` counters, case folding) |
 | `services/l1_builder.py` | 1136 | Cross-script L1 builder (production BFS → lineage_field_pairs → filter); M4-B degraded fallback (`degraded: true` + diagnostic); C2 single-cache-pass (R24: single-script workspaces run the full pipeline inline — script node + tables + edges, clickable to L2). **C-H1 (v3.3.160)**: `_lookup_analysis` — exact sql-keyed cache read requiring both extractor_version AND sql_text to match (edited-script stale analysis rejected) |
 | `services/l2_builder.py` | 2169 | Per-script L2 builder; C1 split into named phases (`_build_edge_list`, `_simplify_dml_edges`, `_map_search_target_ids`, ...) — byte-identity-verified. **R22: one compound node per physical table** (label-keyed merge, `merged_original_ids`, `search_matched` in return dict). **#386 (2026-08-28, R5.12)**: MERGE targets join the physical fold (the model keys a MERGE target by raw name, roles {merge_target, read}) — table-duplication audit's one real bug; aliases stay out. **v3.3.138 (B-series)**: dedup key `(parent_table_id, undecorated_label, stmt_idx)` — B4 no `↻` twins, C-9 per-statement fields; `_resolve_scope_parent` context-segment walk (B3); label/table_name split for `⟐` (B5); `_load_or_build_graph` prefers S4b-mutated analysis caches (C-2b/C-10). **v3.3.139**: D2 `(0,0)` highlight filter + `_recompute_line_map` stale-cache defense; `_scope_distance`/`_pick_scope_candidate` scope-aware parenting + seed re-parent onto searched table (B3/P1); Sync 1 iterates all same-name aliases (p1 sync live); P2 target seed fields keep field-level edges. **v3.3.140 (strict table.field flow)**: `_apply_relevance_filter` switches to `filter_by_field_flow` (legacy `filter_relevant` kept for L1); highlights = single `[line,line]` from node-carried `line_start` of field-like closure vars (FIELD_LIKE_TYPES/PARTITION, D2 guard); P1 MOVE→COPY — seed copies (`seed_{id}_{keeper[:8]}`) land on alias/CTE/target nodes, all `is_target`; ctx-aware parent refinement (`_pick_scope_candidate`); Sync 1/2 stmt_idx-aware (C7); alias dedup key `(alias_parent_id, label, alias_line)` with `p1@29` display labels; JOIN edges survive only when touching the seed zone (seed-side JOIN only). **v3.3.145**: scope-context patch machinery deleted (`_pick_scope_candidate`/`_scope_distance`/`_resolve_scope_parent`); `_compute_highlight_ranges` delegates to `get_strategy("single_line")`; `_load_or_build_graph` stamps `parse_errors` into graph caches. **v3.3.191+**: `_drop_partition_ddl_frames` (R43 — partition-DDL frames dropped display-only, right after the cache load); #387 write-target re-parenting when the SEARCH targets the write table (display projection); K4 ruling 1 — field chips carry `line_start` (line_start ONLY, keeper = first occurrence; `line_end` would re-route pickAutoEdge); R45 Fix H — the folded-edge carrier that names the keeper chip's own line wins over first-carrier-wins |
 | `services/dataflow_service.py` | 780 | SearchView, view persistence (views.json, persists match_mode), edge style helpers (R22: no-matches search semantics, L2 `search_matched`/not-in-flow full-graph response; R24: single-script L1 never pruned by the disconnected-script rule; C-2b: miss path builds from analysis cache + writes graph cache format_version 3). **v3.3.140**: relevance filter via `filter_by_field_flow` (legacy `filter_relevant` re-export kept for sql_highlight_service), format_version 4 + `extractor_version` mismatch re-run. **v3.3.145**: `get_level2_graph(..., highlight_strategy="single_line")` + `?highlight_strategy=` query param (label_only → no highlights; unknown names fall back to single_line); `parse_errors` in level2 response (case-3 diagnostics). **v3.3.160**: L2 two-view field-flow closure — `flow_node_ids`/`flow_edge_ids` in the response plus byte-identical `full_graph` for the client-side flow-only ↔ full toggle; C-H1 exact sql-keyed analysis cache (md5 of `EXTRACTOR_VERSION|script|sql`). **v3.3.191+**: search resolves table/field through `resolve_name_ci` (the matched script set is the UNION over every case variant; the canonical spelling replaces the typed one on the view, the response and the L1/L2 builds — an unresolved name keeps the typed string); `_no_flow_result` (#400, banner-compatible `match_mode: "no_flow"`); the not-in-flow L2 message states the truthful reason ("not in the downstream flow of X — showing the full graph", replacing the factually wrong "the field is not queried in this script") |
-| `services/folder_index_service.py` | 1556 | Folder scanning, script indexing, **A1 schema-file classification** (`file_class: schema\|script`), **S4b cross-script schema auto-resolution** (R22: two-phase plan→conflict-detect→apply, ambiguous fields revoked + `resolution_stats["ambiguous"]`, context-scoped cache attribution), resolution_stats aggregation, orphan report, index progress, `schema_evidence` in response. **F2 (audit #383, R2.9)**: defining-script invariant at 3 attribution sites — fields recorded from a script imply `table_index[t]["scripts"]`, so CTE entries (TEMP_RFN, temp_kmbh_*) are searchable. **v3.3.138 (C-series)**: CTAS→script (C-1), `_invalidate_graph_caches` post-S4b + index-time graph precompute REMOVED (C-2a), `_revoke_s4b_cache_update` (C-3), post-loop star expansion (C-5), `parse_by_script`/`parsed_cache` single parse (C-13a). **v3.3.139**: C-4 apply-side `n_attributed>0` gate; C-5 star expansion excludes revoked/ambiguous fields. **#245**: SELECT-output aliases (Fix A) + INSERT column names indexable for autocomplete (Bug 49 alias→physical, Bug 41 DML cross-ref); typo-tolerant matcher — substring primary, Levenshtein-≤1 fallback ranked exact > prefix > dist-1. **R2.11 (2026-08-29)**: `resolve_name_ci`/`scripts_for_name_ci` — the backend half of the F5 case-insensitive ruling: a typed name resolves to the canonical index key (the group of every case-variant), and the search intersection runs over the UNION of all variants' scripts, never one spelling's |
+| `services/folder_index_service.py` | 2419 | Folder scanning, script indexing, **A1 schema-file classification** (`file_class: schema\|script`), **S4b cross-script schema auto-resolution** (R22: two-phase plan→conflict-detect→apply, ambiguous fields revoked + `resolution_stats["ambiguous"]`, context-scoped cache attribution), resolution_stats aggregation, orphan report, index progress, `schema_evidence` in response. **F2 (audit #383, R2.9)**: defining-script invariant at 3 attribution sites — fields recorded from a script imply `table_index[t]["scripts"]`, so CTE entries (TEMP_RFN, temp_kmbh_*) are searchable. **v3.3.138 (C-series)**: CTAS→script (C-1), `_invalidate_graph_caches` post-S4b + index-time graph precompute REMOVED (C-2a), `_revoke_s4b_cache_update` (C-3), post-loop star expansion (C-5), `parse_by_script`/`parsed_cache` single parse (C-13a). **v3.3.139**: C-4 apply-side `n_attributed>0` gate; C-5 star expansion excludes revoked/ambiguous fields. **#245**: SELECT-output aliases (Fix A) + INSERT column names indexable for autocomplete (Bug 49 alias→physical, Bug 41 DML cross-ref); typo-tolerant matcher — substring primary, Levenshtein-≤1 fallback ranked exact > prefix > dist-1. **R2.11 (2026-08-29)**: `resolve_name_ci`/`scripts_for_name_ci` — the backend half of the F5 case-insensitive ruling: a typed name resolves to the canonical index key (the group of every case-variant), and the search intersection runs over the UNION of all variants' scripts, never one spelling's. **P1 (v3.3.194) — incremental re-index**: the index persists, per script, the PRISTINE pre-S4b analysis it extracted (`cache/ixevidence_{key}.json.gz`, gzip level 1) plus a per-file identity manifest (`cache/index_manifest.json`); the identity is `md5(EXTRACTOR_VERSION + "\|" + rel_path + sql_text)[:12]`, so an UNCHANGED script is REPLAYED from its evidence snapshot and only changed/new scripts re-extract (S4b + C-5 star expansion always re-run — workspace-wide). `index_change_diff` (=`get_index_freshness`) is the O(files) content diff the catch-up UI reads — PIPELINE-scoped counts, `None` before the first index, DDL churn reported separately in `schema_changed_count`; `is_index_catching_up` is the in-process registry behind the search 409 gate. Measured baseline being removed: `POST /index` 2.28–2.37 s on the 106-pipeline-script `tpcds_qualified` corpus, identical on every open, 70% inside `run_full_analysis`. **Atomic writes**: `_write_json_atomic` → `app.services.atomic_io` for every artifact; `filtered_index.json` is refreshed or cleared on every index (`filtered_index_cleared` in the response); the meta write is a CAS under `_meta_cas_lock` with a retry-on-stale loop |
 | `services/cache_keys.py` | 118 | `GRAPH_CACHE_PREFIX = "graph_3_2_25"` (single source of truth; `3_2_19` = v3.3.145 def-line/alias/containment, `3_2_25` = K4 ruling 3 paren-balance diagnostics — an INVALIDATION bump paired with `EXTRACTOR_VERSION 2026-08-28.7`, `format_version` stays 4) |
 | `services/graph_service.py` | 326 | Cytoscape JSON builder, NODE_STYLES, EDGE_TYPE_STYLE/CATEGORY_MAP, table_fields/alias_map; `_stmt_idx_of` + context/stmt_idx in node data (C-9); `line_start`/`line_end` in node data (v3.3.140); copies `containment` onto graph edge data (v3.3.145, I5 — the flag must reach the walker/filter) |
 | `services/highlight_strategies.py` | 268 | Display module (v3.3.145): `STRATEGIES` dict + `get_strategy(name)` — default `single_line` (node-carried `line_start`, D2 line-0 filter, adjacent-line merge), `label_only` → `[]`; unknown names fall back; extensible for future strategies (span etc.); R44 — `_anchor_line` anchors a WINDOW edge on the window application's own OVER line |
-| `services/logger.py` | 183 | SSE pipeline logger (ref-counted queue cleanup) |
-| `extractor/variable_extractor_v2.py` | 3657 | Role-based Identifier walking + S1–S6 orphan resolution; **S4a auto-attribution** (`_finalize_schema_candidates`, R6 field==table collision guard), statement-anchored loc (R22-L16: type-aware `_is_as_keyword` — string literals never the anchor; C-13b: token-position anchor), dict-of-dicts script_schemas; C4a unified stats (`resolved`/`unresolved_count`/`coverage_pct`). **v3.3.138**: contexts `TOP{stmt_idx}` (C-9), `_walk_join_key_expressions` (B-series Phase 2), label sanitation (B5). **v3.3.139**: order-independent join-key pairing (`_pair_join_key_sides`). **v3.3.140**: phantom dedup (`_explicitly_walked_selects` prune — subquery-interior columns registered once); statement-scoped line lookup (`_stmt_anchor_lines` + `_record_stmt_anchor` at `_walk_select/_walk_insert/_walk_merge/_walk_create`, `_find_position_scoped` — text-search expr[:40] within `[anchor, next_anchor)`, nested-context anchors excluded; `_add` uses it); PARTITION walk handles `exp.Column` + `exp.EQ`(Column left) on the Table node; `EXTRACTOR_VERSION = "2026-08-07.2"`. **v3.3.145 (I1/I2, definition-line resolution)**: vars carry DEF-site lines from the pre-tokenized stream (`self._tokens`, token `.line/.col`, 1-based) — `_find_position_scoped` text-search DELETED (patch layer); `_stmt_anchor_for(context)`; I2: `_register_column` sets `var.source_tables = [_resolve_alias(table, scope)]` (no early return — qualified columns attributed at extraction time); B3: `_attribute_output_containers` post-pass (CTE body outputs → own CTE, subquery/derived outputs → own VIRTUAL_TABLE); records `parse_errors` on ExtractionResult (case-3); `EXTRACTOR_VERSION = "2026-08-08.1"`. **R44/R45 (2026-08-28, LANDED — pending release)**: occurrence-side field registration — families 1/2 write-side + derived-read twins, family 3 occurrence-line twins for `_add`-collapsed 2nd..Nth occurrences (`_collapsed_occurrences` + `_register_flow_occurrence_twins`; Fix C: the occurrence-line search is bounded by the group's own paren scope `_paren_scope_bound` and never claims a line a nested scope owns `_scope_line_owner`; Fix D: `_base_var_for` matches the group's FULL casefolded identity; Fix E/F/G: per-clause line pairing `_line_clauses`/`_occurrence_clause`, spelling-insensitive `taken` computed once, a bare identity only matches BARE token occurrences), `_register_groupby_twins` GROUP-BY twins, K3 expression-fragment guard. **K4 ruling 3**: `_paren_balance_errors` — structural paren-balance diagnostics, ONE tokenizer pass over the original script split at `;` tokens. `EXTRACTOR_VERSION = "2026-08-28.8"` |
+| `services/logger.py` | 357 | SSE pipeline logger. **MSC-6 (v3.3.194) — the registry is a FAN-OUT, not a ref count**: `_log_queues[ws_id] = {consumer_id: ConsumerQueue}` — one bounded queue per SUBSCRIBER (500, drop-oldest), and every producer line is delivered to ALL of them. It used to be ONE ref-counted queue per WORKSPACE, so two participants (or two tabs) SPLIT the stream — each pushed line was drained by exactly one reader, and a 13-line diagnostic block reached alice as 1 line and bob as 0. `_push` snapshots the consumer set under the lock and never recreates a dropped queue; `ensure_queue` is a deprecated shim; no idle executor thread is parked |
+| `services/heavy_gate.py` | 111 | **MSC-1 (v3.3.194, CRITICAL) — the global heavy-op gate is wedge-proof.** `HeavyGate` used to keep per-call state (`self._acquired`) on the MODULE-LEVEL SINGLETON every heavy-op endpoint shares: a refused (409) entrant overwrote the holder's flag before the holder unwound, neither `__exit__` released, and the module global `_busy` stayed True FOREVER — every search, any user, any workspace, answered 409 "system busy — please wait" until the container restarted (reproduced live at 0% CPU after one concurrent burst). The acquisition now lives on a per-call `_GateToken` holding ITS OWN `acquired`/`released`, kept on a per-thread LIFO stack (`threading.local`); `__exit__` releases only what ITS OWN `__enter__` acquired, once. The singleton and the one global `_busy` stay — the serialization is unchanged, only the bookkeeping moved; `__bool__` preserves the routers' `with gate as acquired: if not acquired: 409` shape. Tests `tests/test_heavy_gate.py` (12, incl. the deterministic wedge sequence + an 8-thread hammer) |
+| `services/audit_service.py` | 203 | Per-workspace activity trail + server-global audit (NDJSON). **MSC-3 (v3.3.194)**: the full action set the server actually performs is now written — `workspace_created`, `visit_start`, `search`, `l2_opened`, `layout_saved`, `visit_end`, creator `scan`+`index` (close = `visit_end`) — for real sessions only, so the History panel's "who did what" is no longer a single `workspace_created` line no matter what a participant did. BOUNDED: the trail NEVER holds more than `ACTIVITY_CAP = 200` records (the MSC-5 views.json lesson); the cap trim is a read-modify-write, so it is serialized by a per-workspace `.activity.lock` flock held on a DOTFILE (the trim's `os.replace` swaps the inode out from under a lock held on the data file); detail strings clipped to 200 chars. Appends are real `O_APPEND` single-writer writes, never read-modify-write. Tests `tests/test_audit_trail.py` (16) |
+| `services/atomic_io.py` | 51 | **Shared atomic-write helper (P1 item 3-i, v3.3.194)** — `atomic_write_text` / `atomic_write_bytes`: unique temp name (`.{name}.{uuid8}.tmp`) + `os.replace`, best-effort temp unlink on `OSError`. Every index/cache/meta write routes through it, so a concurrent reader (a participant loading the index, `l2_builder`'s cache read, `filter_service`) sees either the whole old file or the whole new one, never a torn one. Callers: `folder_index_service` (index/report/manifest/evidence .gz/file_tree), `dataflow_service` (`_atomic_write_text` delegates — schemas, graph cache, views.json), `filter_service` (`filtered_index.json`, off the event loop), `audit_service` (activity records). Residual: `workspace_service._write_meta_cas_locked` still hand-rolls the same temp+replace shape instead of calling this — cosmetic, flagged for the release-gate pass |
+| `extractor/variable_extractor_v2.py` | 3657 | Role-based Identifier walking + S1–S6 orphan resolution; **S4a auto-attribution** (`_finalize_schema_candidates`, R6 field==table collision guard), statement-anchored loc (R22-L16: type-aware `_is_as_keyword` — string literals never the anchor; C-13b: token-position anchor), dict-of-dicts script_schemas; C4a unified stats (`resolved`/`unresolved_count`/`coverage_pct`). **v3.3.138**: contexts `TOP{stmt_idx}` (C-9), `_walk_join_key_expressions` (B-series Phase 2), label sanitation (B5). **v3.3.139**: order-independent join-key pairing (`_pair_join_key_sides`). **v3.3.140**: phantom dedup (`_explicitly_walked_selects` prune — subquery-interior columns registered once); statement-scoped line lookup (`_stmt_anchor_lines` + `_record_stmt_anchor` at `_walk_select/_walk_insert/_walk_merge/_walk_create`, `_find_position_scoped` — text-search expr[:40] within `[anchor, next_anchor)`, nested-context anchors excluded; `_add` uses it); PARTITION walk handles `exp.Column` + `exp.EQ`(Column left) on the Table node; `EXTRACTOR_VERSION = "2026-08-07.2"`. **v3.3.145 (I1/I2, definition-line resolution)**: vars carry DEF-site lines from the pre-tokenized stream (`self._tokens`, token `.line/.col`, 1-based) — `_find_position_scoped` text-search DELETED (patch layer); `_stmt_anchor_for(context)`; I2: `_register_column` sets `var.source_tables = [_resolve_alias(table, scope)]` (no early return — qualified columns attributed at extraction time); B3: `_attribute_output_containers` post-pass (CTE body outputs → own CTE, subquery/derived outputs → own VIRTUAL_TABLE); records `parse_errors` on ExtractionResult (case-3); `EXTRACTOR_VERSION = "2026-08-08.1"`. **R44/R45 (2026-08-28, LANDED — pending release)**: occurrence-side field registration — families 1/2 write-side + derived-read twins, family 3 occurrence-line twins for `_add`-collapsed 2nd..Nth occurrences (`_collapsed_occurrences` + `_register_flow_occurrence_twins`; Fix C: the occurrence-line search is bounded by the group's own paren scope `_paren_scope_bound` and never claims a line a nested scope owns `_scope_line_owner`; Fix D: `_base_var_for` matches the group's FULL casefolded identity; Fix E/F/G: per-clause line pairing `_line_clauses`/`_occurrence_clause`, spelling-insensitive `taken` computed once, a bare identity only matches BARE token occurrences), `_register_groupby_twins` GROUP-BY twins, K3 expression-fragment guard. **K4 ruling 3**: `_paren_balance_errors` — structural paren-balance diagnostics, ONE tokenizer pass over the original script split at `;` tokens. `EXTRACTOR_VERSION = "2026-08-28.9"` (line 211; `.9` = the G1 adjudicated batch — Fix A stage 1 derived-container holder gate, Fix B per-line twin clauses, Fix D part 1 ancestry scope-owner tie-break, Fix E MERGE phantom writes, Fix F paren-balance script lines; Fix A stage 2 and Fix D part 2 are WITHHELD, see `SNAPSHOT_CHANGELOG.md`) |
 | `extractor/dependency_graph.py` | 981 | VariableDefinition → VariableDependency (16 edge types); Phase 6b JOIN-key expression edges + REF classification (B-series Phase 2). **v3.3.145 (I3/I4)**: Phase 2 ALIAS = one edge per `alias_of` exact source-var id (name-matching cross-product DELETED; `id_index`/`var_order` support); Phase 7/8 anchors via `_pick_anchor` (candidates `_TABLE_TYPES` with `0 < line_start <= v.line_start`, max line, ties: empty `source_tables` > non-VIRTUAL_TABLE > registration order; `_parent_ctx` ancestor walk; global first-match DELETED; no candidate → skip); Phase 4b tags SCHEMA container→nested ⟐VT edges `containment=True` (I5). **R44/R45 (2026-08-28)**: Phase 4d-gb emits the SCHEMA belongs-to edge for GROUP-BY/occurrence twins (the twin's qualifier is its physical owner, so Phase 4d's prefix match misses it and Phase 8's bridge alone leaves it disconnected — topology check "no connection from source table"); `_twin_group_admits` admits a family-3 twin whose group collected a clause its own label lost |
 | `extractor/sql_line_mapper.py` | 86 | SQL expression → line mapping for `highlights` (D1: comment lines skipped, v3.3.139). **v3.3.140**: prefers var-carried `line_start`/`line_end` (statement-scoped) when > 0; text search kept as stale-cache fallback |
 | `extractor/lineage.py` | 1771 | `compute_field_lineage()`, `filter_relevant()` (R18). **R44 (LANDED, 2026-08-28 — pending release)**: occurrence-coverage admission rounds in `compute_field_flow`, all additive (user ruling "flow-only must cover all occurrences") — R0 case-insensitive entity match, R1 write-completion (a constant projection's output VT is admitted so the write leg renders), R3 derived-product admission (a var carrying the field part whose holder reads the searched table in its own scope is an occurrence), #399 option b′ (the searched table part may name a SQL ALIAS — union the alias's owning entities, gated on no entity hosting the field). **v3.3.138 (B-series Phase 1)**: SUBSET `{propagates_value: False, always_bidir: False}` — never walkable; JOIN rule admits expression nodes unconditionally, others on production evidence; None-guards. **v3.3.140**: `compute_field_flow()`/`filter_by_field_flow()` — strict table.field walker (FIELD_LIKE/FIELD_LAND/NEVER sets; ALIAS iff source_tables[0]==target; FILTER/JOIN iff seed-zone endpoint; DML forward-only; owner resolution + container rule; identity admissions to fixpoint) — legacy functions byte-identical. **v3.3.145 (I5)**: containment edges excluded — `_is_containment(ed)` helper (dict-key + object-attr forms), skipped in `compute_field_flow` adjacency + `filter_by_field_flow` output |
@@ -45,24 +48,25 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 
 | File | Lines | Role |
 |------|-------|------|
-| `DataFlowApp.jsx` | 696 | Data Flow Debugger main component (search, view persistence, resolution report, `schema_evidence` state; R22: `applyL2Result` + L2 not-in-flow banner, L1 no-matches message banner; R23: no browser auto-restore — clean start on load, one-time `df_last_search_view` purge). **v3.3.191+**: #400 — the no-flow banner carries an "Open <script> full graph" button (a no-flow search matches scripts but its L1 is empty, so there was no UI path to them); a not-in-flow strip lists the scripts outside the flow, each clickable into its full L2; F-B2 `sqlLineNotice` — a line-0/absent `line_start` shows "this element has no SQL line" instead of silently clearing the previous highlight |
+| `DataFlowApp.jsx` | 1921 | Data Flow Debugger main component (search, view persistence, resolution report, `schema_evidence` state; R22: `applyL2Result` + L2 not-in-flow banner, L1 no-matches message banner; R23: no browser auto-restore — clean start on load, one-time `df_last_search_view` purge). **v3.3.191+**: #400 — the no-flow banner carries an "Open <script> full graph" button (a no-flow search matches scripts but its L1 is empty, so there was no UI path to them); a not-in-flow strip lists the scripts outside the flow, each clickable into its full L2; F-B2 `sqlLineNotice` — a line-0/absent `line_start` shows "this element has no SQL line" instead of silently clearing the previous highlight. **P1/P2 fast open (v3.3.194)**: an existing workspace opens from `getWorkspaceTree` + `getWorkspaceIndex` (persisted reads); the client fires `POST /index` ONLY when the payload's `freshness` content diff is non-empty AND the user is the creator — a zero-diff open issues no rebuild call at all. While a catch-up runs: the `catchup-panel` bar ("Catching up: N changed script(s)… search reopens when the index is whole."), the search panel WITHHELD, and the 409 replay path recognises the catch-up by its OWN sentence (distinct from the heavy-gate 409) and replays the withheld search when the run ends; a participant gets an informational hint and never triggers the rebuild. `isCreator` gates `canManageViews` (the per-view "×") and the workspace button label |
 | `App.jsx` | 857 | SQL Analysis (legacy single-script) |
 | `components/DataFlowGraph.jsx` | 306 | Cytoscape renderer (no edge-hover tooltip — removed #240) |
 | `components/SqlPanel.jsx` | 329 | SQL display + syntax highlighting |
 | `components/FilterPanel.jsx` | 345 | Filter upload UI + warning banner (R2), renders `ignored_rows`; F5 (audit #383): canonical-key echo + inline "no such table.field in the index" message replacing the silent no-op; F-B2 — an autocomplete dropdown renders only while the typed name does NOT yet resolve AND its option list is non-empty (a resolved name leaves no overlay to cover or click-block the next input; typing never spawns an empty dropdown) |
 | `components/ResolutionReport.jsx` | 99 | Orphan resolution coverage badge + breakdown (R20) |
-| `components/WorkspacePanel.jsx` | 75 | Workspace upload/scan/index UI |
-| `components/FieldStoryBar.jsx` | 130 | Field Story step-through bar (v3.3.188, R40.3): numbered step chips, ◀/▶, autoplay 3s, ✕ dismiss — presentational, ALL state in DataFlowApp; relocated below the SQL panel (v3.3.189) |
+| `components/WorkspacePanel.jsx` | 133 | Workspace upload/scan/index UI. **v3.3.194**: the workspace action is LABELLED BY ROLE — creator "Delete Workspace", participant "Remove from my list" (the same endpoint does a different thing per role); "Indexed 5m ago" staleness line (`formatIndexedAge`, passive display over the payload's own timestamp, unparseable → not rendered); and there is **NO manual re-index control for anyone** (user ruling 2026-08-31) — the automatic content-hash catch-up is the only re-index UI, and corrupt/missing caches fall back to a full build on open |
+| `components/FieldStoryBar.jsx` | 195 | Field Story step-through bar (v3.3.188, R40.3): numbered step chips, ◀/▶, autoplay 3s, ✕ dismiss — presentational, ALL state in DataFlowApp; relocated below the SQL panel (v3.3.189). **R40.13 (v3.3.194)**: gains the string-match cluster — the show/hide toggle, the `N string matches · M in flow · K not in flow` counter, the `◀ 3/17 ▶` browse readout (wraparound, `–/17` while inactive) and the disabled-while-hidden rule; `flex-wrap: wrap` so the cluster drops to its own row in the default 420px L2 panel and the counter is never ellipsised |
 | `utils/layoutCore.js` | 244 | Shared layout: `fieldPositionsForTable()`, `positionTableFields()`, `applyLayout()` |
 | `utils/snakeLayout.js` | 107 | Snake/wrapping layout |
 | `utils/elkLayout.js` | 239 | ELK layered layout |
 | `utils/resolutionReport.js` | 93 | Stats normalization (prefers unified `unresolved_count`/`coverage_pct`) |
-| `utils/flowVisibility.js` | 322 | L2 two-view toggle helper: resolves initial flow-only state and applies `.show()/.hide()` visibility from `flow_node_ids`/`flow_edge_ids` (never re-layout — positions preserved across toggles). v3.3.183–190 merged-view filter chrome: synthetic `⟂` caption nodes + table-border loop-line (`capA_/capB_/capL_<edgeId>` via `upsertFilterCaptions`, zoom-compensated caption font) + `centerOnSeed` post-toggle re-center. v3.3.191+: data-driven `loopstep` per self-edge (`halfWidth + 150`) for `control-point-step-size` (R40.8 — the real self-loop geometry knob); R41 `recenter:false` on user-initiated Fit. **V2-N1 (2026-08-29)**: the searched `is_target` seed chips are EXEMPT from the merged-view zero-edge chip hiding — they are the chips the user searched for (5 of 7 measured closures otherwise rendered zero chips in the default Flow-only view) |
-| `utils/fieldStory.js` | 432 | Field Story derivation (v3.3.188, R40.3): the searched field's closure as ordered steps birth→written→read→**reappears**→joined→filtered→consumed (R40.12: Reappears = own-table SCHEMA occurrence-twin edge at a foreign line — strict admission, user-ruled 2026-08-30; Joined/Transformed added R40.10 — 7 stages, budget ≤10) — PURE projection of the served payload; each step carries BOTH edge-id namespaces (detailed `l2e_*` + merged `l2m_*` via `mergedEdgeIds`) |
+| `utils/flowVisibility.js` | 504 | L2 two-view toggle helper: resolves initial flow-only state and applies `.show()/.hide()` visibility from `flow_node_ids`/`flow_edge_ids` (never re-layout — positions preserved across toggles). merged-view filter chrome: table-border loop-line (`capA_/capB_/capL_<edgeId>`, zoom-compensated) + `centerOnSeed` post-toggle re-center — **the synthetic `⟂` caption NODE is RETIRED v3.3.194** (user ruling 2026-08-31: it was painted a SECOND time by the `FILTER_SELFLOOP_STYLES` edge-label rule, and because the enlarged loop's midpoint sits OUTSIDE the table box neither copy was hidden by a node fill — `east5_stzfxxb.p_dt` showed two identical `⟂ p_dt (filtered @L190)` texts on one loop; `FILTER_CAPTION_STYLES` is now an empty export still spread by `useCytoscapeGraph`). v3.3.191+: data-driven `loopstep` per self-edge (`halfWidth + 150`) for `control-point-step-size` (R40.8 — the real self-loop geometry knob); R41 `recenter:false` on user-initiated Fit. **Border-scoring assignment (labelled v3.3.195 in the code comment)**: `borderScore()` counts, per side, the neighbour boxes overlapping the arc band plus the ordinary edges attaching there, and `assignLoopSides` anchors the LABELLED loop on the freer border, sharing it only when the opposite one is occupied; 3+ loops keep the alternation as the greedy fallback; placement is deterministic (highlight_line, then id). **V2-N1 (2026-08-29)**: the searched `is_target` seed chips are EXEMPT from the merged-view zero-edge chip hiding |
+| `utils/stringMatch.js` | 167 | **R40.13 — the NAIVE string-match diff layer (v3.3.194, pure functions, no React, no parsing, no network).** `computeStringMatches(sqlText, fieldName)` → 1-based ascending lines (a line with 3 occurrences is ONE entry; comment/string-literal lines INCLUDED by design — it is the "what would a dumb grep see" baseline, so matching the chip's own birth line is correct); `classifyMatches(matches, flowLines)` → two DISJOINT ascending arrays/Sets `covered`/`missed` (an empty baseline classifies everything as missed — the truthful "the engine claims nothing here"); `flowLineSet(l2Result)` → the coverage baseline = `highlight_line` of `flow_edge_ids` ∪ `line_start` of `flow_node_ids`, integer ≥ 1, read from the DETAILED `graph` namespace (never the merged projection) — which is what makes the coloring identical across the flow-only/full/merged toggle; `buildBoundaryRegex` = case-insensitive lookarounds over `[A-Za-z0-9_$]`, NEVER `\b` (`$` is an identifier character in Hive/ODPS but a regex non-word char, so `\b` accepts `p_dt$x`/`x$p_dt`; flags are `"i"` ONLY — a `"g"` flag makes `.test()` stateful and silently skips lines). NOT a correctness claim: a red line is a difference to inspect, not a bug |
+| `utils/fieldStory.js` | 686 | Field Story derivation (v3.3.188, R40.3): the searched field's closure as ordered steps birth→written→read→**reappears**→joined→filtered→consumed (R40.12: Reappears = own-table SCHEMA occurrence-twin edge at a foreign line — strict admission, user-ruled 2026-08-30; Joined/Transformed added R40.10 — 7 stages, budget ≤10). **R40.12-A / G6 (2026-08-31 per-field rule audit): a step is told only when the payload carries FIELD-level provenance — an endpoint that IS one of the searched field's OWN chips (seed + every occurrence twin); a chip-sourced value leg resolving to the own table = birth at the production line, to another table = consumed at the DML anchor; the ⟐ routing family is matched by type AND the `⟐` name marker (the old `output_table` type test was dead code); where the payload is silent about the field the story is silent too — the step is DROPPED, never re-anchored** (see #37 for the 28% → 95.8% audit) — PURE projection of the served payload; each step carries BOTH edge-id namespaces (detailed `l2e_*` + merged `l2m_*` via `mergedEdgeIds`) |
 | `utils/nameFilter.js` | 90 | Autocomplete name-filter mirror: typo-tolerant matcher (Levenshtein-≤1 fallback) mirroring backend `folder_index_service.autocomplete()`; F5 (audit #383): `resolveNameCi()` case-insensitive resolution to the canonical index key |
 | `hooks/useCytoscapeGraph.js` | 512 | Cytoscape lifecycle: init, drag (recomputes from frozen offsets), layout dispatch, L2 flow-only ↔ full toggle via `applyFlowVisibility` (pure .show()/.hide() — never re-layout). R41 (v3.3.191+): `minZoom` 0.08 + Fit passes `recenter:false`; `CY_CORE_OPTIONS` exported (frozen shared core options: `wheelSensitivity` 0.3, `minZoom` 0.08, `maxZoom` 5) |
 | `config/layout.js` | 49 | Layout constants (single source of truth) |
-| `api/client.js` | 156 | API client + `errorDetail()` (L12; R23: `getWorkspaceInfo`/`scanWorkspace` wrappers removed). **K4 ruling 4**: `searchDataFlow` defaults `direction='downstream'`, so an omitted argument cannot re-introduce the upstream contract the API no longer honors |
+| `api/client.js` | 313 | API client + `errorDetail()` (L12; R23: `getWorkspaceInfo`/`scanWorkspace` wrappers removed). **K4 ruling 4**: `searchDataFlow` defaults `direction='downstream'`, so an omitted argument cannot re-introduce the upstream contract the API no longer honors. **v3.3.194**: `getWorkspaceTree` (returns `null` on any non-OK — a missing tree is a state, not an error) + `getWorkspaceIndex` (throws with `err.status` attached, which is what lets the catch-up 409 be recognised by status AND sentence) + `deleteViewChild(wsId, parentViewId, childId)` → `DELETE /workspace/{id}/views/{childId}`, the route that actually exists — the previous `…/children/{childId}` URL was never implemented and 404'd for every role |
 
 ## Architecture
 
@@ -202,14 +206,25 @@ curl -s http://192.168.0.66:8000/api/health       # health check
     model: "where does this field's value go" — provenance questions remain
     answerable in the full view. (The upstream walker machinery below the
     router is untouched — API-unreachable; retirement is a future work item.)
-30. **Merged self-loop filter labels + flow-line invariants (v3.3.181, R39)**:
-    R32 promotion turns absorbed FILTER edges into unlabeled self-loops; the
-    frontend re-attaches `⟂ <fields> (filtered @L<line>)` client-side
-    (`selfLoopFilterLabels` over the detailed closure; backend payloads
-    untouched). Two standing gates in `test_flow_line_invariants.py`: INV-1
-    every DML field-line has ≥1 closure edge (DDL ADD PARTITION lines are the
-    documented exception — new coverage there fails the test); INV-2 every
-    closure edge carries a SQL line.
+30. **Merged self-loop filter labels + flow-line invariants (v3.3.181, R39;
+    captions RETIRED v3.3.194, user ruling 2026-08-31)**: R32 promotion turns
+    absorbed FILTER edges into self-loops. The `⟂ <fields> (filtered
+    @L<line>)` caption is GONE — it was painted twice (the
+    `FILTER_SELFLOOP_STYLES` edge label AND the v3.3.190 caption node, both at
+    the loop midpoint, which sits outside the table box so no node fill hid
+    either). The curve stays (`FILTER_LOOP_GEOM_STYLES`, per-edge `loopstep`,
+    `loopdir`): parallel loops on one table alternate sides and the LABELLED
+    loop takes the FREER border — `flowVisibility.borderScore` counts, per
+    side, the neighbour boxes overlapping the arc band (nodes paint above
+    edges; a loop pushed behind the alias box `a@141` lost ~7x of its pixels)
+    then the ordinary edges attaching there; ties go LEFT. The absorbed line
+    number travels through the R37 click→SQL
+    channel and the Field Story "Filtered" step. `FILTER_SELFLOOP_STYLES` /
+    `FILTER_CAPTION_STYLES` are now empty exports (still spread by
+    useCytoscapeGraph). Two standing gates in `test_flow_line_invariants.py`:
+    INV-1 every DML field-line has ≥1 closure edge (DDL ADD PARTITION lines
+    are the documented exception — new coverage there fails the test); INV-2
+    every closure edge carries a SQL line.
 28. **L2 node click → SQL definition line (v3.3.179, R37)**: tapping a node
     feeds its `data.line_start` into the SINGLE `sqlHighlightLine` channel
     (shared with edge clicks; last wins; `SqlPanel` unchanged). Line
@@ -315,6 +330,75 @@ curl -s http://192.168.0.66:8000/api/health       # health check
     evidence: random-10 field audit — 49 previously-unclassified narrative
     edges left source-side fields at 1–2 steps; +30 projected steps across
     7/10 fields.
+
+    **AMENDMENT (2026-08-31, R40.12-A — the per-field rule audit):** a
+    per-field audit of the classification (117 searchable
+    `(table, field)` pairs of EAST5_STZFXXB_M.sql, 597 told steps, ground
+    truth = the script text + a hand-verified token/alias model built
+    independently of the module) scored **167/597 = 28%** steps true of the
+    field — birth 3/49, read 0/95, consumed 32/267, joined 51/105 (written,
+    reappears, filtered were 100%). Four rules were re-ruled in
+    `utils/fieldStory.js` (frontend-only; the mechanical frame — seed
+    selection, INV-2, `(kind,line)` grouping, `KIND_RANK` — is untouched):
+    **Fix H**: `consumed` had no field-leg requirement AND its ⟐output
+    exclusion tested `type === 'output_table'`, a type that does not exist
+    in served payloads (routing intermediates are `intermediate_table`; the
+    guard was dead code) — every write leg in every closure landed in
+    `consumed`, including each field's own AS-alias birth line. Now: the
+    routing family is matched by type **and** by the `⟐` name marker; a
+    value leg is the field's only when one of the field's OWN chips SOURCES
+    it; the leg is resolved through the routing intermediate's single
+    outgoing write leg (no single leg → untold, never guessed) — resolving
+    to the field's own table = **birth** at the leg's own line (the
+    SELECT-list AS-alias/PARTITION line where the value is produced, e.g.
+    `… AS cjrq` @74), to another table = **consumed** at the consuming DML
+    statement's line (the routing intermediate's `line_start`, not the
+    production line — that line is the birth), with the routing leg riding
+    the step's evidence so the reader sees who consumes it. **Fix M
+    (table-path)**: an edge is a step only when a chip of the searched
+    field is an endpoint — every chip of the field on the searched compound
+    (the seed + the R44 occurrence twins), not the seed alone; touching the
+    compound alone is the table's path (191 TABLE-PATH + 52 PHANTOM steps).
+    A read additionally requires the chip to SOURCE the leg
+    (`compound → chip` value copies measured 8/8 wrong) and the line to be
+    the endpoint chip's own `line_start`; a joined/filtered step requires a
+    line that is neither the compound's anchor nor (for JOINISH types) the
+    chip's own line (a JOINISH edge there is that line's own expression →
+    told as `read`; a FILTER there IS the field's predicate → stays
+    `filtered`). **Fix M (birth)**: birth no longer requires
+    `highlight_line === the table's line_start` — that is the FROM/JOIN
+    anchor for a source table (46 fake `Birth @LEFT JOIN …`) and never the
+    AS-alias line where a target column is produced; a source-side field has
+    NO birth stage (its honest stage is `read` at its first occurrence), and
+    a birth line absorbs the other chip edges on that same line (the
+    PARTITION binding beside the value leg). Re-run of the SAME audit over
+    the SAME 117 payloads: **207/216 = 95.8%** true of the field (birth
+    61/61, read 34/34, written 63/63, reappears 14/14, filtered 4/4, joined
+    10/13, consumed 21/27), **0 H defects** (was 138), 597 → 216 steps, and
+    116/117 stories non-empty (the one empty story is a chip the walker
+    attributed to the wrong table — nothing in its closure is true of the
+    field, so nothing is told). Scored by the audit's own published engine
+    unchanged the figure is 69%: the delta is only that engine's birth
+    branch, which had no OK case for a target column's AS-alias line (its
+    own `correct` field said `birth @L74` for the step it judged
+    WRONG-STAGE); the amendment's ruling (Fix 1c) is that the AS-alias line
+    IS the birth. The 9 residual M defects are NOT client-fixable — they
+    need payload fields that do not exist: 6× `consumed` on a SELECT-output
+    alias the index attributed to a SOURCE table (`bz`←`a.ccy_code`,
+    `dkje`←`b.loan_amt`, … — the walker builds a value leg for the alias
+    chip), and 3× `joined` where a COMPUTED edge is addressed to the wrong
+    output chip (`CASE … ` @51 → the `stzfdxhh` chip, @71 → `RESERVED_8`/
+    `RESERVED_10`). Both are backend follow-ups (either stop attributing
+    output aliases to source tables / fix the expression→output addressing,
+    or expose the per-edge field hop that today lives only inside the
+    display `reason` string as structured edge data). Flagship regressions
+    hold: the 9 R40.12 examples keep exactly their audited reappears steps,
+    and dm_flag2 RFN keeps written-768/written-1168 (its two ⟐-routed
+    "consume" legs drop — they carry no dm_flag2 chip, the audited Fix-H
+    shape). Tests: `fieldStory.test.js` rewritten for the corrected
+    canonical closure (3 steps for `east5_stzfxxb.p_dt`: birth-41,
+    written-41, filtered-190) + extended with one suite per rule (398
+    frontend tests green, was 384).
 38. **MERGE targets join the physical fold (R5.12, #386, 2026-08-28)**:
     the table-duplication audit's ONE real bug — a table MERGE-INTO'd in
     one statement and read/written in another rendered as TWO compound
@@ -397,3 +481,146 @@ curl -s http://192.168.0.66:8000/api/health       # health check
     collation and the fix is ONE shared `fold_ident()` helper that both
     sides call — never a sprinkling of local `.lower()`/`.casefold()`
     rewrites, which is how the two conventions drift apart again.
+
+45. **String-match diff layer is naive by design, color-coded by flow
+    coverage, browsed on its own cursor channel (R40.13, ruled
+    2026-08-31, ships v3.3.194 — frontend-only)**: after a search the SQL
+    panel also renders a NAIVE case-insensitive match of the searched
+    field name over the WHOLE script — comment lines and string literals
+    INCLUDED (it is the "what would a dumb grep see" baseline, so
+    matching the chip's own birth line is correct, not a defect) — and
+    every matched line is banded by whether the ENGINE's flow closure
+    covers it (green = covered, red = not), with the counter
+    `N string matches · M in flow · K not in flow` in the Field Story
+    bar. Boundary rule is a lookaround over `[A-Za-z0-9_$]` —
+    `(?<![A-Za-z0-9_$])NAME(?![A-Za-z0-9_$])`, escaped name, case-
+    insensitive — NEVER `\b`: `$` is an identifier character in
+    Hive/ODPS but a regex non-word char, so `\b` accepts `p_dt$x` and
+    `x$p_dt` (the two conventions agree on trailing digits, so
+    `p_dt2`/`p_dt_backup` are safe under both). The coverage baseline is
+    ALWAYS the flow closure's highlight set — `highlight_line` of
+    `flow_edge_ids` ∪ `line_start` of `flow_node_ids`, read from the
+    DETAILED `l2Result.graph` namespace (never the merged `l2m_*`
+    projection), integer ≥ 1, empty when the flow sets are empty — which
+    is what makes the coloring identical across the flow-only/full/merged
+    toggle. Browsing (`◀ 3/17 ▶` in the Field Story bar, wraparound,
+    ascending) uses a SEPARATE cursor prop + state that scrolls the panel
+    and outlines the active line; it never writes the R37
+    `sqlHighlightLine` channel, and the engine's amber left border stays
+    untouched and legible under the layer's right-border band (three
+    tokens, three meanings: amber = engine anchor, green = naive∩engine,
+    red = naive-only). Pure display over the already-served payload: no
+    backend, no API, no cache key, no snapshot, and NOT a correctness
+    claim — a red line is a difference to inspect, not a bug
+    (`utils/stringMatch.js` + `SqlPanel.jsx` + `FieldStoryBar.jsx` +
+    `DataFlowApp.jsx`; design of record: `wiki/REQUIREMENTS_TRACEABILITY.md`
+    §"R40.13"; requirement + acceptance criteria:
+    `requirements_v2.md` §"Amendment (2026-08-31)").
+    **IMPLEMENTED v3.3.193 working tree (R40.13, frontend-only, 42 new
+    tests).** Three implementation notes where the sketch's literal wording
+    needed a correction the design intent survives: (1) the DOM carries the
+    tokens `string-match covered` / `string-match missed` (as the sketch's own
+    class-list text says), so the CSS selectors are the compound
+    `.sql-line.string-match.covered` / `.…missed` forms — the sketch's
+    `.sql-line.string-match-covered` selector literal would match nothing;
+    (2) the searched field is resolved through the PARENT search row
+    (`storyTarget.field`) rather than the sketch's `activeView?.field` — an
+    active L2 view is the CHILD row, which carries no `field`, so the literal
+    read would have hidden the layer on every L2; (3) the Field Story bar is
+    `flex-wrap: wrap` so the string-match cluster drops to its own row in the
+    default 420px L2 panel — the counter is the feature's whole point and is
+    never ellipsised (`flex-shrink: 0`); at panel widths that fit the row the
+    bar renders exactly as the single-row sketch. `classifyMatches` returns
+    Sets (ascending iteration order) to feed the `Set<int>` SqlPanel props
+    directly.
+
+46. **Opening a workspace is a read; only a content change re-extracts
+    (v3.3.194, P1/P2)**: the baseline this replaces is that every open re-ran
+    the whole extraction pipeline — `POST /index` measured 2.28–2.37 s on the
+    106-pipeline-script `tpcds_qualified` corpus, IDENTICAL on the 2nd and 3rd
+    open, 70% of it inside `run_full_analysis`, because the per-script analysis
+    caches were rewritten every run and never read back. Now both the creator
+    and a participant open from persisted state
+    (`GET /workspace/{id}/tree` + `/index`), and re-index is INCREMENTAL: each
+    index persists the pristine pre-S4b analysis per script
+    (`cache/ixevidence_{key}.json.gz`) plus a per-file identity manifest
+    (`cache/index_manifest.json`) keyed by
+    `md5(EXTRACTOR_VERSION + "|" + rel_path + sql_text)[:12]`, so unchanged
+    scripts are REPLAYED and only changed/new ones re-extract — S4b and the C-5
+    star expansion always re-run (workspace-wide). A zero-diff open issues NO
+    `POST /index` at all. Change detection is by CONTENT, never mtime (a test
+    pins that touching a file without changing it does not fool the reuse). A
+    stale creator open self-heals: one automatic re-index, a
+    "Catching up: N changed script(s)…" bar, search withheld, index-derived
+    searches answered with an explicit retry-able 409 for that window (the
+    previous index would have lied — a field present only in a just-added
+    script would come back as "not queried by any script"), the withheld search
+    replayed when the run ends; a participant gets a hint and never triggers the
+    rebuild. There is NO manual re-index control for anyone (user ruling) — the
+    catch-up IS the re-index UI. Every index/cache/meta write is atomic
+    (`services/atomic_io.py`, unique temp + `os.replace`) and the meta write is
+    a CAS under `_meta_cas_lock`, so a concurrent reader never sees a torn
+    artifact — proven by a test that re-runs the same harness with the atomic
+    write REMOVED and watches the tear come back.
+
+47. **The multi-user contract is enforced, not just documented (v3.3.194,
+    M1/M2/MSC audits)**: one writer (the creator) per workspace, any number of
+    read-only readers — and the surfaces now say so. The workspace button is
+    labelled by role (creator "Delete Workspace", participant "Remove from my
+    list"); the per-view "×" is creator-only; `DELETE …/views/{childId}` is the
+    only child-delete route (the previous `…/children/{childId}` URL was never
+    implemented and 404'd for every role). The heavy-op gate holds its
+    acquisition on a PER-CALL token, not on the singleton — MSC-1 (CRITICAL):
+    per-call state on a module-level singleton meant one 409-refused entrant
+    destroyed the holder's release and every search service-wide answered 409
+    until restart. The SSE log stream BROADCASTS (one bounded queue per
+    subscriber, MSC-6) instead of splitting one ref-counted queue between
+    readers. The activity trail records what the server actually does
+    (`visit_start`/`search`/`l2_opened`/`layout_saved`/`visit_end`, bounded at
+    200, MSC-3) instead of holding one `workspace_created` line forever. Two
+    things stay OPEN on purpose: whether views should be workspace-shared or
+    per-user is a product question for the user, not a defect; and the R40.13
+    boundary class covers `[A-Za-z0-9_$]` only, so `#` is a boundary character —
+    measured zero effect on the current corpus, and changing it needs a ruling.
+    Audit record: `wiki/CODE_REVIEW_2026-08-29.md` §6–§9.
+
+
+48. **Field-involvement admission — "only edges where the searched field is
+    involved in the data flow are shown" (USER RULING 2026-08-31, fix team
+    J1)**: the served field closure's EDGES are admitted through
+    `l2_builder._apply_field_involvement` (runs after the payload phase, before
+    roles/response, and only when a search filter is active — the full view has
+    no searched field). The walker's NODE closure is untouched, so R44
+    occurrence coverage can never regress; the rule only removes. Two classes,
+    both read from extraction-time facts already carried per edge:
+    **Class 1 — JOIN OWN-SITE**: a JOIN carrier is served only when its anchor
+    line IS a JOIN-ON line (`line_clause_map` in `dependency_graph.py` — the
+    extractor's own `_line_clauses` machinery: same tokenizer, same
+    `_LINE_CLAUSE_TOKENS`). A collapsed carrier's `defined_in` names the
+    GROUP's clause while the line it carries was handed out in stream order
+    (R45 Fix B / F-E1), so a projection/read line can inherit the group's
+    join-key edge — the ledgered PROJECTION-TWIN-INHERITS-JOIN class (SUP_M
+    lending_ref JOIN carriers anchored at the L82 `CASE WHEN NVL(p6.lending_ref…`
+    read and the L163 `,p1.lending_ref` write projection; the LFS123 doctrine
+    "a carrier whose line is not the relationship's own site does not earn the
+    anchor"). **Class 2 — SIBLING-FIELD VALUE LEGS**: a value leg of a
+    NON-searched field is that sibling's own flow, not the searched field's —
+    its DML write value leg (`_value_edge`), its ⟐output-frame membership
+    (SCHEMA op `OUTPUT`), its write-projection read leg (REF op `READ` whose
+    source occurrence is stamped `SELECT expr`), and the chain leg into the
+    output frame its write drives (a value-carrying edge targeting the ⟐output
+    frame whose upstream `_path_hops` carrier is a sibling field occurrence).
+    Belongs-to/structural facts of a sibling chip (SCHEMA `TABLE_COLUMN`, ALIAS,
+    the table/VT skeleton) stay — the accepted FSB/G9 classes. Display-layer
+    mini version of AD3's value-cone gate (v3.3.195 does the full walker
+    version). Cross-check (SUP_M × lending_ref): the 6 ledgered over-included
+    edges are gone, node set and occurrence coverage byte-identical (14-case
+    before/after spot check), Field Story loses exactly the wrong step
+    (lending_ref SUP_M `joined@67`). RULE-VS-CANONICAL CONFLICTS (the rule is
+    the authority; the user rules on the ground truth): `LFS41`/`LFS123` (JOIN
+    carriers anchored at L67, a projection line — the canonical's own LFS123
+    note concedes "no join happens there") and `LFD2` (the upstream FROM-source
+    JOIN@101, already CR10-"pending"). Those 3 rows put
+    `lending_ref↓SUP_M` at E 0.9858/1.0000 and `lending_ref↑DL` at 0.9000/1.0000;
+    the other 18 benchmark cases stay 1.0000/1.0000. Tests:
+    `tests/test_field_involvement_rule.py`.

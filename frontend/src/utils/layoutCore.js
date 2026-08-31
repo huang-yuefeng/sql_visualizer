@@ -14,6 +14,7 @@ import {
   FIT_PADDING, TABLE_HDR_H, FIELD_RENDER_H, FIELD_H, FIELD_GAP,
   TABLE_MIN_H, TABLE_DEFAULT_W, SCRIPT_W, SCRIPT_H,
   TBL_PAD_TOP, TBL_PAD_BOT, TABLE_SELECTOR, FIELD_SELECTOR,
+  fitWholeGraph,
 } from '../config/layout';
 
 // ── Layout constants — imported from config/layout.js ──────────────
@@ -219,13 +220,18 @@ export function applyLayout(cy, tablePositions, fieldRel, tableInfo, fitPadding 
       ? Math.max(16, Math.floor(panelW * 0.05))
       : fitPadding;
     if (level === 'L2') {
-      cy.fit(undefined, effectivePadding);
+      // FIT-only zoom exception: the initial view of a tall L2 closure needs
+      // less than the manual floor to be whole on screen (see config/layout).
+      fitWholeGraph(cy, effectivePadding);
     } else {
+      // Same exception on L1 — a 100-script workspace needs < 0.08 for every
+      // script node to be reachable on screen (measured: q14 sat at x=3124 in
+      // a 1200px canvas with the floor clamped).
       const nonFieldNodes = cy.nodes().filter(n => n.data('type') !== 'field');
       if (nonFieldNodes.length > 0) {
-        cy.fit(nonFieldNodes, effectivePadding);
+        fitWholeGraph(cy, effectivePadding, nonFieldNodes);
       } else {
-        cy.fit(undefined, effectivePadding);
+        fitWholeGraph(cy, effectivePadding);
       }
     }
     // D-H2: signal the caller that the deferred fit is done. This fit runs

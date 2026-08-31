@@ -23,6 +23,7 @@ A-H1/H2, A-M7/A-M9) + wiki/R31_IMPLEMENTATION.md (§2.1) + R31 fixes
 
 import hashlib
 import json
+import logging
 import re
 import secrets
 import threading
@@ -30,6 +31,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.services.workspace_service import WORKSPACE_ROOT
+
+# M1-D4: provisioning rejections are visible in the server log (the account
+# is named, never the password) — see provision_user.
+_log = logging.getLogger(__name__)
 
 # Single source of truth for the quota cap (design §4/A-M2). The history cap
 # IS the creation cap — a creator can never hold more than this many of their
@@ -82,7 +87,11 @@ def save_users(users: dict) -> None:
     """
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
     path = _users_path()
-    tmp = path.with_suffix(".tmp")
+    # M1-D3 (same shape): unique temp per writer — currently serialized by
+    # _users_lock, but the fixed ".tmp" name is a lost-update trap if that
+    # lock is ever relaxed.
+    import uuid as _uuid
+    tmp = path.with_name(f".{_users_path().name}.{_uuid.uuid4().hex[:8]}.tmp")
     tmp.write_text(json.dumps(users))
     tmp.chmod(0o600)
     tmp.replace(path)
@@ -121,8 +130,24 @@ def provision_user(username: str, password: str, force: bool = False) -> bool:
     with force=True for every config entry, so each deploy re-syncs
     accounts/passwords to config. No HTTP endpoint provisions users.
     Returns False on invalid username/short password.
+
+    M1-D4: a rejected entry is LOGGED (WARNING, account named — never the
+    password). The drop used to be silent: a PROVISIONED_USERS_JSON entry
+    with a short password simply never became an account and every one of
+    its logins 401'd with no diagnostic anywhere (M2/M1 hit exactly that —
+    the container came up with an empty users.json). The rejection itself is
+    correct per the validator and stays; the silence does not.
     """
-    if not verify_username_format(username) or not _valid_password(password):
+    username_ok = verify_username_format(username)
+    password_ok = _valid_password(password)
+    if not username_ok or not password_ok:
+        _log.warning(
+            "provision_user: NOT creating account %r — %s; every login for "
+            "it will be rejected until the config is fixed",
+            username,
+            "invalid username format" if not username_ok
+            else "password shorter than MIN_PASSWORD_LEN (%d)"
+                 % MIN_PASSWORD_LEN)
         return False
     with _users_lock:
         users = load_users()

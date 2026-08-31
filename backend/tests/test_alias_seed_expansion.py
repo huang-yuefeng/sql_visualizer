@@ -471,9 +471,20 @@ class TestExpansionTargets:
     def test_alias_seed_expands_to_cte_entity(self):
         """`a.x` where `a` is an alias of the CTE cte_src (2 of the 12 S1
         targets are CTE-owned): the owning entity is the CTE — the seed must
-        be the CTE's field, and the physical base_t must NOT be dragged in
-        (an "alias → physical table" implementation would still miss this
-        one). RED today."""
+        be the CTE's field, and the SEED is the alias/CTE, never the physical
+        base_t (an "alias → physical table" implementation would still miss
+        this one). RED today.
+
+        G7 RE-SCOPE (2026-08-31, after the RC-C provenance/chain fix): the
+        old final assertion was `base_t not in comps`, written when no
+        traversal could reach the physical base. `base_t` now LEGITIMATELY
+        enters the closure — it is the value's ORIGIN
+        (`a.x` ← CTE `cte_src` projection ← `p.x` ← `base_t`), exactly the
+        upstream chain the provenance walk exists to surface. So "the base is
+        never in the closure" is no longer the contract; what must hold is
+        that the base is never the SEED: the chip at the SEARCHED line stays
+        on the alias/CTE side — base_t may only carry the copy of the field
+        instance that lands on its own upstream read line."""
         with _ws(CTE_SQL) as ws_id:
             pm = _model(ws_id, CTE_SQL)
             assert _alias_owners(pm, "a") == {"cte_src"}, pm.alias_by_var_id
@@ -489,9 +500,24 @@ class TestExpansionTargets:
             assert tgts, "no is_target chip — the alias seed did not attach"
             assert [t for t in tgts if t[2] == comps["cte_src"]], \
                 f"no is_target chip on the CTE entity: {tgts}"
-            assert "base_t" not in comps, \
-                f"the physical base was dragged into the CTE-owned closure: " \
-                f"{comps}"
+            # G7 RE-SCOPE: the base MAY be in the closure (it is the value's
+            # origin), so it is not "base_t not in comps" any more — the
+            # contract is that the base is never the SEED. Observable form:
+            # the is_target chip at the SEARCHED line (the alias reference
+            # line) is parented on the CTE entity only, never on base_t's
+            # compound. (base_t's own chip — the same field instance copied
+            # onto every node that carries it, P1 MOVE→COPY — sits at the
+            # CTE body's upstream read line, which is the origin showing
+            # through, not the seed.)
+            assert "base_t" in comps, (
+                f"the value's origin dropped out of the closure — the "
+                f"upstream chain a.x ← cte_src.x ← p.x ← base_t is broken: "
+                f"{comps}")
+            seed_line = _line_of(CTE_SQL, "SELECT a.x")
+            assert {p for (_l, ln, p) in tgts if ln == seed_line} \
+                == {comps["cte_src"]}, (
+                f"the searched line is seeded from a foreign compound "
+                f"(base_t must never be the seed): {tgts}")
 
 
 # ════════════════════════════════════════════════════════════════════════

@@ -21,7 +21,8 @@ from app.services.export_config_service import (
 )
 from app.services.folder_index_service import (
     scan_folder, index_scripts, get_index_status,
-    get_index_progress,
+    get_index_progress, get_index_freshness, manifest_class_cache,
+    index_change_diff, begin_index_run, end_index_run, is_index_catching_up,
 )
 from app.services.filter_service import apply_filter_config
 
@@ -44,6 +45,40 @@ def _session_ctx(request: Request) -> tuple[str, str | None]:
     if not REQUIRE_LOGIN:
         return "dev-user", None
     raise HTTPException(status_code=401, detail="Not logged in")
+
+
+def _audit(request: Request | None, ws_id: str, action: str,
+           detail: str | None = None) -> None:
+    """MSC-3: append one per-workspace activity record for a REAL session.
+
+    The History panel (GET /activity) is the "who did what" surface, but the
+    trail used to be creation-only (#285 dropped visit logging, the other
+    actions were never written), so the labels it ships could never fire.
+    Every handler below that knows its actor ends with one of these calls.
+
+    Recording rules:
+    - REAL SESSIONS ONLY (``token`` truthy) — the same gate the existing
+      ``workspace_created`` hook uses. Dev mode (login gate off) runs as the
+      synthetic "dev-user" with no session; writing a trail of synthetic
+      records would be noise, so it is skipped entirely.
+    - record shape is the R31 one the panel already renders
+      ({username, ip, ts, action, detail}); the ip is part of the EXISTING
+      format (MSC-4) — no new PII is introduced.
+    - NEVER raises: an audit failure must not fail the user's request, and a
+      direct in-process call (request=None) records nothing.
+    """
+    if request is None:
+        return
+    try:
+        username, token = _session_ctx(request)
+    except HTTPException:
+        return  # no usable session — nothing to attribute
+    if not token:
+        return
+    try:
+        append_activity(ws_id, username, _client_ip(request), action, detail)
+    except Exception:
+        pass  # the trail is best-effort observability, never a 500
 
 
 @router.post("/workspace")
@@ -176,6 +211,9 @@ async def save_layout(request: Request, ws_id: str, body: dict):
             "message": f"state changed by another user — refreshed",
             "fresh": fresh,
         })
+    # MSC-3: layout persistence is a shared-state write — record it (the key
+    # names the level, and the script for an L2 layout).
+    _audit(request, ws_id, "layout_saved", key)
     return {"saved": True, "state_version": read_meta(ws_id).get("state_version")}
 
 
@@ -198,6 +236,8 @@ async def resume_workspace(request: Request, ws_id: str):
             raise HTTPException(
                 status_code=409,
                 detail="Your workspace list is full — remove one from your list first")
+    # MSC-3: open/resume is a visit — the visit_start record #285 dropped.
+    _audit(request, ws_id, "visit_start")
     return {
         "workspace_id": ws_id,
         "creator_username": meta.get("creator_username"),
@@ -206,6 +246,10 @@ async def resume_workspace(request: Request, ws_id: str):
         "opened_l2s": meta.get("opened_l2s", []),
         "layouts": meta.get("layouts", {}),
         "index_status": get_index_status(ws_id),
+        # P1: content-hash diff vs the last index — the open path fires
+        # POST /index only when this is non-empty (a zero diff means the
+        # index would replay every script and change nothing).
+        "index_change": index_change_diff(ws_id),
     }
 
 
@@ -299,6 +343,13 @@ def get_workspace_index(request: Request, ws_id: str):
         "table_index": _read_json("table_index.json"),
         "field_index": _read_json("field_index.json"),
         "indexed": get_index_status(ws_id),
+        # P1: content-hash change hint vs the last index (None before the
+        # first index). Content-based, not advisory — POST /index decides
+        # per script from the very same md5.
+        "freshness": get_index_freshness(ws_id),
+        # P1: True while an index run is in flight — this payload is the
+        # PREVIOUS index. Searches are rejected with 409 for this window.
+        "catching_up": is_index_catching_up(ws_id),
     }
     for key in _INDEX_REPORT_KEYS:
         value = _read_json("index_report.json").get(key)
@@ -309,9 +360,13 @@ def get_workspace_index(request: Request, ws_id: str):
 
 @router.post("/workspace/{ws_id}/close")
 async def close_workspace(request: Request, ws_id: str):
-    """R31 (#285): per-user visit logging is dropped, so closing a workspace
-    is a no-op. The endpoint is KEPT (returns 200) because the frontend calls
-    api.closeWorkspace on unmount — no frontend change required."""
+    """MSC-3: the close path of a visit — writes the ``visit_end`` record.
+
+    #285 dropped per-user visit logging, which left the endpoint a no-op and
+    the History panel's `visit_end` label permanently dead; the visit bookend
+    is back (real sessions only), and the endpoint is still kept because the
+    frontend calls api.closeWorkspace on unmount — no frontend change."""
+    _audit(request, ws_id, "visit_end")
     return {"closed": True}
 
 
@@ -344,7 +399,10 @@ def scan_workspace(request: Request, ws_id: str):
     if ws.get("creator_username") != username:
         raise HTTPException(status_code=403,
                             detail="Only the workspace creator may rescan the workspace")
-    return scan_folder(ws_id)
+    tree = scan_folder(ws_id)
+    # MSC-3: a creator-side rewrite of shared workspace state (the tree cache).
+    _audit(request, ws_id, "scan")
+    return tree
 
 
 @router.post("/workspace/{ws_id}/index")
@@ -388,11 +446,39 @@ def index_workspace(request: Request, ws_id: str, body: dict):
     # doubling the scan cost and opening a two-scan TOCTOU on the on-disk
     # tree (a script vanishing between the scans would silently lose
     # coverage — the exact class #257 fixes).
+    #
+    # P1 (Job 3): the scan reuses the A1 classes the last index persisted
+    # (content-md5 keyed), so an unchanged file is classified from its
+    # record and not re-parsed; a fresh/edited/never-indexed file parses as
+    # always. index_scripts then re-extracts only the scripts whose content
+    # actually changed and replays the rest — the artifacts are identical
+    # to a full rebuild either way (tests/test_incremental_index.py).
     parsed_cache = {}
-    tree = scan_folder(ws_id, parsed_cache=parsed_cache)
+    tree = scan_folder(ws_id, parsed_cache=parsed_cache,
+                       class_cache=manifest_class_cache(ws_id))
     scripts = _collect_sql_files(tree)
 
-    result = index_scripts(ws_id, scripts, tree=tree, parsed_cache=parsed_cache)
+    # P1 (catching-up): from here until the index completes, every artifact
+    # on disk describes the PREVIOUS content — a search in this window would
+    # answer from a stale script set, so it gets an explicit 409 instead.
+    # `finally` guarantees the mark is cleared even when indexing raises (a
+    # crashed run must never block searches forever).
+    begin_index_run(ws_id)
+    try:
+        result = index_scripts(ws_id, scripts, tree=tree,
+                               parsed_cache=parsed_cache)
+    finally:
+        end_index_run(ws_id)
+    # P2 (item 1): the flag is sent EXPLICITLY false once the incremental has
+    # landed — absence also clears it, but this is unambiguous.
+    result["catching_up"] = False
+    # P2 (cosmetic): the same freshness object GET /index serves, computed
+    # AFTER this index wrote its manifest — so a UI that just triggered a
+    # catch-up can render "Indexed Xm ago" (and a zero diff) immediately,
+    # without waiting for the next GET /index read.
+    result["freshness"] = index_change_diff(ws_id)
+    # MSC-3: the other creator-side rewrite of shared state — the index caches.
+    _audit(request, ws_id, "index", f"{result.get('script_count', 0)} scripts")
     return result
 
 
@@ -405,7 +491,9 @@ async def get_workspace_status(ws_id: str):
         raise HTTPException(status_code=404, detail="Workspace not found")
     progress = get_index_progress(ws_id)
     status = get_index_status(ws_id)
-    return {"workspace_id": ws_id, "progress": progress, "index_status": status}
+    return {"workspace_id": ws_id, "progress": progress, "index_status": status,
+            "catching_up": is_index_catching_up(ws_id),
+            "index_change": index_change_diff(ws_id)}
 
 
 @router.post("/workspace/{ws_id}/filter-config")

@@ -333,12 +333,21 @@ def build_physical_model(extraction_result,
                 "union_branch": "union"}.get(vt, "subquery")
         return (name, v.get("context") or ""), kind
 
+    # PERF (v3.3.194): name → entities in creation order. `_name_to_key`
+    # used to scan every entity per call, and the model build resolves
+    # tens of thousands of dependency endpoints through it. Maintained at
+    # the single creation site below, so the list order IS
+    # `model.tables`' insertion order and the first-by-creation fallback
+    # is unchanged (nothing ever mutates PhysicalTable.name).
+    _tables_by_name: Dict[str, List[PhysicalTable]] = {}
+
     def _ensure_table(key, name, kind, context) -> PhysicalTable:
         tbl = model.tables.get(key)
         if tbl is None:
             tbl = PhysicalTable(key=key, name=name, kind=kind,
                                 context=context or "")
             model.tables[key] = tbl
+            _tables_by_name.setdefault(name, []).append(tbl)
         return tbl
 
     def _add_occurrence(tbl: PhysicalTable, v: Dict[str, Any]) -> None:
@@ -376,7 +385,7 @@ def build_physical_model(extraction_result,
         """Entity-name lookup mirroring the L2 parent-resolution
         exact-match loop (context disambiguates same-name per-scope
         containers; first-by-creation is the L2's first-match fallback)."""
-        exact = [t for t in model.tables.values() if t.name == name]
+        exact = _tables_by_name.get(name) or []
         if not exact:
             return None
         if len(exact) == 1:
@@ -607,9 +616,13 @@ def build_physical_model(extraction_result,
             "_tgt_canon": _canon(tgt_tables, tgt_label),
         }
 
+    # PERF (v3.3.194): the strategy lookup is edge-invariant — resolve it
+    # once per model build, not once per dependency edge.
+    _single_line = get_strategy("single_line")
+
     def _make_edge(et: str, sref, tref, svar, tvar, dep) -> PhysicalEdge:
         carried = _carried(svar, tvar, dep)
-        payload = get_strategy("single_line")({"edge_type": et, **carried})
+        payload = _single_line({"edge_type": et, **carried})
         return PhysicalEdge(
             edge_type=et,
             source=sref,

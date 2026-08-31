@@ -208,7 +208,68 @@ from app.models.variable import VariableDefinition, VariableType
 #     and translates the reported line back through `kept_lines` — a
 #     dropped SET line no longer shifts both the statement index and the
 #     reported line.
-EXTRACTOR_VERSION = "2026-08-28.9"
+# 2026-08-28.10 (fix team G7, cross-check root cause RC-C — the CTE value
+# chain was value-disconnected at every container seam) — three changes:
+#   1. dependency_graph Phase 3, the container PROVENANCE edge (G1's
+#      withheld stage 2, LANDED): a handle read attributed to a container
+#      (`p6.lending_ref` → CTE rollover_loan_info, `P1.REPAY_ACCT_NO` →
+#      CTE TEMP_BDM_ACC_LOAN_INFO_01, `A.Reserved_Field9` → CTE
+#      TEMP_BDM_ACC_LOAN_INFO_02) gains a REF edge from that container's
+#      own projection of the same field name. Guards: the attributed
+#      source must BE a container; the reader must live OUTSIDE the
+#      container body; the container must not feed the reader already;
+#      the producer is the last same-name projection at or before the
+#      reader's line (D3 last-writer-wins). The edge is operation
+#      PROVENANCE — the strict walker rides it consumer → producer only,
+#      which is what keeps it from fanning the container's column back out
+#      to its sibling readers (a plain REFERENCE edge here grew RFN
+#      reserved_field9's closure 16 → 267 nodes and dropped jaccard
+#      lending_ref/SUP_M nodes precision to 0.8491).
+#   2. lineage: the read-flag rule extends to PROVENANCE edges, and the
+#      Issue-3 reverse-read exception compares the field part
+#      case-insensitively (R44 R0/CR11 parity — `REPAY_ACCT_NO` vs a typed
+#      `repay_acct_no` used to drop the admit).
+#   3. lineage `_holder_is_derived_single` branch 3 (RC-C half 1): a CTE
+#      holder that PROJECTS the searched field while that projection is
+#      value-connected to the closure is the field's own birth container
+#      and delivers the searched table's value whatever the number of
+#      tables its body reads (AD1 option (a) AND (b) — name-only is the
+#      co-scope flood G1 closed, so both must hold). Additive: unqualified
+#      CTE holders keep the scope-presence rule.
+#   Measured (attributed against a tree that differs only by these three
+#   files): 49 of 108 L2 snapshot hashes shift — the closures gain the
+#   CTE/subquery continuation they used to stop at (26 scripts change node /
+#   edge counts, growth 1.2x-3.0x; 23 are ordering/id-only) — and jaccard is
+#   19/20 cases unchanged at recall AND precision 1.0000, with the one mover
+#   (lending_ref/SUP_M/downstream, the seed G1 withheld the edge for) keeping
+#   recall 1.0000 on all three features (G1's prototype lost edges, recall
+#   0.7905) while its precision reflects exactly the newly-lit chain
+#   (nodes 0.9074 / edges 0.8299 / highlights 0.8485; +5 nodes, +24 edges,
+#   +5 highlights: lending_ref@82/@163, reserved_field8@82, p6@155, p1@198).
+#   The canonical team owns the re-derivation (see SNAPSHOT_CHANGELOG.md).
+# 2026-08-28.11 (fix team M-T1 — the R37 click no-op on TVF aliases) —
+#   the alias of a table-valued function row source (`JOIN
+#   v_bdm_sys_ftpsje_jydsf('$(load_date)') f`, `FROM v_bdm_customer_all(…)
+#   a`, `LEFT JOIN v_js_purpose_code('${load_date}') p1`) carried
+#   `line_start: 0` since the TVF row source landed (R37/v3.3.179 guard
+#   item 28), so clicking the alias box silently no-op'd and every edge
+#   riding it highlighted nothing. BYPASS: the TVF alias IS registered
+#   through the ordinary `_register_table` alias branch with the I1
+#   def-site run `[name, alias]` — but that run is never ADJACENT for a
+#   TVF, because the call's parenthesized argument list sits between the
+#   function-name token and the alias token (`name ( args ) alias`), and
+#   `_match_token_run`'s strict branch only skipped STRING and AS tokens,
+#   so it aborted on the '(' and both the statement-scoped pass and the
+#   whole-stream fallback returned 0. (The FUNCTION_TABLE base var was
+#   never affected — its single-token `[name]` run matches the function
+#   name itself.) FIX: opt-in `skip_parens` on the run matcher — one
+#   balanced parenthesized group may stand between two run tokens, bounded
+#   by the statement range, an unterminated group failing the candidate
+#   (never invents a line). Only the TVF alias's def site passes it
+#   (6-tuple def_site); every other variable keeps the exact run forms it
+#   had, so no other anchor moves. Ordinary (non-TVF) aliases keep the
+#   3-tuple and are byte-unchanged.
+EXTRACTOR_VERSION = "2026-08-28.11"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
@@ -1519,7 +1580,8 @@ class _RoleBasedExtractor:
     def _find_def_position(self, runs: list[list[str]], node=None,
                            stmt_ctx: str = "",
                            ret_last: bool = False,
-                           loose_first: bool = False) -> tuple[int, int]:
+                           loose_first: bool = False,
+                           skip_parens: bool = False) -> tuple[int, int]:
         """1-based (line, line) of a DEFINITION site — token-run matching (I1).
 
         Replaces the composition text search for definition sites: the runs
@@ -1544,6 +1606,11 @@ class _RoleBasedExtractor:
         the scoped range may legitimately extend past nested bodies, so the
         keyword-then-next-name match is the honest reading of "the name in
         this clause". The fallback bare-name run stays strict.
+
+        `skip_parens=True` lets every run span one balanced parenthesized
+        group between two of its tokens (M-T1, the TVF alias — the call's
+        argument list sits between the function name and the alias). Opt-in
+        by the TVF alias def site only; unmatched runs still return (0, 0).
         """
         try:
             tokens = self._tokens
@@ -1561,7 +1628,8 @@ class _RoleBasedExtractor:
                         continue
                     line = self._match_token_run(run, tokens, anchor, end,
                                                  ret_last=ret_last,
-                                                 loose=(loose_first and idx == 0))
+                                                 loose=(loose_first and idx == 0),
+                                                 skip_parens=skip_parens)
                     if line:
                         return (line, line)
             # Whole-stream fallback: ONLY the last run (the bare-name run).
@@ -1573,7 +1641,8 @@ class _RoleBasedExtractor:
                 if not run:
                     continue
                 line = self._match_token_run(run, tokens, 0, 10**9,
-                                             ret_last=ret_last)
+                                             ret_last=ret_last,
+                                             skip_parens=skip_parens)
                 if line:
                     return (line, line)
             return (0, 0)
@@ -1806,7 +1875,8 @@ class _RoleBasedExtractor:
     @staticmethod
     def _match_token_run(run: list[str], tokens, lo_line: int,
                          hi_line: int, ret_last: bool = False,
-                         loose: bool = False) -> int:
+                         loose: bool = False,
+                         skip_parens: bool = False) -> int:
         """First line where `run` occurs as a token run within [lo, hi).
 
         Each run token must equal a non-STRING token's text (lowercased);
@@ -1817,6 +1887,15 @@ class _RoleBasedExtractor:
         `loose=True` drops the adjacency requirement: each later run token
         is the next at-or-after occurrence (STRING tokens still skipped) —
         clause-keyword runs ("where" … column) never require adjacency.
+        `skip_parens=True` additionally lets ONE balanced parenthesized
+        group stand between two run tokens — M-T1: the alias of a
+        table-valued function sits after the call's argument list
+        (`JOIN v_bdm_x('$(d)') f` tokenizes name, '(', STRING, ')', f), so
+        the strict name→alias run aborted on the '(' and the alias
+        resolved to line 0. Opt-in: only the TVF alias's def site passes
+        it, so no other variable's anchor moves. An unterminated group or
+        a group reaching past `hi_line` fails the candidate (never
+        invents a line).
         """
         n = len(tokens)
         r0 = run[0].lower()
@@ -1861,6 +1940,21 @@ class _RoleBasedExtractor:
                     if _is_as_keyword(t2):
                         j += 1
                         continue
+                    if skip_parens and t2.token_type == TokenType.L_PAREN:
+                        # M-T1: jump the call's argument list — one balanced
+                        # group only, and only while it stays inside the
+                        # statement range.
+                        depth, j = 1, j + 1
+                        while j < n and depth:
+                            t3 = tokens[j]
+                            if t3.token_type == TokenType.L_PAREN:
+                                depth += 1
+                            elif t3.token_type == TokenType.R_PAREN:
+                                depth -= 1
+                            j += 1
+                        if depth or j >= n or tokens[j].line >= hi_line:
+                            break
+                        continue
                     break
             if k == len(run):
                 return tokens[j - 1].line if ret_last else tok.line
@@ -1881,8 +1975,10 @@ class _RoleBasedExtractor:
 
         `def_site` = (runs, anchor_node, stmt_ctx) — or 4-tuple (runs,
         anchor_node, stmt_ctx, ret_last) or 5-tuple (runs, anchor_node,
-        stmt_ctx, ret_last, loose_first) — for I1 DEFINITION sites: line
-        lookup via token runs instead of the occurrence text search.
+        stmt_ctx, ret_last, loose_first) — or 6-tuple (…, skip_parens) —
+        for I1 DEFINITION sites: line lookup via token runs instead of the
+        occurrence text search. The 6th element lets the run span the TVF
+        call's argument list (M-T1).
         `alias_of` (I4) = id of the exact source var this alias pairs with.
         """
         name = _clean(name)
@@ -1928,7 +2024,14 @@ class _RoleBasedExtractor:
 
         vid = self._next_id(f"{context}:{name}")
         if def_site is not None:
-            if len(def_site) >= 5:
+            if len(def_site) >= 6:
+                (runs, node, stmt_ctx, ret_last, loose_first,
+                 skip_parens) = def_site
+                ls, le = self._find_def_position(runs, node, stmt_ctx,
+                                                 ret_last=ret_last,
+                                                 loose_first=loose_first,
+                                                 skip_parens=skip_parens)
+            elif len(def_site) >= 5:
                 runs, node, stmt_ctx, ret_last, loose_first = def_site
                 ls, le = self._find_def_position(runs, node, stmt_ctx,
                                                  ret_last=ret_last,
@@ -3283,8 +3386,9 @@ class _RoleBasedExtractor:
 
         # I1 def sites: token runs anchored on the enclosing statement —
         # [name] for the table, [name, alias] for the alias (an AS KEYWORD
-        # between them is tolerated), DML keyword runs for UPDATE/DELETE
-        # targets. Statement scoping disambiguates repeated tables (FROM
+        # between them is tolerated; a TVF call's argument list too, see
+        # M-T1 below), DML keyword runs for UPDATE/DELETE targets.
+        # Statement scoping disambiguates repeated tables (FROM
         # bdm_acc_loan_info p1 at L29 and L84 each resolve in their own
         # statement's range).
         node = scope.owner if scope is not None else None
@@ -3342,12 +3446,25 @@ class _RoleBasedExtractor:
                     alias_of = next((v.id for v in self.result.variables
                                      if v.variable_type == VariableType.CTE
                                      and v.name.lower() == name.lower()), None)
+            # M-T1 (2026-08-28.11): a TVF alias's name→alias token run is
+            # never adjacent — `JOIN v_bdm_x('$(load_date)') f` puts the
+            # call's parenthesized argument list between the function-name
+            # token and the alias token, and the strict run matcher aborts
+            # on the '(' (only STRING and AS tokens were skippable), so the
+            # alias resolved to line 0 and every click on it no-op'd (the
+            # R37 guard drops line 0). Same run, opt-in paren-group skip:
+            # `name ( args ) alias` reads as one run. Ordinary aliases keep
+            # the 3-tuple form — their anchors never move.
+            alias_def_site = (
+                ([[name, alias]], node, context, False, False, True)
+                if var_type is VariableType.FUNCTION_TABLE
+                else ([[name, alias]], node, context))
             self._add(alias, VariableType.TABLE,
                       sql_expr=f"{name} AS {alias}",
                       defined_in=defined_in, context=context,
                       source_tables=[name], alias_of=alias_of,
                       is_alias_handle=True,
-                      def_site=([[name, alias]], node, context))
+                      def_site=alias_def_site)
 
         # R20: record into the statement scope for orphan resolution.
         if scope is not None:

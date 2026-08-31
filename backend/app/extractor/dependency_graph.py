@@ -6,7 +6,7 @@ details, then structural edges. This matches how data flows in SQL:
   tables → table-to-table flows → columns carry data between tables.
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from app.models.variable import VariableDefinition, VariableDependency, VariableType
 from app.extractor.variable_extractor_v2 import ExtractionResult
@@ -54,6 +54,98 @@ def _clause_of(defined_in: str | None) -> str:
     if di.startswith(_OCCURRENCE_PREFIX):
         return di[len(_OCCURRENCE_PREFIX):].strip()
     return di
+
+
+# Tokenizer + clause keywords shared with the extractor's own per-line
+# clause machinery (`VariableExtractorV2._line_clauses`, R45 Fix E): the
+# same tokenizer, the same keyword map — so a line's clause read here is
+# the SAME fact the extractor reads, never a second spelling of it.
+from sqlglot import Tokenizer as _Tokenizer  # noqa: E402
+from sqlglot.tokens import TokenType as _TokenType  # noqa: E402
+from app.extractor.variable_extractor_v2 import (  # noqa: E402
+    _LINE_CLAUSE_TOKENS,
+)
+
+
+def line_clause_map(sql_text: str) -> dict[int, str]:
+    """line → the clause keyword governing it, over the whole script.
+
+    The extraction-layer read of "is THIS line a line of THAT clause",
+    which a var's `defined_in` alone cannot answer for a collapsed (non
+    `OCCURRENCE`-stamped) carrier: the group's clause is a fact of the
+    GROUP, while the line the collapsed var carries was handed out in
+    stream order (R45 Fix B / F-E1) — so a projection line can hold a
+    var whose clause says `JOIN ON`. Same semantics as the extractor's
+    `_line_clauses`: the clause of a line is the last clause keyword at
+    or before it, STRING tokens skipped (a literal 'where' is text).
+    Statement heads self-label (`INSERT`/`SELECT`/… are clause keywords
+    in the map), so a clause never leaks into the next statement's
+    carrier lines.
+
+    Consumers: l2_builder's field-involvement admission (Class 1 — a JOIN
+    carrier may anchor only on a join-site line).
+    """
+    out: dict[int, str] = {}
+    if not sql_text:
+        return out
+    try:
+        toks = list(_Tokenizer().tokenize(sql_text))
+    except Exception:            # mirror of the extractor: no tokens → no clauses
+        return out
+    cur = ""
+    for tok in toks:
+        if tok.token_type != _TokenType.STRING:
+            kw = (_LINE_CLAUSE_TOKENS.get(tok.token_type.name)
+                  or _LINE_CLAUSE_TOKENS.get(tok.text.lower()))
+            if kw:
+                cur = kw
+        out[tok.line] = cur
+    return out
+
+
+# Clause labels the extractor stamps on a COLUMN var inside a MERGE
+# statement (`_walk_merge`) plus the ordinary `JOIN ON` — the clauses whose
+# columns belong to a table the extractor attributes at extraction time but
+# whose belongs-to edge no other phase emits when the column is spelled
+# through its PHYSICAL owner (Phase 4a skips original table names by
+# design). `MERGE`/`MERGE USING` label MERGE_TARGET/SUBQUERY vars, never a
+# column, so they are not in the set.
+_MERGE_COLUMN_CLAUSES = {
+    "MERGE ON", "MERGE UPDATE SET", "MERGE WHEN", "MERGE INSERT", "JOIN ON",
+}
+
+
+def _statement_scope(context: str | None) -> str:
+    """The statement-level scope of a (possibly nested) context — the
+    dependency-graph half of the extractor's `_scope_top` folding.
+
+    Contexts are `TOP{n}` / `CTE{name}` (this corpus), with
+    `VIEW@{stmt}:{name}` / `CTAS@{stmt}:{name}` / `VIEW:{name}` handled the
+    same way the extractor folds them (`:` is part of the statement identity
+    there, not a nested-scope separator). The root segment identifies the
+    statement a var belongs to, so a search keyed on it can never reach into
+    another statement."""
+    ctx = context or "TOP"
+    for prefix in ("VIEW@", "CTAS@"):
+        if ctx.startswith(prefix):
+            i = ctx.find(":", len(prefix))
+            return ctx[:i] if i > 0 else ctx
+    for prefix in ("VIEW:", "CTAS:"):
+        if ctx.startswith(prefix):
+            rest = ctx[len(prefix):]
+            for sep in ("/", ":"):
+                i = rest.find(sep)
+                if i > 0:
+                    rest = rest[:i]
+            return prefix + rest
+    if ctx.startswith("CTE{"):
+        end = ctx.find("}")
+        return ctx[:end + 1] if end > 0 else ctx
+    for sep in ("/", ":"):
+        i = ctx.find(sep)
+        if i > 0:
+            return ctx[:i]
+    return ctx
 
 
 def build_dependency_graph(
@@ -440,20 +532,153 @@ def build_dependency_graph(
                          "REFERENCE")
                 break
 
-    # R44 Fix A stage 2 (2026-08-28.9): WITHHELD. The provenance REF edge
-    # container output column → same-named reader column (the reader is a
-    # bare handle read attributed to the container and carries no
-    # source_columns, so Phase 3 has nothing else to wire it with) is
-    # semantically right and does light RFN's REPAY_ACCT_NO@364, but every
-    # container scope tried (all containers, CTE-only) also re-routes the
-    # SUP_M fold carriers and grows the ods_hub_lsacmsp.lending_ref closure
-    # past its canonical set — jaccard lending_ref/SUP_M/downstream edges
-    # recall 0.7905, 22 canonical edges unmatched, nodes precision 0.8491.
-    # The gate is the project's set-equality bar, so the edge is deferred to
-    # the SCHEMA-fold design item: it needs a rule that says whether a
-    # display-provenance edge may join the flow walk. See
-    # tests/test_g1_adjudicated_fixes.py::TestFixAStage2ProvenanceEdge and
-    # SNAPSHOT_CHANGELOG.md (G1 2026-08-29).
+    # ── G7 RC-C (2026-08-28.10): the container provenance edge — G1's
+    # withheld stage 2, LANDED. ──────────────────────────────────────────
+    # A handle read (`p6.lending_ref`, `P1.REPAY_ACCT_NO`,
+    # `A.Reserved_Field9`) is attributed to the CONTAINER the handle denotes
+    # (source_tables[0] names a CTE / derived container), but the Phase-3
+    # loop above rarely wires that container's own output column to the
+    # read: a bare handle carries no source_columns at all (nothing to look
+    # up), and a projection-shaped read records its own handle spelling as
+    # its source column, which the last-writer-wins index resolves to an
+    # unrelated same-named var in a LATER statement. Either way the seam is
+    # the same: no edge connects the container body that produces the value
+    # to the reader that consumes it, so every container chain in the script
+    # is value-disconnected exactly there (RC-C: the whole upstream chain of
+    # bdm_acc_loan_info.repay_acct_no stayed dark while its downstream reads
+    # were lit — the chain crosses CTE{TEMP_BDM_ACC_LOAN_INFO_01} →
+    # CTE{TEMP_BDM_ACC_LOAN_INFO_02} → TOP0 and each crossing is this
+    # missing edge).
+    #
+    # G1 withheld the edge (2026-08-28.9) because it grew SUP_M's
+    # lending_ref closure past the THEN-canonical set; those canonical rows
+    # are re-derived now (G8 owns jaccard_canonical), and the growth is the
+    # honest consequence of the dark lines lighting. The edge is wired with
+    # the shape G1 prototyped, narrowed to a PROVENANCE rule (never a name
+    # match) by three guards:
+    #
+    #   1. the attributed source must BE a container (CTE / SUBQUERY /
+    #      VIRTUAL_TABLE) — a read of a physical table keeps its Phase-3 /
+    #      Phase-4d wiring and never gains a synthetic producer;
+    #   2. the reader must live OUTSIDE the container body — a consumer
+    #      reads the container from its own scope; a var inside the body
+    #      (including the statement's own ⟐ output projection, whose
+    #      attribution container's body IS its context) is not a reader of
+    #      it, and wiring those would connect same-named sibling
+    #      projections of one SELECT to each other;
+    #   3. the container must not have wired the reader already — an
+    #      existing edge from a var inside the container body into the
+    #      reader IS the provenance this rule exists to add (Phase 3's
+    #      evidence-scored resolution found it); adding a second one would
+    #      only duplicate the path.
+    #
+    # The producer is the container's own projection of the same field name
+    # (a var whose `defined_in` is the container's body prefix — the same
+    # convention Phase 4b uses to wire a CTE to its inner variables), and
+    # when several same-named containers project it the LAST one at or
+    # before the reader's line wins: the registration order is script order,
+    # so this is the D3 last-writer-wins convention, and it keeps the edge
+    # deterministic instead of unioning same-named CTE bodies.
+    _prov_producers: dict[str, list[VariableDefinition]] = defaultdict(list)
+    for v in variables:
+        if v.variable_type not in _SOURCE_COLUMN_TYPES:
+            continue
+        di = (v.defined_in or "").casefold()
+        if di:
+            _prov_producers[di].append(v)
+    _prov_bodies: dict[str, set[str]] = defaultdict(set)
+    for v in variables:
+        if v.variable_type == VariableType.CTE:
+            _prov_bodies[v.name.casefold()].add(f"CTE{{{v.name}}}".casefold())
+        elif v.variable_type in (VariableType.SUBQUERY,
+                                 VariableType.VIRTUAL_TABLE):
+            # A subquery/⟐ container's body context IS its projections'
+            # `defined_in` (_walk_select_expression sets defined_in =
+            # context).
+            _ctx = (v.context or "").casefold()
+            if _ctx:
+                _prov_bodies[v.name.casefold()].add(_ctx)
+    # Existing wiring, for guards 3/3b: every edge already built, keyed once
+    # by the edge's TARGET (what already feeds the reader) and once by its
+    # SOURCE (what the reader already feeds).
+    _prov_fed: dict[str, set[str]] = defaultdict(set)
+    _prov_feeds: dict[str, set[str]] = defaultdict(set)
+    for _d in deps:
+        _prov_fed[_d.target_id].add(_d.source_id)
+        _prov_feeds[_d.source_id].add(_d.target_id)
+    for reader in variables:
+        if reader.variable_type not in _SOURCE_COLUMN_TYPES:
+            continue
+        st = reader.source_tables or []
+        if not st or not st[0]:
+            continue
+        bodies = _prov_bodies.get(st[0].casefold())
+        if not bodies:
+            continue  # not attributed to a container (physical table read)
+        rctx = (reader.context or "").casefold()
+        rdi = (reader.defined_in or "").casefold()
+        if any(rctx == b or rctx.startswith(b + "/") or rdi == b
+               for b in bodies):
+            continue  # guard 2 — the reader lives inside the container
+        if _prov_fed.get(reader.id, set()) & {
+                p.id for body in bodies
+                for p in _prov_producers.get(body, ())}:
+            continue  # guard 3 — the container already feeds this reader
+        part = reader.name.rsplit(".", 1)[-1].casefold()
+        if not part:
+            continue
+        # X1 fix 1 (2026-08-31): the candidate list is built ONCE and put in
+        # a TOTAL order before anything consumes it. `bodies` is a SET, so
+        # the old `for body in bodies` walked it in hash-random order and
+        # `producers[-1]` inherited that order — the picked producer, and
+        # with it the served L2 edge id, flipped between processes (measured:
+        # 7 distinct pick-sets on RFN across 8 PYTHONHASHSEEDs). Sorting by
+        # (line, registration order) is process-independent AND is the D3
+        # last-writer-wins the comment always claimed: latest line
+        # at-or-before the read, script order breaking the tie.
+        candidates = sorted(
+            (p for body in bodies for p in _prov_producers.get(body, ())
+             if p.id != reader.id
+             and p.name.rsplit(".", 1)[-1].casefold() == part
+             and (not p.line_start or not reader.line_start
+                  or p.line_start <= reader.line_start)),
+            key=lambda p: (p.line_start or 0, var_order[p.id]))
+        if not candidates:
+            continue
+        # Guard 4 — ambiguity inside ONE body: when the container body holds
+        # several same-named projections (the two-source CTE
+        # `SELECT s1.dt, s2.dt AS dt2 …` shape), the handle read is ambiguous
+        # and the rule wires nothing — the derived_single ambiguity test
+        # restated at the container seam. Value evidence only bridges a value
+        # the script names once per body; across bodies (a CTE name defined
+        # twice) the deterministic script-order pick above is the D3
+        # convention. Counted over the SAME sorted sequence the pick reads,
+        # keyed by each candidate's own body (its `defined_in`, the very key
+        # `_prov_producers` filed it under) — never over the re-walked set.
+        per_body = Counter((p.defined_in or "").casefold()
+                           for p in candidates)
+        if any(c > 1 for c in per_body.values()):
+            continue
+        producer = candidates[-1]
+        # X1 fix 2 (2026-08-31): guard 3b, the reverse direction. Guard 3
+        # only saw edges INTO the reader, so an existing reader → producer
+        # REF/TRANSFORM edge survived next to the new producer → reader
+        # PROVENANCE edge — a 2-cycle on the same pair (14 corpus-wide). The
+        # container's value already reaches the reader through that leg;
+        # wiring the pair backwards adds nothing but the cycle.
+        if producer.id in _prov_feeds.get(reader.id, set()):
+            continue
+        # Value direction (producer → reader), REF with the PROVENANCE
+        # operation — a REFERENCE edge here would be walked BOTH ways by the
+        # strict walker, and the backward half fans the container's column
+        # out to every same-named var in the script (the same-name REFERENCE
+        # web that floods the closure — measured 16 → 267 nodes on RFN
+        # reserved_field9). The walker therefore rides a PROVENANCE edge the
+        # way it rides a READ edge: from the consumer to the producer only
+        # (plus the R44 reverse-read of the searched field itself), which is
+        # the direction the value chain needs and the only one that keeps
+        # the container's column from re-entering its own sibling reads.
+        _add_edge(producer, reader, "REF", "PROVENANCE")
 
     # ══════════════════════════════════════════════════════════════════
     # Phase 4: SCHEMA — column belongs to table / CTE / VT
@@ -600,6 +825,84 @@ def build_dependency_graph(
             if t.name == owner and t.id != v.id:
                 _add_edge(t, v, "SCHEMA", "TABLE_COLUMN")
                 break
+
+    # Phase 4d-gc: MERGE/predicate-clause columns of their PHYSICAL owner
+    # (H11, 2026-08-31 — the 7 waived `column_connectivity` defects).
+    # `_walk_merge` walks a MERGE's ON / UPDATE SET / WHEN clauses through
+    # the merge scope, and `_walk_join` the ordinary JOIN ON, so a read of
+    # the USING/derived alias (`source.amount`, `txn.merchant_id`) resolves
+    # I2 to the alias's PHYSICAL table and the R44 family-2 twin registers
+    # it under the owner-qualified spelling `{owner}.{col}`. Its qualifier is
+    # the physical owner, so Pass 4a skips it (the owner is the original
+    # name), Phase 4d's prefix match misses it, and Phase 4d-gb's gate
+    # enumerates only `GROUP BY` + the OCCURRENCE marker — the MERGE/JOIN ON
+    # clauses fell between the two, and the var carried no incoming
+    # SCHEMA edge at all (topology `column_connectivity`: "no connection
+    # from source table").
+    #
+    # Admission needs the model's own SCHEMA EVIDENCE that `owner` really has
+    # `col`: a QUALIFIED read (`t.amount`) that I2 resolved to `owner` in the
+    # same statement. That evidence is exactly what separates the 7 defects
+    # from the adjudicated false positives of the same clause family —
+    # fin_query4's `gps_transactions.account_id` is the twin of a RENAMED
+    # USING projection (`t.source_account_id AS account_id`), so no
+    # alias-spelled read of `gps_transactions.account_id` exists anywhere in
+    # the statement and the belongs-to premise is false; admitting it would
+    # fabricate a schema fact. The witness is owner-scoped and never
+    # owner-spelled (an `{owner}.{col}` var's own spelling proves nothing —
+    # it is the shape under adjudication), so the rule can never witness
+    # itself.
+    _owner_reads: set[tuple[str, str, str]] = set()
+    for w in variables:
+        if w.variable_type != VariableType.COLUMN or "." not in w.name:
+            continue
+        if not w.source_tables or not w.source_tables[0]:
+            continue
+        w_qual, _, w_field = w.name.partition(".")
+        if w_qual.casefold() == w.source_tables[0].casefold():
+            continue  # owner-spelled — not schema evidence (see above)
+        _owner_reads.add((_statement_scope(w.context),
+                          w.source_tables[0].casefold(), w_field.casefold()))
+
+    for v in variables:
+        if v.variable_type != VariableType.COLUMN:
+            continue
+        if v.is_output or not v.source_tables:
+            continue
+        if "." not in v.name:
+            continue  # bare columns need no belongs-to edge
+        if _clause_of(v.defined_in) not in _MERGE_COLUMN_CLAUSES:
+            continue
+        qualifier, _, field = v.name.partition(".")
+        owner = v.source_tables[0]
+        if not owner or qualifier.casefold() != owner.casefold():
+            continue  # alias-spelled columns take Pass 4a's belongs-to edge
+        if (_statement_scope(v.context), owner.casefold(),
+                field.casefold()) not in _owner_reads:
+            continue  # no schema evidence — a renamed projection, not a member
+        # Nearest owner instance in the column's own statement (I3): a
+        # physical/merge-target var of that name, at-or-before the column's
+        # own line when one exists (max line wins), else the earliest;
+        # physical tables preferred over a MERGE_TARGET spelling of the same
+        # name. Never the column itself — it is a COLUMN.
+        stmt = _statement_scope(v.context)
+        cands = [t for t in variables
+                 if t.variable_type in (VariableType.TABLE, VariableType.VIEW,
+                                        VariableType.FUNCTION_TABLE,
+                                        VariableType.MERGE_TARGET)
+                 and t.name.casefold() == owner.casefold()
+                 and _statement_scope(t.context) == stmt
+                 and t.line_start >= 1]
+        if not cands:
+            continue
+        before = [t for t in cands
+                  if v.line_start < 1 or t.line_start <= v.line_start]
+        pool = before or cands
+        pool.sort(key=lambda t: (
+            1 if t.variable_type == VariableType.MERGE_TARGET else 0,
+            -t.line_start if before else t.line_start,
+            var_order[t.id]))
+        _add_edge(pool[0], v, "SCHEMA", "TABLE_COLUMN")
 
     # ══════════════════════════════════════════════════════════════════
     # Phase 5: INDIRECT — bare column → defined variable (HAVING→SELECT)

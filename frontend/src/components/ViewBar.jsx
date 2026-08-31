@@ -2,12 +2,18 @@ import React from 'react';
 
 /**
  * ViewBar — Horizontal tab strip for view management
- * 
+ *
  * Replaces ViewTree per L1L2_DISPLAY_REDESIGN.md §3.1.
  * Each search becomes a tab. Active tab ≡ active view.
  * L2 child views appear as subtabs within their parent.
+ *
+ * `canManageViews` (default true) hides the per-view "×" for users who cannot
+ * delete a view server-side: DELETE /views/{id} is creator-only (#272) and
+ * used to 403 silently for participants, leaving a control that did nothing.
  */
-export default function ViewBar({ views, activeViewId, onSelect, onRemove, onRemoveChild }) {
+export default function ViewBar({
+  views, activeViewId, onSelect, onRemove, onRemoveChild, canManageViews = true,
+}) {
   if (!views || views.length === 0) return null;
 
   return (
@@ -33,11 +39,13 @@ export default function ViewBar({ views, activeViewId, onSelect, onRemove, onRem
                 {v.table || '?'}.{v.field || '?'}
                 <span className="view-bar-tab-count">({v.script_ids?.length || v.script_count || 0})</span>
               </span>
-              <button
-                className="view-bar-tab-close"
-                onClick={(e) => { e.stopPropagation(); onRemove && onRemove(v.view_id); }}
-                title="Remove view"
-              >×</button>
+              {canManageViews && (
+                <button
+                  className="view-bar-tab-close"
+                  onClick={(e) => { e.stopPropagation(); onRemove && onRemove(v.view_id); }}
+                  title="Remove view"
+                >×</button>
+              )}
             </div>
             
             {/* Child L2 tabs */}
@@ -56,11 +64,13 @@ export default function ViewBar({ views, activeViewId, onSelect, onRemove, onRem
                       <span className="view-bar-subtab-label">
                         {child.label || child.script_name || 'Script'}
                       </span>
-                      <button
-                        className="view-bar-subtab-close"
-                        onClick={(e) => { e.stopPropagation(); onRemoveChild && onRemoveChild(v.view_id, child.view_id); }}
-                        title="Close L2"
-                      >×</button>
+                      {canManageViews && (
+                        <button
+                          className="view-bar-subtab-close"
+                          onClick={(e) => { e.stopPropagation(); onRemoveChild && onRemoveChild(v.view_id, child.view_id); }}
+                          title="Close L2"
+                        >×</button>
+                      )}
                     </div>
                   );
                 })}

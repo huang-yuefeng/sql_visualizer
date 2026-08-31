@@ -66,6 +66,9 @@ def map_variables_to_lines(
         # Search: find first line that contains the start of the expression
         search_key = expr[:40].strip()
         if search_key:
+            # PERF (v3.3.194): split once per var, not per matching line —
+            # the split result is line-invariant.
+            expr_lines = expr.split("\n")
             for i, line in enumerate(lines, start=1):
                 # D1: never map onto a comment line (the header banner lists
                 # source tables and would capture table variables).
@@ -76,7 +79,6 @@ def map_variables_to_lines(
                     end_line = i
                     # For multi-line expressions, extend until the expression
                     # no longer contains references to this block
-                    expr_lines = expr.split("\n")
                     if len(expr_lines) > 1:
                         end_line = min(start_line + len(expr_lines) - 1, len(lines))
                     break

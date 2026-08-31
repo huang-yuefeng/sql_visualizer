@@ -160,3 +160,168 @@ barSuite('FieldStoryBar — step-chip navigation bar', () => {
     expect(onStep).not.toHaveBeenCalled();
   });
 });
+
+// ── R40.13 — the naive string-match diff layer's cluster ───────────────────
+// A SEPARATE browse channel (`◀ 3/17 ▶`) + the diff counter + a show/hide
+// toggle. All state lives in DataFlowApp: the bar computes the wrapped index
+// and hands it to the parent. Buttons are matched by aria-label so the story
+// cluster's ◀/▶ can never be confused with the match cluster's.
+const SM_PROPS = extra => ({
+  steps: [],
+  activeIndex: null,
+  autoplay: false,
+  stringMatchSummary: { total: 17, inFlow: 5, notInFlow: 12 },
+  stringMatchCursor: null,
+  stringMatchVisible: true,
+  onToggleStringMatch: vi.fn(),
+  onPrevStringMatch: vi.fn(),
+  onNextStringMatch: vi.fn(),
+  ...extra,
+});
+
+const matchButton = (container, kind) => {
+  const label = kind === 'prev' ? 'Previous string match'
+    : kind === 'next' ? 'Next string match' : 'Toggle string-match layer';
+  return [...container.querySelectorAll('button')]
+    .find(b => (b.getAttribute('aria-label') || '') === label);
+};
+
+barSuite('FieldStoryBar — R40.13 string-match browse cluster', () => {
+  it('renders the counter `N string matches · M in flow · K not in flow`', async () => {
+    const FieldStoryBar = await loadFieldStoryBar();
+    const { container } = render(<FieldStoryBar {...SM_PROPS()} />);
+    const counter = container.querySelector('.sm-counter');
+    expect(counter).toBeTruthy();
+    expect(counter.textContent).toBe('17 string matches · 5 in flow · 12 not in flow');
+  });
+
+  it('renders `0 string matches` with BOTH browse buttons disabled', async () => {
+    const FieldStoryBar = await loadFieldStoryBar();
+    const onPrev = vi.fn();
+    const onNext = vi.fn();
+    const { container } = render(
+      <FieldStoryBar {...SM_PROPS({ stringMatchSummary: { total: 0, inFlow: 0, notInFlow: 0 },
+        onPrevStringMatch: onPrev, onNextStringMatch: onNext })} />);
+
+    expect(container.querySelector('.sm-counter').textContent).toBe('0 string matches');
+    expect(matchButton(container, 'prev').disabled).toBe(true);
+    expect(matchButton(container, 'next').disabled).toBe(true);
+    fireEvent.click(matchButton(container, 'prev'));
+    fireEvent.click(matchButton(container, 'next'));
+    expect(onPrev).not.toHaveBeenCalled();
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
+  it('does not render the cluster at all when there is no active search', async () => {
+    const FieldStoryBar = await loadFieldStoryBar();
+    const { container } = render(<FieldStoryBar {...PROPS()} />);
+    expect(container.querySelector('.sm-counter')).toBe(null);
+    expect(matchButton(container, 'prev')).toBe(undefined);
+    expect(matchButton(container, 'next')).toBe(undefined);
+  });
+
+  it('tracks the cursor in the `3/17` readout and shows `–/17` when inactive', async () => {
+    const FieldStoryBar = await loadFieldStoryBar();
+    const readout = () => container.querySelector('.sm-readout').textContent;
+    const { container, rerender } = render(
+      <FieldStoryBar {...SM_PROPS({ stringMatchCursor: 2 })} />);
+    expect(readout()).toBe('3/17');
+
+    rerender(<FieldStoryBar {...SM_PROPS({ stringMatchCursor: 16 })} />);
+    expect(readout()).toBe('17/17');
+
+    rerender(<FieldStoryBar {...SM_PROPS({ stringMatchCursor: null })} />);
+    expect(readout()).toBe('–/17');
+  });
+
+  it('starts at index 0 from inactive on ▶ and at the LAST index on ◀', async () => {
+    const FieldStoryBar = await loadFieldStoryBar();
+    const onPrev = vi.fn();
+    const onNext = vi.fn();
+    const { container } = render(
+      <FieldStoryBar {...SM_PROPS({ stringMatchCursor: null, onPrevStringMatch: onPrev,
+        onNextStringMatch: onNext })} />);
+
+    fireEvent.click(matchButton(container, 'next'));
+    expect(onNext).toHaveBeenCalledTimes(1);
+    expect(onNext.mock.calls[0][0]).toBe(0); // ▶ from null activates index 0
+
+    fireEvent.click(matchButton(container, 'prev'));
+    expect(onPrev).toHaveBeenCalledTimes(1);
+    expect(onPrev.mock.calls[0][0]).toBe(16); // ◀ from null activates the last index
+  });
+
+  it('wraps at BOTH ends', async () => {
+    const FieldStoryBar = await loadFieldStoryBar();
+    const onPrev = vi.fn();
+    const onNext = vi.fn();
+    // cursor at the last index → ▶ wraps to 0
+    const { container, rerender } = render(
+      <FieldStoryBar {...SM_PROPS({ stringMatchCursor: 16, onPrevStringMatch: onPrev,
+        onNextStringMatch: onNext })} />);
+    fireEvent.click(matchButton(container, 'next'));
+    expect(onNext.mock.calls[0][0]).toBe(0);
+
+    // cursor at index 0 → ◀ wraps to the last index
+    rerender(<FieldStoryBar {...SM_PROPS({ stringMatchCursor: 0, onPrevStringMatch: onPrev,
+      onNextStringMatch: onNext })} />);
+    fireEvent.click(matchButton(container, 'prev'));
+    expect(onPrev.mock.calls[0][0]).toBe(16);
+
+    // and the ordinary ±1 steps in between
+    rerender(<FieldStoryBar {...SM_PROPS({ stringMatchCursor: 3, onPrevStringMatch: onPrev,
+      onNextStringMatch: onNext })} />);
+    fireEvent.click(matchButton(container, 'next'));
+    expect(onNext.mock.calls[1][0]).toBe(4);
+    fireEvent.click(matchButton(container, 'prev'));
+    expect(onPrev.mock.calls[1][0]).toBe(2);
+  });
+
+  it('hides the bands via the toggle: buttons disabled, counter STILL rendered', async () => {
+    const FieldStoryBar = await loadFieldStoryBar();
+    const onToggle = vi.fn();
+    const onPrev = vi.fn();
+    const onNext = vi.fn();
+    const { container } = render(
+      <FieldStoryBar {...SM_PROPS({ stringMatchCursor: 4, stringMatchVisible: false,
+        onToggleStringMatch: onToggle, onPrevStringMatch: onPrev,
+        onNextStringMatch: onNext })} />);
+
+    // the counter is the diff summary the feature exists to show — it stays
+    expect(container.querySelector('.sm-counter').textContent)
+      .toBe('17 string matches · 5 in flow · 12 not in flow');
+    expect(matchButton(container, 'prev').disabled).toBe(true);
+    expect(matchButton(container, 'next').disabled).toBe(true);
+    fireEvent.click(matchButton(container, 'prev'));
+    fireEvent.click(matchButton(container, 'next'));
+    expect(onPrev).not.toHaveBeenCalled();
+    expect(onNext).not.toHaveBeenCalled();
+
+    // the toggle itself stays clickable and fires its own callback
+    fireEvent.click(matchButton(container, 'toggle'));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(onPrev).not.toHaveBeenCalled();
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
+  it('renders the story chips and the string-match cluster independently', async () => {
+    const FieldStoryBar = await loadFieldStoryBar();
+    // story steps present AND a 0-match search: chips render, the counter
+    // reads `0 string matches`, and the browse buttons are disabled.
+    const { container } = render(
+      <FieldStoryBar {...SM_PROPS({
+        steps: STEPS, activeIndex: 0,
+        stringMatchSummary: { total: 0, inFlow: 0, notInFlow: 0 },
+      })} />);
+    expect(chipByNumber(container, 1)).toHaveLength(1);
+    expect(chipByNumber(container, 4)).toHaveLength(1);
+    expect(container.querySelector('.sm-counter').textContent).toBe('0 string matches');
+    expect(matchButton(container, 'prev').disabled).toBe(true);
+
+    // and the inverse: a match list with NO story steps still renders the bar
+    const { container: c2 } = render(
+      <FieldStoryBar {...SM_PROPS({ steps: [] })} />);
+    expect(c2.querySelector('.sm-counter')).toBeTruthy();
+    expect(c2.querySelector('.graph-level-badge').textContent).toBe('Field story');
+  });
+});

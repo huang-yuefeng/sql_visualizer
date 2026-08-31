@@ -320,7 +320,42 @@ def test_every_display_edge_has_model_witness():
     by_tid = {tn["id"]: tn for tn in table_nodes.values()}
     by_fid = {f["id"]: f for f in field_nodes}
 
-    assert len(new_edges) == 528
+    # RC-B multi-anchor pin (2026-08-31, fix team G8): 528 -> 673/674. The
+    # L2 fold now keys on (source, target, edge_type, ANCHOR) instead of
+    # collapsing a pair to one carrier, so every occurrence line the model
+    # already carried renders its own edge (+145: 71 pairs now serve more
+    # than one anchor, 138 of the extra edges; the SCHEMA belongs-to twins
+    # dominate — every occurrence line of every field now renders its own
+    # belongs-to edge, the R44 "cover all occurrences" ruling applied to
+    # the served payload).
+    # The 673-vs-674 FLAP is NOT the fold: the fold is deterministic given
+    # its input. It is the PRE-EXISTING graph_service cross-process leak
+    # (determinism leak #3, owner graph_service/extraction): for ~10 REF
+    # edges the same logical edge is minted from a DIFFERENT duplicate raw
+    # node id depending on PYTHONHASHSEED (verified by diffing
+    # build_graph_data output across processes — identical node sets, 10
+    # edges differing only in their source node id). Under the single-
+    # carrier fold the two variants collapsed onto the same count, so the
+    # leak was invisible; multi-anchor makes the count sensitive to which
+    # duplicate id (and hence which carried `_src_line`) wins. Both
+    # variants are witness-checked below.
+    #
+    # H11/X1 re-pin (2026-08-31): 673/674 -> 668. The container-PROVENANCE
+    # phase's producer pick was hash-order dependent (`_prov_bodies` is a
+    # set), which is where most of the 673-vs-674 flap came from; the pick is
+    # now a total order (latest candidate line, then registration order) and
+    # guard 3b refuses a producer → reader leg when the reader → producer leg
+    # already exists — the 14 direct 2-cycles are gone (7 on SUP_M, 7 on
+    # RFN), of which 5 materialized as SUP_M display edges. Served lit-line
+    # sets and flow closures are byte-identical on all 7 flagship searches
+    # (RFN repay_acct_no / reserved_field9 / busi_no / X5GMAB / dm_flag2 /
+    # acnw, SUP_M lending_ref); only the duplicated direction of the same
+    # pair disappeared. Count is stable at 668 across PYTHONHASHSEED
+    # 0–3 (was 673/674).
+    assert len(new_edges) == 668, (
+        f"flagship display edge count drifted: {len(new_edges)} "
+        f"(H11/X1 PROVENANCE determinism + guard 3b re-pin, 2026-08-31; "
+        f"see the comment above)")
     uncovered = []
     for E in new_edges:
         src_ref = display_endpoint(E["source"], by_tid, by_fid, model)

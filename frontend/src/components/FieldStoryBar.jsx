@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { SEARCHED_FIELD_COLOR } from '../utils/graphStyles';
+import { formatStringMatchSummary } from '../utils/stringMatch';
 
 /**
  * Field Story step-through bar — presentational (Team B).
@@ -12,12 +13,12 @@ import { SEARCHED_FIELD_COLOR } from '../utils/graphStyles';
  * turns autoplay off); ✕ dismisses the story focus (the parent nulls the
  * active index, which clears the graph dimming; the bar itself stays).
  *
- * ALL state lives in DataFlowApp (storyActiveIndex / storyAutoplay) —
- * this component only renders it and ticks the interval. Styling reuses
- * the app's existing toolbar/button classes (`.graph-toolbar`,
- * `.btn .btn-sm .btn-outline .btn-active`); inline styles only where no
- * class fits (the active chip's gold border, the step-title ellipsis).
- * English labels only.
+ * ALL state lives in DataFlowApp (storyActiveIndex / storyAutoplay, and the
+ * R40.13 string-match cursor/visibility) — this component only renders it and
+ * ticks the interval. Styling reuses the app's existing toolbar/button classes
+ * (`.graph-toolbar`, `.btn .btn-sm .btn-outline .btn-active`); inline styles
+ * only where no class fits (the active chip's gold border, the step-title
+ * ellipsis, the R40.13 divider). English labels only.
  */
 const AUTOPLAY_MS = 3000; // one step every 3 seconds
 
@@ -30,10 +31,39 @@ export default function FieldStoryBar({
   autoplay,       // bool
   onToggleAutoplay, // ()
   onDismiss,      // optional () — ✕
+  // ── R40.13: the naive string-match diff layer's browse controls ──────
+  stringMatchSummary, // { total, inFlow, notInFlow } | null (null = no
+                      // active search → the whole cluster stays unrendered,
+                      // INCLUDING a `total: 0` search's absence)
+  stringMatchCursor,  // number | null — 0-based, the SEPARATE browse channel
+  stringMatchVisible, // bool — the layer's show/hide toggle state
+  onToggleStringMatch, // () — show/hide the bands
+  onPrevStringMatch,   // (nextIndex) — ◀ (index computed HERE, see below)
+  onNextStringMatch,   // (nextIndex) — ▶
 }) {
   const list = Array.isArray(steps) ? steps : [];
   const activeStep = activeIndex != null ? list[activeIndex] : undefined;
   const atLast = activeIndex != null && activeIndex >= list.length - 1;
+
+  // ── R40.13 browse arithmetic (the one place the ring rule lives) ──────
+  // The match list is a RING, deliberately unlike the story steps above,
+  // which clamp and never wrap: ◀ from inactive lands on the LAST match,
+  // ▶ from inactive on the FIRST, otherwise ±1 modulo N. The wrapped index
+  // is handed to the parent so the callback always carries the index that
+  // will become the cursor (DataFlowApp only bounds-checks and stores it).
+  const total = stringMatchSummary ? stringMatchSummary.total : 0;
+  const hasMatches = Number.isInteger(total) && total > 0;
+  const rawCursor = stringMatchCursor;
+  const cursor = rawCursor != null && hasMatches
+    ? Math.min(Math.max(0, rawCursor), total - 1) // clamp, never guess
+    : null;
+  const stepTo = (dir) => {
+    if (!hasMatches) return null;
+    if (cursor == null) return dir > 0 ? 0 : total - 1;
+    return ((cursor + dir) % total + total) % total;
+  };
+  const matchBrowseDisabled = !stringMatchVisible || !hasMatches;
+  const counterText = formatStringMatchSummary(stringMatchSummary);
 
   // Autoplay tick — advance every 3s while playing. The interval is
   // recreated on every activeIndex change, so each step gets its FULL
@@ -50,7 +80,7 @@ export default function FieldStoryBar({
   }, [autoplay, activeIndex, list, onNext, onToggleAutoplay]);
 
   return (
-    <div className="graph-toolbar" style={{ flexShrink: 0 }}>
+    <div className="graph-toolbar" style={{ flexShrink: 0, flexWrap: 'wrap', rowGap: 4 }}>
       <span className="graph-level-badge">Field story</span>
       {/* Step chips — horizontal scroll when the story is long, never a
           wrap that would grow the bar. */}
@@ -124,6 +154,41 @@ export default function FieldStoryBar({
           onClick={onDismiss}
           title="Dismiss story focus" aria-label="Dismiss story focus"
         >✕</button>
+      )}
+      {/* ── R40.13: the naive string-match diff layer's cluster ─────────
+          Renders whenever an L2 search is active (stringMatchSummary
+          non-null, including total: 0) even when the script has no story
+          steps — the render GATE in DataFlowApp widens for exactly that.
+          The counter is the diff summary the feature exists to show, so it
+          STAYS visible while the bands are hidden; only ◀/▶ are disabled
+          then. Hidden also removes the bands and the active outline (the
+          parent passes none while hidden) — toggling never resets the
+          cursor. */}
+      {stringMatchSummary != null && (
+        <>
+          <span aria-hidden="true" className="sm-divider" />
+          <button type="button"
+            className={`btn btn-sm ${stringMatchVisible ? 'btn-active' : 'btn-outline'}`}
+            onClick={() => onToggleStringMatch?.()}
+            title={stringMatchVisible ? 'Hide the string-match bands' : 'Show the string-match bands'}
+            aria-label="Toggle string-match layer"
+            aria-pressed={stringMatchVisible ? 'true' : 'false'}
+          >{stringMatchVisible ? '◌' : '○'}</button>
+          <span className="sm-counter" title={counterText}>{counterText}</span>
+          <button type="button" className="btn btn-sm btn-outline"
+            onClick={() => { const i = stepTo(-1); if (i != null) onPrevStringMatch?.(i); }}
+            disabled={matchBrowseDisabled}
+            title="Previous string match" aria-label="Previous string match"
+          >◀</button>
+          <span className="sm-readout" aria-label="String match position">
+            {cursor == null ? '–' : cursor + 1}/{total}
+          </span>
+          <button type="button" className="btn btn-sm btn-outline"
+            onClick={() => { const i = stepTo(1); if (i != null) onNextStringMatch?.(i); }}
+            disabled={matchBrowseDisabled}
+            title="Next string match" aria-label="Next string match"
+          >▶</button>
+        </>
       )}
     </div>
   );

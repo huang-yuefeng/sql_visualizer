@@ -447,3 +447,146 @@ R30.6–R30.10 in `wiki/REQUIREMENTS_TRACEABILITY.md`.
 
 > Numbering matches `wiki/REQUIREMENTS_TRACEABILITY.md`: R30.6–R30.10 are the
 > v3.3.159/160 amendments (see their own amendment entries above); R30.11 is `ROW_FLOW`.
+
+---
+
+### Amendment (2026-08-31) — R40.13 string-match diff layer + Field Story browse controls
+
+> **Status: ✅ IMPLEMENTED in the working tree — frontend-only, ships v3.3.194.** The user ordered
+> the requirement/design/test documents before any code; the design of record — the exact boundary
+> rule with its verification, the solution sketch, the coverage-baseline definition, the state and
+> interaction rules, the resolved ambiguities and the full test plan — lives in
+> `wiki/REQUIREMENTS_TRACEABILITY.md` §"R40.13 — string-match diff layer + browse controls
+> (solution & test plan)". Traceability row: R40.13. Purely additive: this amendment supersedes
+> nothing and amends no earlier section.
+>
+> **2026-08-31 reconciliation:** implementation landed in
+> `frontend/src/utils/stringMatch.js` (+ `SqlPanel.jsx`, `FieldStoryBar.jsx`,
+> `DataFlowApp.jsx`). Three sketch-level corrections were needed and are recorded in
+> `CLAUDE.md` #45 — the CSS selectors are the compound `.sql-line.string-match.covered|missed`
+> forms (the sketch's `.string-match-covered` literal matches nothing of the documented
+> `string-match covered` class list), the field name resolves through the PARENT search row
+> (`storyTarget.field`, because an active L2 view is the CHILD row and carries no `field`), and
+> the Field Story bar wraps the cluster onto its own row so the counter is never clipped in the
+> default 420px L2 panel. The 10-difficult-case cross-check over the landed layer is DONE and the
+> layer PASSED it — the acceptance FAIL it produced is on ENGINE closure defects (root causes
+> RC-A/RC-B/RC-C), not on this layer; record: `wiki/CODE_REVIEW_2026-08-29.md` §6.
+
+**Requirement (user intent, verbatim).** Add a **string-matching highlight** in the SQL script
+panel plus **previous/next buttons in the Field Story bar** to browse those highlights. Purpose:
+the user checks the **DIFFERENCE between naive string matching and the engine's search result**.
+String matching is **CASE-INSENSITIVE**.
+
+The design was frozen by three user rulings, which expand into the seven numbered design points
+recorded below as acceptance criteria:
+
+- **Ruling A — the diff is color-coded against the engine, and it is always on** (points 1, 2, 7):
+  every string-match line is styled by whether the ENGINE's flow closure covers it — covered =
+  green band, not covered = amber/red band — with the counter `N string matches · M in flow ·
+  K not in flow`; the layer is always on after a search with a show/hide toggle in the Field Story
+  bar; the engine's own highlight channel is untouched and simultaneously visible.
+- **Ruling B — the baseline is deliberately naive, with a strict boundary rule** (points 3, 6):
+  case-insensitive, word-boundary matches of the field name over the WHOLE script, comment and
+  string-literal lines included; the boundary is the custom lookaround
+  `(?<![A-Za-z0-9_$])NAME(?![A-Za-z0-9_$])` (case-insensitive, escaped name), never `\b`.
+- **Ruling C — browsing is a separate cursor, and the whole feature is client-side** (points 4,
+  5): ◀/▶ browse the match lines through a SEPARATE cursor state that never touches the R37
+  engine-highlight channel; no backend, no API, no cache, no snapshot change.
+
+#### Acceptance criteria
+
+| # | Criterion (verifiable) |
+|---|------------------------|
+| AC1 | After a search, every SQL line containing a case-insensitive boundary match of the searched field name carries exactly one band — green when the line is in the engine's flow-closure highlight set, red when it is not — and no unmatched line carries a band. The Field Story bar shows the counter `N string matches · M in flow · K not in flow` with N = M + K; at N = 0 it reads `0 string matches` (the M/K suffix omitted) |
+| AC2 | The layer is ON immediately after every search with no user action. The Field Story bar's toggle hides/shows it: hidden means the bands and the active outline disappear and ◀/▶ are disabled, while the counter stays visible. The engine's own highlight channel (`.edge-highlighted`) is untouched and stays readable in every state, including on a line that also carries a band — operationally the engine keeps its amber 3px LEFT border while the layer adds its own background tint + 3px RIGHT border (see the design of record's CSS contract) |
+| AC3 | Matching runs over the whole script text with no SQL parsing: comment lines and string-literal lines are included, and so are DDL and every other statement kind. A multi-occurrence line yields ONE styled line, not one per occurrence |
+| AC4 | ◀/▶ walk the matched lines in ascending order with wraparound at both ends, scrolling the SQL panel to the line and outlining it as the "active" line. Browsing never moves the engine's `edge-highlighted` line and never writes to the R37 `sqlHighlightLine` channel. A new search, a script change or a payload change resets the cursor to inactive |
+| AC5 | No network request and no backend file change: the layer derives entirely from the already-served search payload plus the already-rendered SQL text. The green/red classification and the counter are IDENTICAL in the flow-only, full and merged views of the same script, because the coverage baseline is always the FLOW closure's highlight set (edge `highlight_line` ∪ node `line_start`, integer ≥ 1, from the current search payload) — never the displayed view's projection |
+| AC6 | Boundary behaviour: searching `p_dt` does NOT match `p_dt2`, `p_dt_backup`, `p_dt$x` or `x$p_dt`; every casing variant (`P_DT`, `p_Dt`) matches; the field name is regex-escaped so metacharacter-shaped names match literally; the implementation is the lookaround over `[A-Za-z0-9_$]`, not `\b` |
+| AC7 | Edge cases: no active search (no L2 search view, or an empty field name) → the layer is hidden; 0 matches → the counter reads `0 string matches` and there is nothing to browse; the searched chip's own definition line IS a match and is colored like any other line — the baseline is naive by ruling, so matching the birth line is correct behaviour, not a defect |
+
+#### Non-goals
+
+- **No backend change of any kind** — no router, service, extractor, cache-prefix or
+  `EXTRACTOR_VERSION` change, no snapshot regeneration, no new payload field.
+- **NOT a correctness claim.** The naive layer is a COMPARISON AID. A red line is not an engine
+  bug and a green line is not proof of correctness: east5's ten red `ALTER TABLE … ADD PARTITION`
+  lines (L166–175) are the R43 "folder names, not dataflow" exclusion working as designed, and the
+  engine legitimately anchors L179/L189 where the naive scan sees nothing (the flow passes through
+  `rrcdm_job_log_exec_par`). The layer surfaces the difference; adjudicating it stays with the
+  human and with the invariants suite.
+- **No per-token highlighting** — whole lines only; the `.line-text` DOM, the syntax display and
+  the SQL export path are untouched.
+- **No new L1 surface** — the layer exists where the SQL panel exists (L2).
+- **No persistence** — the toggle and the browse cursor are session component state, never written
+  to `localStorage` or the export config.
+- **No replacement of existing channels** — the R37 engine highlight, the Field Story step-through
+  and this diff layer are three coexisting, independent channels.
+
+---
+
+### Amendment (2026-08-31) — fast reopen, incremental index, and the multi-user hardening batch (v3.3.194)
+
+> **Status: ✅ IMPLEMENTED in the working tree — ships v3.3.194.** Adjudication record:
+> `wiki/CODE_REVIEW_2026-08-29.md` §6. Traceability rows: R1.9/R1.10/R2.12/R3.7/R14.5 and
+> R31.30–R31.33 in `wiki/REQUIREMENTS_TRACEABILITY.md`. Two items of this batch were still in
+> flight when this record was written and are marked as such at their rows (G7's RC-C extractor
+> fix; P2's fit-floor/header pass). Purely additive.
+
+**§1 amended — opening an existing workspace is a READ, not a rebuild.** Re-opening a workspace
+re-ran the whole extraction pipeline on every `POST /index` (measured on the 106-pipeline-script
+`tpcds_qualified` corpus, dev container at v3.3.193: `POST /scan` 0.15 s, `POST /index`
+2.28–2.37 s, identical on the 2nd and 3rd open, 70% of it inside `run_full_analysis` — nothing
+was reused). Therefore:
+
+- **Creator and participant open both read persisted state** — `GET /workspace/{id}/tree`
+  (the A1-classified `file_tree.json` the last index covered) and `GET /workspace/{id}/index`
+  (the persisted `table_index`/`field_index` + the derived index report). Neither re-scans,
+  neither re-extracts, and a missing/corrupt cache answers 409 / `{}` rather than rebuilding.
+  On a zero-difference open the client issues **no `POST /index` at all** — zero parses.
+- **Re-index is incremental.** Each index persists, per script, the PRISTINE pre-S4b analysis it
+  extracted (`cache/ixevidence_{key}.json.gz`) plus a per-file identity manifest
+  (`cache/index_manifest.json`). The change discriminator is a content hash —
+  `md5(EXTRACTOR_VERSION + "|" + rel_path + sql_text)` — so an unchanged script is REPLAYED from
+  its evidence snapshot and only changed/new scripts are re-extracted. S4b and the C-5 star
+  expansion always re-run: they are workspace-wide.
+- **A stale open self-heals.** A creator who opens a workspace whose scripts changed since the
+  last index auto-fires one re-index; while it runs the UI shows a
+  "Catching up: N changed script(s)…" bar, the search panel is withheld, and index-derived
+  searches answer an explicit retry-able **409** ("Index is being updated for this workspace")
+  instead of answering from the previous index. When the run finishes the withheld search is
+  replayed automatically. A participant sees an informational hint and never triggers the rebuild.
+- **No torn state, ever.** Every index/cache/meta write is atomic (unique temp file +
+  `os.replace`, shared helper `app/services/atomic_io.py`); `filtered_index.json` is refreshed or
+  cleared on every index; `meta.json` state-version updates are a compare-and-swap under a
+  process-wide `_meta_cas_lock`. A concurrent reader sees the whole old artifact or the whole new
+  one, never a half-written one.
+
+**§1.6/R31 amended — the multi-user contract is enforced, not just documented.**
+
+- **Role-gated surfaces.** The workspace action is labelled by role — creator "Delete Workspace",
+  participant "Remove from my list" — because the same endpoint does a different thing. The
+  per-view "×" is creator-only. There is **no manual re-index control for anyone** (user ruling
+  2026-08-31): the automatic content-hash catch-up is the only re-index UI.
+- **Every heavy operation is wedge-proof.** The global heavy-op gate now holds its acquisition
+  state on a PER-CALL token, not on the module-level singleton — a refused entrant can no longer
+  destroy the holder's release and wedge the gate into answering 409 to every search service-wide
+  until restart.
+- **The log stream broadcasts.** One bounded queue per SSE subscriber, not one ref-counted queue
+  per workspace — two participants (or two tabs) on the same workspace each receive EVERY line
+  instead of randomly splitting the stream.
+- **The History panel is a real trail.** Per-workspace activity records are written for the
+  actions the server actually performs (visit start/end, search, L2 open, layout save, creator
+  scan+index), atomically and bounded (last 200 records), so the trail is never a single
+  `workspace_created` line no matter what the participants did.
+- **Deleting an L2 child works.** The child "×" routes to the route that exists
+  (`DELETE /views/{childId}`); the previous URL addressed a children route that was never
+  implemented and failed for every role.
+
+**Non-goals / unchanged:** the creator-only rule for `POST /scan` and `POST /index` (#380) is
+unchanged — the new reads are read-only and add no membership side effect; shared-view
+persistence remains **one shared current state** (last-writer-wins), which is a standing product
+question for the user, not a settled requirement; the access model is still exactly one writer
+(creator) per workspace with any number of read-only readers.
+
+

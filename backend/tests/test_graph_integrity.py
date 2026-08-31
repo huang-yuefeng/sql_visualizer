@@ -141,26 +141,29 @@ def _r44_derived_read_twin_names(vars_dict):
 # Adjudicated column_connectivity residue (R4 M-H, 2026-08-29)
 # ════════════════════════════════════════════════════════════════════════
 # The pre-tightening signature absorbed 14 live `column_connectivity`
-# findings corpus-wide. Two of the 14 stay covered by the (now marker-gated)
+# findings corpus-wide; two of the 14 stay covered by the (now marker-gated)
 # occurrence waiver itself — the same column name also has an occurrence
-# twin in that file — so 12 are handed back here; all 14 are listed, because
-# an entry that fires is an entry whose verdict is checked. Two verdicts
-# exist:
+# twin in that file — so the rest were handed back here, every entry
+# carrying its own verdict. An entry that fires is an entry whose verdict is
+# checked; an entry that no longer fires must be DELETED (asserted below).
 #
-#   FALSE POSITIVE — the check's premise does not hold for this var: it is
-#     NOT a member of its prefix table (a renamed projection, an aggregate
-#     born in a derived scope, a bare group key owned by a derived
-#     container), so the missing belongs-to edge is CORRECT and emitting
-#     it would fabricate a schema fact. Its connectivity witness is the
-#     REF from the reference it came from.
-#   DEFECT (v3.3.193 material) — the var IS a member of its prefix table
-#     and genuinely carries no belongs-to edge, because dependency_graph
-#     Phase 4d-gb's admission gate enumerates only `GROUP BY` + the
-#     OCCURRENCE marker; the MERGE ON / MERGE UPDATE SET / MERGE WHEN /
-#     JOIN ON clauses fall between the two. App-code fix, owned by the
-#     extractor team — NOT patched here, and not silently waived either:
-#     each entry states the defect, and the whole entry stops being
-#     load-bearing (and fails the test below) the moment the fix lands.
+# H11 (2026-08-31): the 7 DEFECT entries — fin_query4's
+# gps_transactions.amount/.fee_amount/.txn_id/.settlement_date (MERGE UPDATE
+# SET) and .net_amount/.currency_code (MERGE WHEN), fin_query14's
+# gps_transactions.merchant_id (JOIN ON) — are FIXED and retired from this
+# list: dependency_graph Phase 4d-gc now gives a physical-owner column of a
+# MERGE/JOIN ON clause its belongs-to SCHEMA edge from the owner's table
+# entity (mirroring the 4d-gb pattern), admission-gated on the model's own
+# schema evidence that the owner really has the field. Exactly those 7 edges
+# corpus-wide; pinned by tests/test_merge_connectivity.py.
+#
+# The 7 remaining entries are FALSE POSITIVE — the check's premise does not
+# hold for the var: it is NOT a member of its prefix table (a renamed
+# projection, an aggregate born in a derived scope, a bare group key owned
+# by a derived container), so the missing belongs-to edge is CORRECT and
+# emitting it would fabricate a schema fact. The evidence gate is what keeps
+# them out; their connectivity witness is the REF from the reference they
+# came from.
 _ADJUDICATED_CONNECTIVITY = {
     "financial/fin_query4_merge_upsert.sql": {
         # `ON target.account_id = source.account_id` @25 — `source` is the
@@ -172,37 +175,6 @@ _ADJUDICATED_CONNECTIVITY = {
         "gps_transactions.account_id":
             "FALSE POSITIVE — renamed USING projection, not a "
             "gps_transactions column (t.source_account_id AS account_id @8)",
-        # MERGE UPDATE SET @30/@35/@36 and MERGE WHEN @63/@64 read genuine
-        # gps_transactions columns (t.amount @10, t.fee_amount @11,
-        # t.net_amount @12, t.txn_id @15, t.settlement_date @14,
-        # t.currency_code @16). The belongs-to edge is missing only because
-        # Phase 4d-gb does not admit the MERGE clauses — a real model gap
-        # (v3.3.193), waived with the defect stated, never silently.
-        "gps_transactions.amount":
-            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
-            "MERGE UPDATE SET clause; the twin @18 (OCCURRENCE SELECT expr, "
-            "same TOP0) carries the belongs-to edge, so the rendered chip "
-            "stays connected",
-        "gps_transactions.fee_amount":
-            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
-            "MERGE UPDATE SET clause; no sibling registration carries the "
-            "belongs-to edge",
-        "gps_transactions.txn_id":
-            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
-            "MERGE UPDATE SET clause; no sibling registration carries the "
-            "belongs-to edge",
-        "gps_transactions.settlement_date":
-            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
-            "MERGE UPDATE SET clause; the twin @21 (OCCURRENCE WHERE, same "
-            "TOP0) carries the belongs-to edge",
-        "gps_transactions.net_amount":
-            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
-            "MERGE WHEN clause; no sibling registration carries the "
-            "belongs-to edge",
-        "gps_transactions.currency_code":
-            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
-            "MERGE WHEN clause; no sibling registration carries the "
-            "belongs-to edge",
     },
     "financial/fin_query8_multi_party_settlement.sql": {
         # `GROUP BY party_id, party_type` @155 inside CTE party_net_positions
@@ -240,14 +212,6 @@ _ADJUDICATED_CONNECTIVITY = {
         "gps_transactions.chargeback_count":
             "FALSE POSITIVE — aggregate born inside the derived `txn` "
             "subquery (SUM(CASE WHEN t.txn_type='CHARGEBACK'…) @101-102)",
-        # `txn.merchant_id` @107 in the LEFT JOIN ON — merchant_id IS a
-        # genuine gps_transactions column (t.merchant_id @94, GROUP BY
-        # t.merchant_id @106), and this var carries no belongs-to edge
-        # because Phase 4d-gb does not admit JOIN ON.
-        "gps_transactions.merchant_id":
-            "DEFECT (v3.3.193) — genuine column, Phase 4d-gb skips the "
-            "JOIN ON clause; the sibling registration @106 "
-            "(CTE{node_transactions}:join:txn) carries the belongs-to edge",
     },
 }
 

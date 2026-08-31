@@ -216,9 +216,12 @@ class TestL2NotInFlow:
         real_build = dfs._build_l2_graph
 
         def wrapped(ws_id_, script_name, sql_text, table, field,
-                    relevance_filter=True, direction="downstream"):
+                    relevance_filter=True, direction="downstream", **kw):
+            # **kw: the builder's internal hand-over args (the PERF
+            # request-scoped load/walk sharing) forward unchanged — this
+            # double mirrors the production signature, never narrows it.
             res = real_build(ws_id_, script_name, sql_text, table, field,
-                             relevance_filter, direction)
+                             relevance_filter, direction, **kw)
             if relevance_filter and res.get("error") is None and field not in sql_text:
                 res = dict(res)
                 res["search_matched"] = False  # simulate BE1's contract

@@ -23,11 +23,18 @@ from app.services.graph_service import (
 )
 from app.extractor.schema_inference import infer_table_schemas
 from app.extractor.physical_model import build_physical_model
+from app.extractor.dependency_graph import line_clause_map
 from app.extractor.lineage import (filter_by_field_flow, flow_source_id,
                                    flow_targets, classify_flow_roles,
                                    compute_field_flow)
 from app.services.cache_keys import GRAPH_CACHE_PREFIX
-from app.services.highlight_strategies import get_strategy, FIELD_LIKE_TYPES, _safe_int
+from app.services.highlight_strategies import (
+    get_strategy,
+    FIELD_LIKE_TYPES,
+    _safe_int,
+    _flow_kind,
+    _anchor_line,
+)
 
 # ── L2 helper functions ──────────────────────────────────────────────
 
@@ -194,9 +201,17 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
             # D1: cached graphs carry a line_map computed before comment-line
             # skipping existed — recompute from the cached node expressions so
             # stale caches behave like fresh analyses.
+            # PERF (v3.3.194): the node dicts carry line_start/line_end
+            # (format_version 4) — hand them over so map_variables_to_lines
+            # takes its v3.3.140 carried-line short-circuit instead of
+            # scanning the whole script per var (the var-carried def lines
+            # ARE the extraction truth; the text search stays as the
+            # fallback for the nodes that carry no line).
             full_graph["line_map"] = _recompute_line_map(
                 [{"id": n["data"].get("id", ""),
-                  "sql_expression": n["data"].get("sql_expression", "")}
+                  "sql_expression": n["data"].get("sql_expression", ""),
+                  "line_start": n["data"].get("line_start", 0),
+                  "line_end": n["data"].get("line_end", 0)}
                  for n in full_graph.get("nodes", [])], sql_text)
             # CW7: normalize edge_type on cache read (cache stores "relationship")
             for _e in full_graph.get("edges", []):
@@ -281,7 +296,8 @@ def _apply_relevance_filter(full_graph: dict, table: str, field: str,
                             table_schemas: dict | None,
                             relevance_filter: bool = True,
                             physical_model=None,
-                            direction="downstream") -> dict:
+                            direction="downstream",
+                            _flow_memo=None) -> dict:
     """Phase 2 (CW4): apply the strict table.field flow filter, or return the full graph.
 
     v3.3.140: filter_by_field_flow() (the strict per-instance table.field
@@ -300,38 +316,201 @@ def _apply_relevance_filter(full_graph: dict, table: str, field: str,
         return filter_by_field_flow(full_graph, table, field,
                                     table_schemas=table_schemas,
                                     physical_model=physical_model,
-                                    direction=direction)
+                                    direction=direction,
+                                    _flow_memo=_flow_memo)
     return full_graph
 
 
-def _compute_target_and_direct_ids(nodes: list, edges: list,
-                                   table: str, field: str,
-                                   physical_model=None) -> tuple:
-    """Phase 3a (CW4): identify target node ids and compute the upstream/
-    downstream BFS sets used for direct/indirect field classification.
+# ── R46a (2026-08-31, FSB hygiene): the searched entity set ──────────
+# Mirror of `app/extractor/lineage.py`'s `_ALIAS_SEED_EXPANSION` switch —
+# the W1 seed block gates the #399 alias expansion on it, and the display
+# gate below re-derives the SAME expansion, so the two switches must move
+# together. `tests/test_alias_seed_expansion.py::_set_switch` flips it in
+# every module that carries the attribute (lineage AND here) precisely for
+# that reason; `_find_feature_module` still resolves to lineage (it is
+# probed first), so the sentinel/kill-switch bookkeeping is unchanged.
+_ALIAS_SEED_EXPANSION = True
 
-    J12-10 stage 3: the seed search resolves against the physical model —
-    PhysicalField entities (field lookup) instead of scanning display
-    nodes. The target set is the model-union of occurrence ids over the
-    fields named `field` (owner-agnostic — the J12-9 one-predicate
-    semantics; probe-verified byte-identical to the label predicate on
-    the gate sample set, 2026-08-11), intersected with the FIELD_LIKE
-    nodes present. The J12-9 source_columns predicate is kept via the
-    model's occurrence index (same exact suffix rule, no substring —
-    R4), so a var whose label differs but whose source column carries
-    the searched field part still matches (alias-copy seed semantics).
 
-    Returns (target_node_ids, direct_ids).
+def _searched_entity_keys(physical_model, table: str, field: str) -> set:
+    """R46a (2026-08-31, FSB audit — EAST5, 168 pairs): the entity set the
+    searched `table.field` actually names — the strict walker's own W1
+    seed rule (`target_keys ∪ _tkeys_ci`, widened by the #399 alias seed
+    expansion), re-derived here so the DISPLAY's `is_target` stamp answers
+    the same question the walker's seed rule answers.
+
+    Why a re-derivation and not an import: the seed set is local to
+    `filter_by_field_flow`'s W1 block (lineage.py) and is never exposed;
+    the display needs it before classification, and lineage.py is the
+    extraction side (the display must not reach into its frame). The three
+    clauses below are clause-for-clause the walker's:
+
+      1. every entity NAMED the searched table (exact + case-insensitive
+         — CR11), 2. the #399 alias expansion gated field-aware: only when
+         NO entity named the searched table HOSTS the searched field do the
+         alias's owning entities join (a search that already has its host
+         keeps it), 3. one alias name may bind several owning entities in
+         one statement — all of them.
+
+    An EMPTY return means the model cannot name a single entity for this
+    search (no such table, no alias binding): there is no ownership
+    evidence to gate with, so the caller keeps the legacy owner-agnostic
+    stamp instead of inventing a restriction the model cannot support.
     """
-    # Identify target node IDs (for is_target and direct/indirect)
-    target_node_ids = set()
-    # Model-union: every occurrence whose PhysicalField name is `field`
-    # (one exact field-part rule — "table.field" labels are dotted
-    # labels, field-only AND alias-qualified labels like `p1.data_dt`
-    # still match a search for `bdm_acc_loan_info.data_dt` — the
-    # alias-copy seed depends on it; narrowing to name == target_full
-    # would regress the Jaccard gate).
-    union = set()
+    if physical_model is None:
+        return set()
+    tl = (table or "").lower()
+    if not tl:
+        return set()
+    entity_keys = {k for k, t in physical_model.tables.items()
+                   if t.name == table or t.name.lower() == tl}
+    fk = (field or "").lower()
+    hosted = any(tkey in entity_keys and fname.lower() == fk
+                 for (tkey, fname) in physical_model.fields)
+    if not hosted and _ALIAS_SEED_EXPANSION:
+        for _avid, _akey in physical_model.alias_by_var_id.items():
+            _ao = physical_model.occurrence(_avid)
+            if _ao is not None and ((_ao.get("name") or "").lower() == tl):
+                entity_keys.add(_akey)
+    return entity_keys
+
+
+def _compound_entity_key(compound: dict | None, physical_model) -> str | None:
+    """R46a: the model entity key a compound node STANDS FOR — an alias
+    compound resolves to its canonical entity (the model's alias truth),
+    any other table-like compound to its own occurrence's entity."""
+    if physical_model is None or not compound:
+        return None
+    oid = compound.get("original_id")
+    if not oid:
+        return None
+    key = physical_model.alias_by_var_id.get(oid)
+    if key is None:
+        key = physical_model.entity_of_id.get(oid)
+    return key
+
+
+def _write_target_entity_keys(physical_model, field: str) -> set:
+    """R46a ruling amendment (2026-08-31): the entity keys of the DML WRITE
+    TARGETS that RECEIVE the searched field's value — the walker's own
+    upstream-seed evidence (lineage.py R29 U1: the write targets whose
+    statement's write leg carries the searched field), read here from the
+    same model fact the walker's `_dml_write_leg` index is built from: a
+    non-WRITE_READ DML edge whose SOURCE occurrence's field part is the
+    searched field. The write target's compound is where that value lands
+    (the R44 family-1 write twin / the P1 MOVE→COPY continuation), so its
+    same-name chip keeps the seed claim."""
+    _field_key = (field or "").casefold()
+    if physical_model is None or not _field_key:
+        return set()
+    keys = set()
+    for e in physical_model.edges:
+        if e.edge_type != "DML":
+            continue
+        if (e.operation or "").upper() == "WRITE_READ":
+            continue
+        src = physical_model.occurrence(getattr(e, "source_id", ""))
+        if src is None:
+            continue
+        part = ((src.get("name") or "").rsplit(".", 1)[-1].casefold())
+        if part != _field_key:
+            continue
+        target = getattr(e, "target", None)
+        if target and target[0]:
+            keys.add(target[0])
+    return keys
+
+
+def _scope_target_stamp(field_nodes: list, table_nodes: dict,
+                        table: str, field: str, physical_model) -> int:
+    """R46a (2026-08-31, FSB audit — EAST5, 168 pairs): the DISPLAY half of
+    the seed rule. AD3 adjudication, as amended by the coordinator ruling
+    of the same day (the user's "only the field involved in the data flow
+    is shown" cuts both ways): `is_target` = the chip's field-part equals
+    the searched field AND the chip's parent compound is EITHER an entity
+    of the searched table's entity set (the walker's `target_keys ∪
+    _tkeys_ci ∪ _alias_keys` — the #399 alias expansion included) OR a DML
+    write-target compound that RECEIVES the searched field's value (the
+    R44 family-1 write twins — where the value goes). READ-side same-name
+    chips on other tables' compounds — the FSB phantoms (b/c/d/e.data_dt,
+    a JOIN partner's partition column) — are ordinary nodes: their
+    compounds never receive the field's value, they only compare with it.
+
+    Why here and not in `_compute_target_and_direct_ids`: `is_target` is
+    load-bearing INSIDE the build — P2 (`_promote_field_edges`) and P17
+    (`_simplify_dml_edges`) keep a seed field's edges at FIELD level and
+    the payload phase (`_attach_flow_payload`) walks the closure from the
+    seed entries. Measured on the flagship corpus, gating the flag there
+    re-routes SERVED edges (the J12-15 per-statement DML trunk flagship
+    loses its rrcdm write leg; J1's LFS129 own-field value copy goes
+    dark) — an edge-admission change the ruling never asked for (edge
+    admission is J1's rule, and it keeps those edges). So the seed sets
+    this phase receives stay owner-agnostic, and the stamp is narrowed
+    once, after the last edge consumer has read it and before assembly.
+
+    The narrowing only ever REMOVES a stamp (the admitted set is a subset
+    of the owner-agnostic match), so no chip gains a claim it did not
+    have. Kept: the searched table's own chips, the alias-qualified seed
+    copy (P1 MOVE→COPY — the alias compound resolves to its canonical
+    entity), the #399 alias-target seed (the expansion widens the entity
+    set) and the write-target copy (the R44 family-1 twin — sup@160,
+    rrcdm@213 on the flagship). Dropped: the READ-side same-name chip of
+    every other table/CTE/⟐-output compound in the statement — which is
+    what lit seed-centering, the V2-N1 chip-visibility exemption and the
+    Field Story's seed selection on foreign chips.
+
+    Returns the number of stamps dropped (diagnostics only).
+    """
+    if physical_model is None or not (table or "").strip():
+        return 0
+    entity_keys = _searched_entity_keys(physical_model, table, field)
+    if not entity_keys:
+        # The model names no entity for this search: no ownership evidence,
+        # so the stamp stays as the extraction-side match produced it.
+        return 0
+    admitted = entity_keys | _write_target_entity_keys(physical_model, field)
+    entity_names = {physical_model.tables[k].name.lower()
+                    for k in admitted if k in physical_model.tables}
+    compounds = {tn.get("id"): tn for tn in table_nodes.values()}
+    dropped = 0
+    for fn in field_nodes:
+        if not fn.get("is_target"):
+            continue
+        compound = compounds.get(fn.get("parent"))
+        key = _compound_entity_key(compound, physical_model)
+        if key is not None:
+            if key in admitted:
+                continue
+        elif (compound or {}).get("table_name", "").lower() in entity_names:
+            # No entity key for the keeper occurrence (the model never saw
+            # it) — the compound's own name is the only evidence left.
+            continue
+        fn["is_target"] = False
+        dropped += 1
+    return dropped
+
+
+def _field_part_match_ids(nodes: list, field: str,
+                          physical_model=None) -> set:
+    """The J12-9 owner-agnostic FIELD-PART match (the predicate both the
+    seed phase and the #387 retarget gate consume — one definition, never
+    two drifting copies).
+
+    J12-10 stage 3: the match resolves against the physical model —
+    PhysicalField entities (field lookup) instead of scanning display
+    nodes. The set is the model-union of occurrence ids over the fields
+    named `field` (owner-agnostic — one exact field-part rule;
+    probe-verified byte-identical to the label predicate on the gate
+    sample set, 2026-08-11), intersected with the FIELD_LIKE nodes
+    present. The J12-9 source_columns predicate is kept via the model's
+    occurrence index (same exact suffix rule, no substring — R4), so a
+    var whose label differs but whose source column carries the searched
+    field part still matches (alias-copy seed semantics).
+
+    Owner-agnostic BY DESIGN: this answers "does this occurrence carry the
+    searched field part", never "is it the searched table's" — the entity
+    question is `_searched_entity_keys` + `_scope_target_stamp`.
+    """
     # F-A follow-up (K4 item 5, 2026-08-28): the search hands the builders
     # the index's CANONICAL spelling, while each script wrote the field in
     # its own casing (`dm_flag2` in one script, `DM_FLAG2` in the next).
@@ -339,14 +518,21 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
     # casefolded — otherwise the case-variant script rendered
     # search_matched:false and lost every is_target chip.
     _field_key = field.casefold()
+    # Model-union: every occurrence whose PhysicalField name is `field`
+    # (one exact field-part rule — "table.field" labels are dotted
+    # labels, field-only AND alias-qualified labels like `p1.data_dt`
+    # still match a search for `bdm_acc_loan_info.data_dt` — the
+    # alias-copy seed depends on it; narrowing to name == target_full
+    # would regress the Jaccard gate).
+    union = set()
     if physical_model is not None:
-        for (tkey, fname), fld in physical_model.fields.items():
+        for (_tkey, fname), fld in physical_model.fields.items():
             if fname.casefold() == _field_key:
                 union.update(fld.occurrence_ids)
+    matched = set()
     for n in nodes:
         nd = n.get("data", n)
-        vt = nd.get("variable_type", "")
-        if vt not in FIELD_LIKE_TYPES:
+        if nd.get("variable_type", "") not in FIELD_LIKE_TYPES:
             continue
         nid = nd.get("id")
         # J12-9 label predicate kept ALONGSIDE the model union (the union
@@ -358,7 +544,7 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
         # suffix of a dotted computed label) and the model=None fallback.
         label = nd.get("label", "")
         if nid in union or label.rsplit(".", 1)[-1].casefold() == _field_key:
-            target_node_ids.add(nid)
+            matched.add(nid)
             continue
         # J12-9 source_columns path (kept — a var whose label differs but
         # whose source column carries the searched field part still
@@ -371,8 +557,47 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
             sc = nd.get("source_columns", [])
         for sc_name in sc:
             if sc_name.rsplit(".", 1)[-1].casefold() == _field_key:
-                target_node_ids.add(nid)
+                matched.add(nid)
                 break
+    return matched
+
+
+def _compute_target_and_direct_ids(nodes: list, edges: list,
+                                   table: str, field: str,
+                                   physical_model=None) -> tuple:
+    """Phase 3a (CW4): identify target node ids and compute the upstream/
+    downstream BFS sets used for direct/indirect field classification.
+
+    J12-10 stage 3: the seed search resolves against the physical model —
+    PhysicalField entities (field lookup) instead of scanning display
+    nodes. The target set is the model-union of occurrence ids over the
+    fields named `field` (one exact field-part rule — the J12-9
+    semantics; probe-verified byte-identical to the label predicate on
+    the gate sample set, 2026-08-11), intersected with the FIELD_LIKE
+    nodes present. The J12-9 source_columns predicate is kept via the
+    model's occurrence index (same exact suffix rule, no substring —
+    R4), so a var whose label differs but whose source column carries
+    the searched field part still matches (alias-copy seed semantics).
+
+    R46a (2026-08-31, FSB audit — EAST5, 168 pairs): this phase stays the
+    OWNER-AGNOSTIC field-part match on purpose, because `is_target` is
+    load-bearing far beyond the stamp: P2 (`_promote_field_edges`) and P17
+    (`_simplify_dml_edges`) keep a seed field's edges at FIELD level, and
+    the payload phase (`_attach_flow_payload`) walks the closure from the
+    seed entries — all three read the flag. Gating HERE would re-route
+    served edges (measured: the J12-15 per-statement trunk flagship and
+    J1's LFS129 own-field value copy both go dark). The ruling scopes the
+    SEED CLAIM, not the edge admission, so the entity-set gate is applied
+    once, at the display boundary, by `_scope_target_stamp` — after every
+    edge consumer has read the flag and before assembly. The direct/
+    indirect BFS keeps the owner-agnostic seeds for the same reason:
+    `field_group` is a graph-DISTANCE notion, not a seed claim.
+
+    Returns (target_node_ids, direct_ids).
+    """
+    # Identify target node IDs (for is_target and direct/indirect) — the
+    # owner-agnostic field-part match (see `_field_part_match_ids`).
+    target_node_ids = _field_part_match_ids(nodes, field, physical_model)
 
     # Compute upstream/downstream sets for direct/indirect classification
     fwd_adj = {}
@@ -383,7 +608,7 @@ def _compute_target_and_direct_ids(nodes: list, edges: list,
         fwd_adj.setdefault(src, []).append(tgt)
         rev_adj.setdefault(tgt, []).append(src)
 
-    # BFS from targets
+    # BFS from targets — seeded from the owner-agnostic match (see above).
     direct_ids = set(target_node_ids)
     if target_node_ids:
         # Upstream BFS
@@ -1008,7 +1233,10 @@ def _classify_compound_nodes(nodes: list, full_graph: dict, script_name: str,
     # extraction truth (source_tables) is untouched, and when the write
     # table's compound already carries a same-named field (the R44
     # write-side twin) the projection's edges re-point onto THAT node
-    # instead of duplicating the chip.
+    # instead of duplicating the chip. (R46a leaves this gate owner-
+    # agnostic on purpose: its explicit `is_target = True` lands on a chip
+    # whose parent IS the searched table's compound, so the display scoping
+    # in `_scope_target_stamp` keeps it.)
     if (search_table and physical_model is not None
             and write_field_target and target_node_ids):
         _sl = search_table.lower()
@@ -1060,6 +1288,11 @@ def _map_search_target_ids(field_nodes: list, table_nodes: dict,
     re-marked in place: a target field that arrived via a merged-away
     context still lights up on the keeper.
 
+    R46a: this re-mark is an EDGE-machinery seed (P2/P17/payload read it
+    below), so it stays owner-agnostic; the display claim is scoped later
+    by `_scope_target_stamp`, which runs after it and after the last edge
+    consumer.
+
     Returns (target_mapped, direct_mapped).
     """
     target_mapped = {id_map.get(i, i) for i in target_node_ids}
@@ -1105,6 +1338,12 @@ def _carry_edge_info(src_nd: dict, tgt_nd: dict, raw_edge: dict) -> dict:
         "_src_tables": list(src_tables),
         "_tgt_tables": list(tgt_tables),
         "_src_ctx": src_nd.get("context", ""),
+        # Field-involvement admission (2026-08-31): the clause each raw
+        # endpoint occurrence was COLLECTED in (the extraction-time
+        # `defined_in` stamp) — the write-projection read leg is told from
+        # its `SELECT expr` stamp, never re-derived from text.
+        "_src_defined_in": src_nd.get("defined_in", "") or "",
+        "_tgt_defined_in": tgt_nd.get("defined_in", "") or "",
         "_op": raw_edge.get("operation", ""),
         "_src_field_like": (src_vt in FIELD_LIKE_TYPES
                             or (src_nd.get("defined_in") or "").upper() == "PARTITION"),
@@ -1186,6 +1425,23 @@ def _build_edge_list(edges: list, nodes: list, id_map: dict,
     return new_edges, {i: nd.get("label", "") for i, nd in node_info.items()}
 
 
+def _carrier_anchor(e: dict) -> int:
+    """RC-B multi-anchor (2026-08-31): the highlight_line this carrier will
+    be SERVED with — the payload rule itself
+    (`highlight_strategies._flow_kind` + `_anchor_line`, evaluated on the
+    carrier's carried extraction-time info), not a reconstruction of it.
+
+    This is the fold's occurrence discriminator. Two carriers of one
+    (source, target, edge_type) pair whose served anchor differs are two
+    occurrences of the field in the SQL text, not two copies of one edge —
+    the model carries both, so the served payload must show both (R44 "cover
+    all occurrences"; the string-match layer colors served lines)."""
+    try:
+        return int(_anchor_line(e, _flow_kind(e)) or 0)
+    except Exception:                                   # malformed carrier
+        return _safe_int(e.get("_src_line"))
+
+
 def _combine_edges(new_edges: list, node_lines: dict | None = None) -> list:
     """Phase 5 (CW4): same (source,target,edge_type) → combine labels.
 
@@ -1221,7 +1477,45 @@ def _combine_edges(new_edges: list, node_lines: dict | None = None) -> list:
     H and the canonical rely on: it fires only when Fix H's own rule did
     not, the keeper's field-side line is shared with a different type on
     the same (source, target), and the candidate's is not — Fix H's
-    keeper-line rule wins first (SCHEMA@59 keeps its GROUP-BY anchor)."""
+    keeper-line rule wins first (SCHEMA@59 keeps its GROUP-BY anchor).
+
+    RC-B multi-anchor (2026-08-31): the fold key is
+    (source, target, edge_type, ANCHOR) with ANCHOR = `_carrier_anchor(e)`
+    — the highlight_line the carrier will be served with. The old
+    (source, target, edge_type) key kept ONE carrier per pair, so when N
+    occurrences of the searched field reach the same target the served
+    payload showed ONE anchor line and the other N-1 went dark (the 10-case
+    cross-check: SUP_M lending_ref @95/@156/@163/@206 all folded into the
+    @201 carrier while the model carried all four JOIN edges). Distinct
+    anchors ⇒ distinct served edges, one per line, sorted by line.
+
+    Under that key the three landed guards keep their roles, re-scoped to
+    the anchor group they always acted on:
+      · Fix H — among the carriers of ONE anchor group, the carrier that
+        names the keeper chip's own line represents that line (its latch is
+        per group). The chip's own line is also just another group now, so
+        the birth anchor Fix H rescued is served AND the later occurrence
+        keeps its own edge — the R44 ruling the single-carrier fold could
+        not express.
+      · AD2-B line-0 guard — `node_lines` values of 0 build no `fix_h`
+        entry, so a line-0 chip still never promotes a carrier, and a
+        group whose anchor is 0 is still only ever kept by carrier order.
+      · LFS108 — generalized from "yield the anchor" to "do not mint an
+        anchor": a group whose keeper is field-like AND whose field-side
+        line another relationship already claims on the same pair is not
+        this relationship's own occurrence, so it is dropped when the same
+        pair carries a group whose line IS its own (Fix H's carrier stays
+        immune — a chip-line carrier is the chip's own occurrence, never a
+        borrowed site). `lending_ref → ⟐subq (FILTER)` keeps exactly one
+        served edge, anchored at 48; the JOIN-key line 41 does not gain a
+        phantom FILTER edge.
+
+    Output is ordered by (anchor, first-carrier position) — content- and
+    input-order derived, never hash order (two determinism leaks fixed
+    earlier stay fixed). Every survivor is stamped `_fold_anchor` so the
+    Phase 9 dedup (which sees the POST-promotion pair, where sibling field
+    chips have already been folded onto their parent table) can tell two
+    occurrences of one field apart. The carrier is stripped at assembly."""
     # (source, target, field-side occurrence line) -> {edge types} — the
     # relationship claim each line carries for a folded pair.
     claimed: dict[tuple, set] = {}
@@ -1236,17 +1530,24 @@ def _combine_edges(new_edges: list, node_lines: dict | None = None) -> list:
     # merely ahead of the chip-line carrier) never won, and the LFS108
     # residual latched `keepers` for the first carrier and locked Fix H
     # out for good. `setdefault` keeps first-in-edge-order — deterministic.
+    # RC-B: keyed per anchor group — Fix H picks the representative OF a
+    # line, it never erases the other lines any more.
     fix_h: dict[tuple, dict] = {}
     if node_lines is not None:
         for e in new_edges:
             _w = node_lines.get(e["target"])
             if not _w or _safe_int(e.get("_tgt_line")) != _w:
                 continue
-            fix_h.setdefault((e["source"], e["target"], e["edge_type"]), e)
+            fix_h.setdefault(
+                (e["source"], e["target"], e["edge_type"], _carrier_anchor(e)),
+                e)
     combined_edges = {}
     keepers: dict[tuple, int] = {}
-    for e in new_edges:
-        key = (e["source"], e["target"], e["edge_type"])
+    order: dict[tuple, int] = {}
+    for idx, e in enumerate(new_edges):
+        key = (e["source"], e["target"], e["edge_type"], _carrier_anchor(e))
+        if key not in order:
+            order[key] = idx
         if key in combined_edges:
             existing = combined_edges[key]
             # Combine labels
@@ -1272,7 +1573,46 @@ def _combine_edges(new_edges: list, node_lines: dict | None = None) -> list:
                     keepers[key] = 1
         else:
             combined_edges[key] = e
-    return list(combined_edges.values())
+    # RC-B / LFS108 generalized: a group whose keeper's field-side line is
+    # another relationship's site on the same pair earns no edge of its own
+    # when the pair has a group whose line is this relationship's alone.
+    if node_lines is not None:
+        own_line: dict[tuple, set] = {}
+        for key, e in combined_edges.items():
+            if not _is_claimed_together(e, claimed):
+                own_line.setdefault(key[:3], set()).add(key[3])
+        combined_edges = {
+            key: e for key, e in combined_edges.items()
+            if (key in keepers
+                or fix_h.get(key) is e          # Fix H's carrier is immune
+                or not e.get("_src_field_like")
+                or not _is_claimed_together(e, claimed)
+                or not own_line.get(key[:3]))
+        }
+    # Deterministic emission: by anchor line, ties by first-carrier order.
+    ordered = sorted(combined_edges.items(),
+                     key=lambda kv: (kv[0][3], order[kv[0]]))
+    # RC-B: the raw edge id is (source, target, edge_type)-derived, so the
+    # per-occurrence siblings of one pair would collide on the same id —
+    # and Cytoscape keys elements by id while the benchmark's used-set
+    # consumes ids. The first carrier keeps its id; every sibling is
+    # re-derived from the pair + ITS anchor, keeping the DML rewrite
+    # suffixes the payload contract keys on (`*_dml_out`, `*_value`).
+    seen_base: set = set()
+    for key, e in ordered:
+        raw, suffix = e["id"], ""
+        for mark in ("_dml_out", "_value"):
+            if raw.endswith(mark):
+                suffix, raw = mark, raw[: -len(mark)]
+                break
+        if raw in seen_base:
+            e["id"] = ("l2e_{}".format(
+                hashlib.md5(
+                    f"{e['source']}{e['target']}{e['edge_type']}{key[3]}"
+                    .encode()).hexdigest()[:12]) + suffix)
+        seen_base.add(raw)
+        e["_fold_anchor"] = key[3]
+    return [e for _key, e in ordered]
 
 
 def _is_claimed_together(edge: dict, claimed: dict) -> bool:
@@ -1726,85 +2066,133 @@ def _dedup_edges(new_edges: list) -> list:
     """Phase 9 (CW4): merge edges with the same (source,target,type).
 
     The first occurrence keeps its carried extraction-time info (the
-    payload anchor is derived from it later)."""
+    payload anchor is derived from it later).
+
+    RC-B multi-anchor (2026-08-31): a folded edge carries the anchor its
+    Phase 5 group was keyed on (`_fold_anchor`) and the dedup key includes
+    it. This pass runs AFTER `_promote_field_edges` — sibling field chips
+    have already been replaced by their parent table — so the promoted pair
+    alone cannot tell two occurrences of ONE field from two different
+    fields; without the anchor this pass would re-collapse exactly what the
+    multi-anchor fold split apart. The carrier is stripped at assembly."""
     deduped = {}
     for e in new_edges:
-        key = (e.get("source"), e.get("target"), e.get("edge_type"))
+        anchor = e.get("_fold_anchor")
+        key = ((e.get("source"), e.get("target"), e.get("edge_type"))
+               if anchor is None else
+               (e.get("source"), e.get("target"), e.get("edge_type"), anchor))
         if key not in deduped:
             deduped[key] = e
     return list(deduped.values())
 
 
-def _closure_walk(e: dict, entries: list, adjacency: dict,
-                  reverse: dict) -> list:
-    """R20 — the UPSTREAM half of the §8.8.3 flow string: the closure walk
-    from the searched seed's field (the closure entries) to this edge's
-    SOURCE, rendered as {label}@L{line} hops.
+def _closure_bfs(start_ids: list, out_adj: dict) -> dict:
+    """R20 — the multi-source BFS behind the upstream closure walk.
 
-    Shortest BFS over the FINAL L2 edges (directed first, undirected as a
-    fallback — the closure walk is connectivity-based); visited sets keep
-    the walk acyclic (self-loops can never loop it). SCHEMA/SUBSET edges
-    (rules 6/7 — structure/bridge display their own endpoints only) and
-    edges whose source IS a closure entry return [].
+    Returns the BFS-tree parent map `prev` over EVERY node reachable from
+    `start_ids` (directed, FIFO — the discovery order of the former
+    per-edge `_bfs`), where `prev[node] = (parent_node, edge_used)` and
+    `prev[start] = None`. One run answers the shortest path from the
+    closure entries to any node, so the walk is built once per payload
+    phase instead of once per edge (PERF v3.3.194)."""
+    prev = {sid: None for sid in start_ids}
+    queue = list(start_ids)
+    seen = set(start_ids)
+    qi = 0
+    while qi < len(queue):
+        node = queue[qi]
+        qi += 1
+        for oe in out_adj.get(node, []):
+            nxt = oe["target"]
+            if nxt not in seen:
+                seen.add(nxt)
+                prev[nxt] = (node, oe)
+                queue.append(nxt)
+    return prev
 
-    Returns the upstream hop list; the caller assembles the full path:
-    upstream hops + the edge's own segment + the downstream continuation
-    (_downstream_walk), with `_own_seg_idx` marking the own segment.
-    """
-    def _bfs(start_ids, out_adj):
-        """Shortest path (list of edges) from any start_id to target."""
-        target = e["source"]
-        prev = {sid: None for sid in start_ids}
-        queue = list(start_ids)
-        seen = set(start_ids)
-        while queue:
-            node = queue.pop(0)
-            if node == target:
-                break
-            for oe in out_adj.get(node, []):
-                nxt = oe["target"]
-                if nxt not in seen:
-                    seen.add(nxt)
-                    prev[nxt] = (node, oe)
-                    queue.append(nxt)
-        if target not in seen:
-            return None
-        path = []
-        node = target
-        while prev.get(node) is not None:
-            parent, oe = prev[node]
-            path.append(oe)
-            node = parent
-        return list(reversed(path))
 
-    if e.get("edge_type") in ("SCHEMA", "SUBSET") or not entries:
+def _closure_hops(nid: str, prev_dir: dict, prev_und: dict,
+                  junction: tuple) -> list:
+    """R20 — the UPSTREAM half of the §8.8.3 flow string, reconstructed
+    from `_closure_bfs`' parent maps: the closure walk from the searched
+    seed's field (the closure entries) to this edge's SOURCE, rendered as
+    {label}@L{line} hops.
+
+    Shortest path over the FINAL L2 edges (directed first, undirected as
+    a fallback — the closure walk is connectivity-based); visited sets
+    keep the walk acyclic (self-loops can never loop it).
+
+    `junction` is the edge's own carried (source label, source line): the
+    walk's final hop IS this edge's source (same node, same carried
+    label), so it is deduped away — the caller appends the edge's own
+    segment right after. Compared in the RAW carried form (no "?" fill —
+    a missing label never matches a filled hop).
+
+    Returns [] when the source is unreachable from the entries in both
+    directions, or when it IS a closure entry (no upstream hops — the own
+    segment starts the path)."""
+    prev = prev_dir if nid in prev_dir else prev_und
+    if nid not in prev:
         return []
-    path = _bfs(entries, adjacency)
-    if path is None:
-        # Undirected fallback: traverse reverse edges as forward ones.
-        undirected = {}
-        for node, oes in list(adjacency.items()) + list(reverse.items()):
-            undirected.setdefault(node, []).extend(oes)
-        path = _bfs(entries, undirected)
+    path = []
+    node = nid
+    while prev.get(node) is not None:
+        parent, oe = prev[node]
+        path.append(oe)
+        node = parent
+    path.reverse()
     if not path:
-        # No path (leaf), or the edge's source IS the closure entry — no
-        # upstream hops; the own segment starts the path.
         return []
-
-    hops = []
-    for pe in path:
-        hops.append((pe.get("_src_label") or "?", _safe_int(pe.get("_src_line"))))
-    hops.append((path[-1].get("_tgt_label") or "?", _safe_int(path[-1].get("_tgt_line"))))
+    hops = [(pe.get("_src_label") or "?", _safe_int(pe.get("_src_line")))
+            for pe in path]
+    hops.append((path[-1].get("_tgt_label") or "?",
+                 _safe_int(path[-1].get("_tgt_line"))))
     # Dedup the shared junction hop (the walk's final hop is this edge's
     # source — same node, same carried label).
-    if hops and hops[-1] == (e.get("_src_label"), _safe_int(e.get("_src_line"))):
+    if hops and hops[-1] == junction:
         hops = hops[:-1]
     return hops
 
 
+def _downstream_bfs(start: str, flow_targets: set, adjacency: dict,
+                    memo: dict | None = None) -> tuple:
+    """The BFS half of `_downstream_walk`: one forward walk to exhaustion
+    over the flow adjacency from `start`.
+
+    Returns (reachable, prev) — every reachable flow target (the DML
+    write targets in the seed's closure) + the BFS-tree parent map
+    (`prev[start] = None`, `prev[node] = (parent, edge_used)`; the visited
+    set keeps the walk acyclic, hard rule 5).
+
+    `memo` (per payload phase, never module state): the walk is a pure
+    function of (start, flow_targets, adjacency) and every edge whose
+    target is `start` needs the SAME walk — one BFS per target node
+    instead of one per edge (PERF v3.3.194)."""
+    if memo is not None and start in memo:
+        return memo[start]
+    reachable = {}
+    prev = {start: None}
+    seen = {start}
+    queue = [start]
+    while queue:
+        node = queue.pop(0)
+        if node in flow_targets:
+            reachable[node] = True
+        for oe in adjacency.get(node, []):
+            nxt = oe.get("target")
+            if nxt not in seen:
+                seen.add(nxt)
+                prev[nxt] = (node, oe)
+                queue.append(nxt)
+    if memo is not None:
+        memo[start] = (reachable, prev)
+    return reachable, prev
+
+
 def _downstream_walk(e: dict, flow_targets: set, adjacency: dict,
                      tgt_key_to_target: dict | None = None,
-                     write_line_by_target: dict | None = None) -> list:
+                     write_line_by_target: dict | None = None,
+                     _reach_memo: dict | None = None) -> list:
     """R20 — the DOWNSTREAM continuation of the §8.8.3 flow string: the
     FORWARD walk from this edge's final target to a flow target (a DML
     write target in the seed's closure — the target of a `_dml_origin`
@@ -1832,7 +2220,9 @@ def _downstream_walk(e: dict, flow_targets: set, adjacency: dict,
     path), when no flow target is reachable, or when there are no flow
     targets — the caller falls back to the pre-R20 reason form (never
     crash, never empty).
-    """
+
+    `_reach_memo`: the caller's per-phase BFS cache (see
+    `_downstream_bfs`) — None (the default) runs the walk standalone."""
     if e.get("edge_type") in ("SCHEMA", "SUBSET") or not flow_targets:
         return []
     start = e.get("target")
@@ -1840,20 +2230,8 @@ def _downstream_walk(e: dict, flow_targets: set, adjacency: dict,
         return []
     # BFS to exhaustion — every reachable flow target + the tree parent
     # map (the visited set keeps the walk acyclic).
-    reachable = {}
-    prev = {start: None}
-    seen = {start}
-    queue = [start]
-    while queue:
-        node = queue.pop(0)
-        if node in flow_targets:
-            reachable[node] = True
-        for oe in adjacency.get(node, []):
-            nxt = oe.get("target")
-            if nxt not in seen:
-                seen.add(nxt)
-                prev[nxt] = (node, oe)
-                queue.append(nxt)
+    reachable, prev = _downstream_bfs(start, flow_targets, adjacency,
+                                      _reach_memo)
     if not reachable:
         return []
     chosen = None
@@ -1952,9 +2330,9 @@ def _attach_flow_payload(new_edges: list, field_nodes: list,
     carries highlight_line / flow_kind / reason (highlight_strategies.
     single_line), computed from the edge's carried extraction-time info +
     the FULL source→target path: the upstream closure walk from the
-    searched seed's field (_closure_walk), the edge's own segment, then
-    the downstream continuation to a flow target (_downstream_walk).
-    Never reconstructed at render.
+    searched seed's field (_closure_hops over `_closure_bfs`' parent
+    maps), the edge's own segment, then the downstream continuation to a
+    flow target (_downstream_walk). Never reconstructed at render.
 
     R20 (build-time path, hard rule 4 — self-contained): flow targets are
     the DML write targets in the seed's closure — the targets of the
@@ -1966,6 +2344,14 @@ def _attach_flow_payload(new_edges: list, field_nodes: list,
     (write lines are the statements' start lines — the edge is
     attributed to its own statement's write target); edges without a
     walkable path keep the pre-R20 reason form.
+
+    PERF (v3.3.194): the upstream walk is ONE multi-source BFS from the
+    closure entries over the directed edges plus ONE over the undirected
+    fallback (`_closure_bfs` — the per-edge parent maps answer every
+    edge's shortest path), and the downstream walk reuses one BFS per
+    target node (`_downstream_bfs`'s per-phase memo). Both walks are pure
+    functions of the final edge list, so the shared runs are
+    byte-identical to the former one-BFS-per-edge form.
 
     Mutates new_edges in place (attaches _path_hops/_own_seg_idx/
     _tgt_output/_src_output, highlight_line, flow_kind, reason; the
@@ -2007,15 +2393,35 @@ def _attach_flow_payload(new_edges: list, field_nodes: list,
     for tn in (table_nodes or {}).values():
         if (tn.get("table_name") or "").startswith("⟐ output"):
             output_ids.add(tn.get("id"))
+    # The two upstream walks, built once: directed (the closure walk is
+    # connectivity-based, so the undirected fallback — reverse edges
+    # traversed as forward ones, in the same adjacency order — is built
+    # only when there is something to walk from).
+    prev_dir = _closure_bfs(entries, adjacency) if entries else {}
+    if entries:
+        undirected = {}
+        for node, oes in list(adjacency.items()) + list(reverse.items()):
+            undirected.setdefault(node, []).extend(oes)
+        prev_und = _closure_bfs(entries, undirected)
+    else:
+        prev_und = {}
+    reach_memo = {}
     for e in new_edges:
         e["_tgt_output"] = e.get("target") in output_ids
         e["_src_output"] = e.get("source") in output_ids
-        up = _closure_walk(e, entries, adjacency, reverse)
-        own = [(e.get("_src_label") or "?", _safe_int(e.get("_src_line"))),
+        lbl = e.get("_src_label") or "?"
+        lnn = _safe_int(e.get("_src_line"))
+        # SCHEMA/SUBSET edges (rules 6/7 — structure/bridge display their
+        # own endpoints only) carry no upstream walk.
+        up = ([] if (e.get("edge_type") in ("SCHEMA", "SUBSET") or not entries)
+              else _closure_hops(e["source"], prev_dir, prev_und,
+                                 (e.get("_src_label"), lnn)))
+        own = [(lbl, lnn),
                (e.get("_tgt_label") or "?", _safe_int(e.get("_tgt_line")))]
         down = _downstream_walk(e, flow_targets, flow_adjacency,
                                 tgt_key_to_target=tgt_key_to_target,
-                                write_line_by_target=write_line_by_target)
+                                write_line_by_target=write_line_by_target,
+                                _reach_memo=reach_memo)
         e["_path_hops"] = up + own + down
         e["_own_seg_idx"] = len(up)
         payload = strategy(e)
@@ -2024,11 +2430,151 @@ def _attach_flow_payload(new_edges: list, field_nodes: list,
         e["reason"] = payload["reason"]
 
 
+# ── Field-involvement admission (USER RULING, 2026-08-31) ───────────────
+# "only edges where the searched field is involved in the data flow are
+#  shown."
+#
+# The served closure's NODE set is the walker's (`compute_field_flow`) and
+# stays untouched — so occurrence coverage never regresses (R44). This
+# phase admits/serves EDGES, and it never adds one. Two admission classes,
+# both on extraction-time facts already carried per edge:
+#
+#   Class 1 — JOIN OWN-SITE. A JOIN carrier is served only when its anchor
+#     line IS a JOIN-ON line. A collapsed carrier's `defined_in` names the
+#     GROUP's clause while the line it carries was handed out in stream
+#     order (R45 Fix B / F-E1), so a projection/read line can inherit the
+#     group's join-key edge: the ledgered PROJECTION-TWIN-INHERITS-JOIN
+#     class (SUP_M lending_ref JOIN carriers anchored at the L82 CASE read
+#     and the L163 write projection; the LFS123 doctrine — "a carrier whose
+#     line is not the relationship's own site does not earn the anchor").
+#     The clause of the line comes from `line_clause_map` — the extractor's
+#     own `_line_clauses` machinery, never a text re-derivation here.
+#
+#   Class 2 — SIBLING-FIELD VALUE LEGS. A value leg of a NON-searched field
+#     is that sibling's own flow, not the searched field's: its DML write
+#     value leg, its ⟐output-frame membership, its write-projection read
+#     leg, and the chain leg into the output frame that its write drives.
+#     The searched field's own everything, the belongs-to/structural facts
+#     of a sibling chip, and the whole table/VT-level skeleton (CTE/FROM
+#     chain legs, write legs — carriers that are not field occurrences)
+#     stay, per the accepted FSB/G9 classes.
+#
+# Mini display-layer version of AD3's value-cone gate (v3.3.195 does the
+# full walker version): contained, build-time, no reconstruction — the
+# per-edge field identity is read from the carried raw endpoints, the
+# carried `defined_in` stamps and the carried `_path_hops` walk.
+
+# The edge types whose leg can BE a value carrier. The row-selection and
+# combine families (FILTER/INDIRECT/CORRELATED/DML/SET_OP/SUBQUERY) and the
+# identity/bridge family are scope/structure facts, never value legs.
+_VALUE_CARRIER_TYPES = frozenset({
+    "TABLE_FLOW", "REF", "COMPUTED", "TRANSFORM", "AGGREGATE", "WINDOW",
+})
+
+
+def _apply_field_involvement(new_edges: list, field: str,
+                             relevance_filter: bool,
+                             physical_model=None,
+                             sql_text: str = "") -> list:
+    """Serve only the closure edges the searched field is involved in.
+
+    No-op when no search filter is active (the full view has no searched
+    field to be involved). Pure edge filter over the already-payloaded
+    list — order, ids and every carried field are preserved, so the pass
+    is deterministic by construction.
+    """
+    if (not new_edges) or (not relevance_filter) or not (field or "").strip():
+        return new_edges
+    seed = field.strip().casefold()
+
+    # Raw occurrence index (label, line) → variable_type, for the one test
+    # the carried endpoints cannot answer: is this upstream hop a FIELD
+    # occurrence (a value carrier) or a table/VT chip (skeleton)? Missing
+    # model ⇒ never a carrier ⇒ the edge is admitted, never dropped.
+    occ_kind = {}
+    if physical_model is not None:
+        for _o in physical_model.occurrences.values():
+            occ_kind[(_o.get("name") or "", _safe_int(_o.get("line_start")))] = \
+                _o.get("variable_type")
+
+    def _part(label):
+        return (label or "").rsplit(".", 1)[-1].strip().casefold()
+
+    def _hop_carrier(e):
+        """The field occurrence that DRIVES this edge's own segment — the
+        hop immediately before it in the carried closure walk (None when
+        that hop is not a field occurrence: the edge is then the table/VT
+        skeleton's own leg). Consulted ONLY for the "chain into the output
+        frame" leg (a value-carrying edge whose target IS the ⟐output
+        frame) — never for a row-selection or combine edge, whose clause
+        zone is the searched field's own scope."""
+        if not e.get("_tgt_output"):
+            return None
+        if (e.get("edge_type") or "") not in _VALUE_CARRIER_TYPES:
+            return None
+        hops = e.get("_path_hops") or []
+        idx = _safe_int(e.get("_own_seg_idx")) or 0
+        if not (0 < idx <= len(hops)):
+            return None
+        lbl, lnn = hops[idx - 1]
+        if occ_kind.get((lbl, _safe_int(lnn))) not in FIELD_LIKE_TYPES:
+            return None
+        return _part(lbl)
+
+    def _is_write_projection(e):
+        """True when the raw SOURCE occurrence is a write projection's
+        value (`SELECT expr` — the extraction-time clause stamp), i.e. the
+        value the statement writes. A row-selection sibling's read leg
+        (`JOIN ON`/`WHERE`/`GROUP BY` …) is structure, not a value leg."""
+        return ((e.get("_src_defined_in") or "").strip().upper()
+                .startswith("SELECT"))
+
+    clauses = line_clause_map(sql_text)
+    kept = []
+    for e in new_edges:
+        etype = e.get("edge_type") or ""
+        # ── Class 1: the JOIN carrier's own site ──
+        if etype == "JOIN":
+            anchor = _safe_int(e.get("highlight_line")) or 0
+            if anchor >= 1 and clauses.get(anchor) != "on":
+                continue
+            kept.append(e)
+            continue
+        # ── Class 2: is the searched field involved? ──
+        src_part = _part(e.get("_src_label"))
+        tgt_part = _part(e.get("_tgt_label"))
+        if seed in (src_part, tgt_part):     # the seed chip / a same-name copy
+            kept.append(e)
+            continue
+        op = (e.get("_op") or "").upper()
+        if e.get("_value_edge"):
+            carrier = src_part                              # write value leg
+        elif etype == "SCHEMA":
+            # SCHEMA is structure, with ONE value-leg form: the ⟐output
+            # frame's membership of a column. The belongs-to form
+            # (`TABLE_COLUMN` — the instance owns the occurrence) is the
+            # accepted structural fact and always stays.
+            carrier = tgt_part if op == "OUTPUT" else None
+        elif etype in ("ALIAS", "SUBSET"):
+            carrier = None                  # identity hop / bridge: skeleton
+        elif (etype == "REF" and op == "READ" and _is_write_projection(e)):
+            carrier = src_part                              # write value's read leg
+        else:
+            carrier = _hop_carrier(e)                       # driving occurrence
+        # No field carrier ⇒ the table/VT skeleton's own leg (CTE/FROM chain,
+        # write leg, belongs-to) — structural, admitted. A carrier that IS
+        # the searched field ⇒ involved. Anything else is a sibling's flow.
+        if carrier is None or carrier == seed:
+            kept.append(e)
+    return kept
+
+
 def _attach_flow_roles(new_edges: list, table_nodes: dict, id_map: dict,
                        full_graph: dict, table: str, field: str,
                        relevance_filter: bool,
                        physical_model=None,
-                       direction="downstream") -> None:
+                       direction="downstream",
+                       _flow_memo=None) -> None:
     """Phase 10.5 (CW4, Wave 2): R19.1/R19.2/R19.5 flow roles on table
     nodes — additive node-data fields from extraction-time helpers
     (never at render). Filtered view: exactly one flow source (the
@@ -2055,7 +2601,8 @@ def _attach_flow_roles(new_edges: list, table_nodes: dict, id_map: dict,
         if direction == "upstream":
             closure = compute_field_flow(full_graph, table, field,
                                          physical_model=physical_model,
-                                         direction="upstream")
+                                         direction="upstream",
+                                         _flow_memo=_flow_memo)
             if closure:
                 # Flow targets: the searched table's DML write targets in
                 # the upstream closure — mirror of the seed selection
@@ -2099,7 +2646,8 @@ def _attach_flow_roles(new_edges: list, table_nodes: dict, id_map: dict,
             if src_keeper in l2_tn:
                 l2_tn[src_keeper]["flow_source"] = True
             for rid in flow_targets(full_graph, table, field,
-                                    physical_model=physical_model):
+                                    physical_model=physical_model,
+                                    _flow_memo=_flow_memo):
                 kid = id_map.get(rid)
                 if kid in l2_tn:
                     l2_tn[kid]["flow_target"] = True
@@ -2264,7 +2812,9 @@ def build_line_merged_edges(edges: list, nodes: list) -> list:
 def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
                     table: str, field: str,
                     relevance_filter: bool = True,
-                    direction="downstream") -> dict:
+                    direction="downstream",
+                    _shared_load: tuple | None = None,
+                    _flow_memo: dict | None = None) -> dict:
     """Build Level 2 per-script graph with compound nodes and edge metadata.
 
     Returns:
@@ -2303,8 +2853,34 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     # with shared state passed explicitly between phases. J12-10 (stage 2):
     # phase 1 also builds the physical model once per build; the
     # node-construction phases consume it (keeper selection + sync inputs).
-    full_graph, table_schemas, physical_model = _load_or_build_graph(
-        ws_id, script_name, sql_text)
+    if _shared_load is not None:
+        # PERF (v3.3.194, fix 1 — load once per request): the caller
+        # (dataflow_service.get_level2_graph) already loaded the graph,
+        # the schemas and the physical model this request needs; take
+        # them instead of re-reading the caches — the request runs this
+        # build twice (the flow view and the full view). `_shared_load`
+        # is the exact (full_graph, table_schemas, physical_model) triple
+        # `_load_or_build_graph` returns, and the caller only hands one
+        # over when the loaded graph passed the loader's own
+        # cache-acceptance test, so a stale/corrupt cache still goes
+        # through the loader's rebuild below.
+        full_graph, table_schemas, physical_model = _shared_load
+        # CW7: normalize edge_type on cache read (the cache stores
+        # "relationship") — mirror of the loader's cache-read path.
+        # Idempotent: the second build of the same request is a no-op.
+        for _e in full_graph.get("edges", []):
+            _ed = _e.get("data", _e)
+            _ed.setdefault("edge_type", _ed.get("relationship", "REF"))
+    else:
+        full_graph, table_schemas, physical_model = _load_or_build_graph(
+            ws_id, script_name, sql_text)
+    # PERF (v3.3.194, fix 6): one strict-walk cache per build — the filter
+    # and the flow-role pass walk the SAME graph for the SAME (table,
+    # field, direction), so the second walk is a cache hit. The caller
+    # (get_level2_graph) hands its own request-scoped cache in, which
+    # also covers its response-level filter.
+    if _flow_memo is None:
+        _flow_memo = {}
     # R43 (2026-08-28, task #384): pure-metadata partition-DDL statement
     # frames never enter the display — dropped here, BEFORE the flow
     # filter, so full AND flow views are clean. Flow closures are
@@ -2313,7 +2889,7 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     full_graph = _drop_partition_ddl_frames(full_graph, sql_text)
     graph_data = _apply_relevance_filter(full_graph, table, field, table_schemas,
                                          relevance_filter, physical_model,
-                                         direction)
+                                         direction, _flow_memo)
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
 
@@ -2371,11 +2947,32 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     # carried extraction-time info + the closure walk (never at render).
     _attach_flow_payload(new_edges, field_nodes, table_nodes=table_nodes)
 
+    # Field-involvement admission (USER RULING 2026-08-31): "only edges
+    # where the searched field is involved in the data flow are shown."
+    # Runs AFTER the payload phase (it reads the carried `_path_hops` walk
+    # and the served anchor) and BEFORE the roles/response assembly, so
+    # every downstream consumer — flow roles, the response's
+    # flow_edge_ids, the Field Story, the string-match coverage baseline —
+    # sees the admitted set and nothing else.
+    new_edges = _apply_field_involvement(new_edges, field, relevance_filter,
+                                         physical_model=physical_model,
+                                         sql_text=sql_text)
+
+    # R46a (2026-08-31, FSB audit): the seed CLAIM is scoped here — the
+    # searched table's entity set plus the write targets receiving the
+    # field's value — after every edge consumer has
+    # read the flag (P2/P17/payload above) and before assembly, so the
+    # served edges are untouched and only the stamp narrows. Runs after
+    # `_map_search_target_ids`'s keeper re-mark for the same reason: the
+    # re-mark is an edge-machinery seed, this is the display claim.
+    _scope_target_stamp(field_nodes, table_nodes, table, field, physical_model)
+
     # J12-10 stage 3: the Sync 1/2 proxy phase (_sync_alias_and_dml_fields)
     # is DELETED — alias mirrors and DML phantoms are real model entities
     # now (nothing to synthesize).
     _attach_flow_roles(new_edges, table_nodes, id_map, full_graph, table,
-                       field, relevance_filter, physical_model, direction)
+                       field, relevance_filter, physical_model, direction,
+                       _flow_memo)
     result = _assemble_output(table_nodes, field_nodes, new_edges, nodes, sql_text,
                               script_name, f"{table}.{field}")
     # Issue a: search_matched contract (frontend + BE2). False ONLY when a

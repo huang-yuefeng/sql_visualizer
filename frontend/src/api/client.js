@@ -238,7 +238,14 @@ export async function searchDataFlow(wsId, table, field, direction = 'downstream
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ table, field, direction }),
   });
-  if (!res.ok) throw new Error(await errorDetail(res));
+  if (!res.ok) {
+    // The status rides along: 409 is P1's catching-up gate (the index is mid
+    // rebuild), which the caller is expected to wait out and retry — not to
+    // surface as a search failure.
+    const err = new Error(await errorDetail(res));
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 
@@ -249,6 +256,10 @@ export async function listViews(wsId) {
 
 export async function deleteView(wsId, viewId) {
   const res = await gatedFetch(`/api/workspace/${wsId}/views/${viewId}`, { method: 'DELETE' });
+  // Callers decide what a failure means (the parent-view removal swallows a
+  // 404 for an already-gone view); a silent success would resurrect the exact
+  // "control does nothing" behaviour this route was fixed to remove.
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
@@ -290,11 +301,13 @@ export async function addViewChild(wsId, parentViewId, childEntry) {
   return res.json();
 }
 
+// Removing an L2 child goes through the SAME route as a search view: the
+// backend's DELETE /views/{view_id} documents that it deletes "a search view
+// or child L2 entry", and no DELETE .../children/{childId} route exists — the
+// old URL 404'd for everyone, so the ViewBar child "×" errored on every click.
+// parentViewId stays in the signature (call sites read better with it) but is
+// not part of the address.
 export async function deleteViewChild(wsId, parentViewId, childId) {
-  const res = await gatedFetch(`/api/workspace/${wsId}/views/${parentViewId}/children/${childId}`, {
-    method: "DELETE",
-  });
-  if (!res.ok) throw new Error(await errorDetail(res));
-  return res.json();
+  return deleteView(wsId, childId);
 }
 

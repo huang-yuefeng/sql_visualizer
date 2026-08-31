@@ -240,6 +240,11 @@ def test_l2_phases_compose_to_same_graph(multi_workflow_ws):
     l2b._attach_flow_roles(new_edges, table_nodes, id_map, full_graph,
                            TARGET_TABLE, TARGET_FIELD, True,
                            physical_model=physical_model)
+    # R46a (2026-08-31): the display scoping of the seed claim — mirror of
+    # the orchestrator, which runs it after every edge consumer has read
+    # the flag and before assembly.
+    l2b._scope_target_stamp(field_nodes, table_nodes, TARGET_TABLE,
+                            TARGET_FIELD, physical_model)
     phased = l2b._assemble_output(table_nodes, field_nodes, new_edges, nodes,
                                   sql, STEP3, f"{TARGET_TABLE}.{TARGET_FIELD}")
     # Issue a: the orchestrator stamps search_matched on the result dict
@@ -461,7 +466,14 @@ def test_data_dt_seed_lands_on_searched_table(loan_info_ws):
     v3.3.140 (strict table.field flow): the seed field appears on BOTH
     the physical node and every node that carries the same field instance
     — the p1 alias copy (P1 MOVE→COPY) and the INSERT target's partition
-    column — each marked is_target."""
+    column — each marked is_target.
+
+    R46a (2026-08-31, AD3 adjudication + coordinator amendment): the stamp
+    is scoped to the searched table's entity set PLUS the DML write-target
+    compounds that RECEIVE the field's value (the R44 family-1 write
+    twins) — so the two write targets below keep their seed claim, while
+    the READ-side same-name chips of join partners (the FSB phantom class)
+    lose theirs (tests/test_target_scoping.py pins both halves)."""
     sql = LOAN_INFO_SCRIPT.read_text()
     graph = _build_l2_graph(loan_info_ws, LOAN_INFO_NAME, sql,
                             "bdm_acc_loan_info", "data_dt",
@@ -471,13 +483,20 @@ def test_data_dt_seed_lands_on_searched_table(loan_info_ws):
                   and n["data"].get("type") == "source_table")
     seeds = [n["data"] for n in graph["nodes"] if n["data"].get("is_target")]
     assert len(seeds) >= 2, \
-        f"expected the physical + copy seeds, got {len(seeds)}"
+        f"expected the physical + write-target copy seeds, got {len(seeds)}"
     physical = [s for s in seeds if s["parent"] == keeper["id"]]
     assert len(physical) == 1, \
         f"exactly one seed must sit on the searched table node, got {physical}"
-    # P1 MOVE→COPY: alias/CTE/target nodes carry the seed instance too.
+    # P1 MOVE→COPY / R44 family 1: the write targets that RECEIVE the
+    # field's value carry the seed instance too.
     copies = [s for s in seeds if s["parent"] != keeper["id"]]
-    assert copies, "seed copies must appear on the alias/CTE/target nodes"
+    assert copies, "seed copies must appear on the write-target nodes"
+    write_targets = {"bdm_acc_loan_info_sup", "rrcdm_job_log_exec_par"}
+    parents = {next(n["data"]["table_name"] for n in graph["nodes"]
+                    if n["data"].get("id") == s["parent"])
+               for s in copies}
+    assert parents <= write_targets, (
+        f"a READ-side foreign compound claims the seed: {parents}")
 
     # The seed's data flow stays visible: FILTER edges survive at field
     # level (P2 — no promotion to the alias/table node).

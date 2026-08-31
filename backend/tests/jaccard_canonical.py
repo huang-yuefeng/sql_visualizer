@@ -495,9 +495,13 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
      GROUP-BY occurrence twin) and LFS107-109 + the pogmab@46 /
      poctcd@120 field instances (F-D, family-3, 2026-08-29) landed
      after it -- then the F-K final adjudication (point 19) removed
-     LFS109/LFS110, so the canonical lending_ref↓SUP_M closure now
-     stands at 40 CANONICAL_NODES_DIR entries / 105 CANONICAL_EDGES
-     rows. Never
+     LFS109/LFS110, and the G7 admission set (2026-08-31, team G9: the
+     p6/p1@198 instance identities + the L82 reserved_field8 compute
+     zone, rows LFS128-146) landed on top, so the canonical
+     lending_ref↓SUP_M closure now stands at 45 CANONICAL_NODES_DIR
+     entries / 141 CANONICAL_EDGES rows (served at this round: 54
+     nodes / 147 edges -- every canonical row matched, 6 served edges
+     ledgered unpinned). Never
      cite 38/103 as live; re-derive from the module (import and count).
      The parallel-admission
      rows pin the SHARED endpoint label-only ("@0"): the twin
@@ -1454,8 +1458,9 @@ CANONICAL_EDGES = [
     #    edge and no served edge was left over (identical). Rows pinned
     #    LATER carry their own cross-checks (LFS106 #387; LFS107-109
     #    F-D 2026-08-29) -- 49/103 is NOT the current total: the
-    #    canonical closure is 40 nodes / 106 rows (docstring point 17
-    #    count re-base, review M15; LFS110 removed by F-J).
+    #    canonical closure is 45 nodes / 141 rows after the G7 admission
+    #    set (2026-08-31, team G9: rows LFS128-146 -- the docstring point
+    #    17 count re-base, review M15; LFS110 removed by F-J).
     # LFS80-85 -- the physical-side @41 join admissions: SQL text @41
     # (ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),LPAD(p2.poacs,
     # 6,'0'),LPAD(p2.poacx,3,'0'),LPAD(p2.podtao,8,'0')) = p1.lending_ref)
@@ -1672,6 +1677,290 @@ CANONICAL_EDGES = [
     # write target's partition-column node. Extractor defect, owner F-C; the
     # engine no longer mints it (the @182 occurrence is now owned by loan_final)
     # and the edge stays out of the canonical set.
+
+    # ── RC-B MULTI-ANCHOR ROUND (2026-08-31, fix team G8) ─────────────────
+    # The L2 display fold (`l2_builder._combine_edges`) keyed on
+    # (source, target, edge_type) and kept ONE carrier per pair, so when N
+    # occurrences of the searched field reached the same target the served
+    # payload showed one anchor line and N-1 went dark (the 10-case cross
+    # check: lending_ref @95/@156/@163/@206 all folded into the @201
+    # carrier while the model carried all four JOIN edges). The fold now
+    # keys on (source, target, edge_type, ANCHOR) — K distinct anchor lines
+    # yield K served edges — so every line below is newly SERVED and each
+    # row is re-derived from the SUP_M text (never from the engine's
+    # output). Rows whose served FORM is an engine convention rather than
+    # SQL-text-derivable are flagged pending per CR10.
+    #
+    # LFS111/LFS113/LFS115/LFS117 — the four cross-check dark lines, each a
+    # real join-ON occurrence of bdm_acc_loan_info.lending_ref inside the
+    # loan_final CTE body (all four had always been in the model; the fold
+    # hid three of them behind the @67 carrier):
+    #   L95  | ON p1.lending_ref = accu.vlookup_key_value
+    #   L117 | ON CONCAT(p2.poctcd,...,LPAD(p2.podtao,8,'0')) = p1.lending_ref
+    #   L150 | ON RPAD(p4.iiapty,3,'')||p4.iiblno = p1.lending_ref
+    #   L156 | ON p6.lending_ref = p1.lending_ref
+    # The target of each is loan_final@64 — the CTE those ON clauses build
+    # (the same target the surviving LFS41 JOIN@67 already names).
+    {"row": "LFS111", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@95", "dst": "loan_final@64", "type": "JOIN", "anchor": 95, "spec": "anchor_rel_ep"},
+    {"row": "LFS113", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@117", "dst": "loan_final@64", "type": "JOIN", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS115", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@150", "dst": "loan_final@64", "type": "JOIN", "anchor": 150, "spec": "anchor_rel_ep"},
+    {"row": "LFS117", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@156", "dst": "loan_final@64", "type": "JOIN", "anchor": 156, "spec": "anchor_rel_ep"},
+    # LFS112/LFS114/LFS116/LFS118/LFS119/LFS120 — the belongs-to (SCHEMA)
+    # twin of EACH newly-served occurrence, the LFS106 class (the GROUP-BY
+    # occurrence twin @59): the physical table bdm_acc_loan_info (first
+    # occurrence FROM@16) owns the column occurrence the line names.
+    #   L95  | ON p1.lending_ref = accu.vlookup_key_value   (p1 = bdm @84)
+    #   L117 | ON CONCAT(...) = p1.lending_ref              (p1 = bdm @84)
+    #   L150 | ON RPAD(p4.iiapty,3,'')||p4.iiblno = p1.lending_ref
+    #   L156 | ON p6.lending_ref = p1.lending_ref           (p1 side is bdm)
+    #   L48  | AND p1.lending_ref NOT IN (                  (p1 = bdm @29)
+    #   L19  | AND lending_ref IN (                         (unqualified; the
+    #         rollover body's only source IS bdm_acc_loan_info @16)
+    {"row": "LFS112", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "bdm@16", "dst": "lending_ref@95", "type": "SCHEMA", "anchor": 95, "spec": "anchor_rel_ep"},
+    {"row": "LFS114", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "bdm@16", "dst": "lending_ref@117", "type": "SCHEMA", "anchor": 117, "spec": "anchor_rel_ep"},
+    {"row": "LFS116", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "bdm@16", "dst": "lending_ref@150", "type": "SCHEMA", "anchor": 150, "spec": "anchor_rel_ep"},
+    {"row": "LFS118", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "bdm@16", "dst": "lending_ref@156", "type": "SCHEMA", "anchor": 156, "spec": "anchor_rel_ep"},
+    {"row": "LFS119", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "bdm@16", "dst": "lending_ref@48", "type": "SCHEMA", "anchor": 48, "spec": "anchor_rel_ep"},
+    {"row": "LFS120", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "bdm@16", "dst": "lending_ref@19", "type": "SCHEMA", "anchor": 19, "spec": "anchor_rel_ep"},
+    # LFS121/LFS122 — the CTE-zone occurrences the fold used to hide behind
+    # the @22 carrier. L26 `DISTINCT lending_ref` is the subq scope's own
+    # projection FROM the rollover_loan_info CTE (L23 `FROM (`), so its
+    # owner is the CTE compound (the LFS8 `rollover@9 -> lending_ref@22`
+    # shape) and its read lands on the scope's FROM line L29
+    # `bdm_acc_loan_info p1` — the LFS4 shape one scope deeper
+    # (`lending_ref@16 -> bdm@16 REF@16`).
+    {"row": "LFS121", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "rollover@9", "dst": "lending_ref@26", "type": "SCHEMA", "anchor": 26, "spec": "anchor_rel_ep"},
+    {"row": "LFS122", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@26", "dst": "bdm@29", "type": "REF", "anchor": 29, "spec": "anchor_rel_ep"},
+    # LFS126/LFS127 — the belongs-to twins of the L67 projection occurrence:
+    # L67 `,p1.lending_ref -- 借据编号` is loan_final's own projection of the
+    # field (the CTE-scope write projection — the same stage the cross-check
+    # adjudicated at L163 for the outer statement). One row per p1 instance,
+    # the LFS30/LFS37 pairing (subq-scope p1@29 + loan_final-scope p1@84).
+    {"row": "LFS126", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p1@29", "dst": "lending_ref@67", "type": "SCHEMA", "anchor": 67, "spec": "anchor_rel_ep"},
+    {"row": "LFS127", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p1@84", "dst": "lending_ref@67", "type": "SCHEMA", "anchor": 67, "spec": "anchor_rel_ep"},
+    # PENDING (CR10) — the three newly-served edges whose FORM is an engine
+    # convention, not an SQL-text-derivable flow for THIS seed. They stay
+    # scored (removing them would silently change the gate) and are routed
+    # to the ledger as WRONG-COVERED candidates.
+    # LFS123 — the served edge is `JOIN lending_ref -> rollover_loan_info`
+    # anchored at L67, but L67 is `,p1.lending_ref -- 借据编号`, the
+    # loan_final PROJECTION line: no join happens there. The carrier is the
+    # family-3 projection twin inheriting the group's join-key edge, whose
+    # own site is L117 (the ON clause); the LFS108 doctrine (a carrier
+    # whose line is not the relationship's own site does not earn the
+    # anchor) applies but the fold has no discriminator for it — the twin's
+    # line is a real occurrence of the field, only the RELATIONSHIP is
+    # borrowed. Extractor/dependency_graph owner.
+    {"row": "LFS123", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@67", "dst": "rollover@9", "type": "JOIN", "anchor": 67, "spec": "anchor_rel_ep", "pending": True},
+    # LFS124 — `REF p2@199 -> rollover_loan_info` at L117: the copy INTO the
+    # L117 CONCAT key belongs to the SIBLING field poctcd (its L120
+    # occurrence `p3.zfctcd = p2.poctcd`); the rendered target is the
+    # rollover compound only because the expression node has no source
+    # table and the L2 fallback attaches it to the first table node (the
+    # LFS56 removal note records the same defect class for the @41
+    # carrier). Not a lending_ref flow.
+    {"row": "LFS124", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p2@199@117", "dst": "rollover@9", "type": "REF", "anchor": 117, "spec": "anchor_rel_ep", "pending": True},
+    # LFS125 — `JOIN sup -> ⟐output` at L202: the carrier chip is
+    # p2.data_dt@202 (LFS75/IID13's belongs-to), promoted to the sup
+    # compound; L202 `AND p2.data_dt = DATEADD(DATE'$(load_date)',-1,'DD')`
+    # is a sibling column's ON predicate, never the searched field.
+    {"row": "LFS125", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "sup@160", "dst": "⟐output@0", "type": "JOIN", "anchor": 202, "spec": "anchor_rel_ep", "pending": True},
+    # ── MA1/MA2 (bdm seed, data_dt) — the L158 belongs-to twins the fold
+    #    used to hide behind the @41 carrier. SQL L158
+    #    `p1.data_dt = '$(load_date)'` is a real occurrence of
+    #    bdm_acc_loan_info.data_dt inside loan_final's WHERE (the CTE's
+    #    own day filter); the twin renders once per p1 instance, exactly
+    #    like the LFS30/LFS37 pair at @41.
+    {"row": "MA1", "seed": "bdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p1@29", "dst": "data_dt@158", "type": "SCHEMA", "anchor": 158, "spec": "anchor_rel_ep"},
+    {"row": "MA2", "seed": "bdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p1@84", "dst": "data_dt@158", "type": "SCHEMA", "anchor": 158, "spec": "anchor_rel_ep"},
+    # ── IA1/IA2 (iiapty seed) — PENDING (CR10): the sup→⟐output JOIN
+    #    carriers the fold used to collapse into IID14 (@203). Both carry a
+    #    SIBLING column's ON predicate, never iiapty:
+    #      L201 | p2.lending_ref = p1.lending_ref
+    #      L202 | AND p2.data_dt = DATEADD(DATE'$(load_date)',-1,'DD')
+    #    They reach this closure only through the table-level promotion of
+    #    the sibling chips (the same zone IID12/IID13 already pin as
+    #    belongs-to), so the rows keep the gate honest about the zone while
+    #    staying flagged as not independently derivable FOR THIS SEED.
+    {"row": "IA1", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "sup@160", "dst": "⟐output@0", "type": "JOIN", "anchor": 201, "spec": "anchor_rel_ep", "pending": True},
+    {"row": "IA2", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "sup@160", "dst": "⟐output@0", "type": "JOIN", "anchor": 202, "spec": "anchor_rel_ep", "pending": True},
+
+    # ── G7 ADMISSION SET (2026-08-31, convergence team G9) ────────────────
+    # The 25 served lending_ref↓SUP_M edges the canonical did not account
+    # for after RC-C (container PROVENANCE) + RC-B (multi-anchor fold)
+    # landed — the closure grew 49 nodes / 105 rows → 54 nodes / 147 served
+    # edges and this case became the gate's one red cell (E precision
+    # 0.8299, N 0.9074, H 0.8485). Every row below is re-derived from the
+    # SUP_M text (CR10: the served closure was consulted only as the
+    # post-hoc cross-check); the SQL sites the rows are built on:
+    #   L9   | WITH rollover_loan_info AS (
+    #   L13  |         lending_ref                 <- the CTE's projection
+    #   L41  |         ON CONCAT(p2.poctcd,...) = p1.lending_ref
+    #   L64  | ,loan_final AS (
+    #   L67  |     ,p1.lending_ref -- 借据编号      <- loan_final's projection
+    #   L82  |     ,CASE WHEN NVL(p6.lending_ref,'') <> '' THEN 'Rollover2'
+    #         |         END AS reserved_field8     <- a DIRECT lending_ref
+    #         |                                      consumer (p6 = rollover)
+    #   L155 |     LEFT JOIN rollover_loan_info p6
+    #   L156 |     ON p6.lending_ref = p1.lending_ref
+    #   L163 |     ,p1.lending_ref -- 借据编号      <- the outer projection
+    #   L183 |     ,p1.reserved_field8 AS reserved_field8
+    #   L198 |     loan_final p1                    <- the outer p1 alias
+    # The newly served instance identities are the p6 alias (L155) and the
+    # outer p1@198 alias (L198): L82/L156 read the field THROUGH p6 and
+    # L163/L183 read the CTE's columns THROUGH p1@198.
+    #
+    # NOT PINNED — the 6 served edges that stay outside B, ledgered here so
+    # the residual is exactly these two classes (counts stated):
+    #   (a) PROJECTION-TWIN-INHERITS-JOIN — 2 edges. L82 and L163 are
+    #       projection lines (`CASE WHEN NVL(p6.lending_ref,...) AS
+    #       reserved_field8` / `,p1.lending_ref -- 借据编号`); no join happens
+    #       there. The engine's carrier chip inherits the group's join-key
+    #       edge whose own sites are L156 (pinned LFS117/LFS138) and
+    #       L201/L206. The LFS123 doctrine applies (a carrier whose line is
+    #       not the relationship's own site does not earn the anchor); the
+    #       fold has no discriminator. l2e_c1f940d2eb0f (JOIN
+    #       lending_ref@82 -> loan_final@64 @82), l2e_9a0b140bd2cc (JOIN
+    #       lending_ref@163 -> output@160 @163). Owner: extractor /
+    #       dependency_graph.
+    #   (b) SIBLING-FIELD VALUE/READ LEGS — 4 edges. reserved_field8 IS a
+    #       closure member (it is computed FROM p6.lending_ref at L82 and
+    #       written at L183), so its belongs-to rows ARE pinned below
+    #       (LFS135/LFS143-145, the LFS75/LFS77 sibling-member precedent).
+    #       Its own VALUE chain through the write is not this seed's flow —
+    #       the searched field is on neither endpoint:
+    #       l2e_43563f4fce74 (SCHEMA output@160 -> reserved_field8@82 @183,
+    #       the output-VT membership convention — the RDE2/LFS68 class),
+    #       l2e_3e806f355c16_value (TABLE_FLOW reserved_field8@82 ->
+    #       output@160 @183, the write value leg),
+    #       l2e_95a6f49b4f2e (REF reserved_field8@82 -> p1@198 @198, the
+    #       read leg), l2e_1eb5aca70da6 (TABLE_FLOW p1@198 -> output@160
+    #       @198, the chain into the output frame — its reason string cites
+    #       p1.reserved_field8@L183). Owner: reserved_field8↓SUP_M's own
+    #       closure.
+    # With the 19 rows below the case measures E 141/147 (recall 1.0,
+    # precision 0.9592 — the residual is exactly (a)+(b) above), N 1.0/1.0,
+    # H recall 1.0 / precision 1.0.
+    #
+    # LFS128 — the p6 alias hop: L155 `LEFT JOIN rollover_loan_info p6`
+    # introduces the alias instance every L82/L156 read resolves through.
+    # The LFS13/LFS42/LFS67 class (table/CTE -> its alias instance); the
+    # anchor is the CTE's own line, the engine's chain-hop convention, the
+    # same form the canonical already pins as LFS1/LFS2 (@9).
+    {"row": "LFS128", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "rollover@9", "dst": "p6@155@155", "type": "ALIAS", "anchor": 9, "spec": "anchor_rel_ep"},
+    # LFS129 — the L82 value copy: rollover's projection lending_ref@13 is
+    # the only source of the L82 read `NVL(p6.lending_ref,'')` (p6 exposes
+    # exactly the CTE's two columns, L13/L14). Both endpoints are the
+    # searched field.
+    {"row": "LFS129", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@13", "dst": "lending_ref@82", "type": "REF", "anchor": 13, "spec": "anchor_rel_ep"},
+    # LFS130 — the L41 belongs-to, third p1 instance. The LFS30/LFS37
+    # pairing pins one belongs-to per in-scope p1 alias instance; the
+    # script has THREE (L29 `bdm_acc_loan_info p1`, L84 `bdm_acc_loan_info
+    # p1`, L198 `loan_final p1`) and the engine renders all three. The same
+    # extension G8 ruled justified at L163/L183. The three served
+    # renderings are p1@29/p1@84/p1@198; the canonical pins three rows and
+    # the used-set assigns them in id order, so this row (named for the
+    # third in-scope instance) lands on whichever rendering LFS30/LFS37
+    # left.
+    {"row": "LFS130", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p1@198@41", "dst": "lending_ref@41", "type": "SCHEMA", "anchor": 41, "spec": "anchor_rel_ep"},
+    # LFS131 — the outer alias hop: L198 `loan_final p1` — the alias the
+    # outer statement reads the CTE's lending_ref through at L163. The
+    # LFS67 class (source -> its alias instance).
+    {"row": "LFS131", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "loan_final@64", "dst": "p1@198@198", "type": "ALIAS", "anchor": 64, "spec": "anchor_rel_ep"},
+    # LFS132 — the L67 belongs-to, third p1 instance (completes the
+    # LFS126/LFS127 pairing across the script's three p1 aliases, LFS130's
+    # class).
+    {"row": "LFS132", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p1@198@67", "dst": "lending_ref@67", "type": "SCHEMA", "anchor": 67, "spec": "anchor_rel_ep"},
+    # LFS133 — the L82 compute step: `CASE WHEN NVL(p6.lending_ref,'') <>
+    # '' THEN 'Rollover2' END AS reserved_field8` — reserved_field8 is
+    # computed FROM the searched field, so the flow INTO the sibling column
+    # is a genuine lending_ref flow (the searched field is the source).
+    {"row": "LFS133", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@82", "dst": "reserved_field8@82", "type": "COMPUTED", "anchor": 82, "spec": "anchor_rel_ep"},
+    # LFS134 — the L82 belongs-to: the read is qualified `p6.lending_ref`,
+    # p6 = rollover_loan_info (L155) — the LFS74 class (the alias instance
+    # owns the occurrence its qualification names).
+    {"row": "LFS134", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p6@155@82", "dst": "lending_ref@82", "type": "SCHEMA", "anchor": 82, "spec": "anchor_rel_ep"},
+    # LFS135 — the L82 belongs-to of the SIBLING column the line defines
+    # (`... END AS reserved_field8`): loan_final owns reserved_field8.
+    # reserved_field8 is a closure member (LFS133), so its belongs-to is
+    # the LFS75/LFS77 sibling-member precedent.
+    {"row": "LFS135", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "loan_final@64", "dst": "reserved_field8@82", "type": "SCHEMA", "anchor": 82, "spec": "anchor_rel_ep"},
+    # LFS136 — the read leg onto the p6 instance (the LFS4/LFS14/LFS43/LFS70
+    # class: the field read lands on the alias instance that carries it,
+    # anchored at that instance's line L155).
+    {"row": "LFS136", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@155", "dst": "p6@155@155", "type": "REF", "anchor": 155, "spec": "anchor_rel_ep"},
+    # LFS137 — the CTE-consumption hop: L155 puts p6 (rollover_loan_info)
+    # in loan_final's FROM, so the alias instance feeds the CTE — the
+    # LFS15/LFS44/LFS72 class.
+    {"row": "LFS137", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p6@155@155", "dst": "loan_final@64", "type": "TABLE_FLOW", "anchor": 155, "spec": "anchor_rel_ep"},
+    # LFS138 — the SECOND L156 join admission: L156
+    # `ON p6.lending_ref = p1.lending_ref` has TWO occurrences of the
+    # searched field, one per side. LFS117 pins the p6-side instance; this
+    # row pins the p1-side one (the merged CTE-zone instance, whose
+    # occurrence stream carries L156 via loan_final's p1). Same predicate,
+    # two occurrence identities — the R44 occurrence-coverage ruling.
+    {"row": "LFS138", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@156", "dst": "loan_final@64", "type": "JOIN", "anchor": 156, "spec": "anchor_rel_ep"},
+    # LFS139 — the L156 belongs-to of the p6-side occurrence: the predicate
+    # reads rollover_loan_info's lending_ref through p6, so the CTE owns
+    # that occurrence — the LFS3/LFS8/LFS121 class.
+    {"row": "LFS139", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "rollover@9", "dst": "lending_ref@82", "type": "SCHEMA", "anchor": 156, "spec": "anchor_rel_ep"},
+    # LFS140/141/142 — the L163 belongs-to, one row per p1 instance
+    # (LFS30/LFS37 pairing; G8's ruling). L142 is the scope-correct one:
+    # at L163 `,p1.lending_ref` the qualifier resolves to L198
+    # `loan_final p1`.
+    {"row": "LFS140", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p1@29@163", "dst": "lending_ref@163", "type": "SCHEMA", "anchor": 163, "spec": "anchor_rel_ep"},
+    {"row": "LFS141", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p1@84@163", "dst": "lending_ref@163", "type": "SCHEMA", "anchor": 163, "spec": "anchor_rel_ep"},
+    {"row": "LFS142", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p1@198@163", "dst": "lending_ref@163", "type": "SCHEMA", "anchor": 163, "spec": "anchor_rel_ep"},
+    # LFS143/144/145 — the L183 belongs-to of the reserved_field8 read
+    # (`,p1.reserved_field8 AS reserved_field8`), one row per p1 instance —
+    # the LFS75/LFS77 sibling-member precedent (reserved_field8 is a
+    # closure member through LFS133). L145 is the scope-correct one.
+    {"row": "LFS143", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p1@29@183", "dst": "reserved_field8@82", "type": "SCHEMA", "anchor": 183, "spec": "anchor_rel_ep"},
+    {"row": "LFS144", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p1@84@183", "dst": "reserved_field8@82", "type": "SCHEMA", "anchor": 183, "spec": "anchor_rel_ep"},
+    {"row": "LFS145", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "p1@198@183", "dst": "reserved_field8@82", "type": "SCHEMA", "anchor": 183, "spec": "anchor_rel_ep"},
+    # LFS146 — the L163 read leg onto the p1@198 instance (the
+    # LFS14/LFS43/LFS70 class, anchored at the instance's own line L198).
+    {"row": "LFS146", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+     "src": "lending_ref@163", "dst": "p1@198@198", "type": "REF", "anchor": 198, "spec": "anchor_rel_ep"},
 ]
 
 # Response-node-LABEL -> canonical-label alignment (served node ids are
@@ -1688,6 +1977,10 @@ NORMALIZE_MAP = {
     "p1@29": "p1",
     "p1@84": "p1",
     "p1@198": "p1",
+    # "p6@155" (2026-08-31, G7 admission set): the rollover_loan_info join
+    # alias of the sup-write statement (L155 `LEFT JOIN rollover_loan_info
+    # p6`) — the instance every L82/L156 lending_ref read resolves through.
+    "p6@155": "p6",
     "p2@199": "p2",
     "subq": "⟐subq",
     "subq1": "⟐subq1",
@@ -2040,8 +2333,11 @@ CANONICAL_NODES_DIR = {
     # (2026-08-28, point 17): +⟐subq2@50 (the NOT-IN container) -- 38
     # canonical entries; served AT THAT ROUND: 49 nodes / 103 edges.
     # Since then LFS106 (#387) and LFS107-109 + the pogmab@46 /
-    # poctcd@120 field instances (F-D, 2026-08-29) landed -- the
-    # canonical closure is 40 entries / 105 CANONICAL_EDGES rows (the
+    # poctcd@120 field instances (F-D, 2026-08-29) landed -- and the G7
+    # admission set (2026-08-31, team G9) added the p6@155 / p1@198
+    # instance identities, the L82/L163 lending_ref instances and the
+    # L82 reserved_field8 sibling column -- so the canonical closure is
+    # 45 entries / 141 CANONICAL_EDGES rows (the
     # po* twin instances realize the po*@41/@117 entries below; F-J
     # removed LFS110, the phantom twin of LFS74, and F-K removed
     # LFS109 -- point 19).
@@ -2128,6 +2424,23 @@ CANONICAL_NODES_DIR = {
          "note": "the p1 alias of bdm (subq segment)"},
         {"label": "p1", "line": 84, "kind": "table",
          "note": "the p1 alias of bdm (loan_final segment)"},
+        # G7 admission set (2026-08-31, G9): the sup-write statement's own
+        # instances — L155 `LEFT JOIN rollover_loan_info p6` and L198
+        # `loan_final p1` — plus the lending_ref occurrences they carry
+        # (L82 `NVL(p6.lending_ref,'')` / L156 `ON p6.lending_ref =
+        # p1.lending_ref` / L163 `,p1.lending_ref`) and the sibling column
+        # computed FROM the field at L82 (`CASE WHEN NVL(p6.lending_ref,'')
+        # <> '' ... AS reserved_field8`).
+        {"label": "p1", "line": 198, "kind": "table",
+         "note": "the outer statement's p1 alias of loan_final (L198)"},
+        {"label": "p6", "line": 155, "kind": "table",
+         "note": "the rollover_loan_info join alias of the sup-write statement (L155)"},
+        {"label": "lending_ref", "line": 82, "kind": "field",
+         "note": "the p6-side lending_ref instance (L82 NVL(p6.lending_ref,'') / L156 ON p6.lending_ref = p1.lending_ref)"},
+        {"label": "lending_ref", "line": 163, "kind": "field",
+         "note": "the outer statement's projection read (L163 ,p1.lending_ref)"},
+        {"label": "reserved_field8", "line": 82, "kind": "field",
+         "note": "the sibling column computed FROM lending_ref (L82 CASE WHEN NVL(p6.lending_ref,'') <> '' AS reserved_field8; read at L183)"},
         {"label": "p2", "line": 199, "kind": "table",
          "note": "the p2 alias of sup (the statement's own self-join)"},
         {"label": "bdm", "line": 16, "kind": "table",

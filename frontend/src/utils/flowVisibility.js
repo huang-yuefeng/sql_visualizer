@@ -125,8 +125,8 @@ function hideEdgelessFieldChips(cy) {
 }
 
 /**
- * v3.3.183 (updated v3.3.191) — make absorbed FILTER edges BIG and readable
- * in merged views.
+ * v3.3.183 (updated v3.3.191, captions retired v3.3.194) — make absorbed
+ * FILTER edges BIG and readable in merged views.
  *
  * R32 promotion collapses `p_dt ──FILTER──► east5` into an `east5→east5`
  * self-loop that renders ~5x5 px at the zoom floor, and cytoscape paints
@@ -136,22 +136,216 @@ function hideEdgelessFieldChips(cy) {
  *   1. Tag every visible merged self-loop with `filter-selfloop` — the
  *      stylesheet (FILTER_LOOP_GEOM_STYLES) then draws it as a big red
  *      bezier loop hugging the table's LEFT border (per-edge
- *      control-point-step-size data + loop-direction -90deg). The edge
+ *      control-point-step-size data + loop-direction data). The edge
  *      itself is the visible, clickable curve: its tap highlights the
- *      absorbed SQL line (R37).
- *   2. Pin a CAPTION NODE at the loop midpoint — nodes paint above
- *      everything, so the caption is deterministically visible. The node is
- *      `synthetic`: non-interactive (`events: 'no'`), excluded from layout
- *      persistence (collectPositions skips type 'caption'), and removed/
- *      re-created on every visibility pass so it can never leak.
+ *      absorbed SQL line (R37), and the Field Story "Filtered" step names
+ *      the same line.
+ *   2. (RETIRED v3.3.194 — user ruling 2026-08-31.) This pass used to ALSO
+ *      pin a `⟂ field (filtered @L<line>)` caption NODE at the loop
+ *      midpoint. That text was already painted a second time by the
+ *      FILTER_SELFLOOP_STYLES edge-label rule, and because the enlarged
+ *      loop's midpoint sits OUTSIDE the table box, neither copy was hidden
+ *      by a node fill — the user saw the SAME caption twice on one loop
+ *      (`east5_stzfxxb.p_dt`: one merged self-loop `l2m_…` @190, two
+ *      identical `⟂ p_dt (filtered @L190)` texts). The loop line is now the
+ *      loop's only on-canvas form; the line number travels through the
+ *      click channel (R37) and the Field Story, not through a caption.
  */
 // v3.3.191 — target bulge of the self-loop arc PAST the table's left border,
-// in model units (≈42 screen px at the 0.28 zoom floor). cytoscape scales a
-// self-loop from the node CENTRE (ctrl pts = centre ± 1.4 × step along the
-// loop axis; with direction -90deg/sweep -90deg the horizontal reach is
-// ≈ 0.99 × step), so a fixed step that clears a small chip disappears inside
-// a wide table box — hence the per-edge measurement below.
+// in model units. cytoscape scales a self-loop from the node CENTRE (ctrl
+// pts = centre ± 1.4 × step along the loop axis; with direction -90deg/sweep
+// -90deg the horizontal control-point reach is ≈ 0.99 × step), so a fixed
+// step that clears a small chip disappears inside a wide table box — hence
+// the per-edge measurement below.
+//
+// Measured with the real renderer (cytoscape 3.34, headless canvas pass over
+// `edge.controlPoints()`, node w=200 → halfW=100 → step=250): the control
+// points sit 147.5 model units left of the border and the drawn curve
+// reaches 110.6 units past it — i.e. visible bulge ≈ 0.7425 × step −
+// 0.75 × halfW ≈ 0.7425 × SELFLOOP_BULGE, independent of box size (the
+// halfW terms cancel: that is the point of the per-edge step). Screen size
+// over the merged view's working zoom range: 31 px @0.28, 17 px @0.15,
+// 8.9 px @0.08 — readable and hittable at the fit floor, so the constant
+// stays 150; growing it would buy nothing at the floor and would start
+// swallowing the neighbour box to the left at working zooms.
 const SELFLOOP_BULGE = 150;
+
+// v3.3.194 — parallel self-loops on ONE table (the full-merged view can put
+// 2-3 absorbed filters on the same box, e.g. @52/@84/@99) used to draw the
+// same left-border arc. They never coincide exactly — cytoscape's
+// findLoopPoints nests loops that share a direction+sweep key by (j/3 + 1) on
+// the STEP, so consecutive loops draw 62 model units farther out (measured
+// bulges 110.6 / 172.5 / 234.4 for three loops at step 250) — but that 62-unit
+// gap is ~17 px at the 0.28 fit floor and ~5 px at the 0.08 overview floor,
+// where the arcs read as one thick line. Smallest robust fix: alternate the
+// loop AXIS (left / right border) inside each node group, so the first two
+// loops are mirror images with zero interaction — each is the only loop in its
+// own direction+sweep group, hence no nesting compounding and no dependence on
+// cytoscape's internal render order. A 3rd loop returns to the first side and
+// nests 62 units outside it. (A per-index `loopstep` increment was rejected:
+// it multiplies with that same (j/3 + 1) factor, so if the two orders ever
+// disagree the "bigger" loop renders inside the smaller one.)
+const SELFLOOP_LEFT = '-90deg';
+const SELFLOOP_RIGHT = '90deg';
+const SELFLOOP_DIRECTIONS = [SELFLOOP_LEFT, SELFLOOP_RIGHT];
+
+// WHICH border is free is measured, not assumed: cytoscape paints edges below
+// nodes, so the axis is the only lever against occlusion. H2 pixel-counted
+// this exact case (east5_stzfxxb, Full/merged): a loop pushed to the RIGHT
+// border by blind alternation rendered BEHIND the neighbouring alias box —
+// 377 visible reddish px against 2730 for its left sibling (~7x suppressed,
+// reads as a muted mauve arc). So the pass scores both borders — per table
+// box, the band being a property of the border rather than of the loop — and
+// then assigns loops to borders by TOTAL visibility (v3.3.195, below); the
+// LABELLED loop (`data.filterLabel` — the absorbed-filter loop) anchors the
+// freer border in every candidate assignment:
+//   1. neighbour boxes overlapping the arc band (x within SELFLOOP_BULGE of
+//      the border, y within the arc's vertical span ≈ ±0.99 × step) — nodes
+//      paint ABOVE edges, so these are the real occluders;
+//   2. then ordinary (non-self-loop) incident edges attaching there — a
+//      neighbour whose centre sits on that side attaches at that border, and
+//      its 2px line crosses the band.
+//
+// v3.3.195 — the per-border score feeds a per-GROUP ASSIGNMENT OPTIMUM, not
+// blind alternation. The v3.3.194 rule ("labelled loop takes the freer border,
+// siblings alternate away") fixed the nesting complaint but manufactured a new
+// one, measured on this very table: the labelled @190 loop won LEFT (88.6% of
+// its stroke visible) while its unlabelled @86 sibling was FORCED to the RIGHT
+// border — where the band holds bdm_acc_entrusted_payment — for 14.3%. Both
+// loops on the freer border would have kept both arcs alive; the TOTAL is what
+// matters, so for a two-loop table the candidate assignments are compared and
+// the cheaper wins (three or more loops keep the alternation fallback):
+//   alternate     — each loop on its own border (no nesting; but the second
+//                   loop may be thrown into an OCCUPIED border)
+//   all-preferred — every loop on the freer border (cytoscape nests same-side
+//                   loops +62 model units per extra loop: crowded, yet every
+//                   arc stays in the free band)
+// Costs are normalized to one loop's value (1.0 = a fully visible stroke):
+//   BAND_BOX_COST      0.70 per occluding box in the band — measured: the
+//                      occluded loop keeps ~14% of its stroke against ~89%
+//                      for a free-border sibling, i.e. ~0.7 of the arc is lost;
+//   BAND_EDGE_COST     0.05 per crossing edge, capped at BAND_EDGE_CAP (0.20)
+//                      so a busy border can never outrank an occluding box —
+//                      the old lexicographic boxes-before-edges order, kept as
+//                      weights;
+//   SHARED_BORDER_COST 0.30 per EXTRA loop on a border — the nesting cost
+//                      (both arcs survive, 62 model units apart, but at the
+//                      fit floor they read as one thick line).
+// 0.30 < 0.70 is the whole optimizer: a SHARED free border beats a private
+// occupied one, while two free borders still separate (a strict tie keeps
+// alternation — v3.3.194's no-share rule survives wherever it is free). The
+// labelled loop (`data.filterLabel`) anchors the freer border either way, and
+// placement order stays the deterministic line-then-id sort below.
+const BAND_BOX_COST = 0.7;
+const BAND_EDGE_COST = 0.05;
+const BAND_EDGE_CAP = 4;
+const SHARED_BORDER_COST = 0.3;
+
+/** Cost of drawing ONE loop on `side`, in fractions of a visible loop. */
+function bandCost(score, side) {
+  const nodes = side === 'left' ? score.leftNodes : score.rightNodes;
+  const edges = side === 'left' ? score.leftEdges : score.rightEdges;
+  return BAND_BOX_COST * nodes + BAND_EDGE_COST * Math.min(BAND_EDGE_CAP, edges);
+}
+
+function borderScore(cy, nodeId, halfW, step) {
+  const score = { leftNodes: 0, rightNodes: 0, leftEdges: 0, rightEdges: 0 };
+  try {
+    const coll = typeof cy.getElementById === 'function'
+      ? cy.getElementById(nodeId) : null;
+    const node = coll && coll.length ? coll[0] : null;
+    if (!node || typeof node.position !== 'function') return score;
+    const c = node.position();
+    const halfArc = 0.99 * step; // arc vertical half-span (ctrl pts at ±0.99·step)
+    const bands = [
+      { side: 'left', x1: c.x - halfW - SELFLOOP_BULGE, x2: c.x - halfW },
+      { side: 'right', x1: c.x + halfW, x2: c.x + halfW + SELFLOOP_BULGE },
+    ];
+    const y1 = c.y - halfArc, y2 = c.y + halfArc;
+    // 1. boxes painting above the band (strict inequalities exclude the table
+    //    itself, whose border IS a band edge).
+    if (typeof cy.nodes === 'function') {
+      cy.nodes().forEach(n => {
+        try {
+          if (typeof n.hidden === 'function' && n.hidden()) return;
+          if (typeof n.boundingBox !== 'function') return;
+          const b = n.boundingBox({ includeLabels: false, includeNodes: true,
+            includeEdges: false, includeOverlays: false });
+          if (!b) return;
+          for (const band of bands) {
+            if (b.x1 < band.x2 && b.x2 > band.x1 && b.y1 < y2 && b.y2 > y1)
+              score[`${band.side}Nodes`] += 1;
+          }
+        } catch (_) { /* skip an unsized/fake node */ }
+      });
+    }
+    // 2. ordinary edges whose other endpoint faces that border.
+    if (typeof node.connectedEdges === 'function') {
+      node.connectedEdges().forEach(e => {
+        try {
+          const d = (typeof e.data === 'function' ? e.data() : e.data) || {};
+          if (d.source == null || d.source === d.target) return;
+          if (typeof e.hidden === 'function' && e.hidden()) return;
+          const otherId = d.source === nodeId ? d.target : d.source;
+          const oc = typeof cy.getElementById === 'function'
+            ? cy.getElementById(otherId) : null;
+          const other = oc && oc.length ? oc[0] : null;
+          if (!other || typeof other.position !== 'function') return;
+          const dx = other.position().x - c.x;
+          // A vertically aligned neighbour attaches at the top/bottom border
+          // (snake columns) and never crosses a side arc — occupies neither.
+          if (dx < -1) score.leftEdges += 1;
+          else if (dx > 1) score.rightEdges += 1;
+        } catch (_) { /* best-effort */ }
+      });
+    }
+  } catch (_) { /* fake cy in unit tests — both borders score 0 → LEFT */ }
+  return score;
+}
+
+/**
+ * v3.3.195 — the (loop → border) assignment for ONE table's self-loops.
+ *
+ * `score` is the border score of the table box (every loop on that box shares
+ * it — the band is a property of the border, not of the loop), `anchor` the
+ * index of the labelled loop (the loop that must get the freer border), and
+ * the costs are bandCost() per side. Returns one loop-direction per loop.
+ *
+ * Two assignments are compared by summed cost over the whole group — exact for
+ * two loops; three or more keep the plain alternation (the greedy fallback the
+ * spec keeps beyond the first pair, because a deeper same-side nest reaches
+ * outside the band the score measures):
+ *   alternate: the anchor loop takes the freer border, every other loop
+ *              alternates away from it → Σ preferred/other cost by parity;
+ *   share:     every loop takes the freer border → n × preferredCost plus one
+ *              SHARED_BORDER_COST per extra loop (the cytoscape nesting).
+ * A strict tie answers `alternate`: two free borders must still separate, and
+ * an uncluttered table (0/0 both sides) always does.
+ */
+function assignLoopSides(score, anchor, loopCount) {
+  const leftCost = bandCost(score, 'left');
+  const rightCost = bandCost(score, 'right');
+  // Strict tie → LEFT: the side the tool has used since v3.3.191 and the
+  // Flow-only case's side.
+  const preferred = leftCost <= rightCost ? SELFLOOP_LEFT : SELFLOOP_RIGHT;
+  const other = preferred === SELFLOOP_LEFT ? SELFLOOP_RIGHT : SELFLOOP_LEFT;
+  const preferredCost = Math.min(leftCost, rightCost);
+  const otherCost = Math.max(leftCost, rightCost);
+
+  let alternateCost = 0;
+  for (let i = 0; i < loopCount; i++)
+    alternateCost += (i - anchor) % 2 === 0 ? preferredCost : otherCost;
+  const shareCost = loopCount * preferredCost
+    + SHARED_BORDER_COST * (loopCount - 1);
+  // Sharing is decided only where the comparison is EXACT: two loops. Three
+  // or more keep the v3.3.194 alternation (the greedy fallback) — a third
+  // same-side loop nests another 62 model units out, a reach the two-band
+  // score cannot see, so a deeper nest is never bought by this rule.
+  const share = loopCount === 2 && shareCost < alternateCost;
+
+  return Array.from({ length: loopCount }, (_v, i) =>
+    (share || (i - anchor) % 2 === 0) ? preferred : other);
+}
 
 function enlargeFilterSelfLoops(cy) {
   // v3.3.191: tag the edge and let the stylesheet draw the big curve. The
@@ -162,79 +356,63 @@ function enlargeFilterSelfLoops(cy) {
   // curve-style says, so the loop rendered at the 40-unit default: 8×8 px
   // at the 0.28 zoom floor. FILTER_LOOP_GEOM_STYLES maps this class to the
   // loop properties with a per-edge `loopstep` sized from the endpoint box.
+  // v3.3.194: the pass also assigns the per-loop axis (`loopdir`). v3.3.195:
+  // the axis comes from the group's assignment optimum (assignLoopSides) —
+  // the LABELLED loop anchors the freer border and the group shares that
+  // border only when the opposite one is occupied (see borderScore).
+  const groups = new Map(); // endpoint id → visible self-loops on that table
   cy.edges().forEach(e => {
     try {
       const d = (typeof e.data === 'function' ? e.data() : e.data) || {};
       const isSelf = d.source != null && d.source === d.target;
       if (!isSelf || (typeof e.hidden === 'function' && e.hidden())) return;
-      let halfW = 60; // sane floor for bare/fake nodes in unit tests
-      try {
-        const nb = e.source().boundingBox({ includeLabels: false,
-          includeNodes: true, includeEdges: false, includeOverlays: false });
-        if (nb && Number.isFinite(nb.w)) halfW = Math.max(20, nb.w / 2);
-      } catch (_) { /* keep the floor */ }
-      // data FIRST, then the class — the mapping resolves on the style
-      // recalc that follows this batch, so no missing-field warning fires.
-      if (typeof e.data === 'function') {
-        e.data('loopstep', Math.round(halfW + SELFLOOP_BULGE));
-      }
-      if (typeof e.addClass === 'function') e.addClass('filter-selfloop');
+      let g = groups.get(d.source);
+      if (!g) groups.set(d.source, (g = []));
+      g.push(e);
     } catch (_) { /* fake cy in unit tests — best-effort */ }
   });
-}
-
-function removeCaptionNodes(cy) {
-  try {
-    const deadEdges = cy.edges().filter(e => {
-      const d = typeof e.data === 'function' ? e.data() : {};
-      return d && d.type === 'caption';
-    });
-    if (deadEdges.length) cy.remove(deadEdges);
-  } catch (_) {}
-  const dead = cy.nodes().filter(n => {
-    const d = typeof n.data === 'function' ? n.data() : {};
-    return d.type === 'caption';
-  });
-  if (dead.length) cy.remove(dead);
-}
-
-function upsertFilterCaptions(cy) {
-  cy.edges().forEach(e => {
+  groups.forEach((loops, nodeId) => {
     try {
-      const d = (typeof e.data === 'function' ? e.data() : e.data) || {};
-      const label = d.filterLabel;
-      if (!label || (typeof e.hidden === 'function' && e.hidden())) return;
-      const z2 = (typeof cy.zoom === 'function') ? (cy.zoom() || 1) : 1;
-      if (typeof e.midpoint !== 'function') return; // fake edge — skip
-      const id = 'cap_' + (typeof e.id === 'function' ? e.id() : e.id);
-      // Caption text is model-space too — compensate for zoom so it stays
-      // ~14 screen px (readable) at the 0.28 floor and modest when zoomed in.
-      // v3.3.190 (ruling B2): font-size is MODEL-space — 14px at the 0.28
-      // zoom floor renders ~4px. Carry a zoom-compensated size in data
-      // (runtime e.style() is a no-op; the stylesheet maps it) so the
-      // caption never renders below ~11 screen px.
-      const capFont = Math.max(14, Math.round(11 / z2));
-      if (!cy.getElementById(id).length) {
-        cy.add({
-          data: { id, label, type: 'caption', synthetic: true, caption_font: capFont },
-          position: e.midpoint(),
-          classes: 'filter-caption',
-        });
-      } else {
-        cy.getElementById(id).position(e.midpoint()).data('caption_font', capFont);
-      }
-      // v3.3.186/187 capA/capB/capL bracket — RETIRED in v3.3.191. The
-      // bracket was a straight node-node line minted beside the table
-      // BECAUSE the real self-loop could not be enlarged (inert
-      // segment-points hack). Two user-reported defects came of it: the
-      // straight line read as "edge from and to the same table is a
-      // straight line", and clicking it did nothing (the bracket carried
-      // `events: 'no'`, and the tiny 8×8 px real loop beneath was
-      // un-hittable). The real edge now IS the big left-border curve
-      // (FILTER_LOOP_GEOM_STYLES) and takes the taps itself; only the
-      // caption NODE above the loop remains. removeCaptionNodes still
-      // sweeps any stale anchors on resumed graphs.
-    } catch (_) { /* fake cy — captions are best-effort chrome */ }
+      // Deterministic placement: line order, then id (never payload order).
+      loops.sort((a, b) => {
+        const la = Number(a.data('highlight_line')) || 0;
+        const lb = Number(b.data('highlight_line')) || 0;
+        if (la !== lb) return la - lb;
+        const ia = String(a.id() ?? ''), ib = String(b.id() ?? '');
+        return ia < ib ? -1 : ia > ib ? 1 : 0;
+      });
+      let halfW = 60; // sane floor for bare/fake nodes in unit tests
+      try {
+        const coll = typeof cy.getElementById === 'function'
+          ? cy.getElementById(nodeId) : null;
+        const node = coll && coll.length ? coll[0] : null;
+        const nb = node && typeof node.boundingBox === 'function'
+          ? node.boundingBox({ includeLabels: false, includeNodes: true,
+            includeEdges: false, includeOverlays: false })
+          : null;
+        if (nb && Number.isFinite(nb.w)) halfW = Math.max(20, nb.w / 2);
+      } catch (_) { /* keep the floor */ }
+      const step = Math.round(halfW + SELFLOOP_BULGE);
+      // The labelled loop anchors the freer border; the assignment then puts
+      // the group where the total visibility is highest (see assignLoopSides).
+      let anchor = loops.findIndex(e => {
+        try { const d = e.data(); return !!(d && d.filterLabel); }
+        catch (_) { return false; }
+      });
+      if (anchor < 0) anchor = 0;
+      const sides = assignLoopSides(
+        borderScore(cy, nodeId, halfW, step), anchor, loops.length);
+      loops.forEach((e, i) => {
+        try {
+          // data FIRST, then the class — the mapping resolves on the style
+          // recalc that follows this batch, so no missing-field warning fires.
+          if (typeof e.data === 'function') {
+            e.data({ loopstep: step, loopdir: sides[i] });
+          }
+          if (typeof e.addClass === 'function') e.addClass('filter-selfloop');
+        } catch (_) { /* fake edge in unit tests — best-effort */ }
+      });
+    } catch (_) { /* best-effort chrome — never break the visibility pass */ }
   });
 }
 
@@ -247,23 +425,16 @@ function upsertFilterCaptions(cy) {
  */
 function centerOnSeed(cy) {
   try {
-    // Prefer the filter caption (it sits at the loop, inside the seed zone);
-    // fall back to the seed chip itself.
-    const cap = cy.nodes().filter(n => {
+    // The searched seed chip (it sits inside its table box, next to the
+    // loop). Until v3.3.194 this preferred the retired caption node — that
+    // preference is gone with the caption.
+    const seeds = cy.nodes().filter(n => {
       const d = typeof n.data === 'function' ? n.data() : {};
-      return d && d.type === 'caption';
+      return d && d.is_target === true;
     });
-    let first = null;
-    if (cap.length) first = typeof cap.eq === 'function' ? cap.eq(0) : cap[0];
-    if (!first) {
-      const seeds = cy.nodes().filter(n => {
-        const d = typeof n.data === 'function' ? n.data() : {};
-        return d && d.is_target === true;
-      });
-      first = seeds && typeof seeds.eq === 'function'
-        ? seeds.eq(0)
-        : (Array.isArray(seeds) ? seeds[0] : null);
-    }
+    const first = seeds && typeof seeds.eq === 'function'
+      ? seeds.eq(0)
+      : (Array.isArray(seeds) ? seeds[0] : null);
     if (!first) return;
     if (typeof cy.stop === 'function') cy.stop(true);
     if (typeof cy.center === 'function') cy.center(first);
@@ -276,13 +447,11 @@ function centerOnSeed(cy) {
 export function applyFlowVisibility(
   cy, { flowNodeIds, flowEdgeIds, flowOnly, mergedView, recenter = true } = {}) {
   if (!cy || (typeof cy.destroyed === 'function' && cy.destroyed())) return;
-  removeCaptionNodes(cy);
   if (!flowOnly) {
     cy.elements().show();
     if (mergedView) {
       hideEdgelessFieldChips(cy);
       enlargeFilterSelfLoops(cy);
-      upsertFilterCaptions(cy);
     }
     return;
   }
@@ -328,7 +497,6 @@ export function applyFlowVisibility(
   if (mergedView) {
     hideEdgelessFieldChips(cy);
     enlargeFilterSelfLoops(cy);
-    upsertFilterCaptions(cy);
   }
   // R41: recenter=false (user clicked Fit) skips the seed re-center —
   // the fit's whole-graph viewport must survive the visibility pass.
