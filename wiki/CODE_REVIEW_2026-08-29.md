@@ -18,7 +18,10 @@ landed when this record was written. AD2's numeric verdicts are recorded as meas
 per-finding IDs live in the review transcript and are referenced here by the row names the teams
 used. **§6–§9 (added 2026-08-31)** record the 2026-08-30/31 rounds — the Field Story audits, the
 multi-user audits and the hardening batch they produced, and the R40.13 acceptance cross-check.
-Every code claim in those sections was re-verified against the working tree by grep/read at
+**§10–§16 (added 2026-09-01)** record the v3.3.195-wave rounds that landed after that — FSC-2
+model persistence, the H11 MERGE-column connectivity round, the container-PROVENANCE relay, the
+X1/X2 review rounds and the R40.13 cross-check round 2. Every code claim in those sections was
+re-verified against the working tree by grep/read at
 writing time; where a measurement lives only in the session transcript and has no repo artifact,
 the row says so explicitly rather than citing a number nothing in the tree can reproduce.
 
@@ -271,9 +274,9 @@ between the naive grep baseline and the engine's flow closure, which is all AC1/
 
 | Root cause | Class | State at writing |
 |------------|-------|------------------|
-| **RC-A** | closure defect, class A | **ledgered for v3.3.195** — not scheduled for v3.3.194 |
-| **RC-B** | closure defect, class B | **fix in flight (G7)** |
-| **RC-C** | closure defect, class C | **fix in flight (G7/G8)** |
+| **RC-A** | closure defect, class A | **ledgered for v3.3.195** — not scheduled for v3.3.194; still ledgered at the 2026-09-01 update (see §15 for the round-2 adjudication) |
+| **RC-B** | closure defect, class B | ~~fix in flight (G7)~~ → **FIXED by G8 (2026-08-31)** — §11 |
+| **RC-C** | closure defect, class C | ~~fix in flight (G7/G8)~~ → **FIXED by G7 (2026-08-31)** — §12 |
 
 > **Provenance note.** The 10 case scripts, the per-line verdicts and the RC-A/B/C definitions
 > live in the working-session transcript; no repo artifact records them yet. The team-internal
@@ -298,3 +301,180 @@ written.
 | AD3 program — the corrected spec, the −64%-shrink re-derivation and the 72-row re-derivation, the RFN-scale perf flags | v3.3.195-program | the −64% / 72-row figures are transcript-only and need their own record before they are actionable |
 | FSC's three structural holes (§6) | v3.3.195-program | engine-shape work, not display |
 
+> **2026-09-01 update.** G7 and G8 HAVE landed — RC-C is §12, RC-B is §11 (the multi-anchor fold
+> whose count the PROVENANCE re-pin settled), so the §8 "fix in flight" rows below are closed.
+> §10–§15 record the v3.3.195-wave rounds that landed after this file's §6–§9 were written: FSC's
+> snapshot-integrity hole (§10, FSC-2), the H11 MERGE-column connectivity round (§11), the
+> container-PROVENANCE relay round (§12), the X1/X2 review rounds (§13–§14), the R40.13
+> cross-check round 2 (§15) and the ledger items that landed alongside them (§16). H8 and P2 are
+> still not recoverable from the tree at this update.
+
+
+---
+
+## 10 · V6 — FSC-2: the physical model is persisted beside the graph cache (v3.3.195 wave, LANDED)
+
+FSC's hole (b) — "the closure is not a pure function of the script" — was a snapshot-integrity
+defect, and it is the one this round closes. The physical model the strict table.field walker
+consumes was built from the analysis dict when an analysis cache was present (the `alias_of`
+extraction truth) but from the cached GRAPH JSON when it was not, and the graph cache serialises
+nodes without `alias_of`, so that second form fell back to `physical_model`'s label-keyed alias
+rule. Same SQL, two different models, decided by WHICH cache survived:
+
+> Measured on `samples/sql_sample_v1/BDM_ACC_LOAN_INFO_RFN.sql`: **28 of 74 `alias_by_var_id`
+> pairs** differ between the two input forms — e.g. var `15b561ec4099c7c3` →
+> `bdm_acc_loan_info` from the analysis truth vs `ODS_IFAI_FCLETWK` from the label-rule guess;
+> SUP_M **4 of 14**. `tests/test_l2_snapshot.py` builds through `_build_l2_graph` on
+> never-indexed workspaces, so its second (filtered) build always took the graph-rebuilt branch:
+> the committed baselines encoded the lossy variant, pinned only by PYTHONHASHSEED.
+
+**The fix is persistence, not a smarter fallback** — the build that writes a graph cache also
+writes the alias truth of the SAME analysis beside it, and a graph-cache hit that cannot rebuild
+the model from an analysis cache re-derives the model from that artifact instead of guessing by
+label.
+
+| Row | What landed | Tree proof |
+|-----|-------------|------------|
+| **the artifact** | `cache/model_{cache_key}.json` — `{format_version, extractor_version, cache_key, alias_count, alias_of}`; `MODEL_CACHE_PREFIX = "model"` lives in `graph_service.py` (not `cache_keys.py`) because both consumers already take their graph-cache contract from the graph-serialization module; its own `MODEL_CACHE_FORMAT_VERSION = 1` is independent of the graph cache's `format_version` | `backend/app/services/graph_service.py:364-371` (prefix + contract version), `:374-391` (`extract_alias_of` — non-empty entries only, insertion order = variable order), `:393-417` (`write_model_cache` — atomic via P1's `atomic_write_text`, called from the SAME build that wrote the graph, from the SAME analysis dict, so it can never describe a sibling's graph), `:419-444` (`load_model_cache` — every guard failure returns `{}`), `:446-470` (`graph_with_alias_of` — SHALLOW node copies, never mutates the served payload) |
+| **the read path** | on a graph-cache hit the model is built from the analysis cache when present and current → else the persisted alias truth → else the cached graph data (the pre-FSC-2 label-rule fallback, kept for caches written before the artifact existed — no hard break) | `backend/app/services/l2_builder.py:196-198` (path), `:240-266` (the three-step preference ladder), `backend/app/services/dataflow_service.py:516-521` (path), `:567-584` (the same ladder, mirror) |
+| **the write path** | every build writes the artifact, EVEN for an alias-free script — the file's presence is what says "this graph cache carries its truth", which is what keeps the old-cache fallback test meaningful | `l2_builder.py:314-321`; `dataflow_service.py:634-641` |
+| **purge posture** | `purge_workspace_caches` deliberately does NOT delete `model_*.json`: the reader requires the file's own contract version, extractor version AND cache_key to match, so keeping it buys no staleness risk while keeping the FSC-2 guarantee intact — purging it would reintroduce the hole the artifact closes | `backend/app/main.py:74-83` (docstring) + `:101-102` (the deliberate absence from the glob list); tests `test_model_persistence.py::test_purge_workspace_caches_keeps_the_model_artifact`, `::test_reindex_keeps_the_model_artifact_and_rewrites_it_on_next_l2` |
+| **the divergences → 0** | the graph-rebuild path's `alias_by_var_id` becomes the analysis-cache model's; the WHOLE `PhysicalModel` is deep-equal (alias map, entity map, table names/roles/alias views, field occurrences, edges, occurrence index) | `tests/test_model_persistence.py:241` (`test_fsc_repro_graph_rebuild_path_matches_analysis_truth`), `:279` (`test_persisted_model_is_byte_identical_to_the_analysis_model`) |
+| **the user-visible fix** | an alias-qualified seed (`a.cust_no`) resolved through the model's `alias_by_var_id`, so the lossy variant left NO seed → `search_matched: false` and the WHOLE graph as the answer. Pre-FSC-2: RFN `a.cust_no` served the full **1053-node / 6764-edge** fallback instead of the **78-node / 221-edge** closure; SUP_M `p3.lending_ref` **219/679** instead of **9/13**. Both spellings (`a` and `A`) are pinned | `tests/test_model_persistence.py:390-411` (the measured comment + the parametrised seeds), `:403` (`test_alias_seed_searches_no_longer_lost_to_full_graph_fallback`) |
+| **byte-identity + history-independence** | the analysis-cache path and the persisted-model path serve the same BYTES on RFN + the three other alias-bearing samples, and the answer does not depend on the caches' creation history | `tests/test_model_persistence.py:333` (4 scripts, the snapshot seeds), `:355` |
+| **cross-seed stable** | PYTHONHASHSEED 0–3 produce identical alias assignments — the artifact is read back, never re-derived per seed | `tests/test_model_persistence.py:510` |
+| **old-cache fallback is documented, not silent** | a graph cache without a sibling artifact keeps today's pre-FSC-2 behaviour, and the lossy result is the one the test documents | `tests/test_model_persistence.py:549`, `:602` |
+| **payload hygiene** | `graph_with_alias_of` never mutates the caller's graph (the served payload and the cache object) — the persisted fact stays a model-build input and never leaks into a response; `test_model_cache_roundtrip_and_version_gates` covers every guard direction | `tests/test_model_persistence.py:700`, `:735` |
+
+**12 tests**, `backend/tests/test_model_persistence.py` (uncommitted at this update — new file in
+the working tree). Suite verified green locally by this documentation pass.
+
+---
+
+## 11 · H11 — the 7 MERGE-column connectivity defects (Phase 4d-gc) + the G8 multi-anchor fold (LANDED)
+
+R4-H's tightening of the R44 twin waiver handed back 14 live `column_connectivity` findings; they
+were adjudicated one by one into `_ADJUDICATED_CONNECTIVITY` as 7 false positives (kept) and 7
+DEFECTs (recorded for a fix). The 7 DEFECTs are the same shape: a MERGE statement's column —
+walked by `_walk_merge` through the merge scope (`ON` / `UPDATE SET` / `WHEN`) — resolves I2 to
+the USING/derived alias's PHYSICAL table, and R44's family-2 twin registers it under the
+owner-qualified spelling `{owner}.{col}`. Its qualifier IS the physical owner, so Pass 4a skips it
+(the owner is the original name), Phase 4d's prefix match misses it, and Phase 4d-gb's gate
+enumerates only `GROUP BY` + the OCCURRENCE marker — the MERGE/JOIN-ON clauses fell between the
+two and the variable carried **no incoming SCHEMA edge at all** (topology
+`column_connectivity`: "no connection from source table").
+
+| Row | What landed | Tree proof |
+|-----|-------------|------------|
+| **Phase 4d-gc** | MERGE/predicate-clause columns get their PHYSICAL owner's belongs-to SCHEMA edge. `_MERGE_COLUMN_CLAUSES` is the documented clause gate (`MERGE ON`, `MERGE UPDATE SET`, `MERGE WHEN`, `MERGE INSERT`, `JOIN ON`) and `_statement_scope` is the statement key | `backend/app/extractor/dependency_graph.py:52` (`_clause_of`), `:113-116` (`_MERGE_COLUMN_CLAUSES`), `:118` (`_statement_scope`), `:829-905` (Phase 4d-gc) |
+| **the over-admission guard** | admission needs the model's OWN schema evidence that `owner` really has `col`: a QUALIFIED read (`t.amount`) that I2 resolved to `owner` in the SAME statement. That witness is owner-scoped and never owner-spelled (an `{owner}.{col}` var's own spelling proves nothing — it is the shape under adjudication), so the rule can never witness itself. This is exactly what separates the 7 defects from the adjudicated false positives of the same clause family: fin_query4's `gps_transactions.account_id` is the twin of a RENAMED USING projection (`t.source_account_id AS account_id` @8), so no alias-spelled read of `gps_transactions.account_id` exists anywhere in the statement and the belongs-to premise is false — admitting it would fabricate a schema fact | `dependency_graph.py:844-875` (the witness build + the owner-spelled exclusion), the comment at `:829-843` |
+| **blast radius measured, exactly 7** | the corpus-wide probe diffs `build_dependency_graph` output with `_MERGE_COLUMN_CLAUSES` emptied vs the real gate over EVERY sample + `financial/fin_query*.sql` and asserts **exactly 7** new edges — a wider blast radius would be an undisclosed model change | `backend/tests/test_merge_connectivity.py:244-283` (`TestCorpusBlastRadius::test_exactly_the_seven_defect_edges_corpus_wide`, message: "Phase 4d-gc admitted N edges corpus-wide, expected exactly the 7 adjudicated defects"), `:286-291` (`test_clause_gate_is_the_documented_set`) |
+| **waiver reconciled** | the 7 DEFECT entries are REMOVED from `test_graph_integrity.py::_ADJUDICATED_CONNECTIVITY`; the 7 FALSE POSITIVE entries stay and must KEEP firing | `backend/tests/test_graph_integrity.py:167-232` (now holds only the FALSE POSITIVE entries: fin_query4 ×1, fin_query8 ×2, fin_query14 ×4), `backend/tests/test_merge_connectivity.py:70-90` (`MERGE_DEFECTS` — the 7, each asserted to have STOPPED tripping), `:226-227` (the false positive whose waiver entry stays) |
+| **35 tests** | every defect direction: the edge exists, the checker is silent, the false positives still trip, the clause gate is the documented set, the corpus blast radius is exactly 7 | `backend/tests/test_merge_connectivity.py` — **35 passed** (re-run by this documentation pass) |
+| **G8 — the RC-B multi-anchor fold (the other half of this round)** | the L2 display fold (`_combine_edges`) keyed on (source, target, edge_type) and kept ONE carrier per pair, so when N occurrences of the searched field reached the same target the payload showed one anchor and the other N−1 went dark — the model carried the per-occurrence edges the whole time. Fold key is now (source, target, edge_type, ANCHOR) with ANCHOR = the `highlight_line` the carrier will be served with; K distinct anchors ⇒ K served edges, ascending | `backend/tests/test_g8_multi_anchor.py:1-21` (root cause + the SUP_M L95/L156/L163/L206 evidence), `backend/app/services/l2_builder.py` `_combine_edges` — **6 passed** |
+
+**The witness count this round re-pinned.** RC-B's multi-anchor fold moved the flagship display
+edge count 528 → 673/674, and the 673-vs-674 FLAP was a separate pre-existing cross-process leak
+(determinism leak #3): for ~10 REF edges the same logical edge was minted from a DIFFERENT
+duplicate raw node id depending on PYTHONHASHSEED — invisible under the single-carrier fold,
+sensitive under multi-anchor. The PROVENANCE determinism fix in §12 removed the hash-order source
+of most of that flap, and guard 3b dropped the 14 direct 2-cycles (7 SUP_M, 7 RFN; 5 of them
+materialized as SUP_M display edges), so the count is now **stable at 668 across PYTHONHASHSEED
+0–3**, with served lit-line sets and flow closures byte-identical on all 7 flagship searches.
+(R46d's continuation twins moved it 668 → 669 afterwards — one new FILTER@182 row-selection edge,
+SQL-text-verified.) `backend/tests/test_physical_model_equivalence.py:323-359`.
+
+---
+
+## 12 · X1 relay — the container-PROVENANCE bridge: deterministic, non-cyclic, and KEPT (LANDED)
+
+Phase 3's container bridge (G7 RC-C, `EXTRACTOR_VERSION 2026-08-28.10`) wires a container body
+(CTE / SUBQUERY / VIRTUAL_TABLE) that produces a value to the outside reader that consumes it —
+the seam where every container chain was value-disconnected (RC-C: the whole upstream chain of
+`bdm_acc_loan_info.repay_acct_no` stayed dark while its downstream reads were lit). X1 re-reviewed
+the phase and found two determinism/shape defects plus a scope question.
+
+| Row | Finding | Fix / decision | Tree proof |
+|-----|---------|----------------|------------|
+| **defect 1 (HIGH)** | the candidate containers live in a `set` (`_prov_bodies`), so `for body in bodies` walked them in hash-random order and `producers[-1]` inherited that order — the picked producer, and with it the served L2 edge id, FLIPPED BETWEEN PROCESSES. Measured before the fix: **7 distinct PROVENANCE pick-sets on RFN across 8 PYTHONHASHSEEDs, 2 on SUP_M** | the candidate list is built ONCE and put in a TOTAL ORDER before anything consumes it: `sorted(..., key=(line_start, var_order[id]))`. Process-independent AND the D3 last-writer-wins the comment always claimed (latest line at-or-before the read, script order breaking the tie) | `backend/app/extractor/dependency_graph.py:630-646` (X1 fix 1 + the sorted pick), `:645` (the key); `backend/tests/test_dependency_graph.py:165-215` (`TestProvenancePhase` — the two-source `d1` fixture that flips under the pre-fix pick, and `test_pick_is_identical_across_process_hash_seeds` which varies the hash in a CHILD process, the only honest way) |
+| **defect 2 (MED-HIGH)** | guard 3 only saw edges INTO the reader, so an existing reader → producer REF/TRANSFORM leg coexisted with the new producer → reader PROVENANCE leg — **14 direct 2-cycles corpus-wide** (7 SUP_M, 7 RFN) | guard 3b, the reverse direction: a producer → reader leg is refused when the reader → producer leg already exists. The container's value already reaches the reader through that leg; wiring the pair backwards adds nothing but the cycle | `dependency_graph.py:663-671` (X1 fix 2), `backend/tests/test_dependency_graph.py` (`TestProvenancePhase` docstring, defects 1 and 2) |
+| **the scope question — the phase is KEPT** | X1's earlier strip-measurement of the phase predated the J12-10 walker that now CONSUMES `PROVENANCE` edges, so the number it measured is no longer the number that matters: stripping the phase today loses the lit lines the walker rides (measured **47–80 lit lines per search** on the flagship searches). The phase stays | the direction is value direction (producer → reader) with operation `PROVENANCE`; `lineage` admits its forward half unconditionally and gates only the reverse half on the searched field — the value-correct direction. (X1 also corrected the in-code comment, whose "consumer to producer" was inverted relative to the stored source/target order.) A plain REFERENCE edge here would be walked BOTH ways by the strict walker and fan the container's column out to every same-named var in the script — measured 16 → 267 nodes on RFN `reserved_field9` | `backend/app/extractor/lineage.py:1203-1219` (the `read` flag + the X1 correction), `dependency_graph.py:672-682` (the direction rationale); the strip/keep figure is a working-session measurement with no repo artifact — recorded here at that confidence, as §8's provenance note does |
+
+**Re-pin consequence:** the flagship's served display edge count is pinned at the §11 value
+(stable 668, then 669 after R46d), with the witness loop re-verifying every remaining edge —
+`test_physical_model_equivalence.py` asserts the count and runs the witness, so a drift fails with
+the reason in the message. G7's own suite (`tests/test_g7_rc_c_fixes.py`, **17 passed**) pins the
+chain-lit outcomes, the no-duplicate-feed guard, the physical-table exemption, the jaccard-seed
+invariance and the two "why 637 cannot light" adjudications.
+
+> **Not recoverable from the tree (flagged for the orchestrator):** two X1 round items have no
+> code-side marker this pass could find — (a) the "anchor-rule consistency proof 0/481" (a
+> measurement over 481 anchors with 0 inconsistencies, transcript-only) and (b) the "
+> `_flow_memo` TypeError transient" (the caller-scoped memo's guard shape is in
+> `lineage.py:897-911` and `test_perf_byte_identical.py:337-392` covers staleness/refill, but no
+> tree artifact names the transient). Both are recorded here so the release gate knows they were
+> claimed and are not evidenced.
+
+---
+
+## 13 · X1 review round — RC-C + fold review (LANDED, 3 applied + 1 kept)
+
+| Row | Finding | Verdict / fix | Tree proof |
+|-----|---------|---------------|------------|
+| X1-1 | PROVENANCE producer pick is hash-order dependent (defect 1 above) | **fixed** — total order | §12 row 1 |
+| X1-2 | 2-cycles on a pair the phase did not create (defect 2 above) | **fixed** — guard 3b, 14 → 0 | §12 row 2 |
+| X1-3 | is the phase still worth its edges, given the pre-J12-10 strip measurement? | **KEPT** with the corrected evidence; direction corrected in `lineage.py` | §12 row 3 |
+| X1-4 | the fold must not over-dedup a phase edge into an existing carrier | **verified no-over-dedup** — Phase 4d-gc appends only where no belongs-to edge exists and its blast radius is pinned at exactly 7; Phase 9 (R46d) appends LAST so the L2 line-merged pass's first-carrier-wins can never displace an existing carrier | `dependency_graph.py:844-875` + the Phase 9 admission guard (`:1395-1462` in the working tree), `test_merge_connectivity.py:256` |
+
+---
+
+## 14 · X2 review round — fast-open / audit / index (LANDED, 5 applied + 3 report-only)
+
+The fast-reopen + incremental-index batch (R1.9/R1.10, v3.3.194) got a dedicated review. Five
+findings were real and are fixed; three are frontend holes handed to P4 report-only.
+
+| Row | Finding | Fix | Tree proof |
+|-----|---------|-----|------------|
+| **X2-a — stats gate** | `stats_seen = isinstance(rs, dict)` let the LAST script's analysis decide the gate for the WHOLE report: a corpus whose final script was an old/shapeless analysis silently flipped the report to the `tables == []` fallback — every container-resolved field (⟐/CTE) became a phantom orphan while `total_columns` stayed a partial sum, wrong in both directions and ORDER-DEPENDENT | OR-form: `stats_seen = stats_seen or isinstance(rs, dict)` — ANY script carrying `resolution_stats` arms the extractor-driven report, and the per-script ACCUMULATION still reads only scripts that actually have the key | `backend/app/services/folder_index_service.py:1058-1069` |
+| **X2-b — index-run refcount** | the catching-up flag was a SET with add/discard, so the FIRST finisher cleared it while a second concurrent run was still mid-flight — the search 409 gate lifted (and P2's poller handed search back) onto a half-written index, the exact false answer the gate exists to prevent. Two runs for one workspace are reachable without malice: the creator's fast-open auto-triggers `POST /index` on a stale/never-indexed workspace, so two tabs both fire | the registry is a COUNT (`_INDEX_RUNS[ws_id] = n`), clamped at 0, never sticky; `is_index_catching_up` is `count > 0` | `folder_index_service.py:2400-2417` (the X2 comment + the count), the clamp at `:2407` |
+| **X2-c — utf-8 trail reads** | `_append_record` writes `ensure_ascii=False` (raw UTF-8) but the reader left the encoding to the locale: under a C/POSIX locale the first non-ASCII detail (a Chinese table name in a search detail, a UTF-8 username) raised `UnicodeDecodeError`, which the `except Exception` swallowed into `[]` — the History panel went silently blank rather than error | the reader names `encoding="utf-8"` | `backend/app/services/audit_service.py:179-188` |
+| **X2-d — meta-404** | `get_workspace` inlined `json.loads(meta_path.read_text())`, so an unreadable/corrupt meta.json (a torn write from a pre-atomic-io deploy, a full disk) became an UNHANDLED exception on every route that asks "does this workspace exist" — a 500 for the whole workspace instead of the 404 every caller already handles | reads through `read_meta`, which never raises; same answer for a missing workspace, so no caller changes | `backend/app/services/workspace_service.py:114-125` |
+| **X2-e — atomic CAS consolidation** | `_write_meta_cas_locked` hand-rolled its own temp+`replace` outside the shared helper (the §7 deferred cosmetic item) — same shape, but no OSError cleanup and no named encoding, and meta carries usernames so the default-locale write was the same non-ASCII hazard the readers had | routes through `atomic_io.atomic_write_text` (unique temp + `os.replace` + best-effort temp unlink), encoding named; the M1-D3 per-writer temp is kept | `backend/app/services/workspace_service.py:205-218` |
+| X2 report-only | three frontend holes in the same surface | **handed to P4 report-only** — no repo artifact names them yet; flagged for the orchestrator | — |
+
+---
+
+## 15 · R40.13 cross-check round 2 (G9) — after G7/G8 landed (2026-09-01)
+
+§8's round 1 adjudicated 62 SQL lines as 36 correct-covered / 11 correct-missed / 11
+wrong-missed / 4 wrong-covered and failed acceptance on ENGINE closure defects. G7 (§12) and G8
+(§11) have since landed, and the same 62 lines were re-adjudicated:
+
+| Class | Round 1 | Round 2 | Note |
+|-------|---------|---------|------|
+| correct-covered | 36 | **45** | the 9 wrong-missed lines G7/G8 lit |
+| justified-missed | 11 (counted with correct-missed) | **12** | the naive scan cannot see what the engine legitimately excludes (the R43 partition-DDL shape, the L179/L189 `rrcdm_job_log_exec_par` routing) — now adjudicated as its own class, not lumped with correct-missed |
+| wrong-missed | 11 | **1** | **L206** — adjudicated IN-PASSING as a DOCUMENTED RESIDUAL, not a defect: `ON p3.lending_ref = p1.lending_ref` (SUP_M TOP3) is a join predicate on the field's NAME, not on its VALUE; `bdm_sys_acc_loan_info` is not in the searched field's value chain (no value leg reaches it, never written, the predicate's other side is the CTE projection). The raw model DOES carry the L206 JOIN edge — the residual is the R-GATE's admission decision, not a missing fact, and it is PINNED so a later ruling starts from a failing test rather than from silence. Contrast L201 (`p2.lending_ref = p1.lending_ref`), which lights because the p2 box IS in the value chain |
+| wrong-covered | 4 | **4** | **RC-A — still ledgered**, unchanged by this round |
+
+> **Provenance note.** As in §8, the 10 case scripts, the per-line verdicts and the round-2
+> adjudication live in the working-session transcript; no repo artifact records the per-line
+> table. What the tree DOES record for the round's one surviving wrong-missed is the L206
+> adjudication itself (`backend/tests/test_v4_walker_batch.py:519-560`,
+> `test_l206_join_predicate_residual` — the served-payload pin plus the proof that the raw model
+> still carries the edge), and the layer's own tests remain green
+> (`frontend/src/utils/stringMatch.test.js` + the SqlPanel/FieldStoryBar suites). The 9-of-11
+> flip is corroborated indirectly by the tree: G7's 17 + G8's 6 tests pin the exact SUP_M/RFN
+> lines the round ledgered as wrong-missed.
+
+---
+
+## 16 · Ledger items that landed alongside (pointers, not re-records)
+
+| Item | Where it is recorded | Tree proof |
+|------|----------------------|------------|
+| **M-T1 — TVF alias anchors** (`EXTRACTOR_VERSION .11`) | `wiki/REQUIREMENTS_TRACEABILITY.md` R52 + R37.3/R37.4 amended; `CLAUDE.md` #28 amendment | a TVF alias's I1 def-site run `[name, alias]` is never adjacent (the call's argument list sits between the function-name token and the alias), so both the statement-scoped pass and the whole-stream fallback returned 0 and the alias anchored L0 — every edge riding it highlighted nothing. Opt-in `skip_parens` on the run matcher: ONE balanced parenthesized group may stand between two run tokens, bounded by the statement range, an unterminated group FAILING the candidate (never invents a line). Only the TVF alias's def site passes it (6-tuple def_site); ordinary aliases keep the 3-tuple and are byte-unchanged. 7 flagship aliases 0 → real lines (EAST5 `f`, DL `a`, RFN `p1` + `a`). `variable_extractor_v2.py:265-283` (the changelog), `:1641-1702`/`:1936-2035` (the matcher), `backend/tests/test_m_t1_tvf_alias.py` (**23 passed**) |
+| **SCR — R31.35 user-config, final state** | `wiki/REQUIREMENTS_TRACEABILITY.md` R31.35 flipped ⏳ → ✅; `CLAUDE.md` #49 status flipped | `target_deploy.sh:90-...` `build_users_env` (prints the merged JSON, sets `USERS_ENV_STATUS`/`USERS_ENV_JSON`; called BARE — a subshell would drop the status and the deploy would silently provision nothing; stdout DISCARDED because that copy carries the passwords) + `strip_allowlist_comments` (`//` full-line comments only, CR/LF/TAB removed); the post-deploy step names the provisioned EMAILS, never the passwords (§"8 · Post-deploy"); `.gitignore:43-45` + the committed `users.allowlist.json.example`; `tests/deploy/test_allowlist_logic.sh` — **36 passed, 0 failed** (re-run by this documentation pass), including the subshell-trap test |
+| **R46a — `is_target` scoping** | `wiki/REQUIREMENTS_TRACEABILITY.md` R46a (already recorded) | `l2_builder.py:455` (`_scope_target_stamp`), `:543`/`:622`/`:1270`/`:1324`/`:2999` (the display boundary + the consumers it must run after), `backend/tests/test_target_scoping.py` (**31 passed**) |
+| **J1 — field-involvement rule (R48)** | `wiki/REQUIREMENTS_TRACEABILITY.md` R48 (already recorded) | `l2_builder.py:2506` (`_apply_field_involvement`), `:2988` (the call site), `backend/tests/test_field_involvement_rule.py` (**12 passed**) |
+| **V4/V5 walker batch (not briefed to this pass, landed in the same tree)** | `EXTRACTOR_VERSION 2026-08-28.12` — R46c value-cone admission gate, FSC-1 the J12-9 owner-agnostic seed, R46e the casing-invariant closure, R46d continuation-twin edges (arm roles + family-4 JOIN-ON AND legs + Phase 9) | `backend/tests/test_v4_walker_batch.py` (19 of 20 pass locally; the 1 failure is `ModuleNotFoundError: fastapi` in THIS documentation environment, not a tree defect — the suite imports `dataflow_service` → `filter_service` → `fastapi`), `backend/tests/test_r46d_continuation_twins.py` (**29 passed**) |

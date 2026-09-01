@@ -589,4 +589,85 @@ persistence remains **one shared current state** (last-writer-wins), which is a 
 question for the user, not a settled requirement; the access model is still exactly one writer
 (creator) per workspace with any number of read-only readers.
 
+---
+
+### Amendment (2026-08-31) — User management via configuration file (R31.35, highest priority)
+
+> **Status: APPROVED, HIGHEST PRIORITY — the requirement and the format below are FROZEN (design
+> of record); the script team SCR lands the implementation in the v3.3.195 wave.** Traceability
+> row R31.35. One half is already committed (66c0b8b — `target_deploy.sh` reads the file and
+> auto-merges admin); three halves are still ⏳ at doc time and are named in the acceptance
+> criteria: `//` comment stripping, the email-only deploy log line, and the gitignore +
+> `users.allowlist.json.example` posture. Purely additive — this amendment supersedes nothing and
+> amends no earlier section: **the R31 model is unchanged** (provisioned local accounts, no
+> self-registration, one creator per workspace with any number of read-only participants). R31.35
+> only decides WHERE the provisioning allowlist lives and HOW a deploy activates it.
+
+**Requirement.** ALL service users are manually configured in ONE configuration file. When
+`target_deploy.sh` deploys the service, this file is loaded and the users are activated. There is
+no in-app user management and none is required.
+
+#### The frozen format
+
+- **File**: `users.allowlist.json` at the **repo root**, next to `target_deploy.sh`. The LIVE file
+  carries the real passwords and is **gitignored** (the `.gitignore` entry is the script team's);
+  a committed **`users.allowlist.json.example`** documents the format and NEVER contains real
+  passwords.
+- **Format**: a single JSON object mapping email → password:
+
+  ```json
+  {"admin@hsbc.com":"123456","alice@hsbc.com":"alice-pw2"}
+  ```
+
+  `//` **line comments are supported**: `target_deploy.sh` strips them before parsing, so the
+  hand-edited file can carry guidance (the JSON handed to the container must be comment-free —
+  `config.py` parses it with `json.loads`, which rejects comments).
+- **Rules** (all pre-existing R31 semantics, now file-driven):
+  - Passwords are **≥ 6 characters** (`MIN_PASSWORD_LEN`). A shorter entry → that **account is
+    skipped** with a **named WARNING at startup** (the account is named, never the password —
+    M1-D4); the deploy and the service still come up and the remaining accounts provision.
+  - The file is the **WHOLE allowlist**: `config.py` **replaces** its default with the parsed
+    object (it does not merge with it). An entry removed from the file simply stops being
+    force-synced.
+  - `target_deploy.sh` **AUTO-MERGES `admin@hsbc.com`** with the default password `123456` when
+    the file omits it — closing the M1-D5 footgun (omitting admin used to disable the admin
+    account, because the parsed object replaces the default).
+  - Deploying **re-syncs** the listed accounts: a new email = the account is created, an existing
+    email = its password is re-synced (overwritten). Workspaces, views, indexes and the per-user
+    history are **untouched** (they live on the durable `gps_workspace_data` volume, which a
+    container recreation does not wipe). The password overwrite **revokes that user's live
+    sessions** (M-Po7/#319), so re-synced users simply log in again.
+- **Activation flow**: `target_deploy.sh` reads the file → strips `//` comments → auto-merges
+  admin → passes the merged JSON to the container as **`PROVISIONED_USERS_JSON`** → the service
+  provisions it at startup (the `main.py` lifespan force-syncs every entry; there is no HTTP
+  provisioning endpoint). Validation failures are **warnings, not aborts**: an empty or invalid
+  file logs a warning and the deploy **continues with the image default** (`admin@hsbc.com` /
+  `123456`) and says so in the log.
+- **Security posture**: the LIVE file is gitignored — real passwords are never pushed; only the
+  `.example` is committed. Post-deploy, the script logs the provisioned account **EMAILS**, never
+  the passwords.
+
+#### Acceptance criteria
+
+| # | Criterion (verifiable) |
+|---|------------------------|
+| AC1 | `users.allowlist.json` sits at the repo root next to `target_deploy.sh` and is loaded by it: a deploy with the file present activates exactly its accounts, and a deploy with the file ABSENT keeps the image default (`admin@hsbc.com` / `123456`) — the file's absence is a supported state, not an error |
+| AC2 | **Case-insensitive email uniqueness is the OPERATOR's duty — the file is the authority.** The account store keys on the exact spelling, so `Admin@hsbc.com` and `admin@hsbc.com` in one file are TWO accounts with split workspace ownership; the loader neither dedupes case-variants nor warns, and duplicate JSON keys silently collapse (last wins). The docs say so; the tooling does not police it |
+| AC3 | **Admin auto-merge**: a non-empty file that omits `admin@hsbc.com` is deployed WITH `admin@hsbc.com` / `123456` injected (M1-D5 closed); a file that lists admin uses the file's own password, never the default |
+| AC4 | **`//` comments are supported**: the script strips them before parsing, so a commented hand-edited file deploys cleanly and the JSON reaching the container is comment-free and parses with `json.loads` |
+| AC5 | **Passwords ≥ 6 enforced at startup with named warnings**: a shorter entry is skipped with a startup WARNING naming the account (never the password); the service still starts, the remaining accounts provision, and every login for the skipped account is rejected until the file is fixed |
+| AC6 | **The live file is gitignored and the `.example` is committed**: `users.allowlist.json` never enters a commit, `users.allowlist.json.example` documents the format with placeholder passwords, and both are true in the same tree |
+| AC7 | **The deploy log lists provisioned account EMAILS, never passwords** — the log line names the source file and the accounts it activates, and no password value from the file appears anywhere in `target_deploy.log` or in the service log |
+
+#### Non-goals
+
+- **No in-app user management API** — no admin endpoint, no user CRUD over HTTP; the admin-API
+  feature request is ledgered separately (task #417).
+- **No per-user roles** beyond the existing creator/participant workspace semantics (R31).
+- **No password change flow** — a password change IS a re-provision: edit the file and deploy.
+- **No account deactivation/removal flow** — dropping an entry stops the force-sync; the
+  persisted account record on the volume survives and still logs in with its last synced password
+  (a documented consequence of "the file is the whole allowlist", not a defect; deactivation would
+  need a new ruling).
+
 

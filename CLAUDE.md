@@ -11,7 +11,7 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 - **Backend**: FastAPI + sqlglot (MySQL dialect), Docker `gps-sql-backend` on port 8000
 - **Frontend**: React 18 + Vite + Cytoscape.js, served from `frontend/dist/`
 - **Tests**: vitest (frontend, **424 tests across 33 files**, all green — measured 2026-08-31), pytest (backend, **1298 collected** in `backend/tests/` — re-measure the pass/skip split at the release gate, three teams were still landing code when this was written; +104 of those are the v3.3.194 multi-user/incremental-index suites; jaccard benchmark gate 20/20, all floors 1.0000). L2 snapshots: **108 committed baselines, EXPECTED RED** until the release gate runs the unified regeneration — see the PENDING entry in `SNAPSHOT_CHANGELOG.md`
-- **Version**: See `/VERSION` (currently 3.3.193 released, commit `7a450d3`; the **v3.3.194 batch is staged in the working tree** — fast reopen + incremental index + multi-user hardening)
+- **Version**: See `/VERSION` (currently 3.3.194 released, commit `1b9efc8`; the **v3.3.195 wave is staged in the working tree** — FSC-2 model persistence, the H11 MERGE-column round, the X1 PROVENANCE relay, M-T1 TVF alias anchors, R31.35 file-driven user management, and the V4/V5 walker batch)
 - **Service IP**: `192.168.0.66:8000` (never use `localhost`)
 
 ## File Map (Key Source Files)
@@ -29,7 +29,7 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 | `services/dataflow_service.py` | 780 | SearchView, view persistence (views.json, persists match_mode), edge style helpers (R22: no-matches search semantics, L2 `search_matched`/not-in-flow full-graph response; R24: single-script L1 never pruned by the disconnected-script rule; C-2b: miss path builds from analysis cache + writes graph cache format_version 3). **v3.3.140**: relevance filter via `filter_by_field_flow` (legacy `filter_relevant` re-export kept for sql_highlight_service), format_version 4 + `extractor_version` mismatch re-run. **v3.3.145**: `get_level2_graph(..., highlight_strategy="single_line")` + `?highlight_strategy=` query param (label_only → no highlights; unknown names fall back to single_line); `parse_errors` in level2 response (case-3 diagnostics). **v3.3.160**: L2 two-view field-flow closure — `flow_node_ids`/`flow_edge_ids` in the response plus byte-identical `full_graph` for the client-side flow-only ↔ full toggle; C-H1 exact sql-keyed analysis cache (md5 of `EXTRACTOR_VERSION|script|sql`). **v3.3.191+**: search resolves table/field through `resolve_name_ci` (the matched script set is the UNION over every case variant; the canonical spelling replaces the typed one on the view, the response and the L1/L2 builds — an unresolved name keeps the typed string); `_no_flow_result` (#400, banner-compatible `match_mode: "no_flow"`); the not-in-flow L2 message states the truthful reason ("not in the downstream flow of X — showing the full graph", replacing the factually wrong "the field is not queried in this script") |
 | `services/folder_index_service.py` | 2419 | Folder scanning, script indexing, **A1 schema-file classification** (`file_class: schema\|script`), **S4b cross-script schema auto-resolution** (R22: two-phase plan→conflict-detect→apply, ambiguous fields revoked + `resolution_stats["ambiguous"]`, context-scoped cache attribution), resolution_stats aggregation, orphan report, index progress, `schema_evidence` in response. **F2 (audit #383, R2.9)**: defining-script invariant at 3 attribution sites — fields recorded from a script imply `table_index[t]["scripts"]`, so CTE entries (TEMP_RFN, temp_kmbh_*) are searchable. **v3.3.138 (C-series)**: CTAS→script (C-1), `_invalidate_graph_caches` post-S4b + index-time graph precompute REMOVED (C-2a), `_revoke_s4b_cache_update` (C-3), post-loop star expansion (C-5), `parse_by_script`/`parsed_cache` single parse (C-13a). **v3.3.139**: C-4 apply-side `n_attributed>0` gate; C-5 star expansion excludes revoked/ambiguous fields. **#245**: SELECT-output aliases (Fix A) + INSERT column names indexable for autocomplete (Bug 49 alias→physical, Bug 41 DML cross-ref); typo-tolerant matcher — substring primary, Levenshtein-≤1 fallback ranked exact > prefix > dist-1. **R2.11 (2026-08-29)**: `resolve_name_ci`/`scripts_for_name_ci` — the backend half of the F5 case-insensitive ruling: a typed name resolves to the canonical index key (the group of every case-variant), and the search intersection runs over the UNION of all variants' scripts, never one spelling's. **P1 (v3.3.194) — incremental re-index**: the index persists, per script, the PRISTINE pre-S4b analysis it extracted (`cache/ixevidence_{key}.json.gz`, gzip level 1) plus a per-file identity manifest (`cache/index_manifest.json`); the identity is `md5(EXTRACTOR_VERSION + "\|" + rel_path + sql_text)[:12]`, so an UNCHANGED script is REPLAYED from its evidence snapshot and only changed/new scripts re-extract (S4b + C-5 star expansion always re-run — workspace-wide). `index_change_diff` (=`get_index_freshness`) is the O(files) content diff the catch-up UI reads — PIPELINE-scoped counts, `None` before the first index, DDL churn reported separately in `schema_changed_count`; `is_index_catching_up` is the in-process registry behind the search 409 gate. Measured baseline being removed: `POST /index` 2.28–2.37 s on the 106-pipeline-script `tpcds_qualified` corpus, identical on every open, 70% inside `run_full_analysis`. **Atomic writes**: `_write_json_atomic` → `app.services.atomic_io` for every artifact; `filtered_index.json` is refreshed or cleared on every index (`filtered_index_cleared` in the response); the meta write is a CAS under `_meta_cas_lock` with a retry-on-stale loop |
 | `services/cache_keys.py` | 118 | `GRAPH_CACHE_PREFIX = "graph_3_2_25"` (single source of truth; `3_2_19` = v3.3.145 def-line/alias/containment, `3_2_25` = K4 ruling 3 paren-balance diagnostics — an INVALIDATION bump paired with `EXTRACTOR_VERSION 2026-08-28.7`, `format_version` stays 4) |
-| `services/graph_service.py` | 326 | Cytoscape JSON builder, NODE_STYLES, EDGE_TYPE_STYLE/CATEGORY_MAP, table_fields/alias_map; `_stmt_idx_of` + context/stmt_idx in node data (C-9); `line_start`/`line_end` in node data (v3.3.140); copies `containment` onto graph edge data (v3.3.145, I5 — the flag must reach the walker/filter) |
+| `services/graph_service.py` | 470 | Cytoscape JSON builder, NODE_STYLES, EDGE_TYPE_STYLE/CATEGORY_MAP, table_fields/alias_map; `_stmt_idx_of` + context/stmt_idx in node data (C-9); `line_start`/`line_end` in node data (v3.3.140); copies `containment` onto graph edge data (v3.3.145, I5 — the flag must reach the walker/filter). **FSC-2 (v3.3.195 wave)**: the model-cache contract lives here — `MODEL_CACHE_PREFIX`/`MODEL_CACHE_FORMAT_VERSION`, `extract_alias_of`/`write_model_cache`/`load_model_cache` (every guard failure → `{}` → the pre-FSC-2 label-rule fallback, never a poisoned model) and `graph_with_alias_of` (shallow node copies; never mutates the served payload) |
 | `services/highlight_strategies.py` | 268 | Display module (v3.3.145): `STRATEGIES` dict + `get_strategy(name)` — default `single_line` (node-carried `line_start`, D2 line-0 filter, adjacent-line merge), `label_only` → `[]`; unknown names fall back; extensible for future strategies (span etc.); R44 — `_anchor_line` anchors a WINDOW edge on the window application's own OVER line |
 | `services/logger.py` | 357 | SSE pipeline logger. **MSC-6 (v3.3.194) — the registry is a FAN-OUT, not a ref count**: `_log_queues[ws_id] = {consumer_id: ConsumerQueue}` — one bounded queue per SUBSCRIBER (500, drop-oldest), and every producer line is delivered to ALL of them. It used to be ONE ref-counted queue per WORKSPACE, so two participants (or two tabs) SPLIT the stream — each pushed line was drained by exactly one reader, and a 13-line diagnostic block reached alice as 1 line and bob as 0. `_push` snapshots the consumer set under the lock and never recreates a dropped queue; `ensure_queue` is a deprecated shim; no idle executor thread is parked |
 | `services/heavy_gate.py` | 111 | **MSC-1 (v3.3.194, CRITICAL) — the global heavy-op gate is wedge-proof.** `HeavyGate` used to keep per-call state (`self._acquired`) on the MODULE-LEVEL SINGLETON every heavy-op endpoint shares: a refused (409) entrant overwrote the holder's flag before the holder unwound, neither `__exit__` released, and the module global `_busy` stayed True FOREVER — every search, any user, any workspace, answered 409 "system busy — please wait" until the container restarted (reproduced live at 0% CPU after one concurrent burst). The acquisition now lives on a per-call `_GateToken` holding ITS OWN `acquired`/`released`, kept on a per-thread LIFO stack (`threading.local`); `__exit__` releases only what ITS OWN `__enter__` acquired, once. The singleton and the one global `_busy` stay — the serialization is unchanged, only the bookkeeping moved; `__bool__` preserves the routers' `with gate as acquired: if not acquired: 409` shape. Tests `tests/test_heavy_gate.py` (12, incl. the deterministic wedge sequence + an 8-thread hammer) |
@@ -236,7 +236,9 @@ curl -s http://192.168.0.66:8000/api/health       # health check
     subquery/derived/EXISTS VT: the body's first output line, falling back to
     the body's SELECT head); physical table → first occurrence; alias/CTE →
     FROM/JOIN line. Guards: integer `≥1` else
-    silent no-op (TVF alias `f`@L0 no-ops until M-T1), first line only, L2
+    silent no-op (never guesses — K4.4; the TVF-alias L0 case that used to
+    hit it is CLOSED by M-T1 / R52: the alias anchors on its own call line
+    via the run matcher's opt-in `skip_parens`), first line only, L2
     only, own-payload lookup (never label matching).
 31. **Field Story step-through (v3.3.188, R40.3)**: the searched field's L2
     closure re-told as an ordered story — birth → written → read → filtered →
@@ -587,7 +589,8 @@ curl -s http://192.168.0.66:8000/api/health       # health check
 
 48. **Field-involvement admission — "only edges where the searched field is
     involved in the data flow are shown" (USER RULING 2026-08-31, fix team
-    J1)**: the served field closure's EDGES are admitted through
+    J1 — ✅ LANDED, `tests/test_field_involvement_rule.py` 12 green)**: the
+    served field closure's EDGES are admitted through
     `l2_builder._apply_field_involvement` (runs after the payload phase, before
     roles/response, and only when a search filter is active — the full view has
     no searched field). The walker's NODE closure is untouched, so R44
@@ -624,3 +627,109 @@ curl -s http://192.168.0.66:8000/api/health       # health check
     `lending_ref↓SUP_M` at E 0.9858/1.0000 and `lending_ref↑DL` at 0.9000/1.0000;
     the other 18 benchmark cases stay 1.0000/1.0000. Tests:
     `tests/test_field_involvement_rule.py`.
+
+49. **User management is FILE-driven — `users.allowlist.json` is the whole
+    allowlist (R31.35, user-approved 2026-08-31, HIGHEST PRIORITY; ✅ LANDED
+    2026-09-01 — `target_deploy.sh` `build_users_env` + `strip_allowlist_comments`,
+    the post-deploy log line naming the provisioned EMAILS, `.gitignore` +
+    `users.allowlist.json.example`, and `tests/deploy/test_allowlist_logic.sh`
+    36 green)**: every service user is configured BY HAND
+    in ONE file at the repo root, next to `target_deploy.sh`. **Format
+    (frozen)**: a single JSON object mapping email → password —
+    `{"admin@hsbc.com":"123456","alice@hsbc.com":"alice-pw2"}` — with `//`
+    line comments allowed (the script strips them before parsing, because
+    `config.py` parses the value with `json.loads`, which rejects comments).
+    **Activation flow**: `target_deploy.sh` reads the file → strips `//`
+    comments → auto-merges `admin@hsbc.com` / `123456` when the file omits it
+    (M1-D5 closed: the parsed object REPLACES `config.py`'s default, so a
+    file without admin used to disable the admin account) → hands the merged
+    JSON to the container as `PROVISIONED_USERS_JSON` → the `main.py` lifespan
+    force-syncs every entry at startup (`provision_user(force=True)`); there
+    is no HTTP provisioning endpoint. **Semantics** (pre-existing R31 rules,
+    now file-driven): a new email creates the account, an existing email
+    re-syncs its password and revokes its live sessions (M-Po7) — the user
+    just logs in again; workspaces/views/indexes are untouched (durable
+    `gps_workspace_data` volume); a password under `MIN_PASSWORD_LEN` (6)
+    SKIPS that account with a startup WARNING that names the account and
+    never the password (M1-D4); an empty/invalid file is a WARNING, not an
+    abort — the deploy continues with the image default (`admin@hsbc.com` /
+    `123456`) and says so. **Security posture**: the LIVE file is gitignored
+    (real passwords never pushed; the `.gitignore` entry and the committed
+    `users.allowlist.json.example` are the script team's), and the deploy log
+    lists the provisioned EMAILS, never the passwords. **Operator duty**: the
+    account store keys on the exact spelling, so case-insensitive email
+    uniqueness is the operator's job — `Admin@hsbc.com` and `admin@hsbc.com`
+    in one file are two accounts with split workspace ownership. **Non-goals**:
+    no in-app user-management API (the admin-API request is ledgered
+    separately, task #417), no roles beyond creator/participant, no password
+    change flow (an edit + a deploy IS the change), no account deactivation
+    (dropping an entry only stops the force-sync — the persisted record
+    survives and still logs in with its last synced password). Requirement +
+    frozen format + acceptance criteria:
+    `requirements_v2.md` §"Amendment (2026-08-31)"; traceability R31.35.
+
+50. **The physical model is persisted beside the graph cache — the served L2
+    closure is a pure function of the SQL text (FSC-2, v3.3.195 wave, team V6;
+    traceability R49)**: the walker's model was built from the analysis dict
+    when an analysis cache was present (the `alias_of` extraction truth) but
+    from the cached GRAPH JSON when it was not, and the graph cache does not
+    serialize `alias_of` — so the second form fell back to
+    `physical_model`'s label-keyed alias rule. Same SQL, two models (RFN:
+    28 of 74 `alias_by_var_id` pairs differ; SUP_M 4 of 14), decided by WHICH
+    cache survived. Fix = PERSISTENCE, not a smarter fallback: every build
+    writes `cache/model_{cache_key}.json` from the SAME analysis the graph was
+    built from, and a graph-cache hit that cannot rebuild the model from an
+    analysis cache re-derives it from that artifact. Every guard failure
+    returns `{}` → the pre-FSC-2 label-rule fallback, so a stale artifact can
+    only be IGNORED, never poison a model; old caches without a sibling keep
+    working (no hard break) and `purge_workspace_caches` deliberately keeps the
+    artifact (it cannot serve stale data — purging it would reintroduce the
+    hole). User-visible consequence: an alias-qualified seed (`a.cust_no`) got
+    no seed at all under the lossy variant → `search_matched: false` and the
+    WHOLE graph (RFN 1053 nodes/6764 edges) instead of its 78-node/221-edge
+    closure. Tests `backend/tests/test_model_persistence.py` (12).
+
+51. **The container-PROVENANCE bridge is deterministic, one-way and KEPT
+    (X1, v3.3.195 wave; traceability R51)**: Phase 3's bridge wires a container
+    body (CTE/SUBQUERY/⟐VT) that produces a value to the outside reader that
+    consumes it — the seam where every container chain was value-disconnected
+    (RC-C). Three properties are now part of the contract: (a) the producer
+    pick is a TOTAL ORDER `(line_start, var_order[id])` — the candidate
+    containers live in a set, so the old `producers[-1]` was hash-random across
+    processes (7 distinct pick-sets on RFN over 8 PYTHONHASHSEEDs); (b) guard
+    3b refuses a producer → reader leg when the reader → producer leg already
+    exists (14 direct 2-cycles corpus-wide, was); (c) the phase STAYS — the
+    earlier strip-measurement predated the J12-10 walker that consumes
+    PROVENANCE edges, and stripping today loses 47–80 lit lines per search.
+    Direction is value direction (producer → reader): `lineage` admits the
+    forward half unconditionally and gates only the reverse half on the
+    searched field, which is what keeps the bridge from fanning a container's
+    column out to every same-named var (a plain REFERENCE edge there grew RFN
+    `reserved_field9`'s closure 16 → 267).
+
+52. **Belongs-to edges are admitted only on the model's own schema evidence
+    (H11 Phase 4d-gc; traceability R50)**: a MERGE/predicate-clause column
+    registered under the owner-qualified spelling `{owner}.{col}` used to carry
+    no incoming SCHEMA edge at all (Pass 4a skips it because its qualifier IS
+    the owner; 4d's prefix match misses it; 4d-gb's gate enumerates only
+    GROUP BY + OCCURRENCE). Phase 4d-gc admits it ONLY when a qualified read
+    that I2 resolved to `owner` in the SAME statement witnesses the field —
+    and that witness is never owner-spelled, so the rule cannot witness
+    itself. The gate is the clause set {MERGE ON, MERGE UPDATE SET, MERGE WHEN,
+    MERGE INSERT, JOIN ON}, pinned by test, and the blast radius is pinned at
+    exactly 7 edges corpus-wide. Principle: the same clause family produced 7
+    real defects AND 7 false positives, and the witness — not the clause — is
+    what tells them apart (a renamed USING projection has no alias-spelled read
+    of the physical column anywhere in its statement).
+
+53. **A TVF alias anchors on its own call line (M-T1, `EXTRACTOR_VERSION
+    2026-08-28.11`; traceability R52)**: a table-function alias's def-site run
+    `[name, alias]` is never adjacent — the call's parenthesized argument list
+    sits between the function-name token and the alias — so the run matcher
+    aborted on `(` and the alias anchored L0, silently no-op'ing every R37
+    click and every edge highlight riding it. Opt-in `skip_parens` lets ONE
+    balanced parenthesized group stand between two run tokens, bounded by the
+    statement range; an UNTERMINATED group fails the candidate (never invents
+    a line). Only the TVF alias's def site passes it — ordinary aliases keep
+    the exact run forms they had, so no other anchor moves. (`.12` on top is
+    V5's R46d continuation twins — arm roles + JOIN-ON AND legs.)
