@@ -2,7 +2,7 @@
 
 A practical walkthrough of the core workflow: **upload a folder of SQL scripts → (optionally) upload filter files → search a field → read the L1 and L2 views → walk the Field Story → compare with string matching**.
 
-Everything here is based on the deployed UI (v3.3.194 or later). No SQL or internals knowledge required.
+Everything here is based on the deployed UI (v3.3.195 or later). No SQL or internals knowledge required.
 
 ---
 
@@ -140,3 +140,42 @@ Workspaces are shared by **capability link**:
 | "Indexed … ago" is old | The index predates your latest upload | Re-open the workspace (the creator's open refreshes it) |
 | A step chip highlights the same line as the previous one | The two steps genuinely anchor the same SQL line | — (both facts are on that line) |
 | Green/amber bands don't move when toggling | The layer is show/hide — browse with ◀/▶ while it's on | — |
+
+---
+
+## 11. Operators: adding users
+
+There is **no sign-up page and no in-app user management**. Every account comes from one file the
+person deploying the service edits: **`users.allowlist.json`**, at the repo root next to
+`target_deploy.sh`.
+
+**The format** — one JSON object mapping email → password:
+
+```json
+{
+  // accounts are added by hand, one line each
+  "admin@hsbc.com": "123456",
+  "alice@hsbc.com": "alice-pw2"
+}
+```
+
+- **Comments are fine.** Lines starting with `//` are stripped before the file is parsed, so you
+  can annotate who each account is for.
+- **Deploying applies it.** `target_deploy.sh` reads the file, strips the comments and hands the
+  result to the service, which creates or re-syncs each account at startup. Changing a password is
+  the same operation: edit the line, deploy. The deploy log names the provisioned **emails**, never
+  the passwords, and the live file is gitignored — only the committed
+  `users.allowlist.json.example` sample is in git.
+- **Admin is always there.** If your file omits `admin@hsbc.com`, the deploy adds it back with the
+  default password `123456` — so an account you did not list still works. List it explicitly if you
+  want to own its password.
+- **Short passwords are skipped, not rejected.** A password under 6 characters is ignored at
+  startup with a warning that names the account (never the password). The service still starts and
+  every other account provisions; the skipped account simply cannot log in until you fix its line
+  and deploy again.
+- **Spelling is identity.** The file keys accounts on the exact email spelling, and nothing
+  deduplicates case for you: `Admin@hsbc.com` and `admin@hsbc.com` in one file are **two** accounts
+  with separate workspace ownership. Pick one casing per person and stick to it.
+- **Removing a line stops the syncing, not the account.** An account already created stays on the
+  server and still logs in with its last synced password — removing someone is a deploy-time
+  decision that needs a real removal flow, not a deleted line.

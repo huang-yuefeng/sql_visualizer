@@ -452,7 +452,8 @@ R30.6–R30.10 in `wiki/REQUIREMENTS_TRACEABILITY.md`.
 
 ### Amendment (2026-08-31) — R40.13 string-match diff layer + Field Story browse controls
 
-> **Status: ✅ IMPLEMENTED in the working tree — frontend-only, ships v3.3.194.** The user ordered
+> **Status: ✅ IMPLEMENTED — frontend-only; SHIPPED with v3.3.195 (commit `34bd521`; it was written
+> against the v3.3.194 working tree and rode that batch into the release).** The user ordered
 > the requirement/design/test documents before any code; the design of record — the exact boundary
 > rule with its verification, the solution sketch, the coverage-baseline definition, the state and
 > interaction rules, the resolved ambiguities and the full test plan — lives in
@@ -527,7 +528,8 @@ recorded below as acceptance criteria:
 
 ### Amendment (2026-08-31) — fast reopen, incremental index, and the multi-user hardening batch (v3.3.194)
 
-> **Status: ✅ IMPLEMENTED in the working tree — ships v3.3.194.** Adjudication record:
+> **Status: ✅ IMPLEMENTED — SHIPPED with v3.3.195 (commit `34bd521`; the batch was labelled
+> v3.3.194 while in flight and rode it into the release).** Adjudication record:
 > `wiki/CODE_REVIEW_2026-08-29.md` §6. Traceability rows: R1.9/R1.10/R2.12/R3.7/R14.5 and
 > R31.30–R31.33 in `wiki/REQUIREMENTS_TRACEABILITY.md`. Two items of this batch were still in
 > flight when this record was written and are marked as such at their rows (G7's RC-C extractor
@@ -669,5 +671,66 @@ no in-app user management and none is required.
   persisted account record on the volume survives and still logs in with its last synced password
   (a documented consequence of "the file is the whole allowlist", not a defect; deactivation would
   need a new ruling).
+
+---
+
+### Amendment (2026-09-01) — canonical ground-truth re-derivation (R46c/R46d) and physical-model build performance (H12)
+
+> **Status: ✅ SHIPPED — v3.3.195, release commit `34bd521` (2026-09-01, deployed and pushed).**
+> This amendment records work already landed and shipped; it invents NO new requirement and mints
+> NO new requirement number. Both halves amend requirements that already exist: the re-derivation
+> amends the CR10 ground-truth rule (independent derivation, never the system's own output) and
+> closes the benchmark rows R44.2/R48.5; the perf half amends the J12-10 physical-model
+> requirement's "zero behavior change" clause. Traceability: `wiki/REQUIREMENTS_TRACEABILITY.md`
+> §R46, §V7, §H12. Design decisions: `CLAUDE.md` #54–#57.
+
+**Amended — the benchmark ground truth is re-derived FROM THE SQL TEXT, never reconciled with the
+engine (R46c/R46d).**
+
+- The v3.3.195 wave changed the served closure three times over (R46c's `_value_cone_gate`, J1's
+  field-involvement rule, R46d's continuation twins), so the canonical rows for the affected seeds
+  were re-derived row by row from the script text and the rows the text refutes were REMOVED with
+  the ruling citation: **86 rows plus the 30 canonical nodes the dropped chips fed (24
+  `lending_ref` + 6 `iiapty`)** — X1 sibling join-key operand legs (61), X2 sibling-field
+  predicates (4), X4 the rrcdm job-log trunk (4 — this reverses the R29 row-level continuation
+  pins of 2026-08-12), X5 a JOIN anchored at a SELECT-projection line (`LFS41`/`LFS123`/`LFD2`),
+  X6 sibling write-zone legs and box legs with no field evidence (14). Every removed row carries an
+  inline `REMOVED (R46c … class Xn)` marker at its old site in `backend/tests/jaccard_canonical.py`.
+- R46d (`EXTRACTOR_VERSION 2026-08-28.12`) mints each occurrence twin's OWN flow edge, so the
+  canonical gains the twin rows under the `e5tw` seed key — inert in the gate by construction (no
+  `CASES` entry selects it; adding one is the orchestrator's call).
+- The gate stays **SET EQUALITY, not a size check**: 20/20 cases at N=E=H **1.0000/1.0000 recall
+  AND precision**. The two ruled-red `lending_ref` cases are GREEN again and their benchmark
+  deselects were retired from `release.sh` (commit `0ac1c81`); the old canonical rows remain in git
+  history.
+- Residual, deliberately NOT absorbed into the canonical: `sup↓SUP_M` prints 14/15 edges and
+  `pl↓PL` 8/9 N / 9/11 E / 5/6 H until the engine owner repairs the R46d family-4 emissions — CR10
+  forbids extending the ground truth to cover an engine emission.
+
+**Amended — the physical-model build must stay byte-identical while getting cheaper (H12).**
+
+- **P1**: `_var_ref` is memoized per var id (`_varref_memo`) — a pure function of the var dict with
+  the entity/label maps frozen before pass 3; the dependency graph re-resolves the same variable
+  ~10× (20,674 calls for 1,953 distinct vars on RFN).
+- **P7**: `PhysicalEdge` is slotted (no per-edge `__dict__`, no longer a dataclass) and its
+  `flow_kind`/`reason` are LAZY — derived on first access from the carried extraction-time info,
+  computed once and cached — while `highlight_line` stays eager (the walker and the lineage read it
+  per edge).
+- Measured: **45.8 ms → 31.3 ms (−31.6%)** on RFN in situ, model **byte-identical** (the V6 digest
+  over the 10-script corpus). Tests `backend/tests/test_physical_model_perf.py` (10) and
+  `backend/tests/test_perf_byte_identical.py` (11).
+- The minor candidates (a P2 Mapping view, dropping the defensive copies) were measured and
+  REJECTED: the model builds from SHARED analysis-cache dicts and the copies are load-bearing —
+  dropping them lets a later in-place mutation of a shared cache dict reach the persisted model
+  artifact.
+
+#### Non-goals
+
+- No new user-facing capability and no new requirement number — both halves tighten requirements
+  that already exist (CR10 ground-truth independence; the J12-10 physical-model contract).
+- The **2 R29 doc-conformance deselects stay in place** (`test_r29_lending_ref_downstream_matches_doc`,
+  `test_r29_iiapty_downstream_matches_doc`, at all three `release.sh` pytest sites): they are
+  red-documented PENDING the user's job-log-continuation edge-rule ruling
+  (`wiki/FLOW_ONLY_VIEW_RULES.md` §7-A), which this amendment does not decide.
 
 

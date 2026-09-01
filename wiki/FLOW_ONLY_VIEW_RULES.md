@@ -111,6 +111,17 @@ The extractor builds a same-name REF edge between two tables' same-named columns
 
 When a sibling chip is admitted (co-written projection), its ⟐output membership SCHEMA edge rides along. J1's rule drops sibling VALUE edges but keeps sibling belongs-to/membership — the exact boundary needs the value-cone ruling (the full R-GATE, v3.3.195).
 
+**UPDATE 2026-09-01 (evening): 7-D now BLOCKS something concrete.** The
+determinism fix (canonical dependency order, killing the PYTHONHASHSEED
+instability the snapshot harness documents) was proven end-to-end and
+reverted at the gate for exactly this reason: with the canonical order, the
+walk admits ONE sibling chip + one routed REF edge the natural-order walk
+did not (PL filtered, `data_dt` seed: `CHARGE_DEPARTMENT`@L19, precision
+N 1.0000 → 0.875). Whether that sibling membership belongs in the closure
+IS this ruling. The full landing recipe is preserved in the xfail reason of
+`backend/tests/test_l2_determinism.py::test_l2_full_view_is_byte_identical
+_across_hash_seeds`; landing after the 7-D ruling is a ~15-minute job.
+
 ---
 
 # Summary — the decision tree

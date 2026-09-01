@@ -111,7 +111,9 @@ consequences:
 - **EAST5 full-L2 counts moved**: 129→119 nodes / 168→148 edges (ten `output` VTs @L166–175 +
   their 20 edges). Flow closures unchanged (`east5_stzfxxb.p_dt` still 5n/7e). `test_l2_snapshot.py`
   (l2_snapshot_02 pins the pre-R43 counts) is EXPECTED TO FAIL — do not "fix" by reverting R43; the
-  orchestrator regenerates all snapshots once the parallel team's work lands.
+  orchestrator regenerates all snapshots once the parallel team's work lands. *(Closed 2026-09-01:
+  the unified regeneration ran at the v3.3.195 release gate, commit `3777e9e` — 108 baselines, all
+  green.)*
 - **No cache-format bump, deliberately**: the graph cache keeps extraction truth (it still contains
   the frames), and the display projects them away on EVERY consumption path — probe-verified that a
   pre-R43 cache serves the identical post-R43 display. `GRAPH_CACHE_PREFIX` stays `graph_3_2_24`;
