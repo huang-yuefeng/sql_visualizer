@@ -47,7 +47,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field as dc_field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from app.services.highlight_strategies import FIELD_LIKE_TYPES, get_strategy
+# PERF (v3.3.195): `_flow_kind`/`_anchor_line` are imported because the
+# edge's anchor line stays an eager field (the strict walker and the
+# lineage read it per edge) while the rest of the single_line payload
+# became lazy — see PhysicalEdge.
+from app.services.highlight_strategies import (FIELD_LIKE_TYPES, _anchor_line,
+                                               _flow_kind, get_strategy)
 
 # ── Canonical type sets (mirrors of the L2 builder's classification) ──
 
@@ -132,7 +137,6 @@ class PhysicalTable:
         return self.name[2:] if self.name.startswith("⟐ ") else self.name
 
 
-@dataclass
 class PhysicalEdge:
     """One typed data-flow edge between physical fields.
 
@@ -142,23 +146,78 @@ class PhysicalEdge:
     per type (Bug 3 mirror). The carried extraction-time info plus the
     single_line strategy produce the display's anchor line by
     construction (same inputs as l2_builder._attach_flow_payload).
+
+    PERF (v3.3.195, team H12): slotted instead of a @dataclass — pass 3
+    builds one edge per split type (10,800 on RFN) and the dataclass
+    machinery plus the SECOND payload dict the eager flow_kind/reason
+    fields forced were 22.8% of the model build. What changed and what
+    did not:
+
+    * ``highlight_line`` stays an EAGER field — the walker and the
+      lineage read it per edge — computed from the same single_line
+      anchor rule as before (``_anchor_line``/``_flow_kind``).
+    * ``flow_kind`` / ``reason`` became LAZY properties: the
+      single_line strategy runs on FIRST ACCESS over
+      ``{"edge_type": self.edge_type, **self.carried}`` — identical
+      inputs to the eager derivation, so identical strings — and the
+      payload is cached on the edge (one computation per edge, ever).
+      Nothing in the pipeline reads them while building the model, so
+      the build no longer pays for them (tests/test_physical_model_perf.py
+      pins the non-derivation).
+    * The decorator's ``__eq__``/``__repr__`` are gone: edges compare
+      and repr by identity. Measured before the change: no
+      ``dataclasses.asdict``/``fields``/``replace``/``is_dataclass``
+      use anywhere, no test compares two edges by value, and
+      ``PhysicalEdge`` is constructed at exactly one site
+      (``_make_edge``).
     """
 
-    edge_type: str
-    source: Tuple[Optional[str], Optional[str]]   # (table_key, field_name)
-    target: Tuple[Optional[str], Optional[str]]
-    source_id: str                   # original source var id
-    target_id: str                   # original target var id
-    source_line: int = 0             # var-carried line_start
-    target_line: int = 0
-    source_label: str = ""           # raw var label
-    target_label: str = ""
-    operation: str = ""
-    containment: bool = False
-    highlight_line: int = 0          # single_line anchor (display mirror)
-    flow_kind: str = ""
-    reason: str = ""
-    carried: Dict[str, Any] = dc_field(default_factory=dict)
+    __slots__ = ("edge_type", "source", "target", "source_id", "target_id",
+                 "source_line", "target_line", "source_label",
+                 "target_label", "operation", "containment",
+                 "highlight_line", "carried", "_payload")
+
+    def __init__(self, edge_type: str,
+                 source: Tuple[Optional[str], Optional[str]],
+                 target: Tuple[Optional[str], Optional[str]],
+                 source_id: str, target_id: str,
+                 source_line: int = 0, target_line: int = 0,
+                 source_label: str = "", target_label: str = "",
+                 operation: str = "", containment: bool = False,
+                 highlight_line: int = 0,
+                 carried: Optional[Dict[str, Any]] = None):
+        self.edge_type = edge_type
+        self.source = source
+        self.target = target
+        self.source_id = source_id          # original source var id
+        self.target_id = target_id          # original target var id
+        self.source_line = source_line      # var-carried line_start
+        self.target_line = target_line
+        self.source_label = source_label    # raw var label
+        self.target_label = target_label
+        self.operation = operation
+        self.containment = containment
+        self.highlight_line = highlight_line   # single_line anchor (eager)
+        self.carried = carried if carried is not None else {}
+        self._payload = None                # single_line payload (lazy)
+
+    @property
+    def flow_kind(self) -> str:
+        """§8.7 canonical kind — derived on FIRST ACCESS from the carried
+        extraction-time info (never stored, never reconstructed)."""
+        if self._payload is None:
+            self._payload = get_strategy("single_line")(
+                {"edge_type": self.edge_type, **self.carried})
+        return self._payload["flow_kind"]
+
+    @property
+    def reason(self) -> str:
+        """§8.8.3 + R20 reason string — derived on FIRST ACCESS from the
+        carried extraction-time info (never stored, never reconstructed)."""
+        if self._payload is None:
+            self._payload = get_strategy("single_line")(
+                {"edge_type": self.edge_type, **self.carried})
+        return self._payload["reason"]
 
 
 @dataclass
@@ -563,17 +622,31 @@ def build_physical_model(extraction_result,
         _add_field_occurrence(fld, v)
 
     # ── Pass 3: dependency edges → PhysicalEdges (typed, once) ──
+    # PERF (v3.3.195, team H12): the endpoint resolution is memoized per
+    # var id. It is a PURE function of the var dict — `entity_of_id`, the
+    # label map and the entity table are all FROZEN before this pass (the
+    # pass below only mutates roles/lists, never a key) — and the
+    # dependency graph re-resolves the same variable ~10x (20,674 calls
+    # for 1,953 distinct vars on RFN). Vars only ever reach this pass
+    # through `by_id`, so the memo key (the raw id) is never empty.
+    _varref_memo: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
+
     def _var_ref(v: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+        vid = v.get("id", "")
+        hit = _varref_memo.get(vid)
+        if hit is not None:
+            return hit
         vt = v.get("variable_type") or ""
         if vt in TABLE_LIKE_TYPES:
-            return model.entity_of_id.get(v.get("id", "")), None
-        fname = _field_name(v)
-        owner = _resolve_owner(v)
-        if owner is None and vt in COMPUTED_TYPES and first_key is not None:
-            owner = first_key
-        if owner is None:
-            return None, fname
-        return owner, fname
+            hit = (model.entity_of_id.get(vid), None)
+        else:
+            fname = _field_name(v)
+            owner = _resolve_owner(v)
+            if owner is None and vt in COMPUTED_TYPES and first_key is not None:
+                owner = first_key
+            hit = (owner, fname) if owner is not None else (None, fname)
+        _varref_memo[vid] = hit
+        return hit
 
     def _carried(src_nd: Dict[str, Any], tgt_nd: Dict[str, Any],
                  raw_edge: Dict[str, Any]) -> Dict[str, Any]:
@@ -616,13 +689,15 @@ def build_physical_model(extraction_result,
             "_tgt_canon": _canon(tgt_tables, tgt_label),
         }
 
-    # PERF (v3.3.194): the strategy lookup is edge-invariant — resolve it
-    # once per model build, not once per dependency edge.
-    _single_line = get_strategy("single_line")
-
+    # PERF (v3.3.195, team H12): the full single_line payload is no longer
+    # derived per edge at build time. The ANCHOR LINE stays eager (the
+    # walker and the lineage read it per edge) and costs ONE temp dict;
+    # flow_kind/reason ride on the edge as lazy properties and the
+    # `reason` string — the expensive half — is simply not built here
+    # anymore. Identical inputs → identical payload (PhysicalEdge).
     def _make_edge(et: str, sref, tref, svar, tvar, dep) -> PhysicalEdge:
         carried = _carried(svar, tvar, dep)
-        payload = _single_line({"edge_type": et, **carried})
+        payload = {"edge_type": et, **carried}
         return PhysicalEdge(
             edge_type=et,
             source=sref,
@@ -635,9 +710,7 @@ def build_physical_model(extraction_result,
             target_label=tvar.get("name", "") or tvar.get("label", ""),
             operation=dep.get("operation", ""),
             containment=bool(dep.get("containment", False)),
-            highlight_line=payload["highlight_line"],
-            flow_kind=payload["flow_kind"],
-            reason=payload["reason"],
+            highlight_line=_anchor_line(payload, _flow_kind(payload)),
             carried=carried,
         )
 

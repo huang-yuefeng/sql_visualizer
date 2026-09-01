@@ -3,23 +3,6 @@
     "edges": [
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 1,
-          "id": "l2e_73849cb0cd88",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 \u2016cs_ui@L1 \u2192 \u27d0 output@L91\u2016",
-          "source": "l2_tbl_9dadc115a3",
-          "target": "l2_tbl_d1bb207344",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "aggregate",
           "color": "#8E44AD",
           "desc": "SUM/COUNT/AVG",
@@ -53,7 +36,7 @@
         }
       }
     ],
-    "filtered_nodes": 4,
+    "filtered_nodes": 3,
     "nodes": [
       {
         "data": {
@@ -67,20 +50,6 @@
           "table_name": "cs_ui",
           "type": "cte_table",
           "variable_type": "cte"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP0",
-          "defined_in": "TOP0",
-          "id": "l2_tbl_d1bb207344",
-          "label": "output",
-          "line_end": 124,
-          "line_start": 91,
-          "original_id": "87a4ca69433447e9",
-          "table_name": "\u27d0 output",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
         }
       },
       {
@@ -114,8 +83,8 @@
     "script_name": "64.sql",
     "search_matched": true,
     "target": "cs_ui.sale",
-    "total_edges": 3,
-    "total_nodes": 4
+    "total_edges": 2,
+    "total_nodes": 3
   },
   "full": {
     "edges": [

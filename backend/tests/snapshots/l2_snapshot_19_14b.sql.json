@@ -3,40 +3,6 @@
     "edges": [
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 1,
-          "id": "l2e_d70812628c01",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 ss_item_sk@L2 \u2192 item@L3 \u2192 \u2016cross_items@L1 \u2192 \u27d0 output@L53\u2016",
-          "source": "l2_tbl_f3e77e7c1c",
-          "target": "l2_tbl_6dc1e63e68",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 2,
-          "id": "l2e_1ff75e5f4557",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read (value copy) \u2014 ss_item_sk@L2 \u2192 item@L3 \u2192 \u2016i_item_sk@L104 \u2192 ss_item_sk@L2\u2016",
-          "source": "l2_tbl_2b6067d70c",
-          "target": "fld_acd8ee2cce",
-          "width": 1
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -240,7 +206,7 @@
         }
       }
     ],
-    "filtered_nodes": 10,
+    "filtered_nodes": 8,
     "nodes": [
       {
         "data": {
@@ -268,20 +234,6 @@
           "table_name": "item",
           "type": "source_table",
           "variable_type": "table"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP0",
-          "defined_in": "TOP0",
-          "id": "l2_tbl_6dc1e63e68",
-          "label": "output",
-          "line_end": 91,
-          "line_start": 53,
-          "original_id": "1b91bef7f0905e89",
-          "table_name": "\u27d0 output",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
         }
       },
       {
@@ -367,27 +319,13 @@
           "type": "field",
           "variable_type": "field"
         }
-      },
-      {
-        "data": {
-          "field_group": "direct",
-          "id": "fld_3a0303d7dc",
-          "is_target": false,
-          "label": "i_item_sk",
-          "line_start": 104,
-          "orig_type": "column",
-          "original_id": "e68c27f29613a13f",
-          "parent": "l2_tbl_2b6067d70c",
-          "type": "field",
-          "variable_type": "field"
-        }
       }
     ],
     "script_name": "14b.sql",
     "search_matched": true,
     "target": "cross_items.ss_item_sk",
-    "total_edges": 14,
-    "total_nodes": 15
+    "total_edges": 12,
+    "total_nodes": 13
   },
   "full": {
     "edges": [

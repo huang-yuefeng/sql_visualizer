@@ -71,23 +71,6 @@
       },
       {
         "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "field flow",
-          "highlight_line": 11,
-          "id": "l2e_dcfd9c430596",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "field flow (value copy) \u2014 \u2016cs_bill_customer_sk@L11 \u2192 customer_sk@L11\u2016",
-          "source": "fld_769400018a",
-          "target": "fld_8457c9218f",
-          "width": 1
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -240,7 +223,7 @@
         }
       }
     ],
-    "filtered_nodes": 10,
+    "filtered_nodes": 9,
     "nodes": [
       {
         "data": {
@@ -328,19 +311,6 @@
       {
         "data": {
           "field_group": "direct",
-          "id": "fld_769400018a",
-          "is_target": false,
-          "label": "cs_bill_customer_sk",
-          "line_start": 11,
-          "orig_type": "column",
-          "original_id": "5584f4575d30250f",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "direct",
           "id": "fld_51b727916b",
           "is_target": false,
           "label": "store_only",
@@ -384,8 +354,8 @@
     "script_name": "97.sql",
     "search_matched": true,
     "target": "ssci.customer_sk",
-    "total_edges": 14,
-    "total_nodes": 12
+    "total_edges": 13,
+    "total_nodes": 11
   },
   "full": {
     "edges": [

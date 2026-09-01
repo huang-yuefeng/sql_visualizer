@@ -3,23 +3,6 @@
     "edges": [
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 1,
-          "id": "l2e_47bb46b5b754",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 \u2016wss@L1 \u2192 \u27d0 output@L37\u2016",
-          "source": "l2_tbl_7843bf8654",
-          "target": "l2_tbl_8074f51d96",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "aggregate",
           "color": "#8E44AD",
           "desc": "SUM/COUNT/AVG",
@@ -240,7 +223,7 @@
         }
       }
     ],
-    "filtered_nodes": 25,
+    "filtered_nodes": 24,
     "nodes": [
       {
         "data": {
@@ -254,20 +237,6 @@
           "table_name": "wss",
           "type": "cte_table",
           "variable_type": "cte"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP0",
-          "defined_in": "TOP0",
-          "id": "l2_tbl_8074f51d96",
-          "label": "output",
-          "line_end": 63,
-          "line_start": 37,
-          "original_id": "5e20340dcfa76255",
-          "table_name": "\u27d0 output",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
         }
       },
       {
@@ -594,8 +563,8 @@
     "script_name": "59.sql",
     "search_matched": true,
     "target": "wss.sun_sales",
-    "total_edges": 14,
-    "total_nodes": 39
+    "total_edges": 13,
+    "total_nodes": 38
   },
   "full": {
     "edges": [

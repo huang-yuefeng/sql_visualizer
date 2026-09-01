@@ -448,6 +448,42 @@ FIELD_LAND = FIELD_WALKABLE
 # SUBQUERY/SET_OP/CORRELATED/INDIRECT/SUBSET carry no field identity.
 NEVER = NEVER_WALKED
 
+# ── R46c (v3.3.195, AD3 §Q2): the value-cone admission gate ──
+# Chip → chip edge types the SERVED closure's value cone propagates over.
+# Conspicuously absent: TABLE_FLOW (the box-level chain leg — cross-
+# statement value flow rides it and a chip cone over it does not exist;
+# AD3 Q1 measured the naive cone collapsing `bdm ↓ SUP_M` 27 → 8 edges),
+# SCHEMA (belongs-to), FILTER/JOIN (row-selection), INDIRECT/CORRELATED
+# (scope), SUBSET (padding), ROW_FLOW (an output bridge, never an input).
+CONE_EDGES = {"REF", "COMPUTED", "TRANSFORM", "AGGREGATE", "WINDOW",
+              "ALIAS", "SET_OP", "SUBQUERY", "DML"}
+
+# The switch IS the feature (mirror of `_ALIAS_SEED_EXPANSION`): the gate
+# runs inside `compute_field_flow` right after the closure fixpoint, so
+# flipping it to False restores the pre-R46c served closure exactly —
+# which is what `test_v4_walker_batch.py` uses for the before/after pins
+# (own-occurrence recall floors, the no-shrink/casing tripwires).
+_VALUE_CONE_GATE = True
+
+# FSC-1's switch (mirror of the two above): False restores the pre-FSC-1
+# seeding — an owner-less bare column stays unseeded and its pair is dead
+# at L2 (`test_v4_walker_batch.py::test_fsc1_ownerless_seed`).
+_OWNERLESS_SEED = True
+
+# The J12-20 member switch: the SEARCHED table's own compound stays whole
+# (its co-filter sibling is a documented closure member, PL @265 / DL @561).
+# False reduces the gate to AD3's literal four chip rules.
+_OWN_BOX_CHIPS = True
+
+# V7's two switches (mirror of the three above), both inside the R-GATE:
+#   `_PHANTOM_COPY_GATE` — False restores the cross-owner same-name REF
+#   copy as a traversable cone edge (the G1 `src_b` residual comes back).
+#   `_DERIVED_CONTAINER_CHIPS` — False restores the derived container's
+#   projection read and its alias handle as droppable (G1's `s1`@6 goes
+#   dark again).
+_PHANTOM_COPY_GATE = True
+_DERIVED_CONTAINER_CHIPS = True
+
 
 def _is_containment(ed) -> bool:
     """I5 (v3.3.145): containment-tagged edge — nesting, not value flow.
@@ -483,6 +519,30 @@ def _is_spurious_ref_copy(ed, src_node) -> bool:
         return False
     st = (src_node or {}).get("source_tables") or []
     return bool(st) and str(st[0]).startswith("⟐")
+
+
+def _fold(s) -> str:
+    """Case fold for SQL identifier identity (R46e, H7 §4).
+
+    SQL identifiers are case-insensitive (F5/R2.10, ISSUE-4, #288, K4
+    item 5), so the searched spelling and an occurrence's spelling are the
+    SAME identity whatever casing each was written in. `.lower()` is the
+    fold of every layer that feeds this walker (`resolve_name_ci`, the
+    folder_index key space, `_dml_write_leg`/`_stmt_field_parts`/
+    `_cont_cols`) and is provably equivalent to `.casefold()` on this
+    corpus (AD2-E: 0 fold-divergent identifiers in the sample corpus — a
+    divergence needs a non-`iff`-foldable character pair, i.e. ß/ς/ﬁ-class).
+    ONE fold, BOTH sides of every comparison — never mix `.lower()` and
+    `.casefold()` inside one expression (the mixed form is unreadable, not
+    wrong, and it is how the two conventions drifted apart before).
+
+    Shared with `l1_builder.detect_role` and
+    `dataflow_service._filter_l1_by_lineage` (import, never a second
+    spelling). NOT applied to the dead-legacy `compute_field_lineage` /
+    `filter_relevant` pair — see the H7 §7-3 ruling in
+    wiki/CODE_REVIEW_PENDING (delete-or-fold decision to follow).
+    """
+    return (s or "").lower()
 
 
 def _occ_field_part(o) -> str:
@@ -566,7 +626,7 @@ def _cte_projects_target(pm, occ, holder_id: str, target_lower: str,
         o = occ(vid) or {}
         if o.get("variable_type") not in FIELD_LIKE:
             continue
-        if _occ_field_part(o).casefold() != target_lower:
+        if _fold(_occ_field_part(o)) != target_lower:
             continue
         if vid in admitted or (val.get(vid, set()) & admitted):
             connected = True
@@ -642,7 +702,7 @@ def _holder_is_derived_single(pm, occ, holder_id: str, target_lower: str,
             # table's name; a physical read carries its own name (I2
             # self-attribution) or nothing at all.
             _st = o.get("source_tables") or []
-            if _st and _st[0].casefold() != (o.get("name") or "").casefold():
+            if _st and _fold(_st[0]) != _fold(o.get("name")):
                 continue
             tctx = o.get("context") or ""
             if not _ctx_within(tctx, hctx):
@@ -651,7 +711,7 @@ def _holder_is_derived_single(pm, occ, holder_id: str, target_lower: str,
             if any(sg.startswith("exists")
                    for sg in rel.replace("/", ":").split(":") if sg):
                 continue
-            phys.add(_occ_identity(o).casefold())
+            phys.add(_fold(_occ_identity(o)))
         result = len(phys) == 1 and target_lower in phys
     memo[key] = result
     return result
@@ -799,6 +859,19 @@ def compute_field_flow(graph_data, target_table, target_field,
           joins too (the value's origin and the display compound the
           extractor's physical-attributed twins parent under).
 
+    R46c (2026-08-31, AD3 §Q2): after the fixpoint, the closure runs
+    through the VALUE-CONE ADMISSION GATE (downstream only) — the
+    co-written projection chips, the foreign statement trunks and the
+    join-partner predicates the R29 continuation had swept in are no
+    longer served. Chips = the W1 seeds ∪ same-name chips on an admitted
+    box ∪ the forward chip-cone over CONE_EDGES ∪ the write-slot's direct
+    producers; boxes = the owners of admitted chips plus the box
+    endpoints of FIELD-JUSTIFIED legs (D2 write leg, R29 carry, W6b
+    nested-VT context, W3 alias, W4 own-line predicate). Own-occurrence
+    anchoring is guarded — the gate refuses to drop the sole anchor of an
+    own occurrence (see the gate comment at the call site for the full
+    rule, and `tests/test_v4_walker_batch.py` for the pins).
+
     ROW_FLOW (2026-08-13, #226): when `row_flow_out` is a list (not
     None) AND direction is "downstream", the closure fixpoint is
     followed by the row-level-flow bridge emission: the R29 continuation
@@ -852,6 +925,12 @@ def compute_field_flow(graph_data, target_table, target_field,
 
     pm = physical_model
     occ = pm.occurrence
+    # R46e: the folded search identity — hoisted once, used on BOTH sides
+    # of every identity comparison below. `_tt` is the searched TABLE,
+    # `_tf` the searched FIELD; nothing in this function compares a raw
+    # identifier against them again.
+    _tt = _fold(target_table)
+    _tf = _fold(target_field)
 
     # ── D2 (2026-08-12): the forward DML admit is field-aware — never
     # field-blind. Two per-call indexes:
@@ -874,7 +953,7 @@ def compute_field_flow(graph_data, target_table, target_field,
             continue
         _so = occ(_E.source_id)
         if _so is not None:
-            _part = _occ_field_part(_so).lower()
+            _part = _fold(_occ_field_part(_so))
             if _part:
                 _dml_write_leg.setdefault(_E.target_id, set()).add(_part)
     # R44 class 1 (2026-08-28, user ruling "covering all occurrences of the
@@ -916,7 +995,7 @@ def compute_field_flow(graph_data, target_table, target_field,
             continue
         if _o.get("source_columns"):
             continue          # read-carrying projection — Phase 1c's domain
-        _part = _occ_field_part(_o).lower()
+        _part = _fold(_occ_field_part(_o))
         _ctx = _o.get("context") or ""
         if not _part or not _ctx:
             continue
@@ -927,7 +1006,7 @@ def compute_field_flow(graph_data, target_table, target_field,
         _stmt = (_o.get("context") or "TOP").split("/", 1)[0]
         if not _stmt.startswith("TOP"):
             continue
-        _part = _occ_field_part(_o).lower()
+        _part = _fold(_occ_field_part(_o))
         if _part:
             _stmt_field_parts.setdefault(_stmt, set()).add(_part)
 
@@ -954,9 +1033,9 @@ def compute_field_flow(graph_data, target_table, target_field,
             _eo = occ(_ep)
             if _eo is None or _eo.get("variable_type") not in FIELD_LIKE:
                 continue
-            _part = _occ_field_part(_eo).lower()
+            _part = _fold(_occ_field_part(_eo))
             if _part:
-                _cont_cols.setdefault(_occ_identity(_eo).lower(),
+                _cont_cols.setdefault(_fold(_occ_identity(_eo)),
                                       set()).add(_part)
     _cte_top = {}
     for _vid, _o in pm.occurrences.items():
@@ -987,7 +1066,18 @@ def compute_field_flow(graph_data, target_table, target_field,
     # field's write legs) whose statement's write leg carries the
     # searched field (the _dml_write_leg index, matched case-
     # insensitively). Read instances are NOT seeds in upstream mode.
-    target_keys = {k for k, t in pm.tables.items() if t.name == target_table}
+    # R46e: the entity-name match is folded on BOTH sides (`_tt`) —
+    # H7 site 960 (was an exact comparison papered over by `_tkeys_ci`).
+    # (Built before the seed block: FSC-1's owner-less test reads it.)
+    owner_by_id = {}
+    for (_okey, _fname), _fld in pm.fields.items():
+        for _vid in _fld.occurrence_ids:
+            owner_by_id[_vid] = _okey
+    target_keys = {k for k, t in pm.tables.items() if _fold(t.name) == _tt}
+    # The searched TABLE's entity set, used by the R46c gate as the "own
+    # box" test (`target_keys ∪ _tkeys_ci ∪ _alias_keys` — the R46a
+    # seed-claim set, one definition).
+    _alias_keys: set = set()
     seeds = set()
     if direction == "upstream":
         for E in pm.edges:
@@ -999,10 +1089,9 @@ def compute_field_flow(graph_data, target_table, target_field,
             # CR11: case-insensitive — field-part logic lowercases, so the
             # table-name comparison must too (a searched-table casing
             # mismatch otherwise misses the write-target seeds).
-            if (tgt_tbl is None
-                    or tgt_tbl.name.lower() != target_table.lower()):
+            if tgt_tbl is None or _fold(tgt_tbl.name) != _tt:
                 continue
-            if target_field.lower() in _dml_write_leg.get(E.target_id, ()):
+            if _tf in _dml_write_leg.get(E.target_id, ()):
                 seeds.add(E.target_id)
     else:
         # R44 rule 0: the entity-name match is case-insensitive (CR11
@@ -1011,9 +1100,8 @@ def compute_field_flow(graph_data, target_table, target_field,
         # 'ods_hub_ssinrtp' must find the entity spelled 'ODS_HUB_SSINRTP'
         # (a case mismatch previously yielded NO seeds and the not-in-flow
         # full-graph fallback).
-        _tl = target_table.lower()
         _tkeys_ci = {k for k, t in pm.tables.items()
-                     if t.name.lower() == _tl}
+                     if _fold(t.name) == _tt}
         # #399 option b′ (2026-08-29): the searched TABLE part may name a
         # SQL ALIAS (`a.data_dt`, `SSALSFP.ALCBP1`) rather than an entity.
         # An alias is never an entity (build_physical_model resolves alias
@@ -1050,17 +1138,15 @@ def compute_field_flow(graph_data, target_table, target_field,
         # Never "pick none" (that is today's full-graph fallback) and never
         # "pick one" (that silently drops the other owner's compound).
         if _ALIAS_SEED_EXPANSION:
-            _alias_keys = set()
             for _avid, _akey in pm.alias_by_var_id.items():
                 _ao = occ(_avid)
-                if _ao is not None and ((_ao.get("name") or "").lower() == _tl):
+                if _ao is not None and _fold(_ao.get("name")) == _tt:
                     _alias_keys.add(_akey)
             if _alias_keys:
                 # The FIELD-AWARE gate: an entity named the searched table
                 # preempts only when it actually HOSTS the searched field.
                 _named = target_keys | _tkeys_ci
-                _fk = target_field.lower()
-                _hosted = any(tkey in _named and fname.lower() == _fk
+                _hosted = any(tkey in _named and _fold(fname) == _tf
                               for (tkey, fname) in pm.fields)
                 if not _hosted:
                     target_keys |= _alias_keys
@@ -1071,12 +1157,41 @@ def compute_field_flow(graph_data, target_table, target_field,
                                if k in pm.tables))
         for (tkey, fname), fld in pm.fields.items():
             if (tkey not in target_keys and tkey not in _tkeys_ci) \
-                    or fname.lower() != target_field.lower():
+                    or _fold(fname) != _tf:
                 continue
             for vid in fld.occurrence_ids:
                 o = occ(vid)
                 if o is not None and o.get("variable_type") in FIELD_LIKE:
                     seeds.add(vid)
+
+        # ── FSC-1 (v3.3.195): the J12-9 owner-agnostic seed ──
+        # A bare column in a multi-table FROM has no model owner: no
+        # PhysicalField names it (the extractor cannot attribute it), so the
+        # W1 loop above finds NO seed and the pair is dead at L2 — 946
+        # no_flow pairs corpus-wide, 923 of them with in-scope occurrences
+        # (25 tpcds_qualified scripts were 100% dead). The DISPLAY already
+        # marks such a chip `is_target` (the owner-agnostic
+        # `_field_part_match_ids` J12-9 predicate); the closure refused it.
+        # Seed from the occurrence, not the owner: every field-like
+        # occurrence carrying the searched field part that the model could
+        # NOT attribute to any entity. Gated on "no seed at all" — the
+        # moment the searched table's own entities host the field, the W1
+        # path owns the seeding and an owner-less same-name column of
+        # another table stays out (the phantom-seed defect AD3 rejected).
+        if not seeds and _OWNERLESS_SEED:
+            for _vid, _o in pm.occurrences.items():
+                if _o.get("variable_type") not in FIELD_LIKE:
+                    continue
+                if _fold(_occ_field_part(_o)) != _tf:
+                    continue
+                if _vid in owner_by_id or _o.get("source_tables"):
+                    continue          # attributed — never an owner-less bare
+                seeds.add(_vid)
+            if seeds:
+                _log.info(
+                    'FSC-1: owner-agnostic seed for %s.%s — %d bare '
+                    'occurrence(s), no model owner', target_table,
+                    target_field, len(seeds))
 
     # ── adjacency over the MODEL's PhysicalEdges (occurrence-level — the
     # edge endpoints ARE the raw var ids the graph nodes carry).
@@ -1139,13 +1254,17 @@ def compute_field_flow(graph_data, target_table, target_field,
     # chain: identities of table-like admissions into the closure.
     # TABLE_FLOW is followed FORWARD only from a source whose identity is
     # already in the chain (Q1 clause a) — no reverse leakage.
-    chain = {target_table}
+    # R46e: the identity chain is folded on BOTH sides — `chain` is seeded
+    # with the folded searched table and every registration folds too, so
+    # the set never becomes the mixed-fold set that made closures
+    # casing-dependent (H7 sites 1107/1113/1121).
+    chain = {_tt}
     for sid in seeds:
         o = occ(sid)
         if o is not None and _occ_table_like(o):
             ident = _occ_identity(o)
             if ident:
-                chain.add(ident)
+                chain.add(_fold(ident))
 
     def _register(nid):
         """Record a table-like admission's identity into the chain."""
@@ -1153,15 +1272,418 @@ def compute_field_flow(graph_data, target_table, target_field,
         if o is not None and _occ_table_like(o):
             ident = _occ_identity(o)
             if ident:
-                chain.add(ident)
+                chain.add(_fold(ident))
 
-    # Field occurrence → owning entity key (the model's attribution —
-    # source_tables[0] resolved through the alias map; the display used
-    # to re-derive owners with a context walk).
-    owner_by_id = {}
-    for (tkey, _fname), fld in pm.fields.items():
-        for vid in fld.occurrence_ids:
-            owner_by_id[vid] = tkey
+    # ── R46c: the gate itself (nested — it reads the walk's own indexes;
+    # called once, after the fixpoint, see the call site below) ──
+    def _rg_chip(v):
+        _o = occ(v)
+        return (_o is not None and _o.get("variable_type") in FIELD_LIKE)
+
+    def _rg_box_key_of(k):
+        """Entity key → hashable box key (the per-scope containers are
+        keyed by (name, context) tuples)."""
+        return k if isinstance(k, str) else "\x00".join(str(x) for x in k)
+
+    def _rg_box_key(v):
+        """The display compound that renders `v` — a field chip renders on
+        its OWNER entity's box, a table-like var on ITS OWN entity's box.
+
+        Entity KEYS, never names: two statements' `⟐ output` trunks share a
+        label (and an identity string), but they are different compounds —
+        keying them together re-admits the FOREIGN statement's trunk (the
+        EAST5 job-log write under a TOP0 field's closure)."""
+        _o = occ(v) or {}
+        if _o.get("variable_type") in FIELD_LIKE:
+            _k = owner_by_id.get(v)
+            if _k is not None:
+                return _rg_box_key_of(_k)
+        _k = pm.entity_of_id.get(v)
+        if _k is not None:
+            return _rg_box_key_of(_k)
+        return _fold(_occ_identity(_o))
+
+    def _value_cone_gate(_visited):
+        # Box ids admitted + the box-key set that drives rule 2 (the
+        # display merges by identity, so the same-name rule is keyed).
+        _box_ids, _box_keys = set(), set()
+        _tablelike_by_key = {}
+        for _v in _visited:
+            if _rg_chip(_v):
+                continue
+            _tablelike_by_key.setdefault(_rg_box_key(_v), []).append(_v)
+
+        def _admit_key(k):
+            if not k or k in _box_keys:
+                return
+            _box_keys.add(k)
+            _box_ids.update(_tablelike_by_key.get(k, ()))
+
+        # Own occurrences (the RECALL GUARD's anchor set): the searched
+        # field's occurrences the walk reached, attributed to a
+        # searched-table entity, by line.
+        _own_entities = target_keys | _tkeys_ci | _alias_keys
+        _own_at_line = {}
+        for _v in _visited:
+            _o = occ(_v)
+            if (_o is None or _o.get("variable_type") not in FIELD_LIKE
+                    or _fold(_occ_field_part(_o)) != _tf
+                    or owner_by_id.get(_v) not in _own_entities):
+                continue
+            _ln = _o.get("line_start") or 0
+            if _ln:
+                _own_at_line.setdefault(_ln, []).append(_v)
+
+        # V7 (2026-09-01, G1 residual retired): the CROSS-OWNER same-name
+        # REF copy — two field chips carrying the SAME field name on
+        # DIFFERENT owner entities. `build_dependency_graph` Phase 3 wires
+        # such an edge whenever two scopes read a same-named column (the
+        # last-writer-wins `full_col_index` match, and its bare-name
+        # fallback): a graph-level FACT, not a value fact — the two
+        # endpoints are different FIELDS (the same name on two tables).
+        # Read as a PRODUCER claim ("the searched field's value comes from
+        # that foreign same-named column") it is false by construction and
+        # the cone must never cross it: that crossing is what put src_b's
+        # `dt` into src_a.dt's closure (the G1 adjudicated repro; V3
+        # recorded the admission as a residual, "recorded not endorsed" —
+        # the USER RULE "only the field involved into the data flow is
+        # shown" excludes it). Same-owner same-name copies (the P1
+        # MOVE→COPY convention) are NOT gated: they are one entity's own
+        # columns, and rule 2 admits them anyway.
+        _phantom_memo = {}
+
+        def _rg_copy_pair(E):
+            _hit = _phantom_memo.get(id(E))
+            if _hit is not None:
+                return _hit
+            _hit = False
+            if (E.edge_type == "REF"
+                    and (E.operation or "").upper() == "REFERENCE"):
+                # Phase 3's co-scope wiring only (both the last-writer-wins
+                # `source_columns` pick and its bare-name fallback). The
+                # container PROVENANCE bridge is deliberately OUT: it is
+                # cross-owner BY CONSTRUCTION (the producer container wraps
+                # one table, the reader attributes to another) and it is
+                # the searched field's own value leg — gating it darkened
+                # RFN's ruled is_internet_loan derivation line @687.
+                _uo, _vo = occ(E.source_id), occ(E.target_id)
+                if (_uo is not None and _vo is not None
+                        and _uo.get("variable_type") in FIELD_LIKE
+                        and _vo.get("variable_type") in FIELD_LIKE
+                        and _fold(_occ_field_part(_uo))
+                        == _fold(_occ_field_part(_vo))
+                        and _rg_box_key(E.source_id)
+                        != _rg_box_key(E.target_id)):
+                    _ok, _vk = owner_by_id.get(E.source_id), owner_by_id.get(
+                        E.target_id)
+                    _ot = pm.tables.get(_ok) if _ok is not None else None
+                    _vt = pm.tables.get(_vk) if _vk is not None else None
+                    # ... and it is a CROSS-TABLE collision: BOTH owners are
+                    # physical tables. A chip owned by a container/VT is a
+                    # computed column — its same-name copy IS the value that
+                    # flows through the scope, not another table's field
+                    # (05.sql: the outer projection `sales`@113 of the union
+                    # container `foo` feeding the branch chip `sales`@93 is
+                    # the searched field's own value path).
+                    _hit = bool(_ot is not None and _vt is not None
+                                and _ot.kind == "physical"
+                                and _vt.kind == "physical")
+            _phantom_memo[id(E)] = _hit
+            return _hit
+
+        def _rg_phantom_copy(E):
+            # The PRODUCER half only: the edge presents a foreign
+            # same-named column as the PRODUCER of a chip the closure
+            # already holds (`A` — call only after `A` is bound). The
+            # CONSUMER half (an in-closure chip read into a same-named
+            # column elsewhere) is the searched field's own value flow and
+            # must keep crossing — the canonical lending_ref↓SUP_M closure
+            # carries the NOT-IN subquery's `DISTINCT lending_ref`@50
+            # exactly that way (a cross-owner REFERENCE from the rollover
+            # chip), and the consumer direction is what D2/J1 admit on.
+            return _rg_copy_pair(E) and E.target_id in A
+
+        # V7 (2026-09-01, G1 half 2): the DERIVED-CONTAINER chips. A
+        # visited chip carrying the searched field part whose OWNER entity
+        # is a subquery/virtual-table container that delivers the SEARCHED
+        # table's value (`_holder_is_derived_single` — the walker's own
+        # Fix-A-stage-1 qualification) IS an occurrence of the searched
+        # field: the derived-product round admits it, and the gate had no
+        # route back to its box (a box is admitted only through a chip
+        # already in A), so the container's projection read AND the alias
+        # handle that names it (`s1`@6) fell out of the served closure.
+        # A container over TWO sources — or over another table — never
+        # qualifies, so ITS same-named column stays out (the s2 half of
+        # G1: `_holder_is_derived_single` counts src_b, not src_a).
+        _derived_memo: dict = {}
+
+        def _rg_derived_chip(v):
+            _o = occ(v)
+            if (_o is None or _o.get("variable_type") not in FIELD_LIKE
+                    or _fold(_occ_field_part(_o)) != _tf):
+                return False
+            _k = owner_by_id.get(v)
+            _tbl = pm.tables.get(_k) if _k is not None else None
+            if (_tbl is None
+                    or getattr(_tbl, "kind", None)
+                    not in _DERIVED_CONTAINER_TYPES):
+                return False
+            _h = next((_h for _h in _tbl.occurrence_ids
+                       if (occ(_h) or {}).get("variable_type")
+                       in _DERIVED_CONTAINER_TYPES), None)
+            if _h is None:
+                return False
+            _key = (_h, _tt)
+            _hit = _derived_memo.get(_key)
+            if _hit is None:
+                _hit = _holder_is_derived_single(pm, occ, _h, _tt,
+                                                 _derived_memo)
+                _derived_memo[_key] = _hit
+            return _hit
+
+        _derived_chips = ({v for v in _visited if _rg_derived_chip(v)}
+                          if _DERIVED_CONTAINER_CHIPS else set())
+
+        # V7: the phantom CLASS, not just the phantom edge. A foreign
+        # same-named chip presented as the producer of a seed carries no
+        # field value, so it must not HOST a scope either — left in
+        # `_hosts` it justified its own statement's FROM leg (W6b) and
+        # pulled its box in through the back door, where rule 2 swept the
+        # chip in anyway (the G1 `src_b`/`⟐ s2` route).
+        _phantom_chips = set()
+        for E in pm.edges:
+            if _rg_copy_pair(E) and E.target_id in seeds:
+                _phantom_chips.add(E.source_id)
+
+        # W6b's context test, precomputed: every context that hosts a
+        # visited field var carrying the searched field part (the ancestor
+        # walk over "/" and ":" makes the per-edge probe O(1) — RFN's
+        # 115k-edge closure cannot afford an O(edges x visited) scan).
+        # Phantom chips never host (see `_phantom_chips` above).
+        _hosts = set()
+        for _v in _visited:
+            _o = occ(_v)
+            if (_o is None or _o.get("variable_type") not in FIELD_LIKE
+                    or _fold(_occ_field_part(_o)) != _tf
+                    or (_PHANTOM_COPY_GATE and _v in _phantom_chips)):
+                continue
+            _c = _o.get("context") or ""
+            while _c:
+                _hosts.add(_c)
+                _i = max(_c.rfind("/"), _c.rfind(":"))
+                if _i <= 0:
+                    break
+                _c = _c[:_i]
+
+        # The A-free half of the leg justification (clause b) — memoized
+        # per edge, it never changes during the fixpoint. (It reads
+        # `_own_at_line`, so the own-occurrence scan above must run first.)
+        _leg_memo = {}
+
+        def _leg_justified_b(E):
+            _et, _op = E.edge_type, (E.operation or "").upper()
+            # D2 / R29 carry are WRITE-LEG tests: a DML edge that is not
+            # the WRITE_READ link, or a TABLE_FLOW leg whose operation is
+            # the DML keyword. A chain leg (`TABLE_FLOW` with a non-write
+            # operation) is structure, never a write — justifying it on the
+            # statement's row-selection would re-admit every join partner
+            # of a statement that happens to filter the field (the EAST5
+            # c/d/e/a.data_dt wrong-coverage class).
+            _is_write_leg = ((_et == "DML" and _op != "WRITE_READ")
+                             or (_et == "TABLE_FLOW"
+                                 and _op in _DML_WRITE_OPS))
+            if _is_write_leg:
+                # D2 — the statement's write leg carries the searched field.
+                if _tf in _dml_write_leg.get(E.target_id, ()):
+                    return True
+                # R29 carry — the target's statement row-selects the field
+                # (the usage selects the rows the statement emits). DML edges
+                # ONLY, mirroring the walker's own carry rule: a TABLE_FLOW
+                # write leg into the same target is a SOURCE-side leg, and
+                # justifying it on the statement's row-selection would drag
+                # every join partner's box in (the EAST5 c/d/e/a.data_dt
+                # wrong-coverage class).
+                if _et == "DML":
+                    _to = occ(E.target_id)
+                    if _to is not None and _stmt_of(_to) in _sel_stmts_r:
+                        return True
+            if _et == "DML" and _op == "WRITE_READ":
+                # D2's write→read link (V7, 2026-09-01): the link is the
+                # READER statement's only leg and it carries no write of
+                # its own, so without a clause here rule 6 had no way to
+                # admit the reader box the fixpoint had already admitted,
+                # and the reader that references the searched field fell
+                # out of the served closure (test_d2_field_aware_dml
+                # ::test_synthetic_write_read_reader_references_field).
+                # Same gate as the walker's own forward WRITE_READ admit:
+                # the reader joins only when it actually consumes the
+                # searched field; a reader that never touches it stays
+                # out (the negative twin of the same D2 test).
+                _ro = occ(E.target_id)
+                _rstmt = _stmt_of(_ro)
+                if _rstmt and _tf in _stmt_field_parts.get(_rstmt, ()):
+                    return True
+            if _et == "TABLE_FLOW":
+                # W6b — a VT endpoint whose context hosts a visited field
+                # var carrying the field part (the CTE/FROM chain legs).
+                # A BARE `TOP{n}` context is not a scope — it is the whole
+                # statement — so a top-level trunk would justify every
+                # TABLE_FLOW leg of its statement and the foreign-trunk
+                # exclusion (AD3 item 2) would never fire. Only a NESTED
+                # container context (`CTE{...}`, `TOP0/…`) is a scope here.
+                for _ep in (E.source_id, E.target_id):
+                    _o = occ(_ep)
+                    if (_o is None
+                            or _o.get("variable_type") != "virtual_table"):
+                        continue
+                    _sctx = _o.get("context") or ""
+                    if not ("/" in _sctx or _sctx.startswith("CTE{")):
+                        continue
+                    if _sctx in _hosts:
+                        return True
+            if _et in ("FILTER", "JOIN"):
+                # W4 row-selection clause — a predicate anchored on a line
+                # where the SEARCHED field itself occurs is the field's own
+                # row-selection: its join partner / co-filter sibling is
+                # part of THAT predicate (the R44 join-mirror pair
+                # `ON so.customer_id = sc.customer_id`, the J12-20
+                # documented co-filter member). A predicate on a line the
+                # searched field never touches is another table's
+                # row-selection — the EAST5 c/d/e/a.data_dt class — and
+                # stays out.
+                if E.highlight_line in _own_at_line:
+                    return True
+            if _et == "ALIAS":
+                # W3 — the alias names the searched table.
+                _st = (occ(E.target_id) or {}).get("source_tables") or []
+                if _st and _fold(_st[0]) == _tt:
+                    return True
+            return False
+
+        # The R29 row-selection carriers, RE-SCOPED to the gate (AD3's
+        # "re-scope _sel_stmts to row-level carriers only"): the walk's own
+        # `_sel_stmts` was filled while the closure still held every
+        # co-written sibling, so a statement whose row-selection touched any
+        # of them is in it. Here a statement carries the effect only when
+        # its row-selection has an ADMITTED chip as an endpoint. Recomputed
+        # every round (it depends on A; A's growth depends on it — the same
+        # monotone fixpoint).
+        _sel_stmts_r = set()
+
+        def _rescope_selection():
+            _sel_stmts_r.clear()
+            for E in pm.edges:
+                if E.containment or E.edge_type not in ("FILTER", "JOIN"):
+                    continue
+                if E.source_id not in A and E.target_id not in A:
+                    continue
+                for _ep in (E.source_id, E.target_id):
+                    _st = _stmt_of(occ(_ep))
+                    if _st:
+                        _sel_stmts_r.add(_st)
+
+        A = set(seeds)
+        # V7: the derived-container chips are searched-field occurrences
+        # on their own container (a model fact, A-independent) — they
+        # seed A so rule 5 admits the container box and rule 6 lets the
+        # container's legs carry it.
+        A |= _derived_chips
+        _rescope_selection()
+        # The SEARCHED table's own compounds stay whole: the search lands
+        # on that box, and J12-20 pinned its co-filter sibling
+        # (`charge_department` on bdm_acc_loan_info, edgeless, PL @265 /
+        # DL @561) as a documented closure member. The co-written noise
+        # the gate exists for lives on OTHER boxes (the ⟐ trunks, the CTE
+        # projection lists, the join partners), never here.
+        _own_box_keys = {_rg_box_key(_s) for _s in seeds}
+        for _s in seeds:
+            _admit_key(_rg_box_key(_s))
+        changed, rounds = True, 0
+        while changed and rounds < 100:
+            changed = False
+            rounds += 1
+            _rescope_selection()
+            for E in pm.edges:
+                if E.containment:
+                    continue
+                _u, _v = E.source_id, E.target_id
+                if _u not in _visited or _v not in _visited:
+                    continue
+                _et = E.edge_type
+                # V7: a cross-owner same-name REFERENCE presented as a
+                # PRODUCER of a chip the closure already holds carries no
+                # value, so it admits nothing at all — not the foreign chip
+                # (rules 3/4) and not its box (rule 6: admitting the box let
+                # rule 2 sweep the foreign chip in anyway, which is how
+                # src_b's `dt` survived the cone gate). Rule 5 still runs:
+                # the near endpoint's own box is its own business.
+                _phantom = _PHANTOM_COPY_GATE and _rg_phantom_copy(E)
+                if _et in CONE_EDGES and not _phantom:
+                    # 3. the forward value cone
+                    if _u in A and _rg_chip(_v) and _v not in A:
+                        A.add(_v)
+                        changed = True
+                    # 4. the write-slot's direct producers (one hop)
+                    if _v in seeds and _rg_chip(_u) and _u not in A:
+                        A.add(_u)
+                        changed = True
+                # 6. field-justified legs admit their box endpoints
+                _just = _leg_memo.get(id(E))
+                if _just is None:
+                    _just = _leg_justified_b(E)
+                    _leg_memo[id(E)] = _just
+                if not _phantom and (_just or _u in A or _v in A):
+                    for _ep in (_u, _v):
+                        _k = _rg_box_key(_ep)
+                        _admit_key(_k)
+                        if not _rg_chip(_ep) and _ep not in _box_ids:
+                            _box_ids.add(_ep)
+                # 5. the owner box of every admitted chip
+                for _c in (_u, _v):
+                    if _c in A:
+                        _admit_key(_rg_box_key(_c))
+            # 2. same-name chips on an admitted box — plus every chip on
+            #    the SEARCHED table's own compound (the J12-20 member).
+            for _v in _visited:
+                if _v in A or not _rg_chip(_v):
+                    continue
+                _bk = _rg_box_key(_v)
+                if _bk not in _box_keys:
+                    continue
+                if (_fold(_occ_field_part(occ(_v))) != _tf
+                        and (not _OWN_BOX_CHIPS
+                             or _bk not in _own_box_keys)):
+                    continue
+                A.add(_v)
+                changed = True
+
+        # ── the RECALL GUARD: never lose the sole anchor of an own
+        #    occurrence. A line whose own chips would all drop re-admits
+        #    them, their owner box, and their pre-gate neighbours (the
+        #    minimum that keeps the occurrence's edges renderable). ──
+        for _ln, _chips in _own_at_line.items():
+            if any(_c in A for _c in _chips):
+                continue
+            for _c in _chips:
+                A.add(_c)
+                _admit_key(_rg_box_key(_c))
+                for (_nb, _e2, _f2, _r2, _o2) in adjacency.get(_c, ()):
+                    if _nb in _visited:
+                        A.add(_nb)
+
+        _out = set(A)
+        for _v in _visited:
+            if _v in A:
+                continue
+            if _rg_chip(_v):
+                continue                      # an unadmitted chip drops
+            if _rg_box_key(_v) in _box_keys:
+                _out.add(_v)
+        if rounds >= 100:
+            _log.warning("R46c value-cone gate hit the 100-round cap "
+                         "(%d chips / %d boxes) for %s.%s", len(A),
+                         len(_box_ids), target_table, target_field)
+        return _out
 
     # ── Joint fixpoint: expansion rounds and identity-admission rounds
     # alternate until neither grows (monotone — terminates; capped). ──
@@ -1224,12 +1746,10 @@ def compute_field_flow(graph_data, target_table, target_field,
                                         _nb_ctx = nb_o.get("context") or ""
                                         if (_nb_ctx.startswith("TOP")
                                                 and _nb_ctx[3:].isdigit()
-                                                and target_field.lower()
-                                                in _dml_write_leg.get(nid, ())):
+                                                and _tf in _dml_write_leg.get(nid, ())):
                                             admit = True
                                     elif (nb_o.get("variable_type") in FIELD_LIKE
-                                          and _occ_field_part(nb_o).lower()
-                                          == target_field.lower()):
+                                          and _fold(_occ_field_part(nb_o)) == _tf):
                                         admit = True
                         elif et == "TABLE_FLOW":
                             # U2d: backward along the WRITTEN legs only —
@@ -1242,7 +1762,7 @@ def compute_field_flow(graph_data, target_table, target_field,
                                 nb_o = occ(nb)
                                 if (nb_o is not None
                                         and _occ_table_like(nb_o)
-                                        and _occ_identity(nb_o) in chain):
+                                        and _fold(_occ_identity(nb_o)) in chain):
                                     admit = True
                     if admit:
                         visited.add(nb)
@@ -1270,14 +1790,14 @@ def compute_field_flow(graph_data, target_table, target_field,
                         # script's casing (R44 R0 / CR11 made the seed and
                         # entity matches case-insensitive — this comparison
                         # is the same rule).
-                        admit = fwd or (_occ_field_part(occ(nb)).casefold()
-                                        == target_field.casefold())
+                        admit = fwd or (_fold(_occ_field_part(occ(nb)))
+                                        == _tf)
                     else:
                         admit = True
                 elif et == "ALIAS":
                     nb_o = occ(nb)
                     nb_st = (nb_o or {}).get("source_tables") or []
-                    admit = bool(nb_st) and nb_st[0] == target_table
+                    admit = bool(nb_st) and _fold(nb_st[0]) == _tt
                 elif et in ("FILTER", "JOIN"):
                     # W4 (J12-20, option b, 2026-08-13): a FILTER/JOIN edge
                     # admits only when the SEARCHED field itself is an
@@ -1293,8 +1813,7 @@ def compute_field_flow(graph_data, target_table, target_field,
                         for _ep in (nid, nb):
                             _eo = occ(_ep)
                             if (_eo is not None
-                                    and _occ_field_part(_eo).lower()
-                                    == target_field.lower()):
+                                    and _fold(_occ_field_part(_eo)) == _tf):
                                 admit = True
                                 break
                     if not admit:
@@ -1308,9 +1827,9 @@ def compute_field_flow(graph_data, target_table, target_field,
                             _eo = occ(_ep)
                             if _eo is None:
                                 continue
-                            if (_occ_field_part(_eo).lower()
+                            if (_fold(_occ_field_part(_eo))
                                     in _effect_cols.get(
-                                        _occ_identity(_eo).lower(), ())):
+                                        _fold(_occ_identity(_eo)), ())):
                                 admit = True
                                 break
                 elif et == "DML":
@@ -1325,7 +1844,7 @@ def compute_field_flow(graph_data, target_table, target_field,
                     admit = fwd or (
                         nb_o is not None
                         and nb_o.get("variable_type") in FIELD_LIKE
-                        and _occ_field_part(nb_o) == target_field
+                        and _fold(_occ_field_part(nb_o)) == _tf
                     )
                     if not admit and nb_o is not None:
                         # D2 (2026-08-12): a statement's OWN output VT
@@ -1344,8 +1863,7 @@ def compute_field_flow(graph_data, target_table, target_field,
                             _nb_ctx = (nb_o.get("context") or "")
                             if (_nb_ctx.startswith("TOP")
                                     and _nb_ctx[3:].isdigit()
-                                    and target_field.lower()
-                                    in _dml_write_leg.get(nid, ())):
+                                    and _tf in _dml_write_leg.get(nid, ())):
                                 admit = True
                     if fwd:
                         # D2 (2026-08-12): never field-blind — the
@@ -1359,11 +1877,9 @@ def compute_field_flow(graph_data, target_table, target_field,
                         if (op or "").upper() == "WRITE_READ":
                             _stmt = ((nb_o or {}).get("context") or "TOP"
                                      ).split("/", 1)[0]
-                            admit = target_field.lower() in _stmt_field_parts.get(
-                                _stmt, ())
+                            admit = _tf in _stmt_field_parts.get(_stmt, ())
                         else:
-                            admit = target_field.lower() in _dml_write_leg.get(
-                                nb, ())
+                            admit = _tf in _dml_write_leg.get(nb, ())
                             if not admit:
                                 # R29 carry rule: the target's own
                                 # statement admitted a row-selection of
@@ -1385,20 +1901,20 @@ def compute_field_flow(graph_data, target_table, target_field,
                         _tgt = nb if fwd else nid
                         _tgt_leg = _dml_write_leg.get(_tgt, ())
                         if _tgt_leg:
-                            _tgt_ident = _occ_identity(occ(_tgt)).lower()
+                            _tgt_ident = _fold(_occ_identity(occ(_tgt)))
                             _effect_cols.setdefault(
                                 _tgt_ident, set()).update(_tgt_leg)
                         if fwd:
-                            _tgt_ident2 = (_occ_identity(nb_o).lower()
+                            _tgt_ident2 = (_fold(_occ_identity(nb_o))
                                            if nb_o is not None else "")
                             _cc = _cont_cols.get(_tgt_ident2, ())
                             if _cc:
                                 for (_tk, _fname), _fld in pm.fields.items():
-                                    if _fname.lower() not in _cc:
+                                    if _fold(_fname) not in _cc:
                                         continue
                                     _tbl = pm.tables.get(_tk)
                                     if (_tbl is None
-                                            or _tbl.name.lower() != _tgt_ident2):
+                                            or _fold(_tbl.name) != _tgt_ident2):
                                         continue
                                     for _vid in _fld.occurrence_ids:
                                         if _vid not in visited:
@@ -1423,16 +1939,15 @@ def compute_field_flow(graph_data, target_table, target_field,
                             # chain member's identity alone would drag
                             # every DML target of any statement into
                             # every closure).
-                            admit = target_field.lower() in _dml_write_leg.get(
-                                nb, ())
+                            admit = _tf in _dml_write_leg.get(nb, ())
                         elif src_o is not None and src_o.get(
                                 "variable_type") == "virtual_table":
                             sctx = src_o.get("context") or ""
                             for fv in node_map.values():
                                 if (fv.get("variable_type") in FIELD_LIKE
                                         and fv.get("id") in visited
-                                        and _occ_field_part(
-                                            occ(fv.get("id"))) == target_field):
+                                        and _fold(_occ_field_part(
+                                            occ(fv.get("id")))) == _tf):
                                     fctx = fv.get("context") or ""
                                     if (fctx == sctx
                                             or fctx.startswith(sctx.rstrip("/") + "/")):
@@ -1469,9 +1984,9 @@ def compute_field_flow(graph_data, target_table, target_field,
                     _eo = occ(_ep)
                     if _eo is None:
                         continue
-                    if (_occ_field_part(_eo).lower()
+                    if (_fold(_occ_field_part(_eo))
                             in _effect_cols.get(
-                                _occ_identity(_eo).lower(), ())):
+                                _fold(_occ_identity(_eo)), ())):
                         _adm = True
                         break
             if _adm:
@@ -1543,7 +2058,7 @@ def compute_field_flow(graph_data, target_table, target_field,
                     continue
                 if not o.get("is_output"):
                     continue
-                if _occ_field_part(o).lower() != target_field.lower():
+                if _fold(_occ_field_part(o)) != _tf:
                     continue
                 _ctx = o.get("context") or ""
                 if not _ctx:
@@ -1570,7 +2085,7 @@ def compute_field_flow(graph_data, target_table, target_field,
         # too (the value's origin — and the display compound the twin's
         # field node parents under).
         if direction == "downstream":
-            _tl2 = target_table.lower()
+            _tl2 = _tt
             # READS only, and REAL table-like occurrences only: a DML-target
             # occurrence (defined_in INSERT/UPDATE/DELETE/MERGE) sitting in a
             # statement's scope must not turn every same-named sibling column
@@ -1584,13 +2099,13 @@ def compute_field_flow(graph_data, target_table, target_field,
                                  "function_table"}
             _tgt_occs = [(tv, to) for tv, to in pm.occurrences.items()
                          if to.get("variable_type") in _REAL_TABLE_TYPES
-                         and _occ_identity(to).lower() == _tl2
+                         and _fold(_occ_identity(to)) == _tl2
                          and (to.get("defined_in") or "").upper()
                          not in ("INSERT", "UPDATE", "DELETE", "MERGE")]
             for vid2, o2 in pm.occurrences.items():
                 if o2.get("variable_type") not in FIELD_LIKE:
                     continue
-                if _occ_field_part(o2).lower() != target_field.lower():
+                if _fold(_occ_field_part(o2)) != _tf:
                     continue
                 st2 = o2.get("source_tables") or []
                 if not st2 or not st2[0]:
@@ -1613,7 +2128,7 @@ def compute_field_flow(graph_data, target_table, target_field,
                     o2_ctx = o2.get("context") or ""
                     for _hv in _otbl.occurrence_ids:
                         _ho = occ(_hv)
-                        if _ho is None or (_ho.get("name") or "") != st2[0]:
+                        if _ho is None or _fold(_ho.get("name")) != _fold(st2[0]):
                             continue
                         if ((_ho.get("defined_in") or "").upper()
                                 in ("INSERT", "UPDATE", "DELETE", "MERGE")):
@@ -1675,12 +2190,12 @@ def compute_field_flow(graph_data, target_table, target_field,
                 # equal context match against the holder — can never see the
                 # searched table's occurrence inside a CTE body anyway).
                 _cte_birth = (
-                    _occ_identity(_ho).casefold() != _tl2
+                    _fold(_occ_identity(_ho)) != _tl2
                     and _ho.get("variable_type") == "cte"
                     and _holder_is_derived_single(pm, occ, holder2, _tl2,
                                                   _holder_memo, visited))
                 if (not _cte_birth
-                        and _occ_identity(_ho).casefold() != _tl2
+                        and _fold(_occ_identity(_ho)) != _tl2
                         and _ho.get("variable_type") in _DERIVED_CONTAINER_TYPES
                         and not _holder_is_derived_single(pm, occ, holder2,
                                                           _tl2, _holder_memo)):
@@ -1747,8 +2262,8 @@ def compute_field_flow(graph_data, target_table, target_field,
                     continue
                 o = occ(nid)
                 ident = _occ_identity(o) if o is not None else ""
-                if not (ident and ident == (o or {}).get("name")
-                        and ident in chain):
+                if not (ident and _fold(ident) == _fold((o or {}).get("name"))
+                        and _fold(ident) in chain):
                     continue
                 # J12-21: scope-gate the bare-instance admission (mirror
                 # of the W6b test above) — admit only when this instance's
@@ -1766,8 +2281,8 @@ def compute_field_flow(graph_data, target_table, target_field,
                 for fv in node_map.values():
                     if (fv.get("variable_type") in FIELD_LIKE
                             and fv.get("id") in visited
-                            and _occ_field_part(
-                                occ(fv.get("id"))) == target_field):
+                            and _fold(_occ_field_part(
+                                occ(fv.get("id")))) == _tf):
                         fctx = fv.get("context") or ""
                         if (fctx == sctx
                                 or fctx.startswith(sctx.rstrip("/") + "/")):
@@ -1785,6 +2300,64 @@ def compute_field_flow(graph_data, target_table, target_field,
         _log.warning("compute_field_flow fixpoint hit the 100-round cap "
                      "(%d nodes in closure) for %s.%s — closure may be "
                      "incomplete", len(visited), target_table, target_field)
+
+    # ── R46c (v3.3.195): the value-cone admission gate — AD3 §Q2, the
+    #    adjudicated R-GATE ────────────────────────────────────────────
+    # The fixpoint above answers "what does this field's value reach"; it
+    # over-admits at the CO-WRITTEN level: every statement on the value's
+    # path writes a whole projection list, and the R29 continuation then
+    # carries those siblings into the closure as if they were the field.
+    # FSB's audit of EAST5 measured the served flow-only closure at
+    # ~54% OVER-INCLUSION for exactly that reason. The user ruling behind
+    # item 48 ("only edges where the searched field is involved in the
+    # data flow are shown") is the same statement at the walker level.
+    #
+    # The gate is a POST-FILTER over `visited` — it never walks, never
+    # reconstructs, never reads the display `reason` string; every test
+    # below is a model fact the walk already computed. Monotone fixpoint,
+    # same 100-round cap, downstream only (upstream is the transitive
+    # WRITING chain and is API-unreachable since K4 ruling 4 — the same
+    # direction scoping as the R44 rounds and the Issue-3 admission).
+    #
+    #   CHIPS admitted (A):
+    #     1. the W1 seeds — the searched field's occurrences on the
+    #        searched table's entities (incl. the #399 alias expansion
+    #        and FSC-1's owner-less bare columns);
+    #     2. same-name chips on an ADMITTED box — the value's read/write
+    #        slots in the other statements of the chain (the ONLY
+    #        same-name rule; "same-name anywhere" is the phantom-seed
+    #        defect AD3 rejected);
+    #     3. the forward value cone — chip → chip over CONE_EDGES;
+    #     4. the direct producers of an admitted write-slot chip (one hop
+    #        backward over CONE_EDGES — never transitive upstream, K4.3).
+    #   BOXES admitted (the display compounds, R22 label-keyed merge):
+    #     5. the owner box of every admitted chip;
+    #     6. both box endpoints of a FIELD-JUSTIFIED leg. A leg is field-
+    #        justified when the walker's own admission rules say so —
+    #        D2 (the statement's write leg carries the searched field),
+    #        the R29 carry (the target's statement row-selects the field
+    #        — `_sel_stmts`, which is what keeps the E5D4/D5-class
+    #        statement write legs canonical), W6b (a VT endpoint whose
+    #        context hosts a visited field var carrying the field part —
+    #        the CTE/FROM chain legs), W3 (an ALIAS into the searched
+    #        table) — plus clause (a): an endpoint chip is admitted.
+    #     Everything else drops, and the edges drop with their endpoints
+    #     through `filter_by_field_flow`'s existing both-ends test. A
+    #     belongs-to SCHEMA edge of a dropped sibling chip therefore
+    #     disappears for free — no suppression machinery is added here.
+    #
+    #   RECALL GUARD (AD3, corrected RFN numbers): the gate keeps the
+    #   per-closure set of OWN-occurrence anchor lines (the searched
+    #   field's occurrences on the searched table's entities that the
+    #   walk reached) and refuses to lose one: a line whose every anchor
+    #   would be dropped re-admits its own chips, their owner box and
+    #   their pre-gate neighbours. In practice the seeds already carry
+    #   every own chip and a chip's incident edges always survive, so the
+    #   guard is a safety net — `test_occurrence_coverage_own_edge` pins
+    #   the honest own-edge coverage per flagship so it stays that way.
+    if direction == "downstream" and _VALUE_CONE_GATE and visited:
+        visited = _value_cone_gate(visited)
+
 
     # ── ROW_FLOW bridges (#226, 2026-08-13): the R29 continuation rounds
     # may have admitted continuation TARGETS as NODES with no edge back to
@@ -2103,6 +2676,9 @@ def flow_source_id(graph_data, target_table, physical_model=None) -> str | None:
     if not graph_data or not target_table:
         return None
     for vid, o in physical_model.occurrences.items():
-        if o.get("variable_type") in ("table", "view") and o.get("name") == target_table:
+        # R46e: folded — the served flow SOURCE must not depend on the
+        # casing the caller typed (H7 site 2056).
+        if (o.get("variable_type") in ("table", "view")
+                and _fold(o.get("name")) == _fold(target_table)):
             return vid
     return None

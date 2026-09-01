@@ -71,40 +71,6 @@
       },
       {
         "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 27,
-          "id": "l2e_ea88c90a8232",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ss_ext_sales_price@L27 \u2192 promotions@L5\u2016",
-          "source": "fld_f1f4ffff9f",
-          "target": "l2_tbl_292f4bd9ac",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 27,
-          "id": "l2e_04e69efa518b",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ss_ext_sales_price@L27 \u2192 total@L27\u2016",
-          "source": "fld_f1f4ffff9f",
-          "target": "l2_tbl_17788ed29b",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -138,7 +104,7 @@
         }
       }
     ],
-    "filtered_nodes": 9,
+    "filtered_nodes": 8,
     "nodes": [
       {
         "data": {
@@ -213,19 +179,6 @@
       {
         "data": {
           "field_group": "direct",
-          "id": "fld_f1f4ffff9f",
-          "is_target": false,
-          "label": "ss_ext_sales_price",
-          "line_start": 27,
-          "orig_type": "column",
-          "original_id": "f3c4def08576787a",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "direct",
           "id": "fld_37fc37c4d9",
           "is_target": false,
           "label": "promotions",
@@ -267,8 +220,8 @@
     "script_name": "61.sql",
     "search_matched": true,
     "target": "\u27d0 output.CASTpromotions_AS_DECIMAL15,",
-    "total_edges": 8,
-    "total_nodes": 9
+    "total_edges": 6,
+    "total_nodes": 8
   },
   "full": {
     "edges": [

@@ -3720,6 +3720,23 @@
       },
       {
         "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "row flow",
+          "highlight_line": 94,
+          "id": "l2e_08c703e191ca",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "row flow (row selection) \u2014 \u2016a.dkzt@L94 \u2192 \u27d0 output@L19\u2016 \u2192 SUBSTRING(A.HKZH, 1, 9)@L81 \u2192 bdm_acc_loan_info@L19",
+          "source": "l2_tbl_2669804682",
+          "target": "l2_tbl_321fb68abc",
+          "width": 2
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -13104,7 +13121,7 @@
     "script_name": "BDM_ACC_LOAN_INFO_PL.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 465,
+    "total_edges": 466,
     "total_nodes": 383
   },
   "script_name": "BDM_ACC_LOAN_INFO_PL.sql",

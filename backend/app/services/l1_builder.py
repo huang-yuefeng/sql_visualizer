@@ -13,7 +13,8 @@ import threading
 from collections import OrderedDict
 
 from app.services.workspace_service import get_workspace_dir
-from app.extractor.lineage import compute_field_lineage, compute_field_flow, PRODUCTION_EDGES
+from app.extractor.lineage import (compute_field_lineage, compute_field_flow,
+                                   PRODUCTION_EDGES, _fold)
 from app.extractor.physical_model import build_physical_model
 from app.extractor.variable_extractor_v2 import EXTRACTOR_VERSION
 from app.services.logger import _push
@@ -51,6 +52,11 @@ def detect_role(script_analysis: dict, target_table: str, target_field: str) -> 
     Resolves table aliases: if a column is named "sc.customer_id"
     and sc is an alias for stg_customers, it matches target_table="stg_customers".
     """
+    # R46e: the folded search identity — every comparison below is
+    # folded on BOTH sides, so the L1 role read does not depend on the
+    # casing the search was typed in (the index hands back the canonical
+    # spelling, the script wrote its own).
+    _tt, _tf = _fold(target_table), _fold(target_field)
     # Graph uses nodes (not variables) and edges (not dependencies)
     nodes = script_analysis.get("nodes", [])
     # Also support raw analysis format with "variables" key
@@ -100,25 +106,25 @@ def detect_role(script_analysis: dict, target_table: str, target_field: str) -> 
         matches = False
 
         # 1. Exact full name match
-        if target_full in name:
+        if _fold(target_full) in _fold(name):
             matches = True
 
         # 2. Alias-resolved match: "sc.customer_id" where sc->stg_customers
         if not matches and "." in name:
             prefix, suffix = name.split(".", 1)
             resolved = alias_map.get(prefix, prefix)
-            if resolved == target_table and suffix == target_field:
+            if _fold(resolved) == _tt and _fold(suffix) == _tf:
                 matches = True
 
         # 3. Suffix match: "sc.customer_id" field part matches target_field
         if not matches and "." in name:
             suffix = name.rsplit(".", 1)[-1]
-            if suffix == target_field:
+            if _fold(suffix) == _tf:
                 matches = True
 
         # 4. Bare field match (no table prefix at all)
         if not matches and "." not in name:
-            if name == target_field:
+            if _fold(name) == _tf:
                 matches = True
 
         # 5. source_columns match
@@ -129,12 +135,14 @@ def detect_role(script_analysis: dict, target_table: str, target_field: str) -> 
                 # regex matched the alias/table part too (target_field="item"
                 # vs "item.i_brand"), attributing roles for the wrong field.
                 sc_field = sc.rsplit(".", 1)[-1] if "." in sc else sc
-                if target_full in sc or sc_field == target_field:
+                if (_fold(target_full) in _fold(sc)
+                        or _fold(sc_field) == _tf):
                     matches = True
                     break
                 if "." in sc:
                     sp, ss = sc.split(".", 1)
-                    if alias_map.get(sp, sp) == target_table and ss == target_field:
+                    if (_fold(alias_map.get(sp, sp)) == _tt
+                            and _fold(ss) == _tf):
                         matches = True
                         break
 
@@ -179,13 +187,13 @@ def detect_role(script_analysis: dict, target_table: str, target_field: str) -> 
         def dep_matches(dep_name):
             if not dep_name:
                 return False
-            if target_full in dep_name:
+            if _fold(target_full) in _fold(dep_name):
                 return True
             if "." in dep_name:
                 p, s = dep_name.split(".", 1)
-                if alias_map.get(p, p) == target_table and s == target_field:
+                if _fold(alias_map.get(p, p)) == _tt and _fold(s) == _tf:
                     return True
-            if "." not in dep_name and dep_name == target_field:
+            if "." not in dep_name and _fold(dep_name) == _tf:
                 return True
             return False
 

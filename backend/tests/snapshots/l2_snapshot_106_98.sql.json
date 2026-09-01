@@ -51,26 +51,9 @@
           "target": "l2_tbl_c4dddf7851",
           "width": 2
         }
-      },
-      {
-        "data": {
-          "category": "aggregate",
-          "color": "#9B59B6",
-          "desc": "ROW_NUMBER/RANK/LAG",
-          "edge_type": "WINDOW",
-          "flow_kind": "field flow",
-          "highlight_line": 7,
-          "id": "l2e_bb73026fba67",
-          "label": "WINDOW",
-          "line_style": "dashed",
-          "reason": "field flow (window step) \u2014 \u2016i_class@L4 \u2192 revenueratio@L7\u2016",
-          "source": "fld_cf6fe32800",
-          "target": "l2_tbl_c4dddf7851",
-          "width": 2
-        }
       }
     ],
-    "filtered_nodes": 5,
+    "filtered_nodes": 4,
     "nodes": [
       {
         "data": {
@@ -84,19 +67,6 @@
           "table_name": "\u27d0 output",
           "type": "intermediate_table",
           "variable_type": "virtual_table"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_cf6fe32800",
-          "is_target": false,
-          "label": "i_class",
-          "line_start": 4,
-          "orig_type": "column",
-          "original_id": "70476768b3f3d51d",
-          "type": "field",
-          "variable_type": "field"
         }
       },
       {
@@ -144,8 +114,8 @@
     "script_name": "98.sql",
     "search_matched": true,
     "target": "\u27d0 output.itemrevenue",
-    "total_edges": 4,
-    "total_nodes": 5
+    "total_edges": 3,
+    "total_nodes": 4
   },
   "full": {
     "edges": [

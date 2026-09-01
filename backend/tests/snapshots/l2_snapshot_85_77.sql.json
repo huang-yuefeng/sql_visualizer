@@ -3,23 +3,6 @@
     "edges": [
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 1,
-          "id": "l2e_de353de6cff9",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 \u2016ss@L1 \u2192 \u27d0 output@L93\u2016",
-          "source": "l2_tbl_b4c5629493",
-          "target": "l2_tbl_a8d1bb7db4",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "aggregate",
           "color": "#8E44AD",
           "desc": "SUM/COUNT/AVG",
@@ -54,40 +37,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 23,
-          "id": "l2e_3ec2e5a6a235",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 \u2016cs@L23 \u2192 \u27d0 output@L93\u2016",
-          "source": "l2_tbl_ca2cb358e0",
-          "target": "l2_tbl_a8d1bb7db4",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 25,
-          "id": "l2e_25cb6790907f",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016cs_ext_sales_price@L25 \u2192 sales@L25\u2016",
-          "source": "fld_7a4495110b",
-          "target": "fld_1e7ae16aaa",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -105,40 +54,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 41,
-          "id": "l2e_58a35d774baa",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 \u2016ws@L41 \u2192 \u27d0 output@L93\u2016",
-          "source": "l2_tbl_41d37facdf",
-          "target": "l2_tbl_a8d1bb7db4",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 43,
-          "id": "l2e_327550648c1a",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ws_ext_sales_price@L43 \u2192 sales@L43\u2016",
-          "source": "fld_c683d3effc",
-          "target": "fld_8861cdecbb",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -152,23 +67,6 @@
           "source": "l2_tbl_41d37facdf",
           "target": "fld_8861cdecbb",
           "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 63,
-          "id": "l2e_e8f1a4735afe",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 \u2016results@L63 \u2192 \u27d0 output@L93\u2016",
-          "source": "l2_tbl_4e25037a49",
-          "target": "l2_tbl_a8d1bb7db4",
-          "width": 3
         }
       },
       {
@@ -342,7 +240,7 @@
         }
       }
     ],
-    "filtered_nodes": 19,
+    "filtered_nodes": 16,
     "nodes": [
       {
         "data": {
@@ -444,20 +342,6 @@
       },
       {
         "data": {
-          "context": "TOP0",
-          "defined_in": "TOP0",
-          "id": "l2_tbl_a8d1bb7db4",
-          "label": "output",
-          "line_end": 113,
-          "line_start": 93,
-          "original_id": "130a007273bf6c34",
-          "table_name": "\u27d0 output",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
-        }
-      },
-      {
-        "data": {
           "context": "TOP0/subq/foo/union0/union0",
           "defined_in": "TOP0/subq/foo/union0/union0",
           "id": "l2_tbl_a1d8c371a5",
@@ -542,19 +426,6 @@
       {
         "data": {
           "field_group": "direct",
-          "id": "fld_7a4495110b",
-          "is_target": false,
-          "label": "cs_ext_sales_price",
-          "line_start": 25,
-          "orig_type": "column",
-          "original_id": "1d028480eb5db058",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "direct",
           "id": "fld_8861cdecbb",
           "is_target": false,
           "label": "sales",
@@ -562,19 +433,6 @@
           "orig_type": "aggregate",
           "original_id": "60414fd7e314a6fc",
           "parent": "l2_tbl_41d37facdf",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "direct",
-          "id": "fld_c683d3effc",
-          "is_target": false,
-          "label": "ws_ext_sales_price",
-          "line_start": 43,
-          "orig_type": "column",
-          "original_id": "d25df51feaf7fe6a",
           "type": "field",
           "variable_type": "field"
         }
@@ -611,8 +469,8 @@
     "script_name": "77.sql",
     "search_matched": true,
     "target": "ss.sales",
-    "total_edges": 20,
-    "total_nodes": 24
+    "total_edges": 14,
+    "total_nodes": 21
   },
   "full": {
     "edges": [

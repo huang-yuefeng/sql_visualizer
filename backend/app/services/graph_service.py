@@ -1,6 +1,8 @@
 """
 Graph Service — builds Cytoscape.js-compatible graph data from analysis results.
 """
+import json
+from pathlib import Path
 
 from app.models.variable import VariableType
 
@@ -328,3 +330,141 @@ def build_graph_data(analysis: dict) -> dict:
         # P5: Alias → canonical name map (pre-built, model-projected)
         "alias_map": alias_map,
     }
+
+
+# ── FSC-2 (v3.3.195): the graph cache's alias-truth companion ──────────
+#
+# THE SNAPSHOT-INTEGRITY HOLE THIS CLOSES: the served L2 closure must be a
+# pure function of the SQL text, but until this artifact existed it also
+# depended on WHICH cache survived the restart/purge cycle. The graph cache
+# serializes nodes WITHOUT `alias_of` (the I4 extraction fact that names
+# the exact source var an alias pairs with), so a graph-cache hit that
+# finds no current analysis cache rebuilds the physical model through
+# physical_model's label-keyed alias FALLBACK — and that fallback
+# mis-assigns aliases whenever a label is reused across scopes (measured
+# on samples/sql_sample_v1/BDM_ACC_LOAN_INFO_RFN.sql: 28 of 74
+# `alias_by_var_id` pairs differ between the two input forms, e.g. var
+# 15b561ec4099c7c3 → `bdm_acc_loan_info` (the analysis truth) vs
+# `ODS_IFAI_FCLETWK` (the label-rule guess); SUP_M 4 of 14). Same SQL,
+# two different answers, decided by an artifact's survival.
+#
+# The fix is persistence, not a smarter fallback: the build that WRITES a
+# graph cache also writes this sibling file carrying the analysis path's
+# alias truth, so every later graph-cache-hit model build re-derives the
+# SAME model the analysis path produced (byte-identical models, proven by
+# tests/test_model_persistence.py). Nothing else about the model is
+# persisted — the graph cache itself already carries every other input the
+# model consumes (occurrence index, source_tables, edges).
+#
+# Naming: the prefix lives HERE (not cache_keys.py) because both of this
+# artifact's consumers — `_load_or_build_graph` and
+# `dataflow_service.get_level2_graph` — already take their graph-cache
+# contract from the graph-serialization module; GRAPH_CACHE_PREFIX stays
+# the single source of truth for the graph cache itself.
+MODEL_CACHE_PREFIX = "model"             # + "_" + <cache_key> + ".json"
+
+# The artifact's own contract version, independent of the graph cache's
+# `format_version`: bump when the payload shape changes. A reader that
+# finds any other value ignores the file and falls back to the pre-FSC-2
+# rebuild (old caches without the file fall back the same way — no hard
+# break, by design).
+MODEL_CACHE_FORMAT_VERSION = 1
+
+
+def extract_alias_of(analysis: dict) -> dict:
+    """The minimal alias truth of one analysis: `{var_id: source_var_id}`.
+
+    Only non-empty `alias_of` entries are kept — the map is the extraction
+    fact (I4), never a guess, so an id absent from it simply means "not an
+    alias", which is exactly what the graph-data form already assumes.
+    Insertion order is variable order (deterministic; JSON round-trips it).
+    """
+    out = {}
+    for v in (analysis or {}).get("variables", []) or []:
+        if isinstance(v, dict):
+            vid, src = v.get("id"), v.get("alias_of")
+        else:
+            vid, src = getattr(v, "id", None), getattr(v, "alias_of", None)
+        if vid and src:
+            out[vid] = src
+    return out
+
+
+def write_model_cache(path, cache_key: str, extractor_version: str,
+                      analysis: dict) -> int:
+    """Persist the analysis path's alias truth BESIDE the graph cache.
+
+    Called from the same build that writes the graph cache, from the SAME
+    analysis dict that graph was built from — so the artifact can never
+    describe a graph other than its sibling's. Returns the number of alias
+    entries written. Atomic write (P1's shared helper): a concurrent
+    reader of the cache dir must never see a torn artifact.
+    """
+    from app.services.atomic_io import atomic_write_text
+    alias_of = extract_alias_of(analysis)
+    payload = {
+        "format_version": MODEL_CACHE_FORMAT_VERSION,
+        "extractor_version": extractor_version,
+        # Identity guard (mirror of folder_index_service._load_evidence):
+        # the key is content-derived, so a file can only ever be read for
+        # the script whose bytes produced it.
+        "cache_key": cache_key,
+        "alias_count": len(alias_of),
+        "alias_of": alias_of,
+    }
+    atomic_write_text(path, json.dumps(payload, indent=1, sort_keys=True))
+    return len(alias_of)
+
+
+def load_model_cache(path, cache_key: str, extractor_version: str) -> dict:
+    """Read the persisted alias truth back — `{}` when it cannot be used.
+
+    Every guard failure (absent / corrupt / other contract version / other
+    extractor / other cache_key / wrong payload shape) returns `{}`, which
+    the callers treat as "no persisted truth": they fall back to the
+    pre-FSC-2 graph-data rebuild instead of guessing from a file that does
+    not describe THIS script. A stale artifact can therefore never poison a
+    model — it can only be ignored.
+    """
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    if (payload.get("format_version") != MODEL_CACHE_FORMAT_VERSION
+            or payload.get("extractor_version") != extractor_version
+            or payload.get("cache_key") != cache_key):
+        return {}
+    alias_of = payload.get("alias_of")
+    if not isinstance(alias_of, dict):
+        return {}
+    return {k: v for k, v in alias_of.items()
+            if isinstance(k, str) and isinstance(v, str)}
+
+
+def graph_with_alias_of(graph: dict, alias_of: dict) -> dict:
+    """The graph-data form of `graph` with the persisted `alias_of` put back.
+
+    Returns a graph-shaped dict (`nodes`/`edges`/`script_name`) whose node
+    dicts are SHALLOW COPIES carrying the extra `alias_of` key — the input
+    `graph` (the served payload, and the caller's cache object) is never
+    mutated, so the persisted fact stays a model-build input and never
+    leaks into a response.
+    """
+    if not alias_of:
+        return graph
+    nodes = []
+    for n in graph.get("nodes", []):
+        data = n.get("data", n) if isinstance(n, dict) else n
+        src = alias_of.get(data.get("id", ""))
+        if not src:
+            nodes.append(n)
+            continue
+        data = dict(data)
+        data["alias_of"] = src
+        nodes.append({"data": data} if isinstance(n, dict) and "data" in n
+                     else data)
+    out = dict(graph)
+    out["nodes"] = nodes
+    return out

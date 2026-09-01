@@ -34,60 +34,9 @@
           "target": "fld_efc24b55a7",
           "width": 1
         }
-      },
-      {
-        "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 19,
-          "id": "l2e_3249f594622b",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016customer_address@L19 \u2192 \u27d0 dn@L10\u2016",
-          "source": "l2_tbl_3ef399d8a3",
-          "target": "l2_tbl_5b9ffe9592",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 19,
-          "id": "l2e_4feb983643e6",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read \u2014 \u2016dn@L36 \u2192 customer_address@L19\u2016",
-          "source": "l2_tbl_e9968c518b",
-          "target": "l2_tbl_3ef399d8a3",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "combine",
-          "color": "#16A085",
-          "desc": "Subquery reference",
-          "edge_type": "SUBQUERY",
-          "flow_kind": "field flow",
-          "highlight_line": 36,
-          "id": "l2e_6ed3a2df0b57",
-          "label": "SUBQUERY",
-          "line_style": "dotted",
-          "reason": "field flow (combine step) \u2014 \u2016dn@L36 \u2192 \u27d0 dn@L10\u2016",
-          "source": "l2_tbl_e9968c518b",
-          "target": "l2_tbl_5b9ffe9592",
-          "width": 2
-        }
       }
     ],
-    "filtered_nodes": 5,
+    "filtered_nodes": 3,
     "nodes": [
       {
         "data": {
@@ -119,34 +68,6 @@
       },
       {
         "data": {
-          "context": "TOP0/subq/dn",
-          "defined_in": "TOP0/subq/dn",
-          "id": "l2_tbl_5b9ffe9592",
-          "label": "output(dn)",
-          "line_end": 46,
-          "line_start": 10,
-          "original_id": "964fba4e494eeade",
-          "table_name": "\u27d0 dn",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP0/subq/dn",
-          "defined_in": "JOIN",
-          "id": "l2_tbl_3ef399d8a3",
-          "label": "customer_address",
-          "line_end": 46,
-          "line_start": 19,
-          "original_id": "b279d741cf40728a",
-          "table_name": "customer_address",
-          "type": "source_table",
-          "variable_type": "table"
-        }
-      },
-      {
-        "data": {
           "field_group": "direct",
           "id": "fld_efc24b55a7",
           "is_target": true,
@@ -163,8 +84,8 @@
     "script_name": "46.sql",
     "search_matched": true,
     "target": "dn.bought_city",
-    "total_edges": 5,
-    "total_nodes": 6
+    "total_edges": 2,
+    "total_nodes": 3
   },
   "full": {
     "edges": [

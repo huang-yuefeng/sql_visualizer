@@ -192,12 +192,21 @@ class TestFixADerivedContainerScope:
         What Fix A stage 1 still guarantees is narrower and is what this
         repro now pins: the container is nobody's DERIVED PRODUCT, so its
         scope never LENDS the same-named column to src_a's occurrences — the
-        admission rides the value chain, never scope presence. Residual,
-        recorded not endorsed: src_b's same-named `dt` comes along through
-        the extractor's own sibling same-name REFERENCE edge (dt@7 → dt@6, a
-        graph-level fact `build_dependency_graph` emitted before this repair
-        too — deps count is identical before and after), so it is the
-        extractor's co-scope wiring, not the holder gate, that admits it."""
+        admission rides the value chain, never scope presence.
+
+        TEAM V7 (2026-09-01): the residual V3 recorded — "src_b's same-named
+        `dt` comes along through the extractor's own sibling same-name
+        REFERENCE edge (dt@7 → dt@6)" — is RETIRED. The edge is still a
+        graph-level fact `build_dependency_graph` emits (deps count identical
+        before and after, pinned below), but the WALKER no longer admits it:
+        a same-name REFERENCE between two chips on DIFFERENT owner entities
+        is the cross-table phantom class (the two endpoints are different
+        FIELDS — the same name on two tables), so the R-GATE's value cone
+        neither crosses it nor lets it admit its box (USER RULE: "only the
+        field involved into the data flow is shown"). `s1`@6, which the same
+        cone rule had also dropped, is back: the container that delivers the
+        searched table's value (`_holder_is_derived_single` on src_a) IS on
+        the field's flow path."""
         res, deps, pm, closure = _closure(SRC_A_SRC_B, "src_a", "dt")
         # the searched side keeps its own occurrences
         assert {("dt", 6), ("s1", 6), ("src_a", 6)} <= closure, closure
@@ -205,6 +214,19 @@ class TestFixADerivedContainerScope:
         # the container's own handle is still never admitted
         assert ("k.dt", 3) in closure, closure
         assert not any(n == "k" for n, _ in closure), closure
+        # V7: src_b's same-named `dt` is a DIFFERENT field (same name, other
+        # table) — neither its chip nor any of its box's handles joins.
+        assert ("dt", 7) not in closure, closure
+        assert ("src_b", 7) not in closure, closure
+        assert ("⟐ s2", 7) not in closure, closure
+        # ... and the exclusion is a WALKER decision, not an extraction one:
+        # the co-scope REFERENCE edge is still in the dependency graph.
+        _id = {v.id: (v.name, v.line_start) for v in res.variables}
+        phantom = [d for d in deps
+                   if d.relationship == "REF"
+                   and _id.get(d.source_id) == ("dt", 7)
+                   and _id.get(d.target_id) == ("dt", 6)]
+        assert phantom, "the extractor's same-name REFERENCE edge vanished"
         # ... and the admission was NOT the holder lending its scope: on an
         # empty value chain the derived container still refuses to qualify.
         from app.extractor.lineage import _holder_is_derived_single

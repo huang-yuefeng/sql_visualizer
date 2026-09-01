@@ -10,8 +10,15 @@ from pathlib import Path
 from dataclasses import dataclass, field
 
 from app.services.cache_keys import GRAPH_CACHE_PREFIX
+from app.services.graph_service import (
+    MODEL_CACHE_PREFIX,
+    load_model_cache,
+    write_model_cache,
+    graph_with_alias_of,
+)
 from app.services.workspace_service import get_workspace_dir
-from app.extractor.lineage import (
+from app.extractor.lineage import ( \
+    _fold,
     compute_field_lineage,
     filter_graph_by_lineage,
     filter_by_field_flow,
@@ -319,6 +326,9 @@ def _filter_l1_by_lineage(l1_graph: dict, target_table: str, target_field: str) 
     """
     nodes = l1_graph.get("nodes", [])
     edges = l1_graph.get("edges", [])
+    # R46e: the folded search identity, hoisted above the first node scan —
+    # the L1 field filter folds BOTH sides of every (table, field) compare.
+    _tt, _tf = _fold(target_table), _fold(target_field)
 
     # Identify target field nodes in L1: field nodes whose field_name matches
     # and parent table matches target_table
@@ -329,7 +339,7 @@ def _filter_l1_by_lineage(l1_graph: dict, target_table: str, target_field: str) 
         if nd.get("type") == "field":
             tname = nd.get("table_name", "")
             fname = nd.get("field_name", nd.get("label", "").lstrip("★"))
-            if tname == target_table and fname == target_field:
+            if _fold(tname) == _tt and _fold(fname) == _tf:
                 lineage_field_ids.add(nd.get("id"))
                 lineage_table_ids.add(nd.get("parent", ""))
 
@@ -341,6 +351,10 @@ def _filter_l1_by_lineage(l1_graph: dict, target_table: str, target_field: str) 
     # Convert to dict for O(1) lookup: key = (table_name, field_name)
     if isinstance(lineage_pairs, list):
         lineage_pairs = set(tuple(p) for p in lineage_pairs)
+    # R46e: the pair keys are folded too — the lineage pairs come from the
+    # same walker that folds, and the node's (table, field) carries the
+    # script's own casing.
+    _folded_pairs = {(_fold(t), _fold(f)) for (t, f) in lineage_pairs}
     filtered_nodes = []
     for n in nodes:
         nd = n.get("data", n)
@@ -349,7 +363,7 @@ def _filter_l1_by_lineage(l1_graph: dict, target_table: str, target_field: str) 
             tname = nd.get("table_name", "")
             fname = nd.get("field_name", nd.get("label", "").lstrip("★"))
             # Accept if (table_name, field_name) is in the lineage set
-            if (tname, fname) in lineage_pairs:
+            if (_fold(tname), _fold(fname)) in _folded_pairs:
                 filtered_nodes.append(n)
                 lineage_field_ids.add(nd.get("id"))
                 lineage_table_ids.add(nd.get("parent", ""))
@@ -497,6 +511,11 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
     # cached graph; miss: the same analysis the graph was built from).
     physical_model = None
     schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
+    # FSC-2 (v3.3.195): the alias-truth companion of the graph cache —
+    # written by every build below, read by every graph-cache hit that
+    # cannot rebuild the model from an analysis cache (mirror of
+    # l2_builder._load_or_build_graph).
+    model_cache_path = cache_dir / f"{MODEL_CACHE_PREFIX}_{cache_key}.json"
 
     # Try pre-computed graph cache (C3: shared GRAPH_CACHE_PREFIX — writers
     # and readers must agree on the versioned name)
@@ -530,8 +549,8 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
             else:
                 # J12-10 stage 3: prefer the analysis cache (the alias_of
                 # extraction truth) for the physical model — mirror of
-                # l2_builder._load_or_build_graph; a bare graph-cache hit
-                # falls back to the cached graph data below.
+                # l2_builder._load_or_build_graph; then the persisted alias
+                # truth (FSC-2), and only then the cached graph data.
                 analysis_cache_path = cache_dir / f"analysis_{cache_key}.json"
                 if analysis_cache_path.exists():
                     try:
@@ -544,8 +563,19 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
                         physical_model = build_physical_model(
                             cached_analysis, script_name=script_name)
                 # Bare graph-cache hit (never indexed / analysis cache
-                # absent or stale): rebuild the model from the cached
-                # graph data — mirror of l2_builder._load_or_build_graph.
+                # absent or stale): rebuild the model from the persisted
+                # alias truth beside this graph cache (FSC-2, v3.3.195 —
+                # the model it rebuilds is byte-identical to the
+                # analysis-cache model), and only when that artifact is
+                # absent (a pre-FSC-2 cache) from the cached graph data —
+                # mirror of l2_builder._load_or_build_graph.
+                if physical_model is None:
+                    alias_of = load_model_cache(
+                        model_cache_path, cache_key, EXTRACTOR_VERSION)
+                    if alias_of:
+                        physical_model = build_physical_model(
+                            graph_with_alias_of(graph_data, alias_of),
+                            script_name=script_name)
                 if physical_model is None:
                     physical_model = build_physical_model(
                         graph_data, script_name=script_name)
@@ -600,6 +630,13 @@ def get_level2_graph(ws_id: str, view_id: str, script_name: str,
         # E4) reads it unversioned.
         graph_data["extractor_version"] = EXTRACTOR_VERSION
         _atomic_write_text(graph_cache_path, json.dumps(graph_data, default=str))
+        # FSC-2 (v3.3.195): persist the alias truth beside the graph cache,
+        # from the SAME analysis the graph above was built from — a later
+        # graph-cache hit that has lost its analysis cache re-derives the
+        # model this build made instead of guessing aliases by label
+        # (mirror of l2_builder._load_or_build_graph).
+        write_model_cache(model_cache_path, cache_key, EXTRACTOR_VERSION,
+                          result)
         # J12-10 stage 3: the model is built once, from the analysis the
         # graph was built from (the extraction truth — alias_of rides it).
         physical_model = build_physical_model(

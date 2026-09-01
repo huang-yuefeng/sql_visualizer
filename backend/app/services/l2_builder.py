@@ -20,6 +20,10 @@ from app.services.graph_service import (
     get_category as _get_category,
     EDGE_TYPE_STYLE,
     CATEGORY_MAP,
+    MODEL_CACHE_PREFIX,
+    load_model_cache,
+    write_model_cache,
+    graph_with_alias_of,
 )
 from app.extractor.schema_inference import infer_table_schemas
 from app.extractor.physical_model import build_physical_model
@@ -158,10 +162,13 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
     is derived from — never at render (never-patch rule). On the build path
     the model is built from the analysis result (the alias_of extraction
     truth); on a graph-cache hit it is rebuilt from the analysis cache when
-    present and current (same extraction truth), else from the cached graph
-    data (the graph cache does not serialize alias_of, so the model falls
-    back to the label-keyed alias rule there — the stage-2 gate pins the
-    decisions byte-identical on both forms).
+    present and current (same extraction truth), else from the persisted
+    alias truth beside the graph cache (FSC-2, v3.3.195) — and only when
+    neither survives from the cached graph data (the graph cache does not
+    serialize alias_of, so that last resort falls back to the label-keyed
+    alias rule). The stage-2 gate pins the decisions byte-identical on the
+    analysis and persisted-truth forms; the label-rule fallback is the
+    pre-FSC-2 behavior kept for caches written before the artifact existed.
     """
     from app.services.logger import stage_graph
 
@@ -183,6 +190,10 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
     graph_cache_path = cache_dir / f"{GRAPH_CACHE_PREFIX}_{cache_key}.json"
     schemas_cache_path = cache_dir / f"schemas_{cache_key}.json"
     analysis_cache_path = cache_dir / f"analysis_{cache_key}.json"
+    # FSC-2 (v3.3.195): the alias-truth companion of the graph cache —
+    # written by every build below, read by every graph-cache hit that
+    # cannot rebuild the model from an analysis cache.
+    model_cache_path = cache_dir / f"{MODEL_CACHE_PREFIX}_{cache_key}.json"
     full_graph = None
     _table_schemas = None
     if graph_cache_path.exists():
@@ -227,8 +238,11 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
                 _table_schemas = json.loads(schemas_cache_path.read_text())
             # J12-10 stage 2: the physical model rides the same build —
             # prefer the analysis cache (alias_of truth) when present and
-            # current; a bare graph-cache hit (snapshot-harness workspaces
-            # are never indexed) rebuilds it from the cached graph data.
+            # current; next the persisted alias truth beside this very
+            # graph cache (FSC-2 — the model it rebuilds is byte-identical
+            # to the analysis-cache model); a bare graph-cache hit from a
+            # pre-FSC-2 build (snapshot-harness workspaces are never
+            # indexed) is the only path left on the label-keyed fallback.
             physical_model = None
             if analysis_cache_path.exists():
                 try:
@@ -240,6 +254,13 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
                         == EXTRACTOR_VERSION):
                     physical_model = build_physical_model(
                         cached_analysis, script_name=script_name)
+            if physical_model is None:
+                alias_of = load_model_cache(
+                    model_cache_path, cache_key, EXTRACTOR_VERSION)
+                if alias_of:
+                    physical_model = build_physical_model(
+                        graph_with_alias_of(full_graph, alias_of),
+                        script_name=script_name)
             if physical_model is None:
                 physical_model = build_physical_model(
                     full_graph, script_name=script_name)
@@ -286,6 +307,16 @@ def _load_or_build_graph(ws_id: str, script_name: str, sql_text: str):
             result.get("variables", []), result.get("dependencies", []))
         # Bug 25: cache table_schemas alongside graph
         schemas_cache_path.write_text(json.dumps(_table_schemas, default=str))
+        # FSC-2 (v3.3.195): persist the alias truth beside the graph cache,
+        # from the SAME analysis the graph above was built from — a later
+        # graph-cache hit that has lost its analysis cache re-derives the
+        # model this build made instead of guessing aliases by label.
+        # Written even for an alias-free script: the file's presence is
+        # what says "this graph cache carries its truth", and it keeps the
+        # old-cache fallback test meaningful (a pre-FSC-2 graph cache has
+        # no sibling at all).
+        write_model_cache(model_cache_path, cache_key, EXTRACTOR_VERSION,
+                          result)
         # J12-10 stage 2: the model is built once, from the analysis the
         # graph was built from (the extraction truth — alias_of rides it).
         physical_model = build_physical_model(result, script_name=script_name)

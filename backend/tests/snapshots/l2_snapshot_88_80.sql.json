@@ -3,23 +3,6 @@
     "edges": [
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 1,
-          "id": "l2e_0f3322615fee",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 \u2016ssr@L1 \u2192 \u27d0 output@L85\u2016",
-          "source": "l2_tbl_da2626a78d",
-          "target": "l2_tbl_d7a5189244",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -50,23 +33,6 @@
           "source": "l2_tbl_da2626a78d",
           "target": "fld_75866f7874",
           "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 58,
-          "id": "l2e_a895b6f6978d",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (CTE chain) \u2014 \u2016results@L58 \u2192 \u27d0 output@L85\u2016",
-          "source": "l2_tbl_5306767756",
-          "target": "l2_tbl_d7a5189244",
-          "width": 3
         }
       },
       {
@@ -104,7 +70,7 @@
         }
       }
     ],
-    "filtered_nodes": 7,
+    "filtered_nodes": 6,
     "nodes": [
       {
         "data": {
@@ -144,20 +110,6 @@
           "line_start": 65,
           "original_id": "eee35c315a0133ef",
           "table_name": "\u27d0 union0",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP0",
-          "defined_in": "TOP0",
-          "id": "l2_tbl_d7a5189244",
-          "label": "output",
-          "line_end": 111,
-          "line_start": 85,
-          "original_id": "efe32b28d8ed0e45",
-          "table_name": "\u27d0 output",
           "type": "intermediate_table",
           "variable_type": "virtual_table"
         }
@@ -207,8 +159,8 @@
     "script_name": "80.sql",
     "search_matched": true,
     "target": "ssr.store_id",
-    "total_edges": 6,
-    "total_nodes": 8
+    "total_edges": 4,
+    "total_nodes": 7
   },
   "full": {
     "edges": [

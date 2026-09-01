@@ -122,40 +122,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 33,
-          "id": "l2e_b6988c5aa226",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (VT chain) \u2014 \u2016\u27d0 subq1@L33 \u2192 \u27d0 output@L13\u2016",
-          "source": "l2_tbl_319436a527",
-          "target": "l2_tbl_27f07fcffc",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 34,
-          "id": "l2e_3daf3328fa6f",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016ctr2@L34 \u2192 \u27d0 subq1@L33\u2016",
-          "source": "l2_tbl_9e1a338cc3",
-          "target": "l2_tbl_319436a527",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -189,7 +155,7 @@
         }
       }
     ],
-    "filtered_nodes": 7,
+    "filtered_nodes": 6,
     "nodes": [
       {
         "data": {
@@ -231,20 +197,6 @@
           "table_name": "ctr1",
           "type": "alias_table",
           "variable_type": "table"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP0/subq1",
-          "defined_in": "TOP0/subq1",
-          "id": "l2_tbl_319436a527",
-          "label": "output(subq1)",
-          "line_end": 38,
-          "line_start": 33,
-          "original_id": "2139e4721a9aa4fe",
-          "table_name": "\u27d0 subq1",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
         }
       },
       {
@@ -292,8 +244,8 @@
     "script_name": "81.sql",
     "search_matched": true,
     "target": "customer_total_return.ctr_customer_sk",
-    "total_edges": 11,
-    "total_nodes": 8
+    "total_edges": 9,
+    "total_nodes": 7
   },
   "full": {
     "edges": [

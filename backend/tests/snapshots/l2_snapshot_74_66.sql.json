@@ -3,74 +3,6 @@
     "edges": [
       {
         "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "field flow",
-          "highlight_line": 3,
-          "id": "l2e_53a35829f37e",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "field flow (value copy) \u2014 \u2016w_warehouse_sq_ft@L3 \u2192 w_warehouse_sq_ft@L49\u2016",
-          "source": "fld_1b531264ef",
-          "target": "l2_tbl_071f319e66",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "field flow",
-          "highlight_line": 3,
-          "id": "l2e_1653192c0b90",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "field flow (value copy) \u2014 \u2016w_warehouse_sq_ft@L3 \u2192 w_warehouse_sq_ft@L129\u2016",
-          "source": "fld_1b531264ef",
-          "target": "l2_tbl_2241112079",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 3,
-          "id": "l2e_02a7d169f6e3",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016w_warehouse_sq_ft@L3 \u2192 jan_sales_per_sq_foot@L22\u2016",
-          "source": "fld_1b531264ef",
-          "target": "fld_bc8a862250",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 3,
-          "id": "l2e_5c46aad65e73",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016w_warehouse_sq_ft@L3 \u2192 feb_sales_per_sq_foot@L23\u2016",
-          "source": "fld_1b531264ef",
-          "target": "l2_tbl_8fba42dcdf",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "aggregate",
           "color": "#8E44AD",
           "desc": "SUM/COUNT/AVG",
@@ -102,26 +34,9 @@
           "target": "fld_cf0a8ef7ed",
           "width": 1
         }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 120,
-          "id": "l2e_f3e305ac67d9",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read (value copy) \u2014 \u2016w_warehouse_sq_ft@L3 \u2192 x.w_warehouse_sq_ft@L120\u2016",
-          "source": "fld_1b531264ef",
-          "target": "fld_431220b27a",
-          "width": 1
-        }
       }
     ],
-    "filtered_nodes": 31,
+    "filtered_nodes": 25,
     "nodes": [
       {
         "data": {
@@ -135,75 +50,6 @@
           "table_name": "\u27d0 output",
           "type": "intermediate_table",
           "variable_type": "virtual_table"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP0/subq/x/union0",
-          "defined_in": "TOP0/subq/x/union0",
-          "id": "l2_tbl_071f319e66",
-          "label": "output(union0)",
-          "line_end": 216,
-          "line_start": 48,
-          "original_id": "eb52bf6aaade8243",
-          "table_name": "\u27d0 union0",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP0/subq/x/union1",
-          "defined_in": "TOP0/subq/x/union1",
-          "id": "l2_tbl_2241112079",
-          "label": "output(union1)",
-          "line_end": 216,
-          "line_start": 128,
-          "original_id": "3b6f39099b1232ca",
-          "table_name": "\u27d0 union1",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_2a87c33c2e",
-          "is_target": false,
-          "label": "w_warehouse_sq_ft",
-          "line_start": 49,
-          "orig_type": "column",
-          "original_id": "849d4a3d380f1a2c",
-          "parent": "l2_tbl_071f319e66",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_d9c19e51df",
-          "is_target": false,
-          "label": "w_warehouse_sq_ft",
-          "line_start": 129,
-          "orig_type": "column",
-          "original_id": "b8c07c567160adde",
-          "parent": "l2_tbl_2241112079",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "direct",
-          "id": "fld_1b531264ef",
-          "is_target": false,
-          "label": "w_warehouse_sq_ft",
-          "line_start": 3,
-          "orig_type": "column",
-          "original_id": "90695cc8eb22a7de",
-          "type": "field",
-          "variable_type": "field"
         }
       },
       {
@@ -541,26 +387,13 @@
           "type": "field",
           "variable_type": "field"
         }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_431220b27a",
-          "is_target": false,
-          "label": "w_warehouse_sq_ft",
-          "line_start": 120,
-          "orig_type": "column",
-          "original_id": "a86e5a02be6dbb97",
-          "type": "field",
-          "variable_type": "field"
-        }
       }
     ],
     "script_name": "66.sql",
     "search_matched": true,
     "target": "\u27d0 output.jan_sales",
-    "total_edges": 7,
-    "total_nodes": 31
+    "total_edges": 2,
+    "total_nodes": 25
   },
   "full": {
     "edges": [

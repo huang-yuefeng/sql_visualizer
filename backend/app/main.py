@@ -71,6 +71,17 @@ def purge_workspace_caches(root: Path | None = None) -> int:
     format_version/extractor_version stamps remain the read-time backstop
     for anything that slips through between restarts.
 
+    NEVER deletes `model_*.json` (FSC-2, v3.3.195) — the alias-truth
+    companion each graph cache is written with. Unlike the three patterns
+    above, this artifact cannot serve stale data: its reader
+    (graph_service.load_model_cache) requires the file's own contract
+    version, extractor version AND cache_key to match the request, and
+    ignores it otherwise, so keeping it buys no staleness risk while
+    keeping the FSC-2 guarantee intact — a graph cache that outlives its
+    analysis cache still re-derives the analysis-path model instead of
+    falling back to the label-keyed alias guess. Purging it would
+    reintroduce exactly the snapshot-integrity hole the artifact closes.
+
     Never touches views.json (user-created views are data, not cache) and
     never user scripts/samples. Index caches (pair_index/table_index/
     field_index/orphan_fields) are out of scope per the ruling.
@@ -87,6 +98,8 @@ def purge_workspace_caches(root: Path | None = None) -> int:
         cache_dir = ws_dir / "cache"
         if not cache_dir.is_dir():
             continue
+        # FSC-2: `model_*.json` is deliberately absent from this list —
+        # see the docstring above.
         for pattern in ("graph_*.json", "analysis_*.json", "schemas_*.json"):
             for path in cache_dir.glob(pattern):
                 try:
