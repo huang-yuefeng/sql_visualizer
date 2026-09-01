@@ -17,6 +17,13 @@ IMAGE_FILE="$IMAGE_DIR/gps-sql-visualizer.tar.gz"
 IMAGE_NAME="gps-sql-visualizer"
 CONTAINER_NAME="gps-sql"
 
+# User allowlist (optional) — accounts created in the container at startup.
+# Edit users.allowlist.json (a JSON object: {"email":"password", ...}) to add
+# or remove users, then (re)run this script. admin@hsbc.com is auto-merged if
+# you omit it (M1-D5: omitting it silently disables the admin account).
+# Leave the file absent to keep the image default (admin@hsbc.com only).
+ALLOWLIST_FILE="users.allowlist.json"
+
 # Port mapping — the container always listens on CONTAINER_PORT (uvicorn),
 # published on HOST_PORT. Default 8000 (dev machine 192.168.0.66); override
 # per machine without editing the script, e.g. the remote server is limited
@@ -195,9 +202,32 @@ fi
 
 # ── 5. Start container ──────────────────────────────────────────────
 log "=== Start container ==="
+
+# M1-D5-safe user allowlist: if the file exists, provision its accounts at
+# container startup; admin@hsbc.com is auto-merged when omitted.
+USERS_ENV=()
+if [ -f "$ALLOWLIST_FILE" ]; then
+    USERS_JSON=$(tr -d '\n \t' < "$ALLOWLIST_FILE")
+    case "$USERS_JSON" in
+        '{'|''|'}')
+            log "  ⚠ $ALLOWLIST_FILE is empty/invalid — skipping user provisioning"
+            ;;
+        *'"admin@hsbc.com"'*)
+            USERS_ENV=(-e "PROVISIONED_USERS_JSON=$USERS_JSON")
+            log "  Users: provisioning allowlist from $ALLOWLIST_FILE"
+            ;;
+        *)
+            USERS_JSON="{\"admin@hsbc.com\":\"123456\",${USERS_JSON#\{}"
+            USERS_ENV=(-e "PROVISIONED_USERS_JSON=$USERS_JSON")
+            log "  Users: provisioning allowlist from $ALLOWLIST_FILE (admin auto-merged)"
+            ;;
+    esac
+fi
+
 docker run -d --pull=never \
     -p "0.0.0.0:${HOST_PORT}:${CONTAINER_PORT}" \
     -v "$WS_VOLUME:/tmp/workspaces" \
+    "${USERS_ENV[@]}" \
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \
     "${IMAGE_NAME}:latest" || rollback
