@@ -7,6 +7,26 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _no_workspace_left_behind():
+    """Every test here deletes the workspace it created — on the success path.
+
+    The deletes sit at the END of each test body, so a failing assertion
+    leaks the workspace dir into the shared /tmp/workspaces volume, where it
+    stays forever: 669 stale dirs (214MB) were sitting there when Team FLAKE
+    arrived, and every test that snapshots WORKSPACE_ROOT (e.g.
+    test_multiuser_workspace._env, twice per test) pays for the growth.
+    Remove whatever the test created and did not delete itself.
+    """
+    from app.services.workspace_service import WORKSPACE_ROOT, delete_workspace
+
+    before = {p.name for p in WORKSPACE_ROOT.iterdir()}
+    yield
+    for p in WORKSPACE_ROOT.iterdir():
+        if p.is_dir() and p.name not in before:
+            delete_workspace(p.name)
+
+
 class TestSearch:
     def test_search_finds_scripts(self, workspace_client, d2_zip):
         ws_id = workspace_client.create(d2_zip)
@@ -482,3 +502,4 @@ class TestL2FlowClosure:
         assert "flow_edge_ids" not in result, result
         assert "full_graph" not in result, result
         workspace_client.delete(ws_id)
+

@@ -53,6 +53,23 @@ is restored by monkeypatch. Every process-global this file touches (sessions,
 users.json, workspace dirs, heavy_gate._busy) is captured and put back per
 test, so the file is order-independent: it passes alone, in either order
 next to test_multiuser_sessions.py, and inside the full suite.
+
+Isolation defects this file itself had, both found by running it ALONE in a
+container that an earlier run had left state in (2026-09-01):
+
+  * the accounts were provisioned but their workspace-INDEX entries were not
+    reset, so a reused account already sitting at MAX_WORKSPACES_PER_USER
+    made ``test_participant_open_at_the_workspace_cap_is_409`` 409 on its
+    own 10th create (``KeyError: 'workspace_id'``) — green in a full run
+    that happened to start clean, red standalone. Fixed by
+    ``_establish_accounts``, which also verifies the provisioning landed
+    (the users.json read-modify-write is an accepted-loss RMW, so a
+    straggler thread from the previous test can drop it — seen once as a
+    mid-file 401 storm);
+  * the heavy gate was "cleared" through ``monkeypatch``, which RESTORES the
+    inherited busy flag at teardown and hands a wedge to the next file. Now
+    cleared once at setup, and the teardown WAITS (bounded) for this file's
+    own straggler before the janitor release.
 """
 
 import io
@@ -91,42 +108,113 @@ CATCHUP_MSG = "Index is being updated for this workspace — retry in a moment"
 
 # --- fixtures ---------------------------------------------------------------
 
+def _password_ok(users: dict, user: str) -> bool:
+    """Does the on-disk record for `user` still verify this file's password?"""
+    rec = users.get(user) or {}
+    return auth_service._verify_password(
+        PASSWORDS[user], rec.get("salt", ""), rec.get("password_hash", ""))
+
+
+def _establish_accounts(attempts: int = 5) -> None:
+    """Provision this file's accounts and start them from a KNOWN state.
+
+    Two things a long-lived test container always carries and this file must
+    not inherit (test_multiuser_sessions._clean does the same for its own
+    accounts):
+
+      * a stale password hash — provisioning is force=True, so a re-sync
+        overwrites it;
+      * stale workspace-INDEX entries: MAX_WORKSPACES_PER_USER counts
+        participant entries too (§5.6), so a creator who already sits at the
+        cap from an earlier run 409s every create and the quota tests measure
+        the container's history instead of this file's own behaviour.
+
+    provisioning and login() are both read-modify-writes of users.json whose
+    losing write is dropped by design (A-M3 accepted-loss), so a straggler
+    thread from the PREVIOUS test can still be inside login()'s RMW and wipe
+    this write — observed once as a mid-file 401 "invalid username or
+    password" storm that no assertion in this file explains. Verify the state
+    actually landed, retry, and fail loudly instead of 401-ing through the
+    rest of the run.
+    """
+    for _ in range(attempts):
+        for u in ALL_USERS:
+            assert auth_service.provision_user(u, PASSWORDS[u], force=True)
+        users = auth_service.load_users()
+        for u in ALL_USERS:
+            users.setdefault(u, {})["workspaces"] = []
+        auth_service.save_users(users)
+        users = auth_service.load_users()
+        if all(_password_ok(users, u) and not (users.get(u) or {}).get("workspaces")
+               for u in ALL_USERS):
+            return
+        time.sleep(0.1)
+    pytest.fail(
+        f"could not establish the M1 account state in {attempts} attempts "
+        "(a concurrent writer keeps dropping it) — see _establish_accounts")
+
+
+def _remove_workspace(ws_id: str) -> None:
+    """Teardown-side delete with a bounded retry.
+
+    A straggler thread can still be writing into the workspace's cache dir
+    while rmtree runs; the resulting ``OSError: [Errno 39] Directory not
+    empty`` surfaced as a TEARDOWN error that turned a green test red.
+    """
+    for _ in range(3):
+        try:
+            delete_workspace(ws_id)
+            return
+        except OSError:
+            time.sleep(0.2)
+    print(f"\n  M1 teardown: could not remove workspace dir {ws_id}")
+
+
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
     """Save/restore every process-global this file touches, per test.
 
     This file is ORDER-SENSITIVE BY NATURE (it drives concurrency), so it
     cleans up after itself four ways:
-      * sessions + accounts: reset, then the pre-test users.json restored
-        (delete_workspace leaves the users.json row behind — the same
-        convention test_r31_auth uses);
+      * sessions + accounts: reset, then the PRE-test users.json restored, and
+        the accounts re-established from a known state every test (see
+        _establish_accounts — the index-entry half is what makes this file
+        standalone-stable, not just stable in a full run);
       * workspaces: only directories this test created are removed;
-      * the heavy gate: cleared through monkeypatch (restored at teardown),
-        so neither this file's own concurrency nor a wedge left by anyone
-        else crosses a file boundary;
+      * the heavy gate: an INHERITED wedge is cleared once at setup, and at
+        teardown this file WAITS (bounded) for its own straggler threads
+        before the janitor release — the busy slot never crosses a file
+        boundary in either direction;
       * REQUIRE_LOGIN: only ever flipped through monkeypatch (restored), and
         at BOTH sites that read it (app.main for the middleware,
         app.routers.workspace for _session_ctx).
     """
-    # M1-D1 leaves the gate wedged; clearing it via monkeypatch restores the
-    # pre-test value at teardown, so nothing leaks into the next test file.
-    monkeypatch.setattr(heavy_gate, "_busy", False)
     monkeypatch.setattr(app_main, "REQUIRE_LOGIN", app_main.REQUIRE_LOGIN)
     monkeypatch.setattr(workspace_router, "REQUIRE_LOGIN",
                         workspace_router.REQUIRE_LOGIN)
 
+    # M1-D1 leaves the gate wedged. NOT cleared through monkeypatch: monkeypatch
+    # would RESTORE the inherited busy flag at teardown and hand the wedge to
+    # the next test file. Clear it here once, and let the teardown below make
+    # this file's own stragglers wait before the janitor release.
+    if heavy_gate._busy:
+        print("\n  M1: inherited a BUSY heavy gate — cleared (janitor)")
+    heavy_gate.release()
+
     auth_service.reset_for_tests()
-    for u in ALL_USERS:
-        auth_service.provision_user(u, PASSWORDS[u], force=True)
-    before = {p.name for p in WORKSPACE_ROOT.iterdir()}
     users_before = auth_service.load_users()
+    _establish_accounts()
+    before = {p.name for p in WORKSPACE_ROOT.iterdir()}
     yield
     auth_service.reset_for_tests()
     auth_service.save_users(users_before)
     for p in WORKSPACE_ROOT.iterdir():
         if p.is_dir() and p.name not in before:
-            delete_workspace(p.name)
-    # never hand M1-D1's leak to the next test file
+            _remove_workspace(p.name)
+    # never hand this file's own straggler (or M1-D1's leak) to the next file:
+    # wait for a legitimate holder first, then clear regardless.
+    if not _wait_gate_free(timeout=5.0):
+        print("\n  M1: a straggler still held the heavy gate at teardown")
     heavy_gate.release()
 
 
@@ -553,6 +641,12 @@ class _Hammer:
         # one client PER THREAD: a TestClient is not a concurrent object, and
         # a hung shared portal would leave this thread (and the R31 gate)
         # dangling into the next test
+        try:
+            self._http_reader_loop()
+        except Exception as exc:  # a dead reader is invisible in the counts
+            self._fail(f"reader thread crashed: {exc!r}")
+
+    def _http_reader_loop(self):
         http = TestClient(app)
         r = http.post("/api/auth/login",
                       json={"username": self.alice,
@@ -595,28 +689,37 @@ class _Hammer:
     def _file_monitor(self):
         cache = WORKSPACE_ROOT / self.ws_id / "cache"
         names = ("table_index.json", "field_index.json")
-        while not self.stop.is_set():
-            for name in names:
-                p = cache / name
-                if not p.exists():
-                    continue
-                try:
-                    text = p.read_text()
-                except OSError:
-                    continue
-                with self._lock:
-                    self.counts["file_reads"] += 1
-                if not text.strip():
-                    self._bump("torn_reads")  # truncate seen, bytes not yet
-                    self._fail(f"{name}: read as EMPTY (truncate visible)")
-                    continue
-                try:
-                    json.loads(text)
-                except json.JSONDecodeError as e:
-                    self._bump("torn_reads")
-                    self._fail(f"{name}: TORN json ({e})")
+        try:
+            while not self.stop.is_set():
+                for name in names:
+                    p = cache / name
+                    if not p.exists():
+                        continue
+                    try:
+                        text = p.read_text()
+                    except OSError:
+                        continue
+                    with self._lock:
+                        self.counts["file_reads"] += 1
+                    if not text.strip():
+                        self._bump("torn_reads")  # truncate seen, bytes not yet
+                        self._fail(f"{name}: read as EMPTY (truncate visible)")
+                        continue
+                    try:
+                        json.loads(text)
+                    except json.JSONDecodeError as e:
+                        self._bump("torn_reads")
+                        self._fail(f"{name}: TORN json ({e})")
+        except Exception as exc:  # a dead monitor is invisible in the counts
+            self._fail(f"file monitor crashed: {exc!r}")
 
     def _writer(self):
+        try:
+            self._writer_loop()
+        except Exception as exc:  # a dead writer is invisible in the counts
+            self._fail(f"writer thread crashed: {exc!r}")
+
+    def _writer_loop(self):
         http = TestClient(app)
         r = http.post("/api/auth/login",
                       json={"username": self.creator,
@@ -769,8 +872,14 @@ def test_catchup_409_gate_participant_search_during_index(users, shared_ws):
                        json={"table": SEARCHABLE[0], "field": SEARCHABLE[1]})
         if r.status_code == 200:
             break
-        retry_notes.append(f"{r.status_code}: {str(r.json().get('detail'))[:60]}")
-        heavy_gate.release()  # M1-D1: an overlapped search leaks the gate
+        detail = str(r.json().get("detail"))
+        retry_notes.append(f"{r.status_code}: {detail[:60]}")
+        if CATCHUP_MSG not in detail:
+            # The heavy gate, not the catch-up flag. WAIT for the holder
+            # (bounded) instead of force-releasing: force-releasing the global
+            # gate mid-flight both lets two heavy ops overlap and would mask
+            # exactly the leak this file exists to pin (M1-D1).
+            _wait_gate_free(timeout=5.0)
     assert r.status_code == 200, (
         f"alice's search never recovered ({len(retry_notes)} retries, "
         f"catching_up={folder_index_service.is_index_catching_up(shared_ws)}): "
