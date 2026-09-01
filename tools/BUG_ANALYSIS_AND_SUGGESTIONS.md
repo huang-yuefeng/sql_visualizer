@@ -3980,6 +3980,12 @@ moves to 1.0 when the engine lands the R11-2 Sync-2 dedup fix (R11-2
 above; Team E2/E3 in flight). The three existing invariants (hl ≥ 1, all
 canonical nodes realized, summary print) are kept.
 
+> **RESOLVED 2026-09-01 — see `backend/tests/jaccard_canonical.py` points 20/26; current gate
+> 20/20 at 1.0000/1.0000.** (Annotation only — the figures above are the historical J12-3
+> measurement and are left as written. The sup nodes score closed via the R46c/R46d canonical
+> re-derivation plus the 2026-09-01 sibling belongs-to / edge-less-chip ruling, and
+> `FLOORS` no longer reads 0.9 anywhere.)
+
 ### J12-4 · Field-uniqueness invariant added (R11-2 regression guard)
 
 The naive (parent, label) uniqueness over ALL fields is impossible: the
