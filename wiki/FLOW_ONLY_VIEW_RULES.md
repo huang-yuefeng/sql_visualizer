@@ -47,6 +47,88 @@ Everything below refines these two ideas.
 | 3b | A sibling field's **value legs** (its write/read/compute edges) | ❌ | Searching `lending_ref`: `reserved_field8`'s write leg, read leg, and output-membership edges are dropped — **(the field-involvement rule, user-ruling #48; fixed 4 over-included edges)** |
 | 3c | The sibling field's **chip** in the closure | ❌ (R46a) | Searching `bdm_acc_loan_info.data_dt`: the `b/c/d/e.data_dt` chips are ordinary nodes |
 
+### 3a in full — three complete worked examples
+
+The line the rule draws: a sibling field's **belongs-to edge** (`SCHEMA/TABLE_COLUMN` —
+"this field exists on this box, at this line") is STRUCTURE, the same class as a table
+header, so it stays; everything that says how the sibling's **value** is produced,
+read, or routed is the sibling's own flow and is dropped (3b). The three shapes below
+are the three places siblings actually co-occur with a searched field in this corpus.
+
+**Example 1 — co-written CASE sibling (SUP_M × `lending_ref`)**
+
+```sql
+L80:  ,p1.issue_dt              -- loan issue date
+L81:  ,p1.loan_ori_maturity_dt  -- loan original maturity date
+L82:  ,CASE WHEN NVL(p6.lending_ref,'') <> '' THEN 'Rollover2' END AS reserved_field8
+L83:  FROM bdm_acc_loan_info p1
+```
+
+Searching `lending_ref`, L82 is `lending_ref`'s own read (the NVL check). The SAME
+line also **writes a different field**: `reserved_field8`.
+
+- ✅ shown: `reserved_field8`'s **belongs-to** edge — the chip `reserved_field8` on
+  the output compound `bdm_acc_loan_info_sup`, anchored at L82 (structure: the field
+  exists on that box, born at that line).
+- ❌ dropped (3b): `reserved_field8`'s **value legs** — the CASE expression that
+  produces it (`NVL(...) <> '' THEN 'Rollover2'` is `lending_ref`'s read + a literal,
+  not `reserved_field8`'s flow), its ⟐output membership value edge, and its
+  downstream write-projection read leg. All six of those legs were measured
+  over-included and were dropped by the J1 round.
+
+Read the picture as: "`reserved_field8` exists here" (kept) — but never "…and here is
+how its value got there" (dropped), because that value story belongs to
+`reserved_field8`'s own search, not to `lending_ref`'s.
+
+**Example 2 — co-filter sibling (PL × `data_dt`)**
+
+```sql
+L263: FROM bdm_acc_loan_info            -- inside the searched table's own statement
+L264: WHERE p1.data_dt = '${load_date}' -- the searched field's predicate
+L265: AND   charge_department = 'OPS_CLBS_PLoan'  -- a SIBLING field's predicate
+```
+
+Searching `bdm_acc_loan_info.data_dt`, L265 filters rows by a **different** field of
+the same table. Measured in the served filtered closure: the chip
+`charge_department` **is present** on the searched table's compound, at L265, and it
+carries **no** edge — no FILTER value leg, no REF.
+
+- ✅ shown: the belongs-to presence of `charge_department` @265 (a fieldless chip —
+  pure structure).
+- ❌ dropped (3b/2d): any edge claiming `charge_department`'s predicate value
+  participates in `data_dt`'s flow. Filtering BY `data_dt` is `data_dt`'s edge (2d);
+  a sibling's predicate on the same rows is not.
+
+This is also the row J12-20 pinned and the **resolved** §7-B: the DL mirror serves
+the chip, and after the J2 round the PL filtered view serves it too.
+
+**Example 3 — dynamic-partition co-write (EAST5 × `p_dt`)**
+
+```sql
+L41:  INSERT OVERWRITE TABLE east5_stzfxxb
+      PARTITION(p_dt='$(load_date)', charge_department)   -- p_dt literal, charge_department DYNAMIC
+L42:  SELECT ... , <expr> AS charge_department, ... FROM ...
+```
+
+Searching `east5_stzfxxb.p_dt`: L41 is `p_dt`'s own write (a literal partition
+value — rule 2g). The same PARTITION clause co-writes **`charge_department`** as a
+DYNAMIC partition — its value comes from the SELECT list, i.e. it is a full
+write-of-a-sibling squeezed onto `p_dt`'s line. Measured in the closure: the
+belongs-to edges survive verbatim —
+
+- ✅ shown: `charge_department` chips with their `SCHEMA/TABLE_COLUMN` belongs-to
+  edges anchored at L41 (on the target compound) and at L51 (the CASE that produces
+  it, as a field-exists fact on the source box).
+- ❌ dropped (3b): the SELECT-list expression that **feeds** `charge_department`,
+  the routing of that value into the output frame, and any downstream read of it.
+  Those edges would tell `charge_department`'s own birth→written story, which is
+  exactly what a `charge_department` search exists to tell.
+
+**One-sentence summary for all three**: the sibling keeps a *footnote* in the
+closure (this field exists on this line) and never a *storyline* (how its value
+moves). The footnote is what keeps the graph honest about what is ON the boxes; the
+storyline is what the field-involvement rule reserves for the searched field alone.
+
 ---
 
 ## 4. TWINS rules — the same field at many lines
