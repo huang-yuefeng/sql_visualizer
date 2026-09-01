@@ -1,0 +1,26 @@
+// users.allowlist.json — EXAMPLE. Copy it to `users.allowlist.json` (repo
+// root, next to target_deploy.sh) and edit THAT copy. The live file is
+// GITIGNORED on purpose: it carries real passwords and is never committed or
+// pushed. This .example IS committed and must never hold a real password.
+//
+// Format: ONE JSON object mapping email → password.
+//   * usernames must be `*@hsbc.com` (auth_service.verify_username_format)
+//   * passwords must be >= 6 characters (MIN_PASSWORD_LEN). A shorter entry is
+//     dropped at container startup with a WARNING that names the account (never
+//     the password) and its logins fail until the config is fixed (M1-D4)
+//   * every deploy RE-SYNCS every entry (provision_user force=True): a new
+//     email creates the account, an existing email resets its password and
+//     revokes its live sessions. Workspaces/views are untouched.
+//   * admin@hsbc.com is AUTO-MERGED with password 123456 when you omit it
+//     (M1-D5: omitting it used to disable the admin account entirely)
+//
+// Comments: `//` FULL-LINE comments like these are stripped by
+// target_deploy.sh before parsing. A trailing `// note` AFTER the JSON on the
+// same line is NOT supported — it fails validation, the whole file is skipped
+// (WARNING) and the container starts with the image default (admin only).
+// Keep every comment on its own line.
+{
+    "admin@hsbc.com": "123456",
+    "alice@hsbc.com": "change-me-alice",
+    "bob@hsbc.com": "change-me-bob"
+}

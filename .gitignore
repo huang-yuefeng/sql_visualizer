@@ -40,6 +40,10 @@ backend/app/static.bak.*/
 # target-machine deploy log (target_deploy.sh)
 target_deploy.log
 
+# LIVE user allowlist (target_deploy.sh → PROVISIONED_USERS_JSON). Real
+# passwords — never commit or push. Format + comments: users.allowlist.json.example
+users.allowlist.json
+
 # e2e test scratch (never commit — user ruling)
 tools/e2e_test/ocr_lines_tmp.js
 
