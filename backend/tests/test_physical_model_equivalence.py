@@ -352,9 +352,16 @@ def test_every_display_edge_has_model_witness():
     # acnw, SUP_M lending_ref); only the duplicated direction of the same
     # pair disappeared. Count is stable at 668 across PYTHONHASHSEED
     # 0–3 (was 673/674).
-    assert len(new_edges) == 668, (
+    # R46d re-pin (2026-08-28.12): 668 -> 669. EXACTLY one new display
+    # edge — `FILTER@182 loan_final.charge_department -> ⟐ output`, the
+    # occurrence twin's own row-selection edge for
+    # `CASE WHEN p1.charge_department = 'GTRF_CoreTrade_EPBL_MYRZ'`
+    # (L182, reserved_field7's CASE). SQL-text-verified, and the witness
+    # loop below still passes with `uncovered == []`.
+    assert len(new_edges) == 669, (
         f"flagship display edge count drifted: {len(new_edges)} "
         f"(H11/X1 PROVENANCE determinism + guard 3b re-pin, 2026-08-31; "
+        f"R46d continuation-twin row-selection +1, 2026-09-01; "
         f"see the comment above)")
     uncovered = []
     for E in new_edges:

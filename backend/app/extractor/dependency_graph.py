@@ -1392,6 +1392,77 @@ def build_dependency_graph(
             rel, op = _bridge_typing(v, anchor)
             _retype_or_add(v, anchor, rel, op)
 
+    # ══════════════════════════════════════════════════════════════════
+    # Phase 9: R46d — the continuation arm's OWN flow edge
+    # ══════════════════════════════════════════════════════════════════
+    # An occurrence twin minted at the right line still carried no flow
+    # edge of its own: its belongs-to SCHEMA edge (4d-gb) is structure and
+    # folds in L2's line-merged pass onto the FIRST occurrence's carrier,
+    # so a CASE's 2nd..Nth WHEN arm, a nested function body's operand and
+    # a JOIN ON's AND-continuation leg lit only through the head's folded
+    # duplicate — or not at all. The arm stamp the extractor now carries
+    # (`OCCURRENCE CASE WHEN` / `CASE THEN` / `CASE ELSE`) is the
+    # per-occurrence fact the clause machinery could never express (a CASE
+    # arm never leaves its clause, so every arm read as "SELECT expr"),
+    # and it is what tells a ROW-SELECTION from a value operand:
+    #
+    #   CASE WHEN  → FILTER/ROW_SELECTION into the scope's output anchor —
+    #                the condition selects the rows that flow, it is not a
+    #                value source (AD3's ruling).
+    #   CASE THEN/ → REF/VALUE into the same anchor — the operand's value
+    #   CASE ELSE    IS projected into the statement's output.
+    #
+    # Admission is per-occurrence, never a group borrow: F-E1's
+    # `_twin_group_admits` stays untouched (Phase 6), and a twin whose OWN
+    # stamp is not an arm keeps exactly the edges it had. The guard is
+    # "no OUTGOING flow edge yet": the belongs-to SCHEMA edge (4d-gb) and
+    # the incoming write leg the family-1 machinery routes to the twin say
+    # "belongs" / "written", never "this occurrence selects the row" or
+    # "this occurrence feeds the output". An outgoing REF/READ (field →
+    # its holder) is the structural read the walker already treats as
+    # field → table, so it does not count either. This phase only
+    # de-silo's the twins with no edge that says what their arm does.
+    # Appended LAST, so the L2 line-merged pass's first-carrier-wins can
+    # never displace an existing carrier with one of these.
+    _OWN_FLOW_TYPES = {"FILTER", "JOIN", "REF", "COMPUTED", "TRANSFORM",
+                       "AGGREGATE", "WINDOW", "INDIRECT"}
+    twin_arms = getattr(result, "occurrence_arms", None) or {}
+    for v in variables:
+        arm = twin_arms.get(v.id)
+        if arm not in ("CASE WHEN", "CASE THEN", "CASE ELSE"):
+            continue  # JOIN ON legs are Phase 6b's own-clause case
+        if v.variable_type != VariableType.COLUMN or v.is_output:
+            continue
+        if not v.source_tables:
+            continue
+        if any(d.source_id == v.id and d.relationship in _OWN_FLOW_TYPES
+               and (d.operation or "").upper() != "READ"
+               for d in deps):
+            continue  # already carries its own flow story
+        ctx = v.context or "TOP"
+        anchors = vt_map.get(ctx) or []
+        if not anchors:
+            continue
+        if arm != "CASE WHEN":
+            # CASE THEN / CASE ELSE — WITHHELD (measured, E7): the value
+            # leg would have to target the scope's ⟐ output anchor, and
+            # REF is walked backwards by the strict walker, so every
+            # sibling arm's twin became an upstream producer of EVERY seed
+            # reached through that anchor — jaccard precision
+            # bdm/Digitallending-upstream 1.0 -> 0.4286, east5-upstream
+            # 1.0 -> 0.2308 (4 of the 20 gate cases). The honest target is
+            # the CONSUMING OUTPUT COLUMN (`occ -> stzfdxhm`, not
+            # `occ -> ⟐ output`), which needs the CASE → output-alias
+            # pick: the surviving read carries one COMPUTED edge per CASE
+            # it feeds (`a.TAG_PRIMARY_ACCOUNTABLE_PARTY`@71 feeds five),
+            # and choosing among them needs the CASE → output-alias
+            # resolution that does not exist yet (the same structured
+            # field-hop gap the R40.12-A audit ledgered). The arm IS
+            # recorded on `result.occurrence_arms`, so landing the target
+            # rule is a Phase-9-local change — no extraction re-round.
+            continue
+        _add_edge(v, anchors[0], "FILTER", "ROW_SELECTION")
+
     return deps
 
 

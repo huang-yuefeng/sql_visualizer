@@ -269,7 +269,45 @@ from app.models.variable import VariableDefinition, VariableType
 #   (6-tuple def_site); every other variable keeps the exact run forms it
 #   had, so no other anchor moves. Ordinary (non-TVF) aliases keep the
 #   3-tuple and are byte-unchanged.
-EXTRACTOR_VERSION = "2026-08-28.11"
+# 2026-08-28.12 (fix team V5 — R46d continuation-twin edges, AD3-adjudicated
+#   FSB class): an occurrence twin minted at the right line still carried NO
+#   flow edge of its own — the display folds one chip per (owner, field)
+#   anchored at the FIRST occurrence, so a CASE's 2nd..Nth WHEN arm, a
+#   nested function body's operand and a JOIN ON's AND-continuation leg lit
+#   only through the folded duplicate of the head's own edges (or not at
+#   all: EAST5 L140, a byte-identical duplicate projection whose occurrence
+#   never even reached a family-3 group). Two changes, both
+#   extraction-time facts of the SQL, both purely additive:
+#  13. ARM ROLE per occurrence twin (`_case_arm_roles` +
+#      `_arm_role_for`): one tokenizer pass walks the CASE/WHEN/THEN/ELSE/
+#      END frames (paren-nested, string-safe) and records, for every token,
+#      the arm it sits in. A family-3 twin whose occurrence sits in a CASE
+#      arm stamps that arm instead of the line's clause
+#      (`OCCURRENCE CASE WHEN` / `CASE THEN` / `CASE ELSE`) — the arm is a
+#      per-OCCURRENCE fact, strictly more specific than the clause the
+#      line happens to sit in (a CASE arm is always a `SELECT expr` line,
+#      so the clause could never tell a condition arm from a value
+#      operand).
+#  14. Family 4, JOIN-ON AND-continuation twins (`_register_join_leg_
+#      twins`): family 3 covers the head ON line — its free-line handout
+#      is starved on the AND legs because R45 Fix F marks a line TAKEN
+#      when ANY same-field-part var anchors it (the OTHER join side is
+#      such a var: `AND b.lending_ref = a.lending_ref` has `a.lending_ref`
+#      at the line, so `b.lending_ref`'s occurrence there could never get
+#      a line). Family 4 splits each ON clause at its top-level AND tokens
+#      and mints a twin for every QUALIFIED field occurrence of the
+#      continuation legs that no same-owner var already anchors — the
+#      owner resolved through `_base_var_for` (never a guess; a leg token
+#      that resolves to no column var mints nothing). Bare-column legs
+#      stay out: an unqualified token has no owner evidence of its own.
+#
+#  dependency_graph Phase 9 (same version) turns the arm fact into the
+#  twin's own flow edge: a CASE WHEN arm gets FILTER/ROW_SELECTION into
+#  the scope's output anchor. The CASE THEN/ELSE value leg is WITHHELD
+#  there (measured: walked backwards through the ⟐ output anchor it
+#  over-admits sibling arms into every other seed's closure) — the arm
+#  stays recorded, so landing it is a Phase-9-local change.
+EXTRACTOR_VERSION = "2026-08-28.12"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
@@ -580,6 +618,16 @@ class ExtractionResult:
     # per failure, in statement order; empty when everything parsed.
     # A3 surfaces this on the analysis response.
     parse_errors: list[dict] = field(default_factory=list)
+    # R46d (2026-08-28.12): occurrence-twin id → the CASE arm the
+    # occurrence sits in ("CASE WHEN" / "CASE THEN" / "CASE ELSE").
+    # Deliberately NOT folded into the twin's `defined_in`: that string is
+    # the clause stamp every downstream clause gate reads (F-E1's group
+    # multiset, Phase 6/6b, the display layer's write-projection test,
+    # which keys on the "SELECT" prefix a CASE arm would break) — the arm
+    # is a DIFFERENT fact and rides its own channel so no existing reader
+    # sees a single byte change. dependency_graph Phase 9 is the only
+    # consumer.
+    occurrence_arms: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -1361,6 +1409,15 @@ class _RoleBasedExtractor:
         # write slots are exactly what its WHEN clauses name, never the
         # USING subquery's projections.
         self._merge_written: dict[str, set[str]] = defaultdict(set)
+        # R46d (2026-08-28.12): per-token CASE-arm roles ("CASE WHEN" /
+        # "CASE THEN" / "CASE ELSE", None outside every CASE), built once
+        # on first use; the per-line token index and the per-(line, field)
+        # claim counter that keep a line with an occurrence in TWO
+        # different arms (a one-line `CASE WHEN a.x=1 THEN a.x END`) from
+        # handing both mints the same arm.
+        self._case_arm_role_cache: list[str | None] | None = None
+        self._tokens_by_line: dict[int, list[int]] | None = None
+        self._arm_role_claims: dict[tuple[int, str], int] = {}
 
     def _next_id(self, key: str) -> str:
         self._counter[key] = self._counter.get(key, 0) + 1
@@ -2475,9 +2532,15 @@ class _RoleBasedExtractor:
             for occ in occs:
                 line = assigned.get(id(occ))
                 if line is not None:
-                    self._mint_occurrence_twin(base, line,
-                                               occ["defined_in"],
-                                               clause_by_line)
+                    self._mint_occurrence_twin(
+                        base, line, occ["defined_in"], clause_by_line,
+                        arm_role=self._arm_role_for(base.name, line))
+
+        # ── family 4: JOIN-ON AND-continuation twins (R46d, 2026-08-28.12)
+        # Family 3's free-line handout can never serve an AND leg (Fix F
+        # takes the line for the leg's other side) — read the legs off the
+        # token stream instead.
+        self._register_join_leg_twins(innermost)
 
     def _base_var_for(self, ident: str,
                       context: str) -> VariableDefinition | None:
@@ -2516,8 +2579,8 @@ class _RoleBasedExtractor:
 
     def _mint_occurrence_twin(self, base: VariableDefinition, line: int,
                               defined_in: str,
-                              clause_by_line: dict[int, str] | None = None
-                              ) -> None:
+                              clause_by_line: dict[int, str] | None = None,
+                              arm_role: str | None = None) -> None:
         """Register one occurrence-side twin at `line`.
 
         Mirrors the R44 families: same owner, same context, not an output
@@ -2537,6 +2600,13 @@ class _RoleBasedExtractor:
         handout is textual, so the two could be crossed (F-E1). A line with
         no clause at all (a context-shaped anchor line) falls back to the
         collapsed occurrence's clause, exactly as before.
+
+        R46d: `arm_role` — the CASE arm the occurrence sits in — is
+        recorded on `result.occurrence_arms` under the twin's own id. It
+        deliberately does NOT change the clause stamp: `defined_in` is
+        read by every clause gate downstream (F-E1's group multiset,
+        Phase 6/6b, the display layer's write-projection test), and the
+        arm is a separate fact, not a different spelling of the clause.
         """
         if not base.source_tables:
             return  # never guess an owner
@@ -2558,6 +2628,8 @@ class _RoleBasedExtractor:
             clause = line_clause
         else:
             clause = (defined_in or base.defined_in or "").strip()
+        if arm_role:
+            self.result.occurrence_arms[twin_id] = arm_role
         self.result.variables.append(VariableDefinition(
             id=twin_id, name=f"{owner}.{col}",
             variable_type=VariableType.COLUMN,
@@ -2579,6 +2651,205 @@ class _RoleBasedExtractor:
             is_output=False,
         ))
         self._resolution_stats["total_columns"] += 1
+
+    # ── R46d (2026-08-28.12): the continuation-arm facts ────────────────
+
+    def _case_arm_roles(self) -> list[str | None]:
+        """token index → the CASE arm the token sits in (built once).
+
+        "CASE WHEN" for the tokens of a WHEN's condition, "CASE THEN" /
+        "CASE ELSE" for the tokens of the arm's output operand, None
+        outside every CASE. The frames walk the SAME tokenizer stream
+        every other line fact here reads (`_line_clauses`,
+        `_paren_scope_bound`): `CASE` pushes a frame, `WHEN`/`THEN`/
+        `ELSE` set the innermost CASE frame's arm, `END` pops it, and a
+        parenthesized group is its own frame so a nested
+        `REGEXP_REPLACE(CASE WHEN … END, …)` keeps its own arms and an
+        arm keyword inside a call's arguments never leaks out of it.
+        STRING tokens are structure-less (the literal 'then' is text).
+
+        This is the fact the clause machinery cannot express: a CASE arm
+        never leaves the clause its statement collected it in, so
+        `_line_clauses` says "SELECT expr" for BOTH a condition arm and a
+        value operand, while they are row-selection and value flow
+        respectively (AD3's ruling — "use the clause map, not a guess"
+        cuts the other way here: the clause map is the coarser of the
+        two extraction-time facts).
+        """
+        if self._case_arm_role_cache is not None:
+            return self._case_arm_role_cache
+        tokens = self._tokens
+        roles: list[str | None] = [None] * len(tokens)
+        # Frames: ("CASE", arm) / ("PAREN", None). A PAREN frame is
+        # transparent — the arm lives on the CASE frame, so a call's
+        # argument list inside a THEN branch (`THEN NVL(a.x, f.y)`) stays
+        # in that THEN.
+        stack: list[tuple[str, str | None]] = []
+
+        def innermost_arm() -> str | None:
+            for kind, arm in reversed(stack):
+                if kind == "CASE":
+                    return arm
+            return None
+
+        for i, tok in enumerate(tokens):
+            ttype = tok.token_type.name
+            if ttype == "CASE":
+                stack.append(("CASE", None))
+            elif ttype in ("WHEN", "THEN", "ELSE"):
+                for k in range(len(stack) - 1, -1, -1):
+                    if stack[k][0] == "CASE":
+                        stack[k] = ("CASE", ttype)
+                        break
+            elif ttype == "END":
+                while stack and stack.pop()[0] != "CASE":
+                    pass
+            elif ttype == "L_PAREN":
+                stack.append(("PAREN", None))
+            elif ttype == "R_PAREN":
+                while stack and stack.pop()[0] != "PAREN":
+                    pass
+            arm = innermost_arm()
+            if arm:
+                roles[i] = "CASE " + arm
+        self._case_arm_role_cache = roles
+        return roles
+
+    def _arm_role_for(self, name: str, line: int) -> str | None:
+        """The CASE arm of `name`'s next unclaimed occurrence on `line`.
+
+        A line can carry two occurrences of one field in two different
+        arms (`CASE WHEN a.x=1 THEN a.x END`), so the k-th mint for the
+        same (line, field identity) claims the k-th match — the same
+        stream-order handout family 3 uses for lines. No match inside a
+        CASE arm → None (the twin keeps its line clause).
+        """
+        roles = self._case_arm_roles()
+        if not roles or not (line or 0):
+            return None
+        run = _name_token_run(name)
+        if not run:
+            return None
+        matches = self._all_match_lines(run, line, line + 1)
+        if not matches:
+            return None
+        key = (line, _field_identity(name))
+        seen = self._arm_role_claims.get(key, 0)
+        for _ln, idx in matches:
+            if idx >= len(roles) or roles[idx] is None:
+                continue
+            if seen:
+                seen -= 1
+                continue
+            self._arm_role_claims[key] = \
+                self._arm_role_claims.get(key, 0) + 1
+            return roles[idx]
+        return None
+
+    def _register_join_leg_twins(self, innermost: dict[int, str]) -> None:
+        """R46d family 4 — the JOIN ON clause's AND-continuation legs.
+
+        Family 3 covers the head ON line; a continuation leg could never
+        get a line from its free-line handout, because Fix F marks a line
+        TAKEN when ANY surviving var of the same FIELD PART anchors it —
+        and the leg's other side is exactly such a var
+        (`AND b.lending_ref = a.lending_ref` has `a.lending_ref` at the
+        line, so `b.lending_ref`'s occurrence there was permanently
+        starved; SUP_M L206 `p3.lending_ref = p1.lending_ref` likewise).
+
+        So this pass reads the legs straight off the token stream: an ON
+        keyword opens a clause that runs to the next clause keyword at
+        the same paren depth (the same `_LINE_CLAUSE_TOKENS` map
+        `_line_clauses` uses), the top-level AND tokens split it into
+        legs, and every QUALIFIED field occurrence of a continuation leg
+        (`alias.field`) that no same-owner var already anchors gets its
+        twin at its own line, stamped `OCCURRENCE JOIN ON` — the line IS
+        a JOIN ON line, so Phase 6b's own-clause gate types it without
+        any group-borrow heuristic.
+
+        Qualification is the guard: a bare token has no owner evidence of
+        its own (the never-guess rule), and a table alias or a function
+        name resolves to no COLUMN var at all, so neither can mint.
+        """
+        tokens = self._tokens
+        depths = getattr(self, "_tok_depth", None)
+        if not tokens or depths is None or len(depths) < len(tokens):
+            return
+        n = len(tokens)
+        i = 0
+        while i < n:
+            if tokens[i].token_type != TokenType.ON:
+                i += 1
+                continue
+            on_depth = depths[i]
+            end = n
+            j = i + 1
+            while j < n:
+                d = depths[j]
+                t = tokens[j]
+                if d < on_depth or t.token_type == TokenType.SEMICOLON:
+                    end = j
+                    break
+                if (d == on_depth
+                        and _LINE_CLAUSE_TOKENS.get(t.token_type.name)
+                        and t.token_type != TokenType.AND):
+                    end = j
+                    break
+                j += 1
+            legs: list[tuple[int, int]] = []
+            start = i + 1
+            for k in range(i + 1, end):
+                if tokens[k].token_type == TokenType.AND \
+                        and depths[k] == on_depth:
+                    legs.append((start, k))
+                    start = k + 1
+            legs.append((start, end))
+            for lo, hi in legs[1:]:
+                self._mint_join_leg_twins(lo, hi, innermost)
+            i = end
+
+    def _mint_join_leg_twins(self, lo: int, hi: int,
+                             innermost: dict[int, str]) -> None:
+        """Mint the twins of one AND-continuation leg's token range."""
+        tokens = self._tokens
+        for i in range(lo, hi):
+            t = tokens[i]
+            if t.token_type not in (TokenType.VAR, TokenType.IDENTIFIER):
+                continue
+            if i + 2 >= hi or tokens[i + 1].token_type != TokenType.DOT:
+                continue
+            nxt = tokens[i + 2]
+            if nxt.token_type not in (TokenType.VAR, TokenType.IDENTIFIER):
+                continue
+            ident = f"{t.text}.{nxt.text}"
+            line = t.line
+            if not line:
+                continue
+            context = innermost.get(line)
+            if not context:
+                continue
+            # Owner evidence: a surviving var spelled EXACTLY like the leg's
+            # own qualified reference (R45 Fix D's primary loop). The
+            # last-dot-part FALLBACK is deliberately not consulted — it
+            # attributes by field part alone, which for a same-named field
+            # of two joined tables is a guess (`d.org_no` must never inherit
+            # `b.org_no`'s owner).
+            base = None
+            col = ident.rsplit(".", 1)[-1].casefold()
+            for v in self.result.variables:
+                if (v.context == context
+                        and v.variable_type == VariableType.COLUMN
+                        and v.name.casefold() == ident.casefold()):
+                    base = v
+                    break
+            if base is None or not base.source_tables:
+                continue  # never guess an owner
+            owner = base.source_tables[0]
+            if not owner or not col:
+                continue
+            if base.line_start == line:
+                continue  # this very occurrence is the var that anchors it
+            self._mint_occurrence_twin(base, line, "JOIN ON")
 
     def _canonicalize_table_names(self) -> None:
         """ISSUE-4: fold physical-table spelling to one canonical form.

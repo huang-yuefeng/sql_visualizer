@@ -261,7 +261,7 @@ class TestAllEdgesValidAcrossSamples:
         """In every sample, columns consumed by AGGREGATE/TRANSFORM/WINDOW/
         COMPUTED must NOT also have FILTER edges."""
         sql = (SAMPLES_DIR / fname).read_text()
-        _, deps, vb = _analyze(sql, fname)
+        res, deps, vb = _analyze(sql, fname)
 
         # Find columns that have AGGREGATE/TRANSFORM/WINDOW/COMPUTED edges
         consumed_cols = set()
@@ -279,6 +279,15 @@ class TestAllEdgesValidAcrossSamples:
                 if col and (col.defined_in or "").upper().strip() in (
                     "WHERE", "HAVING", "JOIN ON"):
                     continue  # legitimate dual role
+                # R46d (2026-08-28.12): the same dual role, third clause
+                # family — a CASE WHEN condition arm is a ROW-SELECTION on
+                # the column, so a column that is also an aggregate operand
+                # legitimately carries both. The arm is the twin's own
+                # per-occurrence fact (`result.occurrence_arms`), so a
+                # sibling column can never borrow it.
+                if res.occurrence_arms.get(e.source_id) == "CASE WHEN":
+                    continue  # legitimate dual role — own CASE WHEN arm
+
                 pytest.fail(
                     f"{fname}: {col_name} has FILTER but is consumed by "
                     f"aggregate/transform — bogus FILTER edge"

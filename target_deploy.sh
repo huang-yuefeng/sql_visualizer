@@ -3,26 +3,159 @@
 # Prerequisites: Docker installed, image pieces in docker_image/.
 # Usage:  ./target_deploy.sh
 set -e
-cd "$(dirname "$0")"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+# ── Definitions only below ──────────────────────────────────────────
+# Everything up to the "entry guard" is DEFINITIONS (colors, log helpers,
+# build_users_env). Sourcing this file (tests/deploy/test_allowlist_logic.sh)
+# therefore defines the functions and runs nothing: no docker, no cd, no
+# version guard. Two testability seams:
+#   * DEPLOY_LOG_FILE  — redirect the deploy log (default target_deploy.log)
+#   * BASH_SOURCE guard — a sourced run returns before the main flow
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_FILE="${DEPLOY_LOG_FILE:-$APP_DIR/target_deploy.log}"
 
-LOG_FILE="$(pwd)/target_deploy.log"
+_diag() {
+    # Diagnostics to stderr AND the deploy log — never stdout: the caller
+    # captures build_users_env's stdout as the payload JSON.
+    printf '%s\n' "$*" | tee -a "$LOG_FILE" >&2
+}
+
 log() {
     echo -e "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG_FILE"
 }
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 
 IMAGE_DIR="docker_image"
 IMAGE_FILE="$IMAGE_DIR/gps-sql-visualizer.tar.gz"
 IMAGE_NAME="gps-sql-visualizer"
 CONTAINER_NAME="gps-sql"
 
-# User allowlist (optional) — accounts created in the container at startup.
-# Edit users.allowlist.json (a JSON object: {"email":"password", ...}) to add
-# or remove users, then (re)run this script. admin@hsbc.com is auto-merged if
-# you omit it (M1-D5: omitting it silently disables the admin account).
-# Leave the file absent to keep the image default (admin@hsbc.com only).
-ALLOWLIST_FILE="users.allowlist.json"
+# ── User allowlist (R31 #269, M1-D5-safe) ───────────────────────────
+# users.allowlist.json (repo root) is a single JSON object mapping
+# email → password. The LIVE file is GITIGNORED — real passwords are never
+# committed or pushed; users.allowlist.json.example documents the format.
+#
+# `//` FULL-LINE comments (optional leading whitespace) are stripped before
+# parsing. A trailing `// note` AFTER the JSON on the same line is NOT
+# supported: it fails validation and the file is skipped — keep comments on
+# their own lines.
+#
+# admin@hsbc.com is auto-merged with the default password when the file
+# omits it (M1-D5: omitting it silently disables the admin account).
+ALLOWLIST_FILE="$APP_DIR/users.allowlist.json"
+ADMIN_EMAIL="admin@hsbc.com"
+ADMIN_DEFAULT_PASSWORD="123456"
+
+# Every non-provisioning outcome is a WARNING + SKIP: the container then
+# starts with the image default (admin@hsbc.com only) and the deploy
+# continues. A broken allowlist must never abort a deploy.
+USERS_ENV=()
+USERS_ENV_STATUS="no-file"
+USERS_ENV_JSON=""
+
+# In-container location of the account store (backend WORKSPACE_ROOT).
+CONTAINER_USERS_FILE="/tmp/workspaces/users.json"
+
+# strip_allowlist_comments <path>
+#   `//` LINE-comment strip. Full-line comments only (leading whitespace,
+#   then // to end of line — a `//` inside a value such as "https://…" is
+#   untouched). CR/LF/TAB are then removed so a pretty-printed, commented
+#   file becomes one JSON line. SPACES ARE KEPT: they are legal JSON
+#   whitespace and may be part of a password.
+strip_allowlist_comments() {
+    sed -e 's#^[[:space:]]*//.*$##' "$1" | tr -d '\r\n\t'
+}
+
+# build_users_env <path-to-users.allowlist.json>
+#   Outputs the merged, comment-stripped JSON TWO ways:
+#     * prints it to STDOUT (pure JSON, no log noise)
+#     * leaves it in $USERS_ENV_JSON
+#   The duplicate is deliberate: the caller also needs USERS_ENV_STATUS in the
+#   CURRENT shell, and capturing stdout (`x="$(build_users_env …)")` would run
+#   the function in a subshell whose variable assignments are lost — the
+#   status would silently stay at its initial value and nothing would ever be
+#   provisioned. So the deploy calls the function bare and reads both globals.
+#   It also sets USERS_ENV_STATUS to one of:
+#     ok            file parsed, admin@hsbc.com already present
+#     merged-admin  file parsed, admin@hsbc.com auto-merged (M1-D5)
+#     no-file       path missing/unreadable (image default: admin only)
+#     empty-file    file exists but is empty / whitespace / comments only
+#     empty-object  file is `{}` — valid JSON but provisions nothing
+#     invalid-json  not shaped like a JSON object, or fails the deep parse
+#   Only ok / merged-admin produce a payload; everything else is logged as a
+#   warning and skipped.
+#   set -e safe: the function NEVER returns non-zero — a bad file is a
+#   status, not an abort.
+build_users_env() {
+    USERS_ENV_STATUS="no-file"
+    USERS_ENV_JSON=""
+    USERS_ENV_STATUS="no-file"
+    local file="${1:-}"
+    local label="${file:-$ALLOWLIST_FILE}"
+    local raw shape
+
+    if [ -z "$file" ] || [ ! -f "$file" ] || [ ! -r "$file" ]; then
+        _diag "  Users: no readable allowlist at $label — provisioning the image default ($ADMIN_EMAIL only)"
+        return 0
+    fi
+
+    raw="$(strip_allowlist_comments "$file")" || true
+
+    if [ -z "$raw" ]; then
+        USERS_ENV_STATUS="empty-file"
+        _diag "  ⚠ $label is empty (or comments only) — skipping user provisioning (image default: $ADMIN_EMAIL only)"
+        return 0
+    fi
+
+    # Shape checks run on the whitespace-collapsed form so a pretty-printed
+    # file ("admin@hsbc.com": "pw") validates the same as a single-line one.
+    shape="$(printf '%s' "$raw" | tr -d '[:space:]')"
+
+    if [ "$shape" = "{}" ]; then
+        USERS_ENV_STATUS="empty-object"
+        _diag "  ⚠ $label is {} — no accounts to provision (image default: $ADMIN_EMAIL only)"
+        return 0
+    fi
+
+    if [[ "$shape" != '{'* ]] || [[ "$shape" != *'}' ]] || [[ "$shape" != *'":"'* ]]; then
+        USERS_ENV_STATUS="invalid-json"
+        _diag "  ⚠ $label is not a JSON object ({\"email\":\"password\", ...}) — skipping user provisioning (image default: $ADMIN_EMAIL only)"
+        return 0
+    fi
+
+    # Deep parse when python3 is available (the image's own json.loads is the
+    # authority, and a shape-valid but syntactically broken file would
+    # otherwise be dropped SILENTLY inside the container). Best effort: a
+    # target without python3 keeps the shape check only.
+    if command -v python3 >/dev/null 2>&1; then
+        if ! printf '%s' "$raw" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1; then
+            USERS_ENV_STATUS="invalid-json"
+            _diag "  ⚠ $label is not valid JSON — skipping user provisioning (image default: $ADMIN_EMAIL only)"
+            return 0
+        fi
+    fi
+
+    if [[ "$shape" == *"\"${ADMIN_EMAIL}\":"* ]]; then
+        USERS_ENV_STATUS="ok"
+        _diag "  Users: provisioning allowlist from $label"
+    else
+        raw="{\"${ADMIN_EMAIL}\":\"${ADMIN_DEFAULT_PASSWORD}\",${raw#\{}"
+        USERS_ENV_STATUS="merged-admin"
+        _diag "  Users: provisioning allowlist from $label (admin auto-merged)"
+    fi
+
+    USERS_ENV_JSON="$raw"
+    printf '%s' "$raw"
+    return 0
+}
+
+# ── Entry guard: sourced runs get definitions only ──────────────────
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+    return 0
+fi
+
+cd "$APP_DIR"
 
 # Port mapping — the container always listens on CONTAINER_PORT (uvicorn),
 # published on HOST_PORT. Default 8000 (dev machine 192.168.0.66); override
@@ -65,17 +198,20 @@ rollback() {
     echo -e "\n${RED}=== ROLLBACK ===${NC}" | tee -a "$LOG_FILE" >&2
     echo "  Something failed — reverting to previous image..." | tee -a "$LOG_FILE" >&2
 
-    docker stop "$CONTAINER_NAME" 2>/dev/null || true
-    docker rm "$CONTAINER_NAME" 2>/dev/null || true
+    docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
     if docker image inspect "${IMAGE_NAME}:${ROLLBACK_TAG}" &>/dev/null; then
         echo "  Re-tagging previous → latest" | tee -a "$LOG_FILE" >&2
         docker tag "${IMAGE_NAME}:${ROLLBACK_TAG}" "${IMAGE_NAME}:latest"
         docker rmi "${IMAGE_NAME}:${ROLLBACK_TAG}" 2>/dev/null || true
 
+        # Same account set as the failed deploy: users.json is durable in the
+        # volume, but provisioning is what re-syncs passwords at startup, so a
+        # rollback keeps the allowlist env rather than dropping it.
         docker run -d --pull=never \
             -p "0.0.0.0:${HOST_PORT}:${CONTAINER_PORT}" \
             -v "$WS_VOLUME:/tmp/workspaces" \
+            "${USERS_ENV[@]}" \
             --name "$CONTAINER_NAME" \
             --restart unless-stopped \
             "${IMAGE_NAME}:latest"
@@ -182,10 +318,16 @@ fi
 
 # ── 3. Stop old container ───────────────────────────────────────────
 log "=== Stop old container ==="
-if docker ps -q --filter "name=$CONTAINER_NAME" | grep -q .; then
-    docker stop "$CONTAINER_NAME" && log "  Stopped"
+# -f (2026-09-01 deploy failure): a plain `docker stop` + `docker rm` silently
+# failed when the existing container (created outside this script by the
+# add-user procedure) didn't quiesce — the rm error was swallowed by
+# `|| true` and the later `docker run` died with "name already in use",
+# triggering a rollback. Force-remove instead, then VERIFY the name is free.
+docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+if docker ps -aq --filter "name=^/${CONTAINER_NAME}$" | grep -q .; then
+    log "  ERROR: container ${CONTAINER_NAME} still exists after force-remove"
+    exit 1
 fi
-docker rm "$CONTAINER_NAME" 2>/dev/null || true
 
 # ── 4. Remove old image, load new ───────────────────────────────────
 log "=== Load new image ==="
@@ -203,26 +345,21 @@ fi
 # ── 5. Start container ──────────────────────────────────────────────
 log "=== Start container ==="
 
-# M1-D5-safe user allowlist: if the file exists, provision its accounts at
-# container startup; admin@hsbc.com is auto-merged when omitted.
-USERS_ENV=()
-if [ -f "$ALLOWLIST_FILE" ]; then
-    USERS_JSON=$(tr -d '\n \t' < "$ALLOWLIST_FILE")
-    case "$USERS_JSON" in
-        '{'|''|'}')
-            log "  ⚠ $ALLOWLIST_FILE is empty/invalid — skipping user provisioning"
-            ;;
-        *'"admin@hsbc.com"'*)
-            USERS_ENV=(-e "PROVISIONED_USERS_JSON=$USERS_JSON")
-            log "  Users: provisioning allowlist from $ALLOWLIST_FILE"
-            ;;
-        *)
-            USERS_JSON="{\"admin@hsbc.com\":\"123456\",${USERS_JSON#\{}"
-            USERS_ENV=(-e "PROVISIONED_USERS_JSON=$USERS_JSON")
-            log "  Users: provisioning allowlist from $ALLOWLIST_FILE (admin auto-merged)"
-            ;;
-    esac
-fi
+# M1-D5-safe user allowlist: build_users_env prints the merged JSON and sets
+# USERS_ENV_STATUS / USERS_ENV_JSON. Only ok / merged-admin produce a payload;
+# every other status was already logged by the function as a WARNING + SKIP,
+# so the deploy continues with the image default (admin@hsbc.com only).
+# Called BARE (no command substitution): a subshell would drop the status and
+# the deploy would silently provision nothing — see the function's header.
+# Stdout is discarded: that copy of the payload carries the PASSWORDS and must
+# never reach the console or a piped/tee'd deploy log. The payload travels in
+# $USERS_ENV_JSON instead.
+build_users_env "$ALLOWLIST_FILE" >/dev/null || true
+case "$USERS_ENV_STATUS" in
+    ok|merged-admin)
+        USERS_ENV=(-e "PROVISIONED_USERS_JSON=$USERS_ENV_JSON")
+        ;;
+esac
 
 docker run -d --pull=never \
     -p "0.0.0.0:${HOST_PORT}:${CONTAINER_PORT}" \
@@ -265,10 +402,23 @@ if [ "$HEALTHY" = false ]; then
     rollback
 fi
 
-# ── 8. Cleanup old rollback tag (deploy succeeded) ───────────────────
+# ── 8. Post-deploy: name the provisioned accounts (emails ONLY) ──────
+# Provisioning runs in the container's startup lifespan; by the time the
+# health endpoint answers it has finished. Log the account NAMES so the
+# operator can see who the deploy created — never the passwords.
+if [ "${#USERS_ENV[@]}" -gt 0 ]; then
+    PROVISIONED_EMAILS=$(docker exec "$CONTAINER_NAME" python3 -c "import json;d=json.load(open('${CONTAINER_USERS_FILE}'));print(' '.join(sorted(d)))" 2>/dev/null || true)
+    if [ -n "$PROVISIONED_EMAILS" ]; then
+        log "  ${GREEN}Provisioned accounts:${NC} $PROVISIONED_EMAILS"
+    else
+        log "  ⚠ Could not read the provisioned accounts from ${CONTAINER_NAME}:${CONTAINER_USERS_FILE} — check 'docker logs $CONTAINER_NAME' for provision_user warnings (e.g. a password shorter than the minimum is dropped with a named warning)"
+    fi
+fi
+
+# ── 9. Cleanup old rollback tag (deploy succeeded) ───────────────────
 docker rmi "${IMAGE_NAME}:${ROLLBACK_TAG}" 2>/dev/null || true
 
-# ── 9. Show summary ─────────────────────────────────────────────────
+# ── 10. Show summary ─────────────────────────────────────────────────
 echo ""
 log "  ${GREEN}=== Deployed Successfully ===${NC}"
 log "  Access:  http://${SERVER_IP}:${HOST_PORT}"

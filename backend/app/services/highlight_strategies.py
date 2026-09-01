@@ -68,6 +68,13 @@ def _flow_kind(e: dict) -> str:
         # SUBSET/READ is the pre-promotion state of the read pairs
         # (13/14/19, §8.5) — the read role is decided by the raw operation.
         return "read" if op == "READ" else "bridge"
+    if et == "FILTER" and op == "ROW_SELECTION":
+        # R46d — a CASE WHEN condition arm's occurrence twin is a
+        # ROW-SELECTION, not a value flow: the canonical §8.7
+        # row-selection kind (#226's "row flow"), anchored at the
+        # occurrence's own line (rule below). FILTER's plain CONDITION
+        # operation keeps the field-flow kind it always had.
+        return "row flow"
     if et == "INDIRECT":
         return "filter"
     if et == "ROW_FLOW":
@@ -181,6 +188,9 @@ def _path_role(e: dict) -> str:
         return "write leg"
     if et == "ALIAS":
         return "alias hop"
+    if et == "FILTER" and op == "ROW_SELECTION":
+        # R46d — the continuation arm's row-selection step.
+        return "row selection"
     if et in ("FILTER", "INDIRECT"):
         return "filter step"
     if et == "JOIN":

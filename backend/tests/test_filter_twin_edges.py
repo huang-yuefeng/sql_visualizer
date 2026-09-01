@@ -277,6 +277,22 @@ class TestTwinGroupOwnerGuard:
                     else JOIN_CLAUSES
                 if own in needed:
                     continue  # the twin's own clause — no inheritance
+                if d.relationship == "FILTER" and \
+                        res.occurrence_arms.get(src.id) == "CASE WHEN":
+                    # R46d (2026-08-28.12): an own CASE WHEN arm is the
+                    # twin's own per-occurrence row-selection fact, carried
+                    # on `result.occurrence_arms` — never a group borrow.
+                    # Phase 9 types it FILTER/ROW_SELECTION from that fact
+                    # alone, so it satisfies this guard the same way an own
+                    # WHERE clause does.
+                    continue
+                if d.relationship == "FILTER" and own == "CASE WHEN":
+                    # R46d (2026-08-28.12): an own CASE WHEN arm stamp is
+                    # the twin's own per-occurrence row-selection evidence —
+                    # the strongest own-clause form there is, never a group
+                    # borrow. Phase 9 types it FILTER/ROW_SELECTION from
+                    # that stamp alone.
+                    continue
                 group = groups.get(((src.context or "TOP"),
                                     src.name.casefold()), set())
                 assert group & needed, (
