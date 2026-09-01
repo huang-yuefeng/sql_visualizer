@@ -132,3 +132,22 @@ def test_flagship_emits_only_contract_types():
                             physical_model=model)
     assert cl, "flagship closure must be non-empty"
     assert cl <= {n["data"]["id"] for n in graph["nodes"]}
+
+
+def test_walk_rank_covers_every_type_in_partition_order():
+    """REVIEW F3 (2026-09-02): lineage._WALK_RANK is a hand-copy of the
+    walkable-set contract and the load-bearing term of the V8 canonical
+    walk — an unlisted type would rank BELOW every NEVER_WALKED rank
+    (lineage's lookup maps unknown types to len(_WALK_RANK)) and a
+    reclassification here would silently invert which edge admits a
+    table. Pin: every type covered, and the three blocks are exactly
+    walkable_set's partition in declaration order."""
+    from app.extractor.lineage import _WALK_RANK
+
+    ordered = list(_WALK_RANK)
+    assert set(ordered) == ws.ALL_EDGE_TYPES
+    n_field = len(ws.FIELD_WALKABLE)
+    n_never = len(ws.NEVER_WALKED)
+    assert frozenset(ordered[:n_field]) == ws.FIELD_WALKABLE
+    assert frozenset(ordered[n_field:len(ordered) - n_never]) == ws.CONDITIONAL
+    assert frozenset(ordered[len(ordered) - n_never:]) == ws.NEVER_WALKED

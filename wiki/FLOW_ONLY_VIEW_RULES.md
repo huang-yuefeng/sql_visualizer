@@ -2,7 +2,12 @@
 
 > Every rule that decides whether an edge appears in the L2 flow-only view, with examples
 > from the flagship scripts, and the confusing ones labeled. Written 2026-09-01 for the
-> user's review; the two ⚡ ruling items gate the jaccard benchmark's final state.
+> user's review; the two ⚡ ruling items were RESOLVED the same day (§7-A write leg only,
+> §7-B the edge drops and the edge-less chip is pruned) — their §7 entries keep the history.
+> Every trace row below is payload-checked (REV 8, 2026-09-02): against the regenerated
+> flow-only baselines in `backend/tests/snapshots/` where the searched field is a snapshot
+> seed, otherwise against a live in-process build of the same `_build_l2_graph` path
+> (`PYTHONHASHSEED=0`), labeled "live build" on the row.
 
 ## The foundation: two ways an edge earns its place
 
@@ -31,11 +36,11 @@ Everything below refines these two ideas.
 |---|---|---|---|
 | 2a | **Reads**: a projection/expression reading the field's value | ✅ | `SELECT p1.lending_ref` @163 |
 | 2b | **Writes**: the value written into a target table | ✅ | `INSERT OVERWRITE bdm_acc_loan_info_sup ... p1.lending_ref` |
-| 2c | **Computes**: the value inside an expression feeding an output | ✅ | `CONCAT(p2.poctcd, ...) = p1.lending_ref` @41 |
+| 2c | **Computes**: the value inside an expression feeding an output | ✅ | `CASE WHEN NVL(p6.lending_ref,'') <> '' THEN 'Rollover2' END AS reserved_field8` @82 — COMPUTED/compute step @82, `lending_ref@82` → `reserved_field8@82` (canonical LFS133). L41's `CONCAT(...) = p1.lending_ref` is a **full**-view-only anchor |
 | 2d | **Filters on the field**: a predicate selecting rows by it | ✅ | `WHERE p1.data_dt = '$(load_date)'` |
 | 2e | **Join keys on the field**: the join operand IS the field | ✅ | `ON p6.lending_ref = p1.lending_ref` @156 |
 | 2f | **Group/window keys on the field**: it decides grouping/ranking | ✅ | `GROUP BY ... product` @246; `ROW_NUMBER() OVER(PARTITION BY p1.acnw)` @64 — the **Reappears** stage |
-| 2g | A statement writes the SEARCHED field's column with a **literal/constant** value | ✅ (write leg only — USER RULING 2026-09-01, resolving 7-A) | The job-log: `INSERT INTO rrcdm_job_log_exec_par(data_dt, ...) SELECT '$(load_date)' AS data_dt, COUNT(1)...` — searching `data_dt`, its write edge @211 shows even though the value is a constant; the INSERT's other literal columns stay out |
+| 2g | A statement writes the SEARCHED field's column with a **literal/constant** value | ✅ (write leg only — USER RULING 2026-09-01, resolving 7-A) | The job-log: `INSERT INTO rrcdm_job_log_exec_par(data_dt, ...) SELECT '$(load_date)' AS data_dt, COUNT(1)...` — searching `data_dt`, its write leg shows (PL @253, EAST5 @179) even though the value is a constant; the INSERT's other literal columns stay out |
 
 ---
 
@@ -101,7 +106,10 @@ this box" is a question for the full view.
 Three complete cases per group, same convention as §3a: the searched
 field first, then one row per SQL line with the edges the engine
 actually serves there (payload-checked against
-`backend/tests/snapshots/`), shown (✅) vs dropped (❌).
+`backend/tests/snapshots/` where the searched field is a snapshot seed,
+against a live in-process build of the same `_build_l2_graph` path —
+`PYTHONHASHSEED=0`, stable across runs — and labeled "live build"
+where it is not), shown (✅) vs dropped (❌).
 
 **§1 SEEDS — where the closure starts**
 
@@ -115,7 +123,7 @@ actually serves there (payload-checked against
 2. *1b, alias expansion (#399)*: `FROM v_bdm_customer_all('...') a`,
    search the TVF's `cust_no` → the alias's owning entities seed. ✅
     - Search field: `ods_gdc_split_fg_rating_temp.cust_no` — the snapshot seed, whose closure carries the TVF-alias form `a.cust_no` (script: BDM_ACC_LOAN_INFO_RFN.sql)
-    - L1103: `WHEN SUBSTR(A.LOAN_IN_ACCT_NO,1,6) = 'CNHSBC' AND EXISTS (SELECT 1 FROM v_bdm_customer_all('${load_date}') a` — ✅ (edge: TABLE_FLOW/chain (read into output) @1103, `a@1103` → `output(exists13)@1103`) (edge: ALIAS/chain (alias hop) @1103, `v_bdm_customer_all@1103` → `a@1103`) (edge: REF/read @1103, `cust_no@1105` → `a@1103`)
+    - L1103: `WHEN SUBSTR(A.LOAN_IN_ACCT_NO,1,6) = 'CNHSBC' AND EXISTS (SELECT 1 FROM v_bdm_customer_all('${load_date}') a` — ✅ (edge: TABLE_FLOW/chain (read into output) @1103, `a@1103` → `output(exists13)@1103`) (edge: TABLE_FLOW/chain (VT chain) @1103, `output(exists13)@1103` → `output@867`) (edge: ALIAS/chain (alias hop) @1103, `v_bdm_customer_all@1103` → `a@1103`) (edge: REF/read @1103, `cust_no@1105` → `a@1103`)
     - L1104: `LEFT JOIN bdm_acc_deposit_acct b` — ✅ (edge: ALIAS/chain (alias hop) @1104, `bdm_acc_deposit_acct@1104` → `b@1104`) (edge: REF/read @1104, `cust_no@1105` → `b@1104`)
     - L1105: `ON a.cust_no = b.cust_no` — ✅ (edge: JOIN/join step @1105, `cust_no@1105` → `output(exists13)@1103` — served twice, one per side of the predicate) (edge: SCHEMA/structure @1105, `a@1103` / `b@1104` / `b@1111` → `cust_no@1105` ×3) (edge: COMPUTED/compute step @1105, `cust_no@1105` → `DM_FLAG2@1119`)
 
@@ -158,23 +166,20 @@ actually serves there (payload-checked against
     - L253: `INSERT INTO TABLE rrcdm_job_log_exec_par(data_dt,object_domain,sub_src_system,table_name,job_name,total_rows,load_time,STATUS,remarks)` — ✅ ruling 7-A (write leg only, 2026-09-01): shown — (edge: TABLE_FLOW/write leg @253, `output@253` → `rrcdm_job_log_exec_par@253` — canonical P16)
     - L254: `SELECT '${load_date}' AS data_dt,` — ✅ ruling 7-A: shown — (edge: TABLE_FLOW/write value @254, `data_dt@254` → `output@253` — canonical V2) (edge: SCHEMA/structure @254, `output@253` → `data_dt@254` — canonical M1)
 
-   *Note:* the engine serves this trunk here — and in EAST5 (@179/@180) — while SUP_M's identical job-log trunk (@211/@213) drops. That inconsistency IS ruling 7-A.
+   *Note:* the engine serves this trunk here — and EAST5's (@179 write leg, with the read/filter legs @189/@190) — while SUP_M's identical job-log trunk (@211/@213) stays dark. That is no longer an inconsistency: ruling 7-A (resolved 2026-09-01, write leg only) shows the write leg for the column the log WRITES (`data_dt` @253/@254, `p_dt` @179) and gives a field the log does NOT write (`lending_ref`) nothing. EAST5's own @180 `data_dt@180` belongs-to is a **full**-view row the closure drops — it is a SIBLING there (the searched field is `p_dt`), whereas PL's @254 row is the searched field's own.
 
 **§4 TWINS — the same field at many lines**
 
 1. *4a, per-occurrence lines*: `charge_department`'s CASE arms light
    exactly at {54, 55, 56, 66, 68, 70} — each occurrence at its own line,
-   never one merged blob. *(not a snapshot seed — the lit set is the doc's
-   own audit record, not payload-checkable here)*
-    - Search field: `east5_stzfxxb.charge_department` (script: EAST5_STZFXXB_M.sql — not a snapshot seed; no payload to check against)
-    - L54: `CASE WHEN a.CHARGE_DEPARTMENT ="GTRF_CoreTrade_SCSAI" THEN a.entd_opp_acct_name`
-    - L55: `WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN NVL(a.entd_opp_acct_name,f.df_dfhm)`
-    - L56: `WHEN a.charge_department = "OPS_MBS" THEN REGEXP_REPLACE(`
-    - L66: `CASE WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN NVL(a.entd_opp_bank_no,f.df_dfxh)`
-    - L68: `CASE WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN NVL(a.entd_opp_bank_name,f.df_dfxm)`
-    - L70: `CASE WHEN a.charge_department = 'GTRF_RFN' THEN a.remark`
+   never one merged blob. *(verified by live build: 47 edges / 19 nodes,
+   lit lines {41, 51, 54, 55, 56, 66, 68, 70, 86, 132, 141, 152, 155})*
+    - Search field: `east5_stzfxxb.charge_department` (script: EAST5_STZFXXB_M.sql — not a committed snapshot seed; verified by live build)
+    - L54: `CASE WHEN a.CHARGE_DEPARTMENT ="GTRF_CoreTrade_SCSAI" THEN a.entd_opp_acct_name` — ✅ live build (edge: SCHEMA/structure @54, `bdm_acc_entrusted_payment@141` → `charge_department@51`) (edge: TABLE_FLOW/write value @54, `charge_department@51` → `output@41`) (edge: FILTER/row selection @54, `charge_department@51` → `output@41`)
+    - L55 / L56 / L66 / L68 / L70 — the same trio at each arm's own line (`SCHEMA` belongs-to, `TABLE_FLOW/write value`, `FILTER/row selection`, all anchored @55 / @56 / @66 / @68 / @70 respectively)
+    - L51: `CASE WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN COALESCE(e.acct_no,a.entd_opp_acct_no,f.df_dfzh)` — ✅ live build as well (edge: COMPUTED/compute step @51 ×5, `charge_department@51` → `stzfdxzh@53` / `stzfdxhm@65` / `stzfdxhh@67` / `stzfdxxm@69` / `BBZ@73`) (edge: SCHEMA/structure @51, `a@141` → the two `charge_department` chips @51)
 
-   *Note:* the audited lit set is {54,55,56,66,68,70}; the SQL text carries a `charge_department` occurrence at L51 as well (the arm the audited set does not count).
+   *Note:* the audited CASE-arm set {54,55,56,66,68,70} holds — one arm, one line. The earlier note that the audited set "does not count" the L51 occurrence understated the payload: L51 IS served (the source CASE's own five compute steps into the target columns).
 
 2. *4b, JOIN-ON AND-legs*: continuation legs of one JOIN get their own
    occurrence twins, so the highlight reaches the AND lines.
@@ -182,7 +187,7 @@ actually serves there (payload-checked against
     - L201: `p2.lending_ref = p1.lending_ref` — ✅ (edge: JOIN/join step @201, `lending_ref@201` → `output@160`) (edge: SCHEMA/structure @201, `p2@199` → `lending_ref@201`)
     - L202: `AND p2.data_dt = DATEADD(DATE'$(load_date)',-1,'DD')` — ❌ nothing served here in this closure (`data_dt` is a sibling field: its leg is dropped by the field-involvement rule 3b; the **full** view carries the JOIN/join step `bdm_acc_loan_info_sup@160` → `output@160` @202 that this closure excludes)
     - L203: `AND p2.charge_department = 'GTRF_CoreTrade_EPBL_MYRZ'` — ❌ nothing served here (same sibling drop; the **full** view carries the JOIN/join step @203)
-    - L224 (PL): `AND a.p_dt = c.p_dt` — *(script: BDM_ACC_LOAN_INFO_PL.sql; not a snapshot seed for `p_dt` — no payload to check against)*
+    - L224 (PL): `AND a.p_dt = c.p_dt` — ✅ live build for the `ODS_CUPD_PLOAN_ACCTM_NEW5.p_dt` seed (not a committed snapshot seed): (edge: JOIN/join step @224 ×2, `p_dt@224` and `p_dt@220` → `output@19`) (edge: SCHEMA/structure @224 ×2, `a@220` → `p_dt@224`, `ODS_CUPD_PLOAN_ACCTM_NEW5@220` → `p_dt@220`)
 
    *Note:* each leg of the searched field's own JOIN anchors its own line; a sibling leg's line stays dark in the searched field's closure.
 
@@ -238,10 +243,10 @@ actually serves there (payload-checked against
 
 | # | Rule | Shown? | Example |
 |---|---|---|---|
-| 4a | Each occurrence lights at its **own line** | ✅ | EAST5 `charge_department`'s CASE arms (L51/55/56/66/68/70): lit at exactly {54,55,56,66,68,70} |
-| 4b | **JOIN-ON AND-continuation legs** (family-4 twins) | ✅ | SUP_M L201-203: `p2.lending_ref = p1.lending_ref` @201, `AND p2.data_dt = DATEADD(...)` @202, `AND p2.charge_department = 'GTRF_CoreTrade_EPBL_MYRZ'` @203 — each leg anchors its own line; PL L221 `AND c.p_dt = '${load_date}'` |
+| 4a | Each occurrence lights at its **own line** | ✅ | EAST5 `charge_department`'s CASE arms (L54/55/56/66/68/70): one arm, one line; the closure also lights L51 (the source CASE's own compute steps) — live build 47 edges / 19 nodes |
+| 4b | **JOIN-ON AND-continuation legs** (family-4 twins) | ✅ | SUP_M L201: `p2.lending_ref = p1.lending_ref` — the searched field's own leg anchors its own line (the sibling legs @202/@203 stay dark — rule 3b); PL L224 `AND a.p_dt = c.p_dt` — the continuation leg of the searched field's own JOIN serves 2 JOIN + 2 SCHEMA rows (live build) |
 | 4c | A line already anchored by a surviving var — no duplicate | ❌ | The L82 NVL read: anchored once |
-| 4d | A twin with **no owner evidence** is not minted | ❌ | EAST5 L42: `d.org_no_cbrc` inside `NVL(c.org_no_cbrc,d.org_no_cbrc)` — a bare occurrence with no clause owner of its own earns no twin (the paren-scope owner rule) |
+| 4d | A twin with **no owner evidence** is not minted | ❌ | EAST5 L43: `d.org_no_cbrc` inside `NVL(c.org_no_cbrc,d.org_no_cbrc)` — a bare occurrence with no clause owner of its own earns no twin (the paren-scope owner rule); L42 is a SQL comment in the sample |
 
 ---
 
@@ -249,7 +254,7 @@ actually serves there (payload-checked against
 
 | # | Rule | Shown? | Example |
 |---|---|---|---|
-| 5a | **Multi-anchor**: N occurrences joining the same target at N lines → N edges | ✅ | SUP_M: `lending_ref` anchors THREE join sites at three lines — L41 (`CONCAT(...)=p1.lending_ref`), L156 (`ON p6.lending_ref = p1.lending_ref`), L201 (`p2.lending_ref = p1.lending_ref`) → 3 JOIN edges **(RC-B, fixed)** |
+| 5a | **Multi-anchor**: N occurrences joining the same target at N lines → N edges | ✅ | SUP_M: `lending_ref` anchors FIVE join lines — L95, L117, L150, L156 (one edge per side, ×2), L201 → 6 JOIN edges; L41's `CONCAT(...)=p1.lending_ref` serves nothing in this closure (that anchor is a **full**-view fact) **(RC-B, fixed)** |
 | 5b | **Fix H keeper-line**: a carrier at the chip's own line wins | ✅ | — |
 | 5c | **Line-0 guard**: a carrier with no line never anchors | ❌ | The TVF-alias class — now fixed to carry real lines (M-T1) |
 | 5d | **Claimed-together**: a group whose line another relationship claims earns no extra edge | ❌ | The LFS108 NOT-IN filter |
@@ -263,7 +268,7 @@ actually serves there (payload-checked against
 | # | Rule | Shown? | Example |
 |---|---|---|---|
 | 6a | **Cross-table same-name seeds** | ❌ | Searching `bdm_acc_loan_info.data_dt`: the `c/d/e.data_dt` chips excluded — **(RC-A, fixed)** |
-| 6b | **Foreign statement trunks**: a statement that doesn't carry the field's value doesn't enter | ❌ | The job-log DML trunk drops from `lending_ref`'s closure; `rrcdm ↓ EAST5` stays 3/3 |
+| 6b | **Foreign statement trunks**: a statement that doesn't carry the field's value doesn't enter | ❌ | The job-log DML trunk drops from `lending_ref`'s closure; `rrcdm ↓ EAST5` stays 3/3 (@179/@189/@190). 7-A carve-out: a trunk whose INSERT writes the SEARCHED column enters by its write leg (`data_dt` @253 in PL, `p_dt` @179 in EAST5) |
 | 6c | **Foreign-owner folds** respected | ❌ | PL @250: edges attribute to `T_BRANCH`, never the searched compound — **(J2 fixing)** |
 
 ---
@@ -307,10 +312,10 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 
 *Example 2 — the plain alias-qualified form (RFN, the FSC-2 case)*
 
-- Search field: `a.cust_no` (script: BDM_ACC_LOAN_INFO_RFN.sql — not a snapshot seed; no payload to check against)
-- L1105: `ON a.cust_no = b.cust_no` — (edge: not verified against payload — line cited from SQL only)
+- Search field: `a.cust_no` (script: BDM_ACC_LOAN_INFO_RFN.sql — not a committed snapshot seed; verified by live build, which matches: 122 edges / 39 nodes)
+- L1105: `ON a.cust_no = b.cust_no` — ✅ live build (edge: JOIN/join step @1105 ×2, `cust_no@1099` and `cust_no@1105` → `output(exists13)@1103` — one per predicate side) (edge: COMPUTED/compute step @1105, `cust_no@1105` → `DM_FLAG2@1119`) (edge: SCHEMA/structure @1105 ×4 — `a@1097` / `a@1103` / `b@1104` / `b@1111` → the two `cust_no` chips)
 
-*Note:* the doc's own record stands: before the model-persistence fix this seed was LOST (`search_matched: false`, the whole 1053-node graph served — the RFN **full** view is exactly those 1053 nodes / 6760 edges); after it the 40-node / 82-edge flow-only closure serves.
+*Note:* the doc's own record stands: before the model-persistence fix this seed was LOST (`search_matched: false`, the whole 1053-node graph served — the RFN **full** view is exactly those 1053 nodes / 6760 edges); after it the alias-qualified seed matches again — its own 122-edge / 39-node closure, beside the snapshot seed's 40-node / 82-edge one.
 
 **1c — cross-table same-name does NOT seed.**
 
@@ -367,18 +372,18 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 *Example 1 — the field inside a join-key expression (SUP_M × `lending_ref`)*
 
 - Search field: `rollover_loan_info.lending_ref` (script: BDM_ACC_LOAN_INFO_SUP_M.sql)
-- L41: `ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),LPAD(p2.poacs,6,'0'),LPAD(p2.poacx,3,'0'),LPAD(p2.podtao,8,'0')) = p1.lending_ref` — (edge: not verified against payload — line cited from SQL only; this flow-only closure serves nothing at L41, while the **full** view carries JOIN/field flow (join step) @41, `bdm_acc_loan_info@16` → `p2@40`, reason `‖p1.lending_ref@L41 → CONCAT(…)‖`)
+- L41: `ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),LPAD(p2.poacs,6,'0'),LPAD(p2.poacx,3,'0'),LPAD(p2.podtao,8,'0')) = p1.lending_ref` — ❌ verified: this flow-only closure serves nothing at L41, while the **full** view carries JOIN/field flow (join step) @41, `bdm_acc_loan_info@16` → `p2@40`, reason `‖p1.lending_ref@L41 → CONCAT(…)‖`
 
 *Note:* the main table's "@41" citation is a full-view fact; the served flow-only closure for `lending_ref` lights the same expression's *sibling* JOIN site at L117 instead.
 
 *Example 2 — a CASE mask computes the field (RFN × `cust_no`)*
 
 - Search field: `ods_gdc_split_fg_rating_temp.cust_no` (script: BDM_ACC_LOAN_INFO_RFN.sql)
-- L1117: `OR (regexp_instr(A.LOAN_IN_ACCT_NAME,'[A-Za-z]+$') >= 1 AND length(A.LOAN_IN_ACCT_NAME) <> lengthb(A.LOAN_IN_ACCT_NAME))` — (edge: not verified against payload — line cited from SQL only)
-- L1118: `THEN 'NI'` — (edge: not verified against payload — line cited from SQL only)
-- L1119: `END AS DM_FLAG2` — (edge: not verified against payload — line cited from SQL only)
+- L1117: `OR (regexp_instr(A.LOAN_IN_ACCT_NAME,'[A-Za-z]+$') >= 1 AND length(A.LOAN_IN_ACCT_NAME) <> lengthb(A.LOAN_IN_ACCT_NAME))` — ❌ verified: no edge served @1117 in this closure
+- L1118: `THEN 'NI'` — ❌ verified: no edge served @1118
+- L1119: `END AS DM_FLAG2` — ❌ verified: no edge anchored @1119 — the `DM_FLAG2@1119` chip is the TARGET of the compute steps, whose anchors are the field's own occurrence lines (@1105 and @1178)
 
-*Note:* the same shape IS payload-visible one script over: RFN's own closure serves COMPUTED/compute step @1105, `cust_no@1105` → `DM_FLAG2@1119`, and again @1178 — the audited written-768 step of the doc's record.
+*Note:* the same shape IS payload-visible in this same closure: RFN's own closure serves COMPUTED/compute step @1105, `cust_no@1105` → `DM_FLAG2@1119`, and again @1178 — the audited written-768 step of the doc's record. The mask's own three lines stay dark.
 
 **2d — filters.**
 
@@ -390,8 +395,8 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 
 *Example 2 — its own predicate arm at its own line (SUP_M, searching `podtao`)*
 
-- Search field: `ods_hub_lsacmsp.podtao` (script: BDM_ACC_LOAN_INFO_SUP_M.sql — not a snapshot seed; no payload to check against)
-- L37: `AND podtao <> pofddt` — (edge: not verified against payload — line cited from SQL only)
+- Search field: `ods_hub_lsacmsp.podtao` (script: BDM_ACC_LOAN_INFO_SUP_M.sql — not a committed snapshot seed; verified by live build: 39 edges / 14 nodes)
+- L37: `AND podtao <> pofddt` — ✅ live build (edge: SCHEMA/structure @37, `ods_hub_lsacmsp@33` → `podtao@31`) (edge: FILTER/filter step @37, `podtao@31` → `output(p2)@31`)
 
 **2e — join keys.**
 
@@ -403,24 +408,24 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 
 *Example 2 — the operand edge at the join line (PL, searching `acnw`)*
 
-- Search field: `ODS_CUPD_PLOAN_ACCTM_NEW5.acnw` (script: BDM_ACC_LOAN_INFO_PL.sql — not a snapshot seed; no payload to check against)
-- L221: `LEFT JOIN ODS_CUPD_PLOAN_APS_CREDINF5 c ON c.sxxyh = a.acnw AND c.p_dt = '${load_date}'` — (edge: not verified against payload — line cited from SQL only; the **full** view of this script does serve JOIN/field flow (join step) @221, `ODS_CUPD_PLOAN_APS_CREDINF5@221` → `output@19`, reason `‖c.sxxyh@L221 → ⟐ output@L19‖`, i.e. the *sxxyh* operand, not `acnw`)
+- Search field: `ODS_CUPD_PLOAN_ACCTM_NEW5.acnw` (script: BDM_ACC_LOAN_INFO_PL.sql — not a committed snapshot seed; verified by live build: 23 edges / 13 nodes)
+- L221: `LEFT JOIN ODS_CUPD_PLOAN_APS_CREDINF5 c ON c.sxxyh = a.acnw AND c.p_dt = '${load_date}'` — ❌ verified: no edge served @221 in this closure (the **full** view of this script does serve JOIN/field flow (join step) @221, `ODS_CUPD_PLOAN_APS_CREDINF5@221` → `output@19`, reason `‖c.sxxyh@L221 → ⟐ output@L19‖`, i.e. the *sxxyh* operand, not `acnw`). The closure's own JOIN anchor is L249 — `ON a.acnw = p2.arrangement_local_number …` — `JOIN/join step @249, acnw@21 → output@19`.
 
 **2f — group/window keys.**
 
 *Example 1 — the group key decides grouping (PL, searching `product`)*
 
-- Search field: `bdm_fin_lrr_key_base_info.product` (script: BDM_ACC_LOAN_INFO_PL.sql — not a snapshot seed; the lit set is the doc's own audit record)
-- L243: `group by arrangement_local_number,` — (edge: not verified against payload — line cited from SQL only)
-- L244: `cb_pointer,` — (edge: not verified against payload — line cited from SQL only)
-- L245: `account,` — (edge: not verified against payload — line cited from SQL only)
-- L246: `product,` — (edge: not verified against payload — line cited from SQL only; the **full** view serves the sibling chip's belongs-to SCHEMA/structure @246, `bdm_fin_lrr_key_base_info@234` → `product@232` — the audited Reappears anchor)
-- L247: `lrr_key) km1` — (edge: not verified against payload — line cited from SQL only)
+- Search field: `bdm_fin_lrr_key_base_info.product` (script: BDM_ACC_LOAN_INFO_PL.sql — not a committed snapshot seed; verified by live build: 10 edges / 9 nodes, lit lines {19, 33, 232, 234, 246})
+- L243: `group by arrangement_local_number,` — ❌ verified: no edge served @243 (a sibling GROUP BY key; the **full** view carries its belongs-to SCHEMA row here)
+- L244: `cb_pointer,` — ❌ verified: no edge served @244 (same sibling drop)
+- L245: `account,` — ❌ verified: no edge served @245 (same sibling drop)
+- L246: `product,` — ✅ live build (edge: SCHEMA/structure @246, `bdm_fin_lrr_key_base_info@234` → `product@232`) — CORRECTED 2026-09-02: the earlier text called this a **full**-view-only fact; the payload serves it in the FLOW-ONLY closure too, because it is the SEARCHED field's own belongs-to (the audited Reappears anchor), which rule 3a never drops
+- L247: `lrr_key) km1` — ❌ verified: no edge anchored @247 in this closure (the **full** view carries the SUBQUERY/combine step `km1@247` → the output frame and the belongs-to `lrr_key@230` here)
 
 *Example 2 — the window PARTITION key (DL, searching `acnw`)*
 
-- Search field: `ODS_CUPD_CLD_ACCTMASTER_NEW.acnw` (script: BDM_ACC_LOAN_INFO_Digitallending.sql — not a snapshot seed; no payload to check against)
-- L64: `,ROW_NUMBER() OVER(PARTITION BY p1.acnw ORDER BY SSALSFP.P_DT DESC) RN` — (edge: not verified against payload — line cited from SQL only)
+- Search field: `ODS_CUPD_CLD_ACCTMASTER_NEW.acnw` (script: BDM_ACC_LOAN_INFO_Digitallending.sql — not a committed snapshot seed; verified by live build: 41 edges / 18 nodes)
+- L64: `,ROW_NUMBER() OVER(PARTITION BY p1.acnw ORDER BY SSALSFP.P_DT DESC) RN` — ✅ live build (edge: WINDOW/window step @64, `acnw@62` → `RN@64` — the OVER-line anchor) (edge: REF/field flow (value copy) @64, `RN@64` → `rn@76`) (edge: SCHEMA/structure @64, `ODS_CUPD_CLD_ACCTMASTER_NEW@65` → `acnw@62` — the audited Reappears anchor)
 
 **2g — named-but-literal write (✅ resolved by ruling 7-A, 2026-09-01).**
 
@@ -437,7 +442,7 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 - L253: `INSERT INTO TABLE rrcdm_job_log_exec_par(data_dt,object_domain,sub_src_system,table_name,job_name,total_rows,load_time,STATUS,remarks)` — ✅ ruling 7-A (write leg only, 2026-09-01): shown — (edge: TABLE_FLOW/write leg @253, `output@253` → `rrcdm_job_log_exec_par@253` — canonical P16)
 - L254: `SELECT '${load_date}' AS data_dt,` — ✅ ruling 7-A: shown — (edge: TABLE_FLOW/write value @254, `data_dt@254` → `output@253` — canonical V2) (edge: SCHEMA/structure @254, `output@253` → `data_dt@254` — canonical M1)
 
-*Note:* the two examples are the ruling's own contradiction — byte-identical job-log statements, one trunk dropped (SUP_M), one served (PL, and EAST5 @179/@180). ⚡ 7-A decides which is right.
+*Note:* post-7-A the two examples agree with each other — they search DIFFERENT fields. PL searches `data_dt`, a column the log writes (write leg @253, value @254); SUP_M searches `lending_ref`, which the log never writes, so the statement contributes nothing (corollary 3). EAST5 (`p_dt`) serves the same shape at @179.
 
 ### §3 SIBLINGS (post-ruling)
 
@@ -469,7 +474,7 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 *Example 2 — `charge_department`'s feeding expression and output routing (EAST5 × `p_dt`)*
 
 - Search field: `east5_stzfxxb.p_dt` (script: EAST5_STZFXXB_M.sql)
-- L51: `CASE WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN COALESCE(e.acct_no,a.entd_opp_acct_no,f.df_dfzh)` — (dropped — field-involvement rule 3b: the sibling's COMPUTED/compute step `bdm_acc_entrusted_payment@141` → `east5_stzfxxb@41` with reason `‖a.charge_department@L51 → stzfdxzh@L53‖`, which the **full** view carries)
+- L51: `CASE WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN COALESCE(e.acct_no,a.entd_opp_acct_no,f.df_dfzh)` — (dropped — field-involvement rule 3b: the sibling's COMPUTED/compute step `bdm_acc_entrusted_payment@141` → `east5_stzfxxb@41` with reason `‖a.entd_opp_acct_no@L51 → stzfdxzh@L53‖` — CORRECTED 2026-09-02, the payload's reason names the COALESCE arm, not `charge_department`; what marks the line as the sibling's is its belongs-to `a@141` → `charge_department@51`, which the **full** view carries)
 
 **3c — sibling chips.**
 
@@ -493,21 +498,18 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 
 *Example 1 — the CASE arms light at their own lines (EAST5, searching `charge_department`)*
 
-- Search field: `east5_stzfxxb.charge_department` (script: EAST5_STZFXXB_M.sql — not a snapshot seed; the audited lit set {54,55,56,66,68,70} is the doc's own record, and the **full** view shows the mechanism per line)
-- L54: `CASE WHEN a.CHARGE_DEPARTMENT ="GTRF_CoreTrade_SCSAI" THEN a.entd_opp_acct_name` — (full view only: SCHEMA/structure @54, `bdm_acc_entrusted_payment@141` → `charge_department@51`; FILTER/row selection @54, `bdm_acc_entrusted_payment@141` → `output@41`)
-- L55: `WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN NVL(a.entd_opp_acct_name,f.df_dfhm)` — (full view only: SCHEMA/structure @55, `bdm_acc_entrusted_payment@141` → `charge_department@51`; FILTER/row selection @55)
-- L56: `WHEN a.charge_department = "OPS_MBS" THEN REGEXP_REPLACE(` — (full view only: SCHEMA/structure @56, same endpoints; FILTER/row selection @56)
-- L66: `CASE WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN NVL(a.entd_opp_bank_no,f.df_dfxh)` — (full view only: SCHEMA/structure @66, same endpoints; FILTER/row selection @66)
-- L68: `CASE WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN NVL(a.entd_opp_bank_name,f.df_dfxm)` — (full view only: SCHEMA/structure @68, same endpoints; FILTER/row selection @68)
-- L70: `CASE WHEN a.charge_department = 'GTRF_RFN' THEN a.remark` — (full view only: SCHEMA/structure @70, same endpoints; FILTER/row selection @70)
+- Search field: `east5_stzfxxb.charge_department` (script: EAST5_STZFXXB_M.sql — not a committed snapshot seed; verified by live build: 47 edges / 19 nodes) — CORRECTED 2026-09-02: the earlier text called these rows "full view only"; the flow-only closure for THIS seed serves them, because here `charge_department` is the SEARCHED field
+- L54: `CASE WHEN a.CHARGE_DEPARTMENT ="GTRF_CoreTrade_SCSAI" THEN a.entd_opp_acct_name` — ✅ live build (edge: SCHEMA/structure @54, `bdm_acc_entrusted_payment@141` → `charge_department@51`) (edge: TABLE_FLOW/write value @54, `charge_department@51` → `output@41`) (edge: FILTER/row selection @54, `charge_department@51` → `output@41`)
+- L55 / L56 / L66 / L68 / L70 — the same trio at each arm's own line
+- L51: `CASE WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN COALESCE(...)` — ✅ live build (edge: COMPUTED/compute step @51 ×5, `charge_department@51` → `stzfdxzh@53` / `stzfdxhm@65` / `stzfdxhh@67` / `stzfdxxm@69` / `BBZ@73`) (edge: SCHEMA/structure @51, `a@141` → the `charge_department` chips @51)
 
-*Note:* each occurrence at its own line, never one merged blob. The SQL text also carries an occurrence at L51 that the audited lit set does not count.
+*Note:* each occurrence at its own line, never one merged blob. L51 is served too — the earlier "the audited lit set does not count L51" note was an audit-set statement, not a payload statement.
 
 *Example 2 — two occurrences → two twins, two lines (SUP_M, searching `podtao`)*
 
-- Search field: `ods_hub_lsacmsp.podtao` (script: BDM_ACC_LOAN_INFO_SUP_M.sql — not a snapshot seed; no payload to check against)
-- L37: `AND podtao <> pofddt` — (edge: not verified against payload — line cited from SQL only)
-- L41: `ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),LPAD(p2.poacs,6,'0'),LPAD(p2.poacx,3,'0'),LPAD(p2.podtao,8,'0')) = p1.lending_ref` — (edge: not verified against payload — line cited from SQL only)
+- Search field: `ods_hub_lsacmsp.podtao` (script: BDM_ACC_LOAN_INFO_SUP_M.sql — not a committed snapshot seed; verified by live build: 39 edges / 14 nodes)
+- L37: `AND podtao <> pofddt` — ✅ live build (edge: SCHEMA/structure @37, `ods_hub_lsacmsp@33` → `podtao@31`) (edge: FILTER/filter step @37, `podtao@31` → `output(p2)@31` — the predicate chip's line)
+- L41: `ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),LPAD(p2.poacs,6,'0'),LPAD(p2.poacx,3,'0'),LPAD(p2.podtao,8,'0')) = p1.lending_ref` — ✅ live build (edge: SCHEMA/structure @41 ×3, `p2@40` / `ods_hub_lsacmsp@33` / `p2@199` → the two `podtao` chips @31/@41) (edge: JOIN/join step @41 ×3, `podtao@41` / `podtao@31` / `ods_hub_lsacmsp@33` → `output(subq)@26`) (edge: REF/read @41, `podtao@41` → the `CONCAT(...)` expression chip)
 
 **4b — JOIN-ON AND-legs.**
 
@@ -522,8 +524,8 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 
 *Example 2 — the AND-continuation leg (PL, searching `p_dt`)*
 
-- Search field: `ODS_CUPD_PLOAN_ACCTM_NEW5.p_dt` (script: BDM_ACC_LOAN_INFO_PL.sql — not a snapshot seed; no payload to check against)
-- L224: `AND a.p_dt = c.p_dt` — (edge: not verified against payload — line cited from SQL only)
+- Search field: `ODS_CUPD_PLOAN_ACCTM_NEW5.p_dt` (script: BDM_ACC_LOAN_INFO_PL.sql — not a committed snapshot seed; verified by live build: 10 edges / 6 nodes)
+- L224: `AND a.p_dt = c.p_dt` — ✅ live build (edge: JOIN/join step @224 ×2, `p_dt@224` and `p_dt@220` → `output@19` — one per predicate side) (edge: SCHEMA/structure @224 ×2, `a@220` → `p_dt@224` and `ODS_CUPD_PLOAN_ACCTM_NEW5@220` → `p_dt@220`)
 
 *Note:* L224 is the JOIN's own continuation leg (the `ON` is at L223); L221's `c.p_dt` sits on its own JOIN line, not a continuation.
 
@@ -536,8 +538,8 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 
 *Example 2 — the LPAD twin anchors its line once (SUP_M, searching `podtao`)*
 
-- Search field: `ods_hub_lsacmsp.podtao` (script: BDM_ACC_LOAN_INFO_SUP_M.sql — not a snapshot seed; no payload to check against)
-- L41: `ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),LPAD(p2.poacs,6,'0'),LPAD(p2.poacx,3,'0'),LPAD(p2.podtao,8,'0')) = p1.lending_ref` — (edge: not verified against payload — line cited from SQL only)
+- Search field: `ods_hub_lsacmsp.podtao` (script: BDM_ACC_LOAN_INFO_SUP_M.sql — not a committed snapshot seed; verified by live build: 39 edges / 14 nodes)
+- L41: `ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),LPAD(p2.poacs,6,'0'),LPAD(p2.poacx,3,'0'),LPAD(p2.podtao,8,'0')) = p1.lending_ref` — ✅ live build, anchored once per relationship (edge: REF/read @41, `podtao@41` → the `CONCAT(...)` expression chip) (edge: JOIN/join step @41, `podtao@41` → `output(subq)@26`) — no twin duplicates either edge
 
 **4d — no owner evidence → no twin.**
 
@@ -550,8 +552,8 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 
 *Example 2 — the outer group never claims a paren-scope line (SUP_M, searching `podtao`)*
 
-- Search field: `ods_hub_lsacmsp.podtao` (script: BDM_ACC_LOAN_INFO_SUP_M.sql — not a snapshot seed; no payload to check against)
-- L41: `ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),LPAD(p2.poacs,6,'0'),LPAD(p2.poacx,3,'0'),LPAD(p2.podtao,8,'0')) = p1.lending_ref` — (edge: not verified against payload — line cited from SQL only; `_paren_scope_bound` / `_scope_line_owner` keep the line with LPAD(...)'s own scope)
+- Search field: `ods_hub_lsacmsp.podtao` (script: BDM_ACC_LOAN_INFO_SUP_M.sql — not a committed snapshot seed; verified by live build: 39 edges / 14 nodes)
+- L41: `ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),LPAD(p2.poacs,6,'0'),LPAD(p2.poacx,3,'0'),LPAD(p2.podtao,8,'0')) = p1.lending_ref` — ✅ live build, and every served row here belongs to the expression's own scope (edge: REF/read @41, `podtao@41` → the `CONCAT(...)` expression chip) (edge: SCHEMA/structure @41, `p2@40` and `p2@199` → `podtao@41`) (edge: JOIN/join step @41, `podtao@41` → `output(subq)@26`) — `_paren_scope_bound` / `_scope_line_owner` keep the line with LPAD(...)'s own scope; the outer group claims none of them
 
 ### §5 FOLD
 
@@ -611,7 +613,7 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 *Example 1 — the join-key line is already claimed (SUP_M × `lending_ref`)*
 
 - Search field: `rollover_loan_info.lending_ref` (script: BDM_ACC_LOAN_INFO_SUP_M.sql)
-- L41: `ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),LPAD(p2.poacs,6,'0'),LPAD(p2.poacx,3,'0'),LPAD(p2.podtao,8,'0')) = p1.lending_ref` — ❌ (edge: not verified against payload — line cited from SQL only; this flow-only closure serves nothing at L41, so the podtao group earns no SECOND edge here)
+- L41: `ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),LPAD(p2.poacs,6,'0'),LPAD(p2.poacx,3,'0'),LPAD(p2.podtao,8,'0')) = p1.lending_ref` — ❌ verified: this flow-only closure serves nothing at L41, so the join group earns no SECOND edge here — the group's own anchors are L95/L117/L150/L156, and the **full** view is what carries JOIN/join step @41. (The earlier text said "the podtao group" — a copy-paste from the `podtao` examples; the searched field here is `lending_ref`.)
 
 *Example 2 — the line claimed by another field's read (EAST5, searching `org_no_cbrc`)*
 
@@ -654,10 +656,10 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 - L250: `LEFT JOIN BDM_PUB_HSBC_ACCT_BRANCH T_BRANCH ON a.ctcd||a.gmab||LPAD(a.acb,3,'0') = T_BRANCH.branch_code AND T_BRANCH.data_dt = '${load_date}'` — ❌ (no edge served @250; the foreign same-name chip is excluded — canonical point 23(b) NOT PINNED)
 - L251: `WHERE a.p_dt = '${load_date}' and a.rn='1';` — ❌ (no edge served @251 — `a.p_dt` is another field of another table; the **full** view carries `a`'s own FILTER/row selection and value-copy rows here, all excluded from this closure)
 
-*Example 2 — the searched `data_dt` vs EAST5's own `p_dt` family (EAST5 × `p_dt`)*
+*Example 2 — a line that carries no occurrence of the searched field at all (EAST5 × `p_dt`)*
 
 - Search field: `east5_stzfxxb.p_dt` (script: EAST5_STZFXXB_M.sql)
-- L43: `SELECT NVL(c.org_no_cbrc,d.org_no_cbrc) As jrxkzh,` — ❌ (no edge served @43 in this closure — `c.data_dt`/`d.data_dt` of `bdm_pub_branch` are the same-NAME, different-TABLE class; the old text cites L42, which is a SQL comment line in the sample)
+- L43: `SELECT NVL(c.org_no_cbrc,d.org_no_cbrc) As jrxkzh,` — ❌ verified: no edge served @43 in this closure — the line carries no `p_dt` occurrence (its own fields are `c.org_no_cbrc`/`d.org_no_cbrc`, the same-NAME pair on two foreign boxes `bdm_pub_branch@145`/`@148`; the **full** view carries the NVL's rows here). The old text cited L42, which is a SQL comment line in the sample.
 - L190: `WHERE p_dt = '$(load_date)'` — ✅ (edge: FILTER/filter step @190, `p_dt@41` → `east5_stzfxxb@41` — the searched table's own predicate, for contrast)
 
 **6b — foreign statement trunks excluded.**
@@ -676,7 +678,7 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 - L189: `FROM EAST5_STZFXXB` — ✅ (edge: TABLE_FLOW/chain (read into output) @189, `east5_stzfxxb@41` → `output@179`) (edge: REF/read @189, `p_dt@41` → `east5_stzfxxb@41`)
 - L190: `WHERE p_dt = '$(load_date)'` — ✅ (edge: FILTER/filter step @190, `p_dt@41` → `east5_stzfxxb@41`)
 
-*Note:* this pair IS the ⚡7-A inconsistency the doc describes — EAST5's trunk is served, SUP_M's (and DL's, @549) is dropped, PL's (@253/@254) is served.
+*Note:* post-7-A (resolved 2026-09-01, write leg only) this pair is no longer an inconsistency — it is the rule working. EAST5's trunk is served because the searched `p_dt` IS a column the log writes; PL's (@253/@254) likewise for `data_dt`; SUP_M's (searching `lending_ref`) and DL's (@549, searching `lending_ref`) drop because the log never writes those fields — corollary 3 of §7-A.
 
 **6c — foreign-owner folds respected.**
 
@@ -751,28 +753,69 @@ PL @265: `AND charge_department = 'OPS_CLBS_PLoan'` — an edgeless co-filter si
 > `tools/GROUND_TRUTH_BDM_ACC_LOAN_INFO_Digitallending.md` §8.5) still need the same repair
 > (owner: docs).
 
-### ⚡ 7-C. The sibling same-name REF edge (`src_b.dt` → `src_a.dt`'s closure)
+**Example 1 — the co-filter on the searched table (PL × `data_dt`, real)**
 
-The extractor builds a same-name REF edge between two tables' same-named columns; the walker can ride it into the sibling's closure. Under the field-involvement principle this is other-field flow → the traversal excludes it. (The *edge* is a real extraction fact — the question is whether the *walker* traverses it.)
+- Search field: `bdm_acc_loan_info.data_dt` (script: BDM_ACC_LOAN_INFO_PL.sql)
+- L263: `FROM bdm_acc_loan_info` — ✅ (edge: REF/read @263, `data_dt` → `bdm_acc_loan_info`; edge: TABLE_FLOW chain @263 into the output frame)
+- L264: `WHERE data_dt = '${load_date}'` — ✅ (edge: FILTER @264 — the SEARCHED field's own predicate, rule 2d; canonical F1)
+- L265: `AND charge_department = 'OPS_CLBS_PLoan'` — ❌ (dropped — USER RULING 2026-09-01: the sibling's predicate is not `data_dt`'s flow, and the edge-less `charge_department@265` chip is pruned with it; canonical point 26 removed it from `CANONICAL_NODES`)
 
-### ⚡ 7-D. The ⟐output membership edges of sibling chips
+**Example 2 — the DL mirror (Digitallending × `data_dt`, real, verified)**
+
+- Search field: `bdm_acc_loan_info.data_dt` (script: BDM_ACC_LOAN_INFO_Digitallending.sql)
+- L561: `AND charge_department = 'WPB_CDT_Digitallending'` — the mirror of PL @265: a co-filter by the same sibling on the searched table's own compound. Pre-ruling both PL and DL served the chip (and J12-20 treated the PL miss as a bug); post-ruling BOTH drop it — verified in the served closure (live build, 9 edges / 6 nodes @549/@550/@559/@560): **0 `charge_department` chips** in the flow view, no edge @561. The FULL view keeps the chip and its belongs-to (the "what else filters this box" answer lives there).
+
+**What stays vs goes (both examples)**: the SEARCHED field's own predicate row lights (2d — L264's FILTER); a SIBLING's predicate row is invisible in the flow view — no edge, no chip. If a co-filtering column were itself the searched field (search `charge_department` on PL), L265 becomes ITS filter step and lights (2d) — the rule is about whose field it is, not about the clause.
+
+### ⚡ 7-C. The sibling same-name REF edge (`src_b.dt` → `src_a.dt`'s closure) — ✅ RESOLVED (V7 g1, v3.3.195)
+
+The extractor builds a same-name REF edge between two tables' same-named columns; the walker can ride it into the sibling's closure. Under the field-involvement principle this is other-field flow → the traversal excludes it. (The *edge* is a real extraction fact — the question was whether the *walker* traversed it. V7's g1 gate: it does not.)
+
+**Example 1 — a JOIN builds the same-name pair (SUP_M × `lending_ref`, real)**
+
+- Search field: `bdm_acc_loan_info.lending_ref` (script: BDM_ACC_LOAN_INFO_SUP_M.sql)
+- L156: `ON p6.lending_ref = p1.lending_ref` — ✅ (edge: JOIN key @156 ×2, `lending_ref` → `loan_final` — the two occurrence identities, LFS117 p6-side + LFS138 p1-side) — ✅ (the seed's OWN belongs-to @156 stays: `rollover_loan_info` → `lending_ref`, `bdm_acc_loan_info` → `lending_ref`)
+- The same line also pairs `p6.lending_ref@156` with `p1.lending_ref@156` — a same-name REF pair. ❌ **NOT served**: any hop THROUGH that pair into `p6.lending_ref`'s own upstream (the `rollover_loan_info` producer chain). Verified in the served closure: no edge is sourced BY `p6.lending_ref@156`; the only `p6` edges are the searched field's own reads (`REF lending_ref → p6@155 @155` — the field's own read through the alias) and the skeleton.
+
+Read it as: the join key shows (2e); the join PARTNER's own life story does not.
+
+**Example 2 — two sources, one column name (the G1 pinned fixture)**
+
+`tests/test_g1_adjudicated_fixes.py` pins the adjudicated shape: two source relations `src_a`/`src_b` BOTH project a column `dt` (and a key `k` joins them). Searching `src_a.dt`:
+
+- Pre-V7 (the defect): the same-name ride-through served `dt@7` and `src_b@7` — the JOIN PARTNER's occurrence and its frame — dragging `src_b`'s side of the story into `src_a.dt`'s closure.
+- Landed: `dt@7`, `src_b@7`, `⟐s2@7` are OUT; the searched source's own `s1@6` + `s1.dt@5` are restored; `k` stays out. Pinned by `test_g1_adjudicated_fixes.py` (24 tests).
+
+Boundary: the JOIN edge ITSELF between the two same-name columns is a real extraction fact and stays in the FULL view — 7-C only rules that the flow-only walker does not traverse it as a path into the partner.
+
+### ⚡ 7-D. The ⟐output membership edges of sibling chips — ✅ SUPERSEDED (J1 Class 2 + point 26; determinism landed via V8, v3.3.197)
 
 When a sibling chip is admitted (co-written projection), its ⟐output membership SCHEMA edge rides along. J1's rule drops sibling VALUE edges but keeps sibling belongs-to/membership — the exact boundary needs the value-cone ruling (the full R-GATE, v3.3.195).
 
-**RULED 2026-09-01 (later the same day): the "keeps sibling belongs-to/membership" half above is
-SUPERSEDED** — point 26 rule 1 of the user ruling drops a SIBLING's belongs-to from the flow-only
-closure (rule 3a row above); the value-cone R-GATE (v3.3.195) handles the value side. See §7-B.
+**RESOLUTION — no separate ruling was ever needed, because later rulings subsumed it:**
+point 26 rule 1 (the 3a reversal) drops a SIBLING's belongs-to/membership from the flow-only
+closure, and the chip prune removes the edge-less chips this leaves. So for the flow view the
+answer is: **a sibling's ⟐output membership edge NEVER shows** (it is the sibling's own flow —
+J1 Class 2 even before point 26); only a membership edge OF THE SEARCHED FIELD's own chip shows.
+The FULL view keeps all of it. (The historical "BLOCKS the determinism fix" note below is also
+overtaken: the determinism landing shipped in v3.3.197 via the V8 walker-order fix — the real
+defect was the walk's DML admission order, not this boundary.)
 
-**UPDATE 2026-09-01 (evening): 7-D now BLOCKS something concrete.** The
-determinism fix (canonical dependency order, killing the PYTHONHASHSEED
-instability the snapshot harness documents) was proven end-to-end and
-reverted at the gate for exactly this reason: with the canonical order, the
-walk admits ONE sibling chip + one routed REF edge the natural-order walk
-did not (PL filtered, `data_dt` seed: `CHARGE_DEPARTMENT`@L19, precision
-N 1.0000 → 0.875). Whether that sibling membership belongs in the closure
-IS this ruling. The full landing recipe is preserved in the xfail reason of
-`backend/tests/test_l2_determinism.py::test_l2_full_view_is_byte_identical
-_across_hash_seeds`; landing after the 7-D ruling is a ~15-minute job.
+**Example 1 — the surviving sibling's membership is still dropped (SUP_M × `lending_ref`, real)**
+
+- Search field: `rollover_loan_info.lending_ref` (script: BDM_ACC_LOAN_INFO_SUP_M.sql)
+- L82: `,CASE WHEN NVL(p6.lending_ref,'') <> '' THEN 'Rollover2' END AS reserved_field8` — ✅ (edge: COMPUTED @82, `lending_ref` → `reserved_field8` — the searched field feeds the sibling; this one edge is the chip's ONLY anchor)
+- The same sibling's ⟐output membership — ❌ dropped: `output@160` → `reserved_field8` (SCHEMA) is not served in the flow view, though the **FULL** view carries it. Same for the write-chain legs (`reserved_field8@183` → `output@160`, the L183 write-projection read) — dropped by 3b.
+
+**Example 2 — the co-written partition sibling (EAST5 × `p_dt`)**
+
+- Search field: `east5_stzfxxb.p_dt` (script: EAST5_STZFXXB_M.sql)
+- L41: `INSERT OVERWRITE TABLE east5_stzfxxb PARTITION(p_dt='$(load_date)',charge_department)` — ✅ `p_dt`'s own write (2g/7-A: the searched column's slot, literal value)
+- Sibling `charge_department`'s routing into the same output frame — ❌ dropped: its feeding CASE @51 and its output-frame membership/routing are `charge_department`'s own flow (3b), and its edge-less chips are pruned (3c/point 26). The **FULL** view shows the whole co-write.
+
+**One-sentence summary**: a sibling's ⟐output membership is like the sibling's belongs-to —
+structure of the TARGET, story of the SIBLING — so it shows only in the full view, and only
+the searched field's own membership shows in the flow view.
 
 ---
 

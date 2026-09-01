@@ -16,6 +16,7 @@ are thin wrappers in dataflow_service.py that call these functions.
 from __future__ import annotations
 import logging
 
+from . import walkable_set as _ws
 from .walkable_set import FIELD_WALKABLE, NEVER_WALKED
 
 _log = logging.getLogger('dataflow')
@@ -508,6 +509,23 @@ _WALK_RANK = {et: i for i, et in enumerate((
     "SCHEMA", "INDIRECT", "SET_OP", "SUBQUERY", "SUBSET", "CORRELATED",
     "ROW_FLOW",
 ))}
+
+# REVIEW F3 (2026-09-02): _WALK_RANK is a hand-copy of the walkable-set
+# contract — pin it at import time so a new edge type (or a
+# reclassification inside walkable_set) cannot silently invert the rule
+# precedence: an unlisted type ranks BELOW every NEVER_WALKED rank at the
+# lookup (:1277 maps it to len(_WALK_RANK)), which would let a DML edge
+# win an admit that a new higher-precedence rule should have won.
+assert set(_WALK_RANK) == _ws.ALL_EDGE_TYPES, (
+    "lineage._WALK_RANK and walkable_set disagree: "
+    f"missing={sorted(_ws.ALL_EDGE_TYPES - set(_WALK_RANK))} "
+    f"extra={sorted(set(_WALK_RANK) - _ws.ALL_EDGE_TYPES)}")
+assert (frozenset(list(_WALK_RANK)[:len(FIELD_WALKABLE)]) == FIELD_WALKABLE
+        and set(list(_WALK_RANK)[len(FIELD_WALKABLE):-len(NEVER_WALKED)])
+        == _ws.CONDITIONAL
+        and frozenset(list(_WALK_RANK)[-len(NEVER_WALKED):]) == NEVER_WALKED), (
+    "_WALK_RANK's three blocks must be walkable_set's partition "
+    "(FIELD_WALKABLE, CONDITIONAL, NEVER_WALKED) in declaration order")
 
 
 # V7's two switches (mirror of the three above), both inside the R-GATE:
@@ -1757,8 +1775,15 @@ def compute_field_flow(graph_data, target_table, target_field,
         # set's hash order — with the DML admit's side effects being
         # order-sensitive (they fire only when the DML edge admits the
         # target), the traversal order is part of the admitted SET. Var
-        # ids are extraction-counter keys, so this is registration order:
-        # a stable content key, never a hash seed.
+        # ids are content-derived md5 digests (variable_extractor_v2's
+        # `_var_id` = md5(script:name)[:16]), so sorted(visited) walks
+        # LEXICOGRAPHIC DIGEST order — deterministic and process-stable
+        # (never a hash seed), though content-arbitrary in the sharper
+        # sense that renaming an unrelated variable reorders its digest
+        # against every sibling. Measured invariant on the flagships
+        # (2-id transposition, full permutation, 5 shuffles); a true
+        # registration order (pm.occurrences insertion order) would be
+        # strictly safer — ledgered as hardening, not done here.
         stack = sorted(visited)
         while stack:
             nid = stack.pop()
@@ -2053,7 +2078,8 @@ def compute_field_flow(graph_data, target_table, target_field,
 
         # ── identity-admission round (owner-holders, physical tables,
         # CTE containers — existing rules, model-sourced) ──
-        # V8: canonical iteration order (registration order) — the round's
+        # V8: canonical iteration order (lexicographic var-id digest —
+        # deterministic, process-stable; see the frontier note above) — the round's
         # own admissions are bulk, but every set-order walk in this
         # function is a latent seed dependence.
         for nid in sorted(visited):

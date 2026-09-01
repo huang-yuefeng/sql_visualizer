@@ -128,7 +128,7 @@ def _make_workspace(script_name, sql_text):
     return create_workspace(buf.getvalue())
 
 
-def _build(script_name, sql_text, mode):
+def _build(script_name, sql_text, mode, table="", field=""):
     ws_id = _make_workspace(script_name, sql_text)
     try:
         if mode == "deps":
@@ -139,6 +139,18 @@ def _build(script_name, sql_text, mode):
                      d["operation"], d["sql_context"], d["containment"]]
                     for d in result["dependencies"]],
             }})
+        if mode == "flow":
+            # REVIEW F1 (2026-09-02): the FLOW-ONLY view is the one the
+            # V8 walker fix actually serves through — the walker runs
+            # only under `relevance_filter=True` (_apply_relevance_filter
+            # returns the full graph untouched, and _attach_flow_roles
+            # calls compute_field_flow only under the filter), so the
+            # cross-seed gate must build THIS payload, not just the full
+            # view.
+            flow = _build_l2_graph(ws_id, script_name, sql_text, table,
+                                   field, relevance_filter=True,
+                                   direction="downstream")
+            return ws_id, _serialize({{"flow": flow}})
         full = _build_l2_graph(ws_id, script_name, sql_text, "", "",
                                relevance_filter=False)
         return ws_id, _serialize({{"full": full}})
@@ -147,18 +159,21 @@ def _build(script_name, sql_text, mode):
 
 
 cfg = json.load(sys.stdin)
-ws_id, serialized = _build(cfg["name"], cfg["sql"], cfg.get("mode", "full"))
+ws_id, serialized = _build(cfg["name"], cfg["sql"], cfg.get("mode", "full"),
+                           cfg.get("table", ""), cfg.get("field", ""))
 sys.stdout.write(ws_id + "\n" + serialized)
 """
 
 
-def _run_build(script_name: str, sql_text: str, mode: str, seed: str) -> str:
+def _run_build(script_name: str, sql_text: str, mode: str, seed: str,
+               table: str = "", field: str = "") -> str:
     """Run one build in a subprocess under an explicit hash seed."""
     program = _CHILD_PROGRAM.format(backend_dir=str(BACKEND_DIR))
     env = {**os.environ, "PYTHONHASHSEED": seed}
     proc = subprocess.run(
         [sys.executable, "-c", program],
-        input=json.dumps({"name": script_name, "sql": sql_text, "mode": mode}),
+        input=json.dumps({"name": script_name, "sql": sql_text, "mode": mode,
+                          "table": table, "field": field}),
         capture_output=True, text=True, env=env, timeout=300)
     if proc.returncode != 0:
         raise AssertionError(
@@ -206,3 +221,28 @@ def test_l2_full_view_is_byte_identical_across_hash_seeds():
                 f"{script_name}: L2 full view differs between "
                 f"PYTHONHASHSEED={SEEDS[0]} and {seed} — the dependency "
                 f"list order is seed-dependent and the L2 build inherits it")
+
+
+# REVIEW F1 (2026-09-02): the walker — the code the V8 fix changed — runs
+# only under the strict filter, so the cross-seed gate must build the
+# FLOW-ONLY payload too, with a real (table, field) search per flagship.
+FLOW_SEARCHES = {
+    "BDM_ACC_LOAN_INFO_Digitallending.sql": ("bdm_acc_loan_info", "data_dt"),
+    "BDM_ACC_LOAN_INFO_SUP_M.sql": ("bdm_acc_loan_info", "lending_ref"),
+}
+
+
+def test_l2_flow_view_is_byte_identical_across_hash_seeds():
+    """The strict-filter (flow-only) payload — the closure the walker
+    computes — byte-equals itself across PYTHONHASHSEED=0,1,2,3,7."""
+    for script_name, (table, field) in FLOW_SEARCHES.items():
+        sql_text = dict(_SCRIPTS)[script_name]
+        payloads = {
+            seed: _run_build(script_name, sql_text, "flow", seed,
+                             table=table, field=field)
+            for seed in SEEDS}
+        for seed in SEEDS[1:]:
+            assert payloads[seed] == payloads[SEEDS[0]], (
+                f"{script_name} × {table}.{field}: L2 flow view differs "
+                f"between PYTHONHASHSEED={SEEDS[0]} and {seed} — the "
+                f"walker's admission decisions are order-sensitive")

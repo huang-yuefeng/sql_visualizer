@@ -2506,17 +2506,26 @@ _VALUE_CARRIER_TYPES = frozenset({
 def _apply_field_involvement(new_edges: list, field: str,
                              relevance_filter: bool,
                              physical_model=None,
-                             sql_text: str = "") -> list:
+                             sql_text: str = "",
+                             table: str = "") -> list:
     """Serve only the closure edges the searched field is involved in.
 
     No-op when no search filter is active (the full view has no searched
     field to be involved). Pure edge filter over the already-payloaded
     list — order, ids and every carried field are preserved, so the pass
     is deterministic by construction.
+
+    `table` (F1, 2026-09-02) is the searched TABLE: it turns the
+    seed-endpoint exemption from a NAME match into an OCCURRENCE identity
+    (the searched `table.field`), which is what makes the Class-3
+    belongs-to drop reachable for a sibling that shares the searched
+    field's name. Empty (the legacy signature) ⇒ no ownership evidence ⇒
+    the legacy field-part behaviour stands.
     """
     if (not new_edges) or (not relevance_filter) or not (field or "").strip():
         return new_edges
     seed = field.strip().casefold()
+    table_key = (table or "").strip().casefold()
 
     # Raw occurrence index (label, line) → variable_type, for the one test
     # the carried endpoints cannot answer: is this upstream hop a FIELD
@@ -2560,6 +2569,96 @@ def _apply_field_involvement(new_edges: list, field: str,
         return ((e.get("_src_defined_in") or "").strip().upper()
                 .startswith("SELECT"))
 
+    # ── F1/F2 facts, read once from the carried payload ─────────────────
+    # Every chip the statement WRITES under its own name: the source of a
+    # write value leg that lands on an ⟐output frame (the DML-routing
+    # value edge `_simplify_dml_edges` stamps `_value_edge`).
+    written_chips = {e.get("source") for e in new_edges
+                     if e.get("_value_edge") and e.get("_tgt_output")}
+    # The boxes the closure's write legs land on (the DML write targets,
+    # carried on the routed ⟐output → target leg — never the value legs,
+    # whose target is the ⟐output frame itself).
+    write_targets = {(e.get("_tgt_label") or "").rsplit(".", 1)[-1]
+                     .strip().casefold()
+                     for e in new_edges
+                     if e.get("flow_kind") == "write" and not e.get("_value_edge")
+                     and e.get("_tgt_label")}
+    # F2's guard: does the statement write the searched field's own COLUMN?
+    # A write value leg whose source chip stands ON a write target — the
+    # searched field is a column of the written box itself (the §7-A "the
+    # searched field is the column being written" case: EAST5's
+    # `PARTITION(…, charge_department)` @41, SUP_M's `data_dt` @213). When
+    # it does, the statement's other columns are siblings and their write
+    # legs stay out (the §7-A boundary). A source chip on the READ side
+    # (the searched source table) is not that: its value is only on its way
+    # out, under whatever output column carries it.
+    own_write = any(e.get("_value_edge") and e.get("_tgt_output")
+                    and _part(e.get("_src_label")) == seed
+                    and (e.get("_src_owner") or "").strip().casefold()
+                    in write_targets
+                    for e in new_edges)
+    # F2: the AS-alias / output-column frames whose value IS the searched
+    # field's own. Three extraction-time facts, all carried:
+    #   provenance — a value-carrying edge runs FROM the searched field's
+    #     own chip INTO the frame (the frame's producing expression reads
+    #     the searched field: the `TRANSFORM/COMPUTED field→alias` edge the
+    #     closure already serves);
+    #   the frame is the WRITE TARGET'S own column (its resolved owner is
+    #     the box the statement writes) — so the leg writes that value out,
+    #     it does not carry a foreign column's;
+    #   the statement does not ALSO write a column of the searched field's
+    #     own on the written box (`own_write` False) — when it does, the
+    #     frame is one of the statement's OTHER columns and its legs stay
+    #     the sibling's flow (the §7-A boundary).
+    own_frames = set()
+    if not own_write:
+        for e in new_edges:
+            if (e.get("edge_type") or "") not in _VALUE_CARRIER_TYPES:
+                continue
+            if _part(e.get("_src_label")) != seed:
+                continue
+            if table_key:
+                owner = (e.get("_src_owner") or "").strip().casefold()
+                if owner and owner != table_key:
+                    continue
+            fcanon = (e.get("_tgt_canon") or "").strip().casefold()
+            if not fcanon or fcanon not in write_targets:
+                continue
+            own_frames.add(e.get("target"))
+
+    def _own_belongs_to(e, tgt_part):
+        """Class 3's exemption: is this belongs-to edge the SEARCHED
+        FIELD'S OWN? (F1, 2026-09-02 — the seed-endpoint check is an
+        OCCURRENCE identity, never a name match.)
+
+        A name match admits the belongs-to of a SIBLING that merely shares
+        the searched field's name (EAST5 `charge_department`: the source
+        table's own `bdm_acc_entrusted_payment.charge_department` reads,
+        one per read line, alongside the searched `east5_stzfxxb.
+        charge_department`). The identity the search names is
+        `table.field`, so the target occurrence's RESOLVED OWNER —
+        `_tgt_canon`, the extractor's own I2 source-table resolution —
+        must be the searched table.
+
+        A same-named chip that is NOT owned by the searched table is still
+        the searched field's own while it is not a written column of its
+        own: it is the searched value carried through a container (a
+        CTE/VT/derived column — SUP_M's `rollover_loan_info`/`loan_final`
+        lending_ref chips, the canonical's LFS8/9/38/74/104/134/139-142),
+        and its belongs-to is the searched field's structural fact (the
+        R40.12/R44 Reappears class). A same-named chip the statement ALSO
+        writes under its own name IS a second column of that name — a
+        sibling — and its belongs-to is the sibling's own fact (the 3a
+        ruling). No carried owner (the legacy unit-test shapes) ⇒ the
+        legacy field-part behaviour stands: never drop on missing
+        extraction-time evidence."""
+        if tgt_part != seed:
+            return False
+        canon = (e.get("_tgt_canon") or "").strip().casefold()
+        if not table_key or not canon or canon == table_key:
+            return True
+        return e.get("target") not in written_chips
+
     clauses = line_clause_map(sql_text)
     kept = []
     for e in new_edges:
@@ -2571,13 +2670,34 @@ def _apply_field_involvement(new_edges: list, field: str,
                 continue
             kept.append(e)
             continue
-        # ── Class 2: is the searched field involved? ──
         src_part = _part(e.get("_src_label"))
         tgt_part = _part(e.get("_tgt_label"))
+        op = (e.get("_op") or "").upper()
+        # ── Class 3: the sibling belongs-to drop, BEFORE the seed-endpoint
+        # check. It must run first (F1): the seed-endpoint exemption used
+        # to be a NAME match that fired first, so a sibling sharing the
+        # searched field's name was admitted as "seed endpoint" and the 3a
+        # drop was unreachable for it. The exemption is now the occurrence
+        # identity in `_own_belongs_to`.
+        if etype == "SCHEMA" and op != "OUTPUT":
+            if _own_belongs_to(e, tgt_part):
+                kept.append(e)
+            continue
+        # ── Class 2: is the searched field involved? ──
         if seed in (src_part, tgt_part):     # the seed chip / a same-name copy
             kept.append(e)
             continue
-        op = (e.get("_op") or "").upper()
+        # ── F2: the searched field's own value leg routed through an
+        # AS-alias / output-column frame. The frame's ⟐output legs are the
+        # WRITE VALUE leg (`_value_edge`) and the frame's membership
+        # (SCHEMA `OUTPUT`); when the frame's value is the searched field's
+        # own (`own_frames`, above) they ARE the searched field's value
+        # chain — cutting them leaves the audited TRANSFORM field→alias …
+        # hole … DML shape. A sibling's frame is never in `own_frames`, so
+        # its legs keep dropping (reserved_field8's stay dropped).
+        if e.get("source") in own_frames or e.get("target") in own_frames:
+            kept.append(e)
+            continue
         if e.get("_value_edge"):
             carrier = src_part                              # write value leg
         elif etype == "SCHEMA":
@@ -2597,9 +2717,8 @@ def _apply_field_involvement(new_edges: list, field: str,
             # removed." The fact "this column exists on this box"
             # becomes a full-view fact. The searched chip's own
             # belongs-to and the R40.12 Reappears class never reach this
-            # branch — the seed-endpoint check above kept them.
-            if op != "OUTPUT":
-                continue
+            # branch — the belongs-to form is decided ABOVE (Class 3 +
+            # `_own_belongs_to`), never here.
             carrier = tgt_part
         elif etype in ("ALIAS", "SUBSET"):
             carrier = None                  # identity hop / bridge: skeleton
@@ -3031,7 +3150,7 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     # sees the admitted set and nothing else.
     new_edges = _apply_field_involvement(new_edges, field, relevance_filter,
                                          physical_model=physical_model,
-                                         sql_text=sql_text)
+                                         sql_text=sql_text, table=table)
     # The 3a ruling's node half (USER RULING 2026-09-01, confirmed):
     # sibling chips whose last edge the filter just dropped leave the
     # view with it. FLOW-ONLY ONLY — the full view has no searched field

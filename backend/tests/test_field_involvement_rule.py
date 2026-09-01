@@ -42,9 +42,41 @@ The 6 over-included edges this rule removes on the cross-check corpus
   l2e_c25f32314a53_value TABLE_FLOW reserved_field8 -> output@160   @183 (C2; id re-derived by the V8 walk-order fix, 2026-09-02)
   l2e_95a6f49b4f2e      REF reserved_field8@82 -> p1@198        @198  (C2)
   l2e_1eb5aca70da6      TABLE_FLOW p1@198      -> output@160    @198  (C2)
+
+  Class 4 — THE SEED-ENDPOINT EXEMPTION IS AN OCCURRENCE IDENTITY (F1,
+    2026-09-02, post-ruling 17-field audit of EAST5_STZFXXB_M.sql). The
+    exemption used to be a NAME match that ran BEFORE the Class-3 drop, so
+    a sibling sharing the searched field's name was admitted as "seed
+    endpoint" and the 3a drop was unreachable for it: searching
+    `east5_stzfxxb.charge_department` served the source table's OWN
+    `charge_department` belongs-to edges (one per read line) as if they
+    were the searched chip's. The exemption now requires the belongs-to
+    TARGET's resolved owner (`_tgt_canon` — the extractor's own I2
+    source-table resolution) to be the SEARCHED table; a same-named chip
+    owned elsewhere stays a sibling's belongs-to and reaches the Class-3
+    drop — UNLESS it is not a written column of its own, in which case it
+    is the searched value carried through a container (a CTE/VT/derived
+    column) and its belongs-to is the searched field's structural fact.
+
+  Class 5 — THE SEARCHED FIELD'S OWN VALUE LEG ROUTED THROUGH AN AS-ALIAS
+    (F2, same audit). When a source field's value is written out under an
+    aliased output column (`REPLACE(a.entd_paym_dt,"_","") As stzfrq`), the
+    alias's ⟐output legs — the write value leg `alias → ⟐output` and the
+    membership `⟐output → alias` — used to drop as "a sibling's value leg"
+    (Class 2), leaving the audited TRANSFORM field→alias … hole … DML
+    shape. They are the SEARCHED field's own value legs when three carried
+    facts hold: PROVENANCE (a value-carrying edge runs from the searched
+    field's own chip into the frame), the frame is the WRITE TARGET'S own
+    column, and the statement does not also write a column of the searched
+    field's own on the written box (the §7-A boundary — EAST5's
+    `PARTITION(…, charge_department)`). A sibling's frame satisfies none of
+    the three together, so `reserved_field8`'s legs stay dropped.
 """
 
+import contextlib
+import io
 import sys
+import zipfile
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -56,9 +88,16 @@ from app.services.l2_builder import (  # noqa: E402
     _apply_field_involvement,
     _build_l2_graph,
 )
+from app.services.workspace_service import (  # noqa: E402
+    create_workspace,
+    delete_workspace,
+)
 
 SAMPLES = BACKEND_DIR.parent / "samples" / "sql_sample_v1"
 FLAGSHIP = SAMPLES / "BDM_ACC_LOAN_INFO_SUP_M.sql"
+FLAGSHIP_NAME = "BDM_ACC_LOAN_INFO_SUP_M.sql"
+EAST5 = SAMPLES / "EAST5_STZFXXB_M.sql"
+EAST5_NAME = "EAST5_STZFXXB_M.sql"
 
 # The L82 / L163 anchors of the two mis-anchored JOIN carriers, and the
 # sibling write zone (L183 the write projection, L198 the alias instance
@@ -70,27 +109,65 @@ SIBLING_READ_LINE = 198
 REAL_JOIN_SITES = (41, 95, 117, 150, 156, 201)
 
 
-def _build(table, field, disable_rule=False):
-    """Served SUP_M × lending_ref closure; optionally with the admission
-    rule disabled (the pre-rule engine) for before/after assertions."""
-    sql = FLAGSHIP.read_text(encoding="utf-8")
-    if disable_rule:
-        real = LB._apply_field_involvement
-        LB._apply_field_involvement = (
-            lambda new_edges, field, relevance_filter, physical_model=None,
-            sql_text="": new_edges)
-        try:
-            result = _build_l2_graph("j1", "BDM_ACC_LOAN_INFO_SUP_M.sql", sql,
-                                     table, field, direction="downstream")
-        finally:
-            LB._apply_field_involvement = real
-    else:
-        result = _build_l2_graph("j1", "BDM_ACC_LOAN_INFO_SUP_M.sql", sql,
-                                 table, field, direction="downstream")
+@contextlib.contextmanager
+def _ws(sql_text, script_name):
+    """A throwaway workspace holding ONE script, deleted on exit.
+
+    REVIEW F6 hygiene (R2.3/R4-M adjudicated class): the harness's
+    create-over-a-zip + delete-in-finally pattern with a UNIQUE id per
+    call — never a fabricated shared id, which leaks a cache directory
+    into the production container and shares cache state across tests.
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(script_name, sql_text)
+    ws_id = create_workspace(buf.getvalue())
+    try:
+        yield ws_id
+    finally:
+        delete_workspace(ws_id)
+
+
+def _run(sql_text, script_name, table, field, disable_rule=False,
+         relevance_filter=True):
+    """The served closure for one search, in a throwaway workspace."""
+    with _ws(sql_text, script_name) as ws_id:
+        if disable_rule:
+            real = LB._apply_field_involvement
+            LB._apply_field_involvement = _passthrough
+            try:
+                result = _build_l2_graph(ws_id, script_name, sql_text, table,
+                                         field, relevance_filter=relevance_filter,
+                                         direction="downstream")
+            finally:
+                LB._apply_field_involvement = real
+        else:
+            result = _build_l2_graph(ws_id, script_name, sql_text, table, field,
+                                     relevance_filter=relevance_filter,
+                                     direction="downstream")
     graph = result.get("graph") if isinstance(result.get("graph"), dict) else result
     nodes = {n["data"]["id"]: n["data"] for n in graph["nodes"]}
     edges = [e["data"] for e in graph["edges"]]
     return nodes, edges
+
+
+def _passthrough(new_edges, field, relevance_filter, physical_model=None,
+                 sql_text="", table=""):
+    """The pre-rule engine (the rule disabled) for before/after asserts."""
+    return new_edges
+
+
+def _build(table, field, disable_rule=False):
+    """Served SUP_M × lending_ref closure; optionally with the admission
+    rule disabled (the pre-rule engine) for before/after assertions."""
+    return _run(FLAGSHIP.read_text(encoding="utf-8"), FLAGSHIP_NAME,
+                table, field, disable_rule=disable_rule)
+
+
+def _build_east5(table, field, disable_rule=False):
+    """Served EAST5 closure — the F1/F2 audit corpus."""
+    return _run(EAST5.read_text(encoding="utf-8"), EAST5_NAME,
+                table, field, disable_rule=disable_rule)
 
 
 def _label(nodes, edge, side):
@@ -327,14 +404,13 @@ INSERT OVERWRITE TABLE bdm_out PARTITION(data_dt = '$(load_date)')
 SELECT acct_no FROM loan_final;
 """
     real = LB._apply_field_involvement
-    LB._apply_field_involvement = (
-        lambda new_edges, field, relevance_filter, physical_model=None,
-        sql_text="": new_edges)
-    try:
-        r0 = _build_l2_graph("j1simple", "j1_simple.sql", sql, "bdm_main", "acct_no")
-    finally:
-        LB._apply_field_involvement = real
-    r1 = _build_l2_graph("j1simple", "j1_simple.sql", sql, "bdm_main", "acct_no")
+    LB._apply_field_involvement = _passthrough
+    with _ws(sql, "j1_simple.sql") as ws_id:
+        try:
+            r0 = _build_l2_graph(ws_id, "j1_simple.sql", sql, "bdm_main", "acct_no")
+        finally:
+            LB._apply_field_involvement = real
+        r1 = _build_l2_graph(ws_id, "j1_simple.sql", sql, "bdm_main", "acct_no")
     g0 = r0.get("graph") if isinstance(r0.get("graph"), dict) else r0
     g1 = r1.get("graph") if isinstance(r1.get("graph"), dict) else r1
     e0 = {e["data"]["id"]: e["data"] for e in g0["edges"]}
@@ -365,15 +441,18 @@ def test_full_view_is_never_filtered():
     real = LB._apply_field_involvement
     seen = []
 
-    def spy(new_edges, field, relevance_filter, physical_model=None, sql_text=""):
+    def spy(new_edges, field, relevance_filter, physical_model=None,
+            sql_text="", table=""):
         seen.append(relevance_filter)
         return real(new_edges, field, relevance_filter,
-                    physical_model=physical_model, sql_text=sql_text)
+                    physical_model=physical_model, sql_text=sql_text,
+                    table=table)
 
     LB._apply_field_involvement = spy
     try:
-        _build_l2_graph("j1full", "BDM_ACC_LOAN_INFO_SUP_M.sql", sql,
-                        "bdm_acc_loan_info", "lending_ref", relevance_filter=False)
+        with _ws(sql, FLAGSHIP_NAME) as ws_id:
+            _build_l2_graph(ws_id, FLAGSHIP_NAME, sql, "bdm_acc_loan_info",
+                            "lending_ref", relevance_filter=False)
     finally:
         LB._apply_field_involvement = real
     assert seen and not any(seen), "the rule must not run on the full view"
@@ -408,14 +487,17 @@ def _model():
 
 def _carrier(et="REF", src="p1.other", tgt="p1", line=10, op="READ",
              defined_in="SELECT expr", value_edge=None, tgt_output=False,
-             own_seg=0, hops=None, anchor=None):
+             own_seg=0, hops=None, anchor=None, src_owner="", tgt_canon="",
+             src_id="s", tgt_id="t", flow_kind=None):
     return {
-        "id": "l2e_test", "source": "s", "target": "t", "edge_type": et,
+        "id": "l2e_test", "source": src_id, "target": tgt_id, "edge_type": et,
         "highlight_line": anchor if anchor is not None else line,
         "_src_label": src, "_tgt_label": tgt, "_src_line": line, "_tgt_line": line,
         "_op": op, "_value_edge": value_edge, "_tgt_output": tgt_output,
         "_own_seg_idx": own_seg, "_path_hops": hops or [],
         "_src_defined_in": defined_in, "_tgt_defined_in": "",
+        "_src_owner": src_owner, "_tgt_canon": tgt_canon,
+        "flow_kind": flow_kind,
     }
 
 
@@ -534,9 +616,10 @@ def _build_lines(table, field, full_view=False):
     flow-only closure by default, the unfiltered FULL view with
     full_view=True (relevance_filter=False is the no-search contract)."""
     sql = FLAGSHIP.read_text(encoding="utf-8")
-    result = _build_l2_graph("j1", "BDM_ACC_LOAN_INFO_SUP_M.sql", sql,
-                             table, field, relevance_filter=not full_view,
-                             direction="downstream")
+    with _ws(sql, FLAGSHIP_NAME) as ws_id:
+        result = _build_l2_graph(ws_id, FLAGSHIP_NAME, sql, table, field,
+                                 relevance_filter=not full_view,
+                                 direction="downstream")
     graph = result.get("graph") if isinstance(result.get("graph"), dict) else result
     return {e["data"]["highlight_line"] for e in graph["edges"]}
 
@@ -670,3 +753,236 @@ def test_ruling_7a_full_view_is_unchanged():
     # and the flow-only closure is a strict subset of the full view
     flow = _build_lines("bdm_acc_loan_info_sup", "data_dt")
     assert flow <= full
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Class 4 (F1, 2026-09-02) — the seed-endpoint exemption is an OCCURRENCE
+# identity; Class 5 (F2) — the searched field's own value leg routed
+# through an AS-alias. Audit corpus: EAST5_STZFXXB_M.sql.
+# ═══════════════════════════════════════════════════════════════════════
+
+F1_SEED = ("east5_stzfxxb", "charge_department")
+# The audited 9: the source table's OWN charge_department belongs-to edges —
+# one pair at the first read (@51, both casings) and one per CASE-WHEN read
+# (@54/@55/@56/@66/@68/@70), plus the write projection's (@86). Every one of
+# them belongs to `bdm_acc_entrusted_payment.charge_department`, a DIFFERENT
+# occurrence of the searched NAME.
+F1_SIBLING_LINES = (51, 54, 55, 56, 66, 68, 70, 86)
+F1_SIBLING_SOURCES = ("bdm_acc_entrusted_payment", "a@141")
+# the searched chip's own anchors that must stay lit (the audit's "5 true"
+# core): the PARTITION write chain @41 and the seed's own Reappears @86.
+F1_OWN_LINES = (41, 86, 141)
+
+
+def _belongs_to(nodes, edges, line, src_contains=""):
+    """Served belongs-to SCHEMA edges at `line` (never the ⟐output
+    membership form, which is Class 2's business)."""
+    return [e for e in edges
+            if e.get("edge_type") == "SCHEMA"
+            and e.get("highlight_line") == line
+            and "output" not in (_label(nodes, e, "source") or "").casefold()
+            and src_contains in (_label(nodes, e, "source") or "")]
+
+
+def test_f1_sibling_belongs_to_same_name_is_dropped():
+    """F1: searching `east5_stzfxxb.charge_department` serves NO belongs-to
+    of the source table's own `charge_department` occurrence. The
+    seed-endpoint exemption used to be a NAME match that ran before the
+    Class-3 drop, so all 9 were admitted as "seed endpoint" — the 3a drop
+    was unreachable for a same-named sibling."""
+    nodes, edges = _build_east5(*F1_SEED)
+    for line in F1_SIBLING_LINES:
+        leaked = [e for e in _belongs_to(nodes, edges, line)
+                  if any(s in (_label(nodes, e, "source") or "")
+                         for s in F1_SIBLING_SOURCES)]
+        assert not leaked, (
+            f"the sibling belongs-to @L{line} is still served (F1): "
+            f"{[(_label(nodes, e, 'source'), _label(nodes, e, 'target')) for e in leaked]}")
+
+
+def test_f1_searched_chip_own_anchors_stay():
+    """F1's boundary: the SEARCHED chip's own belongs-to / Reappears class
+    is untouched — `east5_stzfxxb → charge_department` @86 (the INSERT
+    projection's own occurrence) stays, and so does the searched chip's own
+    write chain (@41) and its read (@141)."""
+    nodes, edges = _build_east5(*F1_SEED)
+    own = [e for e in _belongs_to(nodes, edges, 86)
+           if _label(nodes, e, "source") == "east5_stzfxxb"]
+    assert own, "the searched chip's own belongs-to @86 went dark (F1 over-drop)"
+    assert all(_label(nodes, e, "target").casefold() == "charge_department"
+               for e in own)
+    hl = {e["highlight_line"] for e in edges}
+    for line in F1_OWN_LINES:
+        assert line in hl, f"the searched chip's own anchor L{line} went dark"
+    # the write chain is intact: the seed's own value leg into the ⟐output
+    # frame and the routed DML leg into the written box, both @41
+    assert _edges_of(edges, "TABLE_FLOW", 41), "the @41 write chain went dark"
+    write = [e for e in edges
+             if e.get("flow_kind") == "write"
+             and _label(nodes, e, "target") == "east5_stzfxxb"]
+    assert write, "the DML write leg into east5_stzfxxb went dark"
+
+
+def test_f1_truth_rate_on_the_audited_closure_improves():
+    """The audit's measurement: 47 served / 5 true before, because 9 of them
+    were the sibling's belongs-to edges. After F1 the closure is exactly the
+    pre-rule set minus the rule's drops — the 9 belongs-to among them — and
+    nothing else moves (the rule only ever removes)."""
+    _, edges = _build_east5(*F1_SEED)
+    _, edges0 = _build_east5(*F1_SEED, disable_rule=True)
+    assert len(edges) == 38, (
+        f"the audited closure moved: {len(edges)} served (audit: 38 after the "
+        f"9 sibling belongs-to and the Class-2 drops, from {len(edges0)} pre-rule)")
+    assert len(edges) < len(edges0), "the rule must only ever remove"
+
+
+def test_f1_predicate_occurrence_identity_not_name():
+    """The Class-3 exemption in isolation: a belongs-to whose target's
+    RESOLVED OWNER (`_tgt_canon`) is the searched table is the searched
+    field's own; the same NAME owned by another table is a sibling's
+    belongs-to and drops — unless that chip carries no write of its own (a
+    container's column: the searched value flowing through)."""
+    admit_own = _apply_field_involvement(
+        [_carrier(et="SCHEMA", src="east5_stzfxxb", tgt="east5_stzfxxb.charge_department",
+                  op="TABLE_COLUMN", line=86, tgt_canon="east5_stzfxxb",
+                  tgt_id="chip_a")],
+        "charge_department", True, table="east5_stzfxxb") == [_carrier(
+            et="SCHEMA", src="east5_stzfxxb", tgt="east5_stzfxxb.charge_department",
+            op="TABLE_COLUMN", line=86, tgt_canon="east5_stzfxxb", tgt_id="chip_a")]
+    assert admit_own, "the searched table's own belongs-to dropped"
+
+    # …but the same-named chip that carries no write of its own is the
+    # searched value inside a container, and its belongs-to stays (the
+    # canonical's CTE/VT belongs-to rows: SUP_M LFS8/9/38/74/104/134/139-142)
+    container = _carrier(et="SCHEMA", src="rollover_loan_info",
+                         tgt="rollover_loan_info.lending_ref",
+                         op="TABLE_COLUMN", line=156,
+                         tgt_canon="rollover_loan_info", tgt_id="chip_c")
+    assert _apply_field_involvement(
+        [container], "lending_ref", True,
+        table="bdm_acc_loan_info") == [container]
+    # …and a WRITTEN same-named chip is a second column of that name: a
+    # sibling — its belongs-to drops with it (F1), while its write leg is
+    # the sibling's own flow and drops too
+    written = _carrier(et="SCHEMA", src="bdm_acc_entrusted_payment",
+                       tgt="bdm_acc_entrusted_payment.charge_department",
+                       op="TABLE_COLUMN", line=86,
+                       tgt_canon="bdm_acc_entrusted_payment", tgt_id="chip_b")
+    written_leg = _carrier(et="TABLE_FLOW",
+                           src="bdm_acc_entrusted_payment.charge_department",
+                           tgt="⟐ output", op="INSERT", line=86, value_edge=True,
+                           tgt_output=True, src_id="chip_b", tgt_id="out")
+    served = _apply_field_involvement([written, written_leg], "charge_department",
+                                      True, table="east5_stzfxxb")
+    assert served == [written_leg], (
+        "a WRITTEN same-named chip's belongs-to is the sibling's own fact (F1); "
+        f"got {[(e['edge_type'], e.get('_src_label')) for e in served]}")
+
+
+# the audit's five over-removals: the searched field's value written out
+# under an aliased output column, whose ⟐output legs Class 2 used to cut
+F2_CASES = (
+    ("bdm_acc_entrusted_payment", "entd_paym_dt", "stzfrq", 50,
+     "L50 REPLACE(a.entd_paym_dt,\"_\",\"\") As stzfrq"),
+    ("bdm_acc_entrusted_payment", "entd_opp_acct_name", "stzfdxhm", 65,
+     "L65 … END AS stzfdxhm"),
+    ("bdm_acc_entrusted_payment", "entd_opp_acct_no", "stzfdxzh", 53,
+     "L53 … END As stzfdxzh"),
+    ("bdm_acc_entrusted_payment", "reserved_field15", "RESERVED_9", 117,
+     "L117 … END AS RESERVED_9"),
+    ("bdm_pub_branch", "org_no_cbrc", "jrxkzh", 43,
+     "L43 NVL(c.org_no_cbrc,d.org_no_cbrc) As jrxkzh"),
+)
+EAST5_DML_LINE = 41
+
+
+def test_f2_own_alias_output_legs_are_served():
+    """F2: the AS-alias frame's ⟐output pair is the SEARCHED field's own
+    value chain — the write value leg `alias → ⟐output` and the membership
+    `⟐output → alias` are served again, so the closure runs
+    field → alias → ⟐output → DML without the audited hole."""
+    for table, field, frame, line, site in F2_CASES:
+        nodes, edges = _build_east5(table, field)
+        legs = [e for e in edges
+                if e.get("highlight_line") == line
+                and frame.casefold() in (_label(nodes, e, "source") or "").casefold()
+                + (_label(nodes, e, "target") or "").casefold()
+                and e["edge_type"] in ("SCHEMA", "TABLE_FLOW")]
+        kinds = sorted(e["edge_type"] for e in legs)
+        assert kinds == ["SCHEMA", "TABLE_FLOW"], (
+            f"{field}: the {frame} ⟐output pair @L{line} is {kinds} — F2 "
+            f"re-removed it ({site})")
+        value_leg = [e for e in legs if e["edge_type"] == "TABLE_FLOW"]
+        assert any((e.get("id") or "").endswith("_value") for e in value_leg), (
+            f"{field}: the frame's write value leg lost its DML routing ({site})")
+        assert any(e.get("flow_kind") == "write" and e.get("highlight_line") == EAST5_DML_LINE
+                   for e in edges), (
+            f"{field}: the chain never reaches the DML @L{EAST5_DML_LINE}")
+
+
+def test_f2_own_alias_frame_is_the_write_targets_column():
+    """F2's frame fact, pinned per case: every admitted frame is a column of
+    the box the statement writes (`east5_stzfxxb`), and the searched field's
+    own chip feeds it — the two facts that make the alias's value the
+    searched field's own."""
+    for table, field, frame, line, site in F2_CASES:
+        nodes, edges = _build_east5(table, field)
+        feed = [e for e in edges
+                if e["edge_type"] in ("TRANSFORM", "COMPUTED")
+                and frame.casefold() in (_label(nodes, e, "target") or "").casefold()]
+        assert feed, f"{field}: no producing edge into {frame} ({site})"
+        assert any(_label(nodes, e, "source").casefold() == field.casefold()
+                   for e in feed), (
+            f"{field}: {frame} is not fed by the searched field's own chip ({site})")
+
+
+def test_f2_boundary_written_own_column_stays_out():
+    """The §7-A boundary that keeps F2 honest: when the statement writes a
+    column of the searched field's own on the written box (EAST5's
+    `PARTITION(p_dt, charge_department)` @41), the statement's OTHER
+    aliased columns stay the sibling's flow — searching charge_department
+    serves no stzfdxhm ⟐output leg even though its CASE reads the field."""
+    nodes, edges = _build_east5(*F1_SEED)
+    leaked = [e for e in edges
+              if (e.get("_tgt_label") or "").casefold() in ("stzfdxhm", "stzfdxzh")
+              or (e.get("_src_label") or "").casefold() in ("stzfdxhm", "stzfdxzh")]
+    assert not leaked, (
+        "the statement's other aliased columns leaked into the "
+        "charge_department closure: "
+        f"{[(e['edge_type'], e.get('_src_label'), e.get('_tgt_label'), e.get('highlight_line')) for e in leaked]}")
+
+
+def test_f2_predicate_provenance_and_write_target():
+    """F2 in isolation: the ⟐output pair of a frame is admitted only when
+    the searched field's own chip feeds it (provenance) AND the frame is the
+    write target's own column; a sibling's frame never is."""
+    feed = _carrier(et="TRANSFORM", src="a.entd_paym_dt", tgt="stzfrq",
+                    op="REFERENCE", line=50, src_owner="bdm_acc_entrusted_payment",
+                    tgt_canon="east5_stzfxxb", src_id="seed", tgt_id="frame")
+    membership = _carrier(et="SCHEMA", src="⟐ output", tgt="stzfrq", op="OUTPUT",
+                          line=50, tgt_canon="east5_stzfxxb",
+                          src_id="out", tgt_id="frame")
+    value = _carrier(et="TABLE_FLOW", src="stzfrq", tgt="⟐ output", op="INSERT",
+                     line=50, value_edge=True, tgt_output=True,
+                     src_owner="east5_stzfxxb", src_id="frame", tgt_id="out")
+    # the routed DML leg that names the WRITE TARGET the frame belongs to
+    dml = _carrier(et="TABLE_FLOW", src="⟐ output", tgt="east5_stzfxxb",
+                   op="INSERT", line=41, tgt_output=False, flow_kind="write",
+                   src_owner="east5_stzfxxb", src_id="out", tgt_id="box")
+    served = _apply_field_involvement([feed, membership, value, dml],
+                                      "entd_paym_dt", True,
+                                      table="bdm_acc_entrusted_payment")
+    assert len(served) == 4, (
+        f"the own frame's ⟐output pair must ride with the provenance edge, "
+        f"got {[(e['edge_type'], e.get('_src_label')) for e in served]}")
+    # a sibling's frame: fed by the searched field but NOT the write target's
+    # own column (SUP_M's reserved_field8 lives on the loan_final CTE)
+    sib_frame = _carrier(et="COMPUTED", src="p6.lending_ref", tgt="reserved_field8",
+                         op="REFERENCE", line=82, src_owner="bdm_acc_loan_info",
+                         tgt_canon="loan_final", src_id="seed", tgt_id="sibframe")
+    sib_value = _carrier(et="TABLE_FLOW", src="reserved_field8", tgt="⟐ output",
+                         op="INSERT", line=183, value_edge=True, tgt_output=True,
+                         src_owner="loan_final", src_id="sibframe", tgt_id="out")
+    assert _apply_field_involvement([sib_frame, sib_value], "lending_ref", True,
+                                    table="bdm_acc_loan_info") == [sib_frame], (
+        "the sibling frame's write leg was admitted (F2 must stay off)")

@@ -1382,6 +1382,7 @@ CANONICAL_EDGES = [
     {"row": "RDD3", "seed": "rrcdm", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "downstream",
      "src": "⟐output@0", "dst": "rrcdm@549", "type": "TABLE_FLOW", "anchor": 549, "spec": "anchor_rel_ep", "stmt": "TOP1"},
     #    iiapty↓SUP_M -- ods_hie_ipacmsp.iiapty DOWNSTREAM, the
+    #    RETIRED 2026-09-01 (USER RULING 7-A, write leg only) — the rrcdm continuation no longer applies; the chain ends at the sup write (see point 26 / the §2.2 repairs).
     #    seed-zone join-key closure + the R29 row-level continuation
     #    (2026-08-12 ruling: a statement that USES the queried field
     #    carries the flow into ALL its write targets; a later
@@ -1549,6 +1550,7 @@ CANONICAL_EDGES = [
     {"row": "LFD10", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
      "src": "LENDING_REF@101", "dst": "ods_ccb_cb_loan_acctloan@426", "type": "REF", "anchor": 426, "spec": "anchor_rel_ep"},
     #    lending_ref↓SUP_M -- bdm_acc_loan_info.lending_ref DOWNSTREAM:
+    #    RETIRED 2026-09-01 (USER RULING 7-A, write leg only) — the rrcdm continuation no longer applies; the chain ends at the sup write (see point 26 / the §2.2 repairs).
     #    the seed's CTE-zone flow + the R29 row-level continuation
     #    (2026-08-12 ruling: the sup-write statement USES lending_ref as
     #    join keys/SELECT outputs → carries the flow into the sup write
@@ -2160,7 +2162,7 @@ CANONICAL_EDGES = [
      "src": "p1@29", "dst": "data_dt@158", "type": "SCHEMA", "anchor": 158, "spec": "anchor_rel_ep"},
     {"row": "MA2", "seed": "bdm", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "p1@84", "dst": "data_dt@158", "type": "SCHEMA", "anchor": 158, "spec": "anchor_rel_ep"},
-    # ── IA1/IA2 (iiapty seed) — PENDING (CR10): the sup→⟐output JOIN
+    # ── IA1/IA2 (iiapty seed) — RESOLVED — both rows REMOVED (see point 20/26): the sup→⟐output JOIN
     #    carriers the fold used to collapse into IID14 (@203). Both carry a
     #    SIBLING column's ON predicate, never iiapty:
     #      L201 | p2.lending_ref = p1.lending_ref
@@ -2780,6 +2782,7 @@ CANONICAL_NODES_DIR = {
          "note": "log statement output VT (TOP1)"},
     ],
     # iiapty↓SUP_M -- the seed-zone join-key closure + the R29
+    # RETIRED 2026-09-01 (USER RULING 7-A, write leg only) — the rrcdm continuation no longer applies; the chain ends at the sup write (see point 26 / the §2.2 repairs).
     # row-level continuation (2026-08-12 ruling: a statement that USES
     # the queried field carries the flow into ALL its write targets;
     # a later statement's row-selection using a written field
@@ -2835,6 +2838,7 @@ CANONICAL_NODES_DIR = {
          "note": "stmt1 output VT (TOP0)"},
     ],
     # lending_ref↓SUP_M -- the seed's CTE-zone flow + the R29
+    # RETIRED 2026-09-01 (USER RULING 7-A, write leg only) — the rrcdm continuation no longer applies; the chain ends at the sup write (see point 26 / the §2.2 repairs).
     # row-level continuation (2026-08-12 ruling: the sup-write
     # statement USES lending_ref → carries the flow into the sup
     # write @160; the sup data_dt row-selection @225 continues into
