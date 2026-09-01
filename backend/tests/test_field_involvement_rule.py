@@ -19,8 +19,20 @@ untouched, so occurrence coverage can never regress):
     is that sibling's own flow, not the searched field's: its DML write
     value leg, its ⟐output-frame membership, its write-projection read
     leg, and the chain leg into the output frame that its write drives.
-    The belongs-to/structural facts of a sibling chip and the whole
-    table/VT skeleton stay (the accepted FSB/G9 classes).
+
+  Class 3 — SIBLING BELONGS-TO + ORPHAN SIBLING CHIPS (USER RULING
+    2026-09-01, rule 3a reversed, full variant confirmed). The sibling
+    chip's belongs-to SCHEMA edge — the old accepted "skeleton" — is NOT
+    the searched field's flow either, and on write-heavy statements it
+    drags every co-written column's chip into the closure as clutter.
+    DROPPED. The sibling chips it leaves floating edge-less are pruned
+    too (`_prune_orphan_sibling_chips`) — the user: "If the sibling
+    chips, which is not [the] searched target field, and doesn't have
+    any edge, they are not contributing to the data flow. I think they
+    should be removed." A chip the searched field's own flow still feeds
+    survives. The TABLE/VT skeleton (ALIAS hops, CTE chains) stays; the
+    searched chip's own belongs-to / Reappears class is untouched; "this
+    column exists on this box" becomes a full-view fact.
 
 The 6 over-included edges this rule removes on the cross-check corpus
 (SUP_M × lending_ref, G9's ledger):
@@ -180,34 +192,44 @@ def test_sibling_value_legs_are_dropped():
     assert len(_by_id(edges0, "l2e_1eb5aca70da6")) == 1
 
 
-def test_sibling_belong_to_and_skeleton_stay():
-    """The structural facts G9 pinned stay: the sibling chip's belongs-to
-    SCHEMA edges (LFS135 @82 / LFS143-145 @183), the ALIAS identity hops,
-    the CTE-consumption TABLE_FLOW, and the ⟐output membership of the
-    SEARCHED field."""
+def test_sibling_belong_to_dropped_skeleton_stays():
+    """USER RULING 2026-09-01 (rule 3a reversed): a sibling field's
+    belongs-to SCHEMA edge is NOT the searched field's flow — it is
+    dropped, and the sibling chip leaves the view with it (an edge-less
+    sibling chip is exactly the clutter the ruling removes). The TABLE
+    skeleton stays: ALIAS identity hops and the CTE-consumption
+    TABLE_FLOW. The searched chip's own belongs-to / Reappears class is
+    untouched (seed-endpoint edges never reach the filter)."""
     nodes, edges = _build("bdm_acc_loan_info", "lending_ref")
-    by_line = {}
-    for e in edges:
-        by_line.setdefault((e.get("edge_type"), e.get("highlight_line")), []).append(e)
 
-    # LFS135 — loan_final owns the sibling chip the L82 line defines
-    own = [e for e in by_line.get(("SCHEMA", 82), [])
-           if _label(nodes, e, "source") == "loan_final"
+    # LFS135 — the sibling belongs-to @82 is GONE
+    own = [e for e in edges
+           if e.get("edge_type") == "SCHEMA"
+           and e.get("highlight_line") == 82
            and _label(nodes, e, "target") == "reserved_field8"]
-    assert own, "the sibling chip's belongs-to SCHEMA @82 went dark (LFS135)"
-    # LFS143/144/145 — one belongs-to per p1 instance for the L183 read
-    own183 = [e for e in by_line.get(("SCHEMA", 183), [])
-              if _label(nodes, e, "target") == "reserved_field8"]
-    assert len(own183) == 3, f"expected 3 p1-instance belongs-to, got {len(own183)}"
-    # ALIAS hops (identity) stay: rollover→p6@155 (LFS128), loan_final→p1@198 (LFS131)
-    alias = [( _label(nodes, e, "source"), _label(nodes, e, "target"))
+    assert not own, "the sibling chip's belongs-to SCHEMA @82 is still served"
+    # LFS143/144/145 — the L183 belongs-to trio is GONE
+    own183 = [e for e in edges
+              if e.get("edge_type") == "SCHEMA"
+              and e.get("highlight_line") == 183
+              and _label(nodes, e, "target") == "reserved_field8"]
+    assert not own183, "the sibling chip's belongs-to SCHEMA @183 is still served"
+    # the sibling chip SURVIVES here — the seed's own L82 COMPUTED feeds
+    # it, and the confirmed prune keeps every chip the searched field's
+    # own flow still touches. (USER RULING 2026-09-01: only chips with NO
+    # edge are removed.)
+    assert "reserved_field8" in {n.get("label") for n in nodes.values()}
+    # the TABLE skeleton stays: ALIAS hops (LFS128/LFS131) and the
+    # CTE-consumption hop (LFS137)
+    alias = [(_label(nodes, e, "source"), _label(nodes, e, "target"))
              for e in edges if e.get("edge_type") == "ALIAS"]
     assert ("rollover_loan_info", "p6@155") in alias
     assert ("loan_final", "p1@198") in alias
-    # LFS137 — the CTE-consumption hop p6@155 -> loan_final stays
     assert any(_label(nodes, e, "source") == "p6@155"
                and _label(nodes, e, "target") == "loan_final"
                for e in edges if e.get("edge_type") == "TABLE_FLOW")
+    # the SEARCHED field's own chips all stay
+    assert "lending_ref" in {n.get("label") for n in nodes.values()}
 
 
 def test_own_field_everything_stays():
@@ -228,7 +250,10 @@ def test_own_field_everything_stays():
     assert own_read, "the searched field's own read leg @198 went dark (LFS146)"
     # the searched field's own occurrence lines all stay highlighted
     hl = {e["highlight_line"] for e in edges}
-    for line in (13, 19, 48, 59, 82, 95, 117, 150, 156, 163, 183, 198, 201):
+    # (L183 is the SIBLING's write-projection line — it was lit only by
+    # the sibling's belongs-to edges the 2026-09-01 ruling dropped, so it
+    # legitimately goes dark; the seed's own write projection is L163.)
+    for line in (13, 19, 48, 59, 82, 95, 117, 150, 156, 163, 198, 201):
         assert line in hl, f"the searched field's occurrence line L{line} went dark"
 
 
@@ -236,16 +261,50 @@ def test_own_field_everything_stays():
 # the rule's contract: display-only, deterministic, no-change property
 # ═══════════════════════════════════════════════════════════════════════
 
-def test_rule_is_edge_only_nodes_never_change():
-    """The closure's NODE set is the walker's — the admission filters EDGES
-    only, so occurrence coverage cannot regress (R44)."""
+def test_chip_prune_removes_only_orphan_siblings():
+    """USER RULING 2026-09-01, confirmed full variant: sibling chips with
+    NO edge are removed. Tables and the searched field's chips are all
+    intact; every surviving field chip touches a kept edge or is the
+    seed's; the node set is a strict subset of the disabled-rule node
+    set (the rule only ever removes)."""
     nodes_a, edges_a = _build("bdm_acc_loan_info", "lending_ref")
     nodes_b, edges_b = _build("bdm_acc_loan_info", "lending_ref", disable_rule=True)
-    assert {n["id"] for n in nodes_a.values()} == {n["id"] for n in nodes_b.values()}
-    assert {(n["label"], n.get("line_start")) for n in nodes_a.values()} == \
-           {(n["label"], n.get("line_start")) for n in nodes_b.values()}
-    # the served anchor set can only shrink
+
+    tables_b = {n["id"] for n in nodes_b.values()
+                if str(n.get("id", "")).startswith("l2_tbl_")}
+    tables_a = {n["id"] for n in nodes_a.values()
+                if str(n.get("id", "")).startswith("l2_tbl_")}
+    assert tables_a == tables_b, "a table compound was pruned"
+    seed_b = {n["id"] for n in nodes_b.values() if n.get("label") == "lending_ref"}
+    seed_a = {n["id"] for n in nodes_a.values() if n.get("label") == "lending_ref"}
+    assert seed_a == seed_b and seed_a, "a searched-field chip was pruned"
+    endpoint_ids = set()
+    for e in edges_a:
+        endpoint_ids.add(e.get("source"))
+        endpoint_ids.add(e.get("target"))
+    for n in nodes_a.values():
+        assert n["id"] in endpoint_ids or n["id"] in tables_a, \
+            f"orphan node survived the prune: {n.get('label')}"
+    # the rule only ever removes
+    assert set(nodes_a) <= set(nodes_b)
     assert {e["highlight_line"] for e in edges_a} <= {e["highlight_line"] for e in edges_b}
+
+
+def test_chip_prune_unit_survivor_rules():
+    """The prune's exact survivor rules, unit-tested on synthetic nodes so
+    the flagship payload's shape cannot mask a regression: a chip the
+    searched field's own edge feeds survives; an edge-less non-seed chip
+    is removed; the seed's own chip is never pruned even edge-less."""
+    fn = lambda i, label: {"id": i, "label": label}
+    nodes = [fn("f_seed", "lending_ref"), fn("f_live", "kept_sibling"),
+             fn("f_orphan", "orphan_sibling")]
+    edges = [{"source": "f_seed", "target": "f_live"}]
+
+    kept = LB._prune_orphan_sibling_chips(nodes, edges, "lending_ref")
+    assert [n["id"] for n in kept] == ["f_seed", "f_live"]
+
+    kept2 = LB._prune_orphan_sibling_chips(nodes, [], "lending_ref")
+    assert [n["id"] for n in kept2] == ["f_seed"]
 
 
 def test_simple_field_closure_change_is_surgical():
@@ -373,8 +432,9 @@ def test_predicate_class_decisions():
     assert admit(_carrier(et="SCHEMA", src="⟐ output", tgt="lending_ref",
                           op="OUTPUT", line=22)), "the seed's own membership"
     assert drop(_carrier(et="SCHEMA", src="⟐ output", tgt="reserved_field8",
-                         op="TABLE_COLUMN", line=183)) is False, (
-        "a belongs-to SCHEMA is structure, never a value leg")
+                         op="TABLE_COLUMN", line=183)), (
+        "a SIBLING's belongs-to SCHEMA is dropped (USER RULING 2026-09-01, "
+        "rule 3a reversed) — only a seed-endpoint belongs-to stays")
     assert drop(_carrier(et="TABLE_FLOW", src="reserved_field8", tgt="⟐ output",
                          op="INSERT", value_edge=True, line=183))
     assert drop(_carrier(et="REF", src="p1.reserved_field8", tgt="p1", op="READ",

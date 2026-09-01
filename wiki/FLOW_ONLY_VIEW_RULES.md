@@ -43,17 +43,21 @@ Everything below refines these two ideas.
 
 | # | Rule | Shown? | Example |
 |---|---|---|---|
-| 3a | A sibling field's **belongs-to** edge (structural fact: it exists on this line) | ✅ (skeleton) | `reserved_field8` written at L82 next to `lending_ref` — its belongs-to edge stays |
+| 3a | A sibling field's **belongs-to** edge (structural fact: it exists on this line) | ❌ **(USER RULING 2026-09-01 — reversed, was ✅)** | `reserved_field8` written at L82 next to `lending_ref` — its belongs-to edge is **dropped** (mess, no data-flow contribution). The searched field's own belongs-to / Reappears edges are untouched — only a *sibling's* belongs-to drops. **CONFIRMED same day:** also remove the sibling chips this leaves floating edge-less — "If the sibling chips, which is not [the] searched target field, and doesn't have any edge, they are not contributing to the data flow. I think they should be removed." (USER RULING 2026-09-01, `_prune_orphan_sibling_chips`) |
 | 3b | A sibling field's **value legs** (its write/read/compute edges) | ❌ | Searching `lending_ref`: `reserved_field8`'s write leg, read leg, and output-membership edges are dropped — **(the field-involvement rule, user-ruling #48; fixed 4 over-included edges)** |
-| 3c | The sibling field's **chip** in the closure | ❌ (R46a) | Searching `bdm_acc_loan_info.data_dt`: the `b/c/d/e.data_dt` chips are ordinary nodes |
+| 3c | The sibling field's **chip** in the closure | ❌ once edge-less (CONFIRMED) | A sibling chip survives while ANY kept edge touches it — e.g. `reserved_field8` stays because the seed's own L82 COMPUTED feeds it. A chip whose last edge was its belongs-to is **removed with it** (the confirmed 2026-09-01 ruling) — "this column exists on this box" is a **full-view** fact |
 
-### 3a in full — three complete worked examples
+### 3a in full — three complete worked examples (post-ruling)
 
-The line the rule draws: a sibling field's **belongs-to edge** (`SCHEMA/TABLE_COLUMN` —
-"this field exists on this box, at this line") is STRUCTURE, the same class as a table
-header, so it stays; everything that says how the sibling's **value** is produced,
-read, or routed is the sibling's own flow and is dropped (3b). The three shapes below
-are the three places siblings actually co-occur with a searched field in this corpus.
+The line the rule now draws (**USER RULING 2026-09-01, full variant
+confirmed**): NOTHING of a sibling field anchors it in the searched
+field's closure — not its value legs (3b), not its belongs-to, and not
+its chip once the chip is edge-less. The user: "If the sibling chips,
+which is not [the] searched target field, and doesn't have any edge,
+they are not contributing to the data flow. I think they should be
+removed." A sibling chip survives ONLY while a kept edge of the searched
+field's own flow still touches it. The three co-occurrence shapes,
+re-told:
 
 **Example 1 — co-written CASE sibling (SUP_M × `lending_ref`)**
 
@@ -64,21 +68,22 @@ L82:  ,CASE WHEN NVL(p6.lending_ref,'') <> '' THEN 'Rollover2' END AS reserved_f
 L83:  FROM bdm_acc_loan_info p1
 ```
 
-Searching `lending_ref`, L82 is `lending_ref`'s own read (the NVL check). The SAME
-line also **writes a different field**: `reserved_field8`.
+Searching `lending_ref`, L82 is `lending_ref`'s own read (the NVL check).
+The SAME line also writes a different field: `reserved_field8`.
 
-- ✅ shown: `reserved_field8`'s **belongs-to** edge — the chip `reserved_field8` on
-  the output compound `bdm_acc_loan_info_sup`, anchored at L82 (structure: the field
-  exists on that box, born at that line).
-- ❌ dropped (3b): `reserved_field8`'s **value legs** — the CASE expression that
-  produces it (`NVL(...) <> '' THEN 'Rollover2'` is `lending_ref`'s read + a literal,
-  not `reserved_field8`'s flow), its ⟐output membership value edge, and its
-  downstream write-projection read leg. All six of those legs were measured
-  over-included and were dropped by the J1 round.
+- ❌ dropped: `reserved_field8`'s belongs-to edge @82 (3a, this ruling),
+  its CASE value legs, its ⟐output membership, its write-projection read
+  leg (3b). Under the old rule four belongs-to edges (LFS135, LFS143-145)
+  kept the chip anchored — all gone.
+- ✅ still present: the `reserved_field8` **chip itself** — the seed's
+  own COMPUTED edge feeds it at L82 (the CASE that computes
+  `reserved_field8` READS `lending_ref`), so the confirmed prune KEEPS
+  it: it is edge-anchored by the searched field's own flow, not by its
+  belongs-to.
 
-Read the picture as: "`reserved_field8` exists here" (kept) — but never "…and here is
-how its value got there" (dropped), because that value story belongs to
-`reserved_field8`'s own search, not to `lending_ref`'s.
+Read the picture as: "`reserved_field8` appears because YOUR value flows
+into it" — never "…and it also exists on this box" (that fact is a
+full-view fact now).
 
 **Example 2 — co-filter sibling (PL × `data_dt`)**
 
@@ -88,19 +93,13 @@ L264: WHERE p1.data_dt = '${load_date}' -- the searched field's predicate
 L265: AND   charge_department = 'OPS_CLBS_PLoan'  -- a SIBLING field's predicate
 ```
 
-Searching `bdm_acc_loan_info.data_dt`, L265 filters rows by a **different** field of
-the same table. Measured in the served filtered closure: the chip
-`charge_department` **is present** on the searched table's compound, at L265, and it
-carries **no** edge — no FILTER value leg, no REF.
-
-- ✅ shown: the belongs-to presence of `charge_department` @265 (a fieldless chip —
-  pure structure).
-- ❌ dropped (3b/2d): any edge claiming `charge_department`'s predicate value
-  participates in `data_dt`'s flow. Filtering BY `data_dt` is `data_dt`'s edge (2d);
-  a sibling's predicate on the same rows is not.
-
-This is also the row J12-20 pinned and the **resolved** §7-B: the DL mirror serves
-the chip, and after the J2 round the PL filtered view serves it too.
+Searching `bdm_acc_loan_info.data_dt`: L265 filters rows by a different
+field of the same table. Under the confirmed ruling the served filtered
+closure carries NO trace of `charge_department` — no edge, and its chip
+@265 (edge-less) is pruned with it. `data_dt`'s own predicate @264 is
+untouched (2d). This is also the row J12-20 pinned and the **resolved**
+§7-B — resolved then by ADDING the chip; the belongs-to that anchored it
+is now dropped, and the edge-less chip removed, by this ruling.
 
 **Example 3 — dynamic-partition co-write (EAST5 × `p_dt`)**
 
@@ -110,35 +109,97 @@ L41:  INSERT OVERWRITE TABLE east5_stzfxxb
 L42:  SELECT ... , <expr> AS charge_department, ... FROM ...
 ```
 
-Searching `east5_stzfxxb.p_dt`: L41 is `p_dt`'s own write (a literal partition
-value — rule 2g). The same PARTITION clause co-writes **`charge_department`** as a
-DYNAMIC partition — its value comes from the SELECT list, i.e. it is a full
-write-of-a-sibling squeezed onto `p_dt`'s line. Measured in the closure: the
-belongs-to edges survive verbatim —
+Searching `east5_stzfxxb.p_dt`: L41 is `p_dt`'s own write (a literal
+partition value — rule 2g). The same PARTITION clause co-writes
+**`charge_department`** as a DYNAMIC partition. Under the confirmed
+ruling: its belongs-to edges @41 (target box) and @51 (the producing
+CASE) are DROPPED, its feeding SELECT expression is dropped (3b), and
+its edge-less chips are pruned with them. This is the shape that
+motivated the ruling: write-heavy statements co-write dozens of columns,
+and under the old rule every one of them dragged a chip + belongs-to
+edge into the closure.
 
-- ✅ shown: `charge_department` chips with their `SCHEMA/TABLE_COLUMN` belongs-to
-  edges anchored at L41 (on the target compound) and at L51 (the CASE that produces
-  it, as a field-exists fact on the source box).
-- ❌ dropped (3b): the SELECT-list expression that **feeds** `charge_department`,
-  the routing of that value into the output frame, and any downstream read of it.
-  Those edges would tell `charge_department`'s own birth→written story, which is
-  exactly what a `charge_department` search exists to tell.
+**One-sentence summary for all three**: the searched field's closure
+shows only what the searched field's own value drives — a sibling has no
+edges and no edge-less chips in it. "What else is written on this line /
+this box" is a question for the full view.
 
-**One-sentence summary for all three**: the sibling keeps a *footnote* in the
-closure (this field exists on this line) and never a *storyline* (how its value
-moves). The footnote is what keeps the graph honest about what is ON the boxes; the
-storyline is what the field-involvement rule reserves for the searched field alone.
+---
+
+### Worked examples — the other rule groups
+
+Three complete cases per group, same convention: real flagship SQL, what
+is shown (✅) vs dropped (❌), and why.
+
+**§1 SEEDS — where the closure starts**
+
+1. *1a, own-table occurrence*: search `lending_ref` → every `p1.lending_ref`
+   chip on the `bdm_acc_loan_info` compounds seeds. ✅ The L82 NVL read is
+   the first lit line.
+2. *1b, alias expansion (#399)*: `FROM v_bdm_customer_all('...') a`,
+   search `a.cust_no` → the TVF's projection carries the field and no
+   entity hosts it directly, so the alias's owning entities seed. ✅ The
+   TVF box enters the closure.
+3. *1c, cross-table same-name (RC-A)*: search `bdm_acc_loan_info.data_dt`
+   → the `c/d/e.data_dt` chips on `bdm_pub_branch` /
+   `BDM_ACC_INTERNAL_COUNTERPARTY` are same-NAME, different-TABLE — they
+   do NOT seed. ❌ Their closures stay dark (this was the R-GATE's fix).
+
+**§2 VALUE — edges that carry the field's value**
+
+1. *2d, filter*: `WHERE p1.data_dt = '${load_date}'` → the predicate edge
+   on the searched compound shows; the highlight lands on the WHERE line.
+2. *2e, join key*: `ON p6.lending_ref = p1.lending_ref` @156 → the JOIN
+   edge shows at the join's own line (and ONLY there — a join edge
+   anchored at a projection line is the Class-1 defect, dropped).
+3. *2g, name-but-no-value*: the job-log `INSERT INTO
+   rrcdm_job_log_exec_par(data_dt,...) SELECT '$(load_date)', COUNT(1)`
+   writes a column NAMED like the field but the value is a literal —
+   ⚡ **ruling 7-A pending** (see §7-A).
+
+**§4 TWINS — the same field at many lines**
+
+1. *4a, per-occurrence lines*: `charge_department`'s CASE arms light
+   exactly at {54, 55, 56, 66, 68, 70} — each occurrence at its own line,
+   never one merged blob.
+2. *4b, JOIN-ON AND-legs*: `AND b.lending_ref = a.lending_ref` @144,
+   `AND b.org_no = c.org_no` @147 — continuation legs of one JOIN get
+   their own occurrence twins, so the highlight reaches the AND lines.
+3. *4d, no owner evidence*: `d.org_no` @150 — the line's owner is already
+   served by `b.org_no`'s twin; no duplicate twin is minted. ❌ No extra
+   edge, no double highlight.
+
+**§5 FOLD — which carrier represents the group**
+
+1. *5a, multi-anchor*: `lending_ref` joining `loan_final` at lines
+   95/117/150/156 → FOUR JOIN edges, one per line (the RC-B fix: one
+   merged edge used to hide three of the four).
+2. *5b, keeper-line*: among carriers of one group, the one standing on
+   the chip's own line wins the fold (Fix H) — the served edge's anchor
+   is the line you'd click.
+3. *5d, claimed-together*: the LFS108 NOT-IN filter — a group whose line
+   another relationship already claims earns no second edge. ❌ One
+   story per line.
 
 ---
 
 ## 4. TWINS rules — the same field at many lines
 
+> **In plain words:** the extractor collects a field's repeated references into ONE
+> variable, and one variable can anchor only ONE line — so a field appearing at 5
+> lines would light only 1. A **twin** is a shadow copy registered for exactly one
+> other line, so that line lights too. The rules police it: every real occurrence
+> gets its line (4a) — including each AND-continuation line of a JOIN ON (4b) — a
+> line that is already lit gets no second light (4c), and a bare occurrence with no
+> clause owner of its own earns none (4d). One light per line the field really
+> occupies — never zero, never two, never fabricated.
+
 | # | Rule | Shown? | Example |
 |---|---|---|---|
-| 4a | Each occurrence lights at its **own line** | ✅ | `charge_department`'s CASE arms: exactly {54,55,56,66,68,70} |
-| 4b | **JOIN-ON AND-continuation legs** (family-4 twins) | ✅ | `AND b.lending_ref = a.lending_ref` @144, `AND b.org_no = c.org_no` @147 |
+| 4a | Each occurrence lights at its **own line** | ✅ | EAST5 `charge_department`'s CASE arms (L51/55/56/66/68/70): lit at exactly {54,55,56,66,68,70} |
+| 4b | **JOIN-ON AND-continuation legs** (family-4 twins) | ✅ | SUP_M L201-203: `p2.lending_ref = p1.lending_ref` @201, `AND p2.data_dt = DATEADD(...)` @202, `AND p2.charge_department = 'GTRF_CoreTrade_EPBL_MYRZ'` @203 — each leg anchors its own line; PL L221 `AND c.p_dt = '${load_date}'` |
 | 4c | A line already anchored by a surviving var — no duplicate | ❌ | The L82 NVL read: anchored once |
-| 4d | A twin with **no owner evidence** is not minted | ❌ | `d.org_no` @L150 — the line's owner is `b.org_no`'s (already served) |
+| 4d | A twin with **no owner evidence** is not minted | ❌ | EAST5 L42: `d.org_no_cbrc` inside `NVL(c.org_no_cbrc,d.org_no_cbrc)` — a bare occurrence with no clause owner of its own earns no twin (the paren-scope owner rule) |
 
 ---
 
@@ -146,7 +207,7 @@ storyline is what the field-involvement rule reserves for the searched field alo
 
 | # | Rule | Shown? | Example |
 |---|---|---|---|
-| 5a | **Multi-anchor**: N occurrences joining the same target at N lines → N edges | ✅ | `lending_ref` joining `loan_final` at 95/117/150/156 → 4 JOIN edges **(RC-B, fixed)** |
+| 5a | **Multi-anchor**: N occurrences joining the same target at N lines → N edges | ✅ | SUP_M: `lending_ref` anchors THREE join sites at three lines — L41 (`CONCAT(...)=p1.lending_ref`), L156 (`ON p6.lending_ref = p1.lending_ref`), L201 (`p2.lending_ref = p1.lending_ref`) → 3 JOIN edges **(RC-B, fixed)** |
 | 5b | **Fix H keeper-line**: a carrier at the chip's own line wins | ✅ | — |
 | 5c | **Line-0 guard**: a carrier with no line never anchors | ❌ | The TVF-alias class — now fixed to carry real lines (M-T1) |
 | 5d | **Claimed-together**: a group whose line another relationship claims earns no extra edge | ❌ | The LFS108 NOT-IN filter |
@@ -162,6 +223,378 @@ storyline is what the field-involvement rule reserves for the searched field alo
 | 6a | **Cross-table same-name seeds** | ❌ | Searching `bdm_acc_loan_info.data_dt`: the `c/d/e.data_dt` chips excluded — **(RC-A, fixed)** |
 | 6b | **Foreign statement trunks**: a statement that doesn't carry the field's value doesn't enter | ❌ | The job-log DML trunk drops from `lending_ref`'s closure; `rrcdm ↓ EAST5` stays 3/3 |
 | 6c | **Foreign-owner folds** respected | ❌ | PL @250: edges attribute to `T_BRANCH`, never the searched compound — **(J2 fixing)** |
+
+---
+
+## Rule-by-rule: two real examples + script segments for every item (1a–6c)
+
+Every rule item with **two distinct real cases** and the **actual SQL** they
+come from (line numbers = the current `samples/sql_sample_v1/` files).
+Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
+
+### §1 SEEDS
+
+**1a — own-table occurrence seeds.**
+
+```sql
+-- SUP_M L162-163  search lending_ref → the projection occurrences seed
+    p1.internal_key
+    ,p1.lending_ref          -- ← seeds here (write-projection occurrence)
+    ,p1.contract_no
+```
+
+```sql
+-- EAST5 L41-42  search east5_stzfxxb.p_dt → the partition-key occurrence seeds
+INSERT OVERWRITE TABLE east5_stzfxxb PARTITION(p_dt='$(load_date)',charge_department)
+SELECT NVL(c.org_no_cbrc,d.org_no_cbrc) As jrxkzh,
+```
+
+**1b — alias/TVF expansion (#399).**
+
+```sql
+-- the TVF form: search a.cust_no through FROM v_bdm_customer_all('...') a
+--   → the TVF's projection carries the field, so the alias's owning entities seed
+```
+
+```sql
+-- RFN — the plain alias-qualified form (the FSC-2 case): search a.cust_no
+--   → before the model persistence fix this seed was LOST (search_matched: false,
+--   the whole 1053-node graph served); after it the 78-node closure serves
+```
+
+**1c — cross-table same-name does NOT seed.**
+
+```sql
+-- SUP_M L199-202  search bdm_acc_loan_info.data_dt: p2 IS the searched table's
+--   sup instance → its data_dt occurrence SEEDS the join leg (that's 2e, not 1c)
+    LEFT JOIN bdm_acc_loan_info_sup p2
+    ON
+        p2.lending_ref = p1.lending_ref
+        AND p2.data_dt = DATEADD(DATE'$(load_date)',-1,'DD')
+```
+
+```sql
+-- PL L221  search the searched table's data_dt: c.p_dt is a same-NAME,
+--   different-TABLE column (ODS_CUPD_PLOAN_APS_CREDINF5) → does NOT seed
+LEFT JOIN ODS_CUPD_PLOAN_APS_CREDINF5 c ON c.sxxyh = a.acnw AND c.p_dt = '${load_date}'
+```
+
+### §2 VALUE
+
+**2a — reads.**
+
+```sql
+-- SUP_M L163  SELECT projection read
+    ,p1.lending_ref          -- the searched field's value is read here
+```
+
+```sql
+-- DL L100-101  SELECT-projection read that births the alias (canonical row X5)
+INSERT OVERWRITE TABLE bdm_acc_loan_info PARTITION (data_dt = '$(load_date)',...)
+SELECT
+A.acctnbr AS LENDING_REF   -- the read that produces the output column
+```
+
+**2b — writes.**
+
+```sql
+-- SUP_M L155  the value lands in the write target
+        LEFT JOIN rollover_loan_info p6
+        ON p6.lending_ref = p1.lending_ref
+```
+(served with the statement's `INSERT OVERWRITE TABLE bdm_acc_loan_info_sup`
+write edge — the write leg is the searched field's own)
+
+```sql
+-- EAST5 L41  p_dt's own write line (a literal partition value — see 2g)
+INSERT OVERWRITE TABLE east5_stzfxxb PARTITION(p_dt='$(load_date)',charge_department)
+```
+
+**2c — computes.**
+
+```sql
+-- SUP_M L41  the searched field inside a join-key expression
+ON CONCAT(p2.poctcd,p2.pogmab,LPAD(p2.poacb,3,'0'),...,LPAD(p2.podtao,8,'0')) = p1.lending_ref
+```
+
+```sql
+-- RFN L1117-1119  dm_flag2 is COMPUTED by a CASE mask (its audited written-768 step)
+OR (regexp_instr(A.LOAN_IN_ACCT_NAME,'[A-Za-z]+$') >= 1 AND ...)
+THEN 'NI'
+END AS DM_FLAG2
+```
+
+**2d — filters.**
+
+```sql
+-- PL L264  the searched field's own predicate
+WHERE data_dt = '${load_date}'
+```
+
+```sql
+-- SUP_M L37  searching podtao: its own predicate arm at its own line
+                            AND podtao <> pofddt
+```
+
+**2e — join keys.**
+
+```sql
+-- SUP_M L156  the searched field IS the join operand
+        LEFT JOIN rollover_loan_info p6
+        ON p6.lending_ref = p1.lending_ref
+```
+
+```sql
+-- PL L221  searching acnw: its operand edge shows at the join line
+LEFT JOIN ODS_CUPD_PLOAN_APS_CREDINF5 c ON c.sxxyh = a.acnw AND c.p_dt = '${load_date}'
+```
+
+**2f — group/window keys.**
+
+```sql
+-- PL L243-247  product decides grouping (the Reappears step)
+group by arrangement_local_number,
+cb_pointer,
+account,
+product,
+lrr_key) km1
+```
+
+```sql
+-- DL L64  acnw decides ranking — window PARTITION BY
+,ROW_NUMBER() OVER(PARTITION BY p1.acnw ORDER BY SSALSFP.P_DT DESC) RN
+```
+
+**2g — named-but-literal write (⚡ ruling 7-A).**
+
+```sql
+-- SUP_M L210-213  the job-log: data_dt is WRITTEN but its value is a LITERAL
+-- operation-log record
+INSERT INTO TABLE rrcdm_job_log_exec_par(data_dt, object_domain, ...)
+SELECT
+    '$(load_date)' AS data_dt
+```
+
+```sql
+-- EAST5 L41  the partition slot named like the field, fed by a literal
+INSERT OVERWRITE TABLE east5_stzfxxb PARTITION(p_dt='$(load_date)',charge_department)
+```
+
+### §3 SIBLINGS (post-ruling)
+
+**3a — sibling belongs-to (dropped by the 2026-09-01 ruling).**
+
+```sql
+-- SUP_M L80-82  reserved_field8 is BORN on lending_ref's own read line
+        ,p1.issue_dt
+        ,p1.loan_ori_maturity_dt
+        ,CASE WHEN NVL(p6.lending_ref,'') <> '' THEN 'Rollover2' END AS reserved_field8
+-- pre-ruling: reserved_field8's belongs-to anchors @82/@183 stayed; post-ruling: dropped
+```
+
+```sql
+-- EAST5 L41+L51  charge_department is a DYNAMIC partition (its CASE feeds it)
+INSERT OVERWRITE TABLE east5_stzfxxb PARTITION(p_dt='$(load_date)',charge_department)
+...
+CASE WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN COALESCE(e.acct_no,...)
+-- its belongs-to @41 (target) and @51 (source CASE): dropped the same way
+```
+
+**3b — sibling value legs.**
+
+```sql
+-- SUP_M  reserved_field8's legs: born @82, written by the L183 projection,
+--   read back at the p2 join — ALL its value legs drop
+        ,CASE WHEN NVL(p6.lending_ref,'') <> '' THEN 'Rollover2' END AS reserved_field8
+```
+
+```sql
+-- EAST5 L51  charge_department's feeding expression and output routing drop
+CASE WHEN a.charge_department IN("WPB_RBB","OPS_CDT") THEN COALESCE(e.acct_no,a.entd_opp_acct_no,f.df_dfzh)
+```
+
+**3c — sibling chips.**
+
+```sql
+-- SUP_M L82  reserved_field8's chip survives ONLY because lending_ref's own
+--   CASE (the NVL read) feeds it — edge-anchored by the searched field's flow
+        ,CASE WHEN NVL(p6.lending_ref,'') <> '' THEN 'Rollover2' END AS reserved_field8
+```
+
+```sql
+-- PL L265  charge_department co-filters data_dt's rows — post-ruling: NO trace
+FROM bdm_acc_loan_info
+WHERE data_dt = '${load_date}'
+AND charge_department = 'OPS_CLBS_PLoan';
+```
+
+### §4 TWINS
+
+**4a — per-occurrence lines.**
+
+```sql
+-- EAST5 L51-70 (charge_department CASE arms: L51/55/56/66/68/70) — each arm lights at its own audited line: {54,55,56,66,68,70}
+```
+
+```sql
+-- SUP_M L37 + L41  podtao's two occurrences → two twins, two lines
+                            AND podtao <> pofddt
+...
+ON CONCAT(...,LPAD(p2.podtao,8,'0')) = p1.lending_ref
+```
+
+**4b — JOIN-ON AND-legs.**
+
+```sql
+-- SUP_M L201-203  one JOIN, three AND-legs: lending_ref @201, data_dt @202,
+--   charge_department @203 — each leg anchors its own line
+        p2.lending_ref = p1.lending_ref
+        AND p2.data_dt = DATEADD(DATE'$(load_date)',-1,'DD')
+        AND p2.charge_department = 'GTRF_CoreTrade_EPBL_MYRZ'
+```
+
+```sql
+-- PL L221  the AND-continuation leg c.p_dt anchors its own line
+LEFT JOIN ODS_CUPD_PLOAN_APS_CREDINF5 c ON c.sxxyh = a.acnw AND c.p_dt = '${load_date}'
+```
+
+**4c — no duplicate anchor.**
+
+```sql
+-- SUP_M L82  the NVL read is anchored ONCE (the seed's own edge) — no twin re-anchors it
+        ,CASE WHEN NVL(p6.lending_ref,'') <> '' THEN 'Rollover2' END AS reserved_field8
+```
+
+```sql
+-- SUP_M L41  podtao's LPAD twin anchors L41 once — never re-anchoring L37's carrier
+ON CONCAT(...,LPAD(p2.podtao,8,'0')) = p1.lending_ref
+```
+
+**4d — no owner evidence → no twin.**
+
+```sql
+-- EAST5 L42  c/d org_no_cbrc live INSIDE NVL — a bare occurrence with no clause
+--   owner of its own earns no twin (the paren-scope owner rule)
+SELECT NVL(c.org_no_cbrc,d.org_no_cbrc) As jrxkzh,
+```
+
+```sql
+-- SUP_M L41  podtao's L41 line belongs to LPAD(...)'s own paren scope
+--   (_paren_scope_bound / _scope_line_owner) — the outer group never claims it
+ON CONCAT(...,LPAD(p2.podtao,8,'0')) = p1.lending_ref
+```
+
+### §5 FOLD
+
+**5a — multi-anchor (N lines → N edges).**
+
+```sql
+-- SUP_M: lending_ref anchors THREE join sites at THREE lines → three edges
+L41:  ON CONCAT(...,LPAD(p2.podtao,8,'0')) = p1.lending_ref
+L156: ON p6.lending_ref = p1.lending_ref
+L201:     p2.lending_ref = p1.lending_ref
+```
+
+```sql
+-- SUP_M L201-203  the same mechanism per AND-leg: 3 legs → 3 line anchors
+```
+
+**5b — Fix H keeper-line.**
+
+```sql
+-- SUP_M  the carrier standing ON the keeper chip's own line wins the fold
+--   (R45 Fix H); a carrier standing on a PROJECTION line does NOT —
+--   L82/L163 are projection lines: the pinned Class-1 / LFS123 doctrine
+        ,CASE WHEN NVL(p6.lending_ref,'') <> '' THEN 'Rollover2' END AS reserved_field8
+```
+
+**5c — line-0 guard.**
+
+```sql
+-- the TVF form: v_bdm_customer_all('...') a — the alias anchored L0 until
+--   M-T1's skip_parens gave it its real call line
+```
+
+```sql
+-- synthetic nodes: every ⟐output / union-branch carries line 0 BY CONSTRUCTION
+--   and can never anchor anything (_pick_anchor excludes line_start < 1)
+```
+
+**5d — claimed-together.**
+
+```sql
+-- SUP_M L41  the join-key line is already claimed by the JOIN edge —
+--   the podtao group's fold earns no SECOND edge on the same line
+ON CONCAT(...,LPAD(p2.podtao,8,'0')) = p1.lending_ref
+```
+
+```sql
+-- EAST5 L42  d.org_no_cbrc's line is claimed by c's NVL read — no extra fold edge
+SELECT NVL(c.org_no_cbrc,d.org_no_cbrc) As jrxkzh,
+```
+
+**5e — no cross-statement instance duplication.**
+
+```sql
+-- SUP_M L199-202  p2.data_dt @202 is owned by THIS statement's join (p2@199);
+--   it is never duplicated onto the L211 job-log statement's instance
+    LEFT JOIN bdm_acc_loan_info_sup p2
+    ON
+        p2.lending_ref = p1.lending_ref
+        AND p2.data_dt = DATEADD(DATE'$(load_date)',-1,'DD')
+```
+
+**5f — no foreign-owner guessed fold.**
+
+```sql
+-- PL L250  T_BRANCH.data_dt attributes to T_BRANCH — never re-parented onto
+--   the searched compound without owner evidence (FSB phantom class, J2 defect B)
+LEFT JOIN BDM_PUB_HSBC_ACCT_BRANCH T_BRANCH ON a.ctcd||a.gmab||LPAD(a.acb,3,'0') = T_BRANCH.branch_code AND T_BRANCH.data_dt = '${load_date}'
+```
+
+```sql
+-- SUP_M L201-202  attribution stays with the join owner p2@199 — the value-cone
+--   never re-parents the occurrence onto bdm_acc_loan_info_sup
+```
+
+### §6 GATE (value-cone)
+
+**6a — cross-table same-name seeds excluded.**
+
+```sql
+-- PL L250-251  T_BRANCH.data_dt (different table, same name) cannot lend its
+--   closure to the searched bdm_acc_loan_info.data_dt
+LEFT JOIN BDM_PUB_HSBC_ACCT_BRANCH T_BRANCH ON ... AND T_BRANCH.data_dt = '${load_date}'
+WHERE a.p_dt = '${load_date}' and a.rn='1';
+```
+
+```sql
+-- EAST5 L42  the searched data_dt vs EAST5's own p_dt family — a different
+--   table's same-named field never seeds (the RC-A/R-GATE class)
+SELECT NVL(c.org_no_cbrc,d.org_no_cbrc) As jrxkzh,
+```
+
+**6b — foreign statement trunks excluded.**
+
+```sql
+-- SUP_M L210-213  the job-log statement READS the searched table's output
+--   (FROM bdm_acc_loan_info_sup, L222) but writes only literals + COUNT(1):
+--   the whole trunk drops from lending_ref's closure (⚡ 7-A shapes this)
+INSERT INTO TABLE rrcdm_job_log_exec_par(data_dt, ...)
+SELECT '$(load_date)' AS data_dt, ... FROM bdm_acc_loan_info_sup
+```
+
+**6c — foreign-owner folds respected.**
+
+```sql
+-- PL L250  the gate never re-parents: the edge's owner stays T_BRANCH
+LEFT JOIN BDM_PUB_HSBC_ACCT_BRANCH T_BRANCH ON ... AND T_BRANCH.data_dt = '${load_date}'
+```
+
+```sql
+-- SUP_M L201-202  the fold stays with p2@199 — never re-attributed to the
+--   searched compound without owner evidence
+```
 
 ---
 

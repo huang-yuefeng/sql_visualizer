@@ -88,23 +88,6 @@
       },
       {
         "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 18,
-          "id": "l2e_6b33d4cf2451",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016results@L1 \u2192 ranking@L18\u2016",
-          "source": "l2_tbl_d6f937c92d",
-          "target": "fld_bdaa42b9fa",
-          "width": 1
-        }
-      },
-      {
-        "data": {
           "category": "filter",
           "color": "#C0392B",
           "desc": "HAVING\u2192SELECT match",
@@ -168,57 +151,6 @@
           "reason": "structure \u2014 \u2016\u27d0 union0@L30 \u2192 total_sum@L30\u2016",
           "source": "l2_tbl_729e3d073e",
           "target": "fld_d76448c6dd",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 31,
-          "id": "l2e_8e91c63ce042",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016results_rollup@L29 \u2192 s_state@L31\u2016",
-          "source": "l2_tbl_94ff0dc0c1",
-          "target": "fld_5ca32f8cd6",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 38,
-          "id": "l2e_e317671258af",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016results_rollup@L29 \u2192 s_state@L38\u2016",
-          "source": "l2_tbl_94ff0dc0c1",
-          "target": "fld_5ca32f8cd6",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 44,
-          "id": "l2e_3345ab43a74d",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016results@L1 \u2192 results.s_state@L44\u2016",
-          "source": "l2_tbl_d6f937c92d",
-          "target": "fld_5ca32f8cd6",
           "width": 1
         }
       },
@@ -308,7 +240,7 @@
         }
       }
     ],
-    "filtered_nodes": 12,
+    "filtered_nodes": 10,
     "nodes": [
       {
         "data": {
@@ -396,20 +328,6 @@
       },
       {
         "data": {
-          "field_group": "indirect",
-          "id": "fld_bdaa42b9fa",
-          "is_target": false,
-          "label": "ranking",
-          "line_start": 18,
-          "orig_type": "window",
-          "original_id": "094a3ca8fbf1f8f3",
-          "parent": "l2_tbl_c0a7101ada",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
           "field_group": "direct",
           "id": "fld_486907c94e",
           "is_target": false,
@@ -430,20 +348,6 @@
           "line_start": 26,
           "orig_type": "column",
           "original_id": "70b3bbdbc22ad4b6",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_5ca32f8cd6",
-          "is_target": false,
-          "label": "s_state",
-          "line_start": 31,
-          "orig_type": "column",
-          "original_id": "d0d10ac966d926d3",
-          "parent": "l2_tbl_d6f937c92d",
           "type": "field",
           "variable_type": "field"
         }
@@ -480,7 +384,7 @@
     "script_name": "70.sql",
     "search_matched": true,
     "target": "results.total_sum",
-    "total_edges": 18,
+    "total_edges": 14,
     "total_nodes": 16
   },
   "full": {

@@ -71,23 +71,6 @@
       },
       {
         "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 6,
-          "id": "l2e_04fece4992d7",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016inv@L1 \u2192 stdev@L6\u2016",
-          "source": "l2_tbl_343004cd96",
-          "target": "fld_c76f0cdc00",
-          "width": 1
-        }
-      },
-      {
-        "data": {
           "category": "compute",
           "color": "#E67E22",
           "desc": "CASE WHEN result",
@@ -127,23 +110,6 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 7,
-          "id": "l2e_2c7a60604ceb",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016inv@L1 \u2192 mean@L7\u2016",
-          "source": "l2_tbl_343004cd96",
-          "target": "fld_b6c559656a",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
           "highlight_line": 11,
           "id": "l2e_e12a383dd8ba",
           "label": "SCHEMA",
@@ -151,23 +117,6 @@
           "reason": "structure \u2014 \u2016inv@L1 \u2192 cov@L11\u2016",
           "source": "l2_tbl_343004cd96",
           "target": "fld_881c4cd4e8",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 38,
-          "id": "l2e_96999c6fa8a8",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016inv1@L45 \u2192 inv1.mean@L38\u2016",
-          "source": "l2_tbl_2ddc5acee4",
-          "target": "fld_0c3861c0bd",
           "width": 1
         }
       },
@@ -202,23 +151,6 @@
           "reason": "structure \u2014 \u2016\u27d0 output@L35 \u2192 inv1.cov@L39\u2016",
           "source": "l2_tbl_a3dd43e61d",
           "target": "fld_881c4cd4e8",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 43,
-          "id": "l2e_45019a16677d",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016inv2@L46 \u2192 inv2.mean@L43\u2016",
-          "source": "l2_tbl_8fdfe9a0c3",
-          "target": "fld_0c3861c0bd",
           "width": 1
         }
       },
@@ -399,23 +331,6 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 55,
-          "id": "l2e_91a75a4ef30a",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016inv@L1 \u2192 inv.mean@L55\u2016",
-          "source": "l2_tbl_343004cd96",
-          "target": "fld_0c3861c0bd",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
           "highlight_line": 56,
           "id": "l2e_945c44c5a559",
           "label": "SCHEMA",
@@ -441,23 +356,6 @@
           "source": "fld_881c4cd4e8",
           "target": "l2_tbl_a3dd43e61d",
           "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 58,
-          "id": "l2e_662e90813ba3",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016inv@L1 \u2192 inv.mean@L58\u2016",
-          "source": "l2_tbl_343004cd96",
-          "target": "fld_0c3861c0bd",
-          "width": 1
         }
       },
       {
@@ -495,7 +393,7 @@
         }
       }
     ],
-    "filtered_nodes": 8,
+    "filtered_nodes": 7,
     "nodes": [
       {
         "data": {
@@ -592,26 +490,12 @@
           "type": "field",
           "variable_type": "field"
         }
-      },
-      {
-        "data": {
-          "field_group": "direct",
-          "id": "fld_0c3861c0bd",
-          "is_target": false,
-          "label": "mean",
-          "line_start": 38,
-          "orig_type": "column",
-          "original_id": "81d7cb1e091044a2",
-          "parent": "l2_tbl_343004cd96",
-          "type": "field",
-          "variable_type": "field"
-        }
       }
     ],
     "script_name": "39b.sql",
     "search_matched": true,
     "target": "inv.cov",
-    "total_edges": 29,
+    "total_edges": 23,
     "total_nodes": 16
   },
   "full": {

@@ -49,8 +49,11 @@ _lock = threading.Lock()
 # P2: guards the read-modify-write of users.json (load → mutate → save). The
 # file itself is written atomically (temp + rename), but a lost update can
 # still drop a concurrent writer's entry — the lock spans the whole RMW so
-# two writers can't interleave their load/mutate/save cycles.
-_users_lock = threading.Lock()
+# two writers can't interleave their load/mutate/save cycles. REENTRANT
+# because the store's own helpers nest: add/remove_workspace_to_index hold it
+# across their quota check and then save through _save_index, which takes it
+# itself — so a caller that forgets the lock is still serialized.
+_users_lock = threading.RLock()
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9._%+-]+@hsbc\.com$")
 MIN_PASSWORD_LEN = 6
@@ -312,10 +315,19 @@ def _index_of(username: str) -> list[dict]:
 
 
 def _save_index(username: str, workspaces: list[dict]) -> None:
-    users = load_users()
-    rec = users.setdefault(username, {"workspaces": []})
-    rec["workspaces"] = workspaces
-    save_users(users)
+    """Persist one user's workspace list.
+
+    Takes the store lock ITSELF: this is a whole-store read-modify-write, so
+    an unlocked caller (a future admin tool, a test helper) would otherwise
+    drop whatever landed between its load and its save — exactly the lost
+    update login/provision_user are serialized against. Re-entry from the
+    locked quota paths is fine (RLock).
+    """
+    with _users_lock:
+        users = load_users()
+        rec = users.setdefault(username, {"workspaces": []})
+        rec["workspaces"] = workspaces
+        save_users(users)
 
 
 def add_workspace_to_index(username: str, ws_id: str, role: str) -> bool:

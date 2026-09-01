@@ -2583,9 +2583,24 @@ def _apply_field_involvement(new_edges: list, field: str,
         elif etype == "SCHEMA":
             # SCHEMA is structure, with ONE value-leg form: the ⟐output
             # frame's membership of a column. The belongs-to form
-            # (`TABLE_COLUMN` — the instance owns the occurrence) is the
-            # accepted structural fact and always stays.
-            carrier = tgt_part if op == "OUTPUT" else None
+            # (`TABLE_COLUMN` — the instance owns the occurrence) USED to
+            # stay as "skeleton" (the old rule 3a) — USER RULING
+            # 2026-09-01: it does NOT. A sibling's belongs-to edge is not
+            # the searched field's flow, and on write-heavy statements it
+            # drags every co-written column's chip into the closure as
+            # clutter. DROPPED. The sibling chips this leaves floating
+            # edge-less are pruned too (`_prune_orphan_sibling_chips`,
+            # below) — USER RULING 2026-09-01, confirming the full
+            # variant: "If the sibling chips, which is not [the]
+            # searched target field, and doesn't have any edge, they are
+            # not contributing to the data flow. I think they should be
+            # removed." The fact "this column exists on this box"
+            # becomes a full-view fact. The searched chip's own
+            # belongs-to and the R40.12 Reappears class never reach this
+            # branch — the seed-endpoint check above kept them.
+            if op != "OUTPUT":
+                continue
+            carrier = tgt_part
         elif etype in ("ALIAS", "SUBSET"):
             carrier = None                  # identity hop / bridge: skeleton
         elif (etype == "REF" and op == "READ" and _is_write_projection(e)):
@@ -2597,6 +2612,35 @@ def _apply_field_involvement(new_edges: list, field: str,
         # the searched field ⇒ involved. Anything else is a sibling's flow.
         if carrier is None or carrier == seed:
             kept.append(e)
+    return kept
+
+
+def _prune_orphan_sibling_chips(field_nodes: list, kept_edges: list,
+                                field: str) -> list:
+    """USER RULING 2026-09-01 (confirming the full variant of the rule-3a
+    reversal): "If the sibling chips, which is not [the] searched target
+    field, and doesn't have any edge, they are not contributing to the
+    data flow. I think they should be removed." A field chip is pruned
+    when it is NOT the searched field's own (label part != the searched
+    field, not the R46a `is_target` stamp) and touches NO kept edge —
+    a chip the searched field's own flow still feeds survives (e.g.
+    SUP_M's `reserved_field8`, fed by lending_ref's L82 COMPUTED).
+    Table/VT compounds are skeleton and never pruned here. Runs after
+    the field-involvement edge filter and before roles/assembly, so
+    flow_node_ids, the merged view and the Field Story all see the same
+    narrowed node set."""
+    seed = (field or "").strip().casefold()
+    if (not field_nodes) or not seed:
+        return field_nodes
+    live = set()
+    for e in kept_edges:
+        live.add(e.get("source"))
+        live.add(e.get("target"))
+    kept = []
+    for fn in field_nodes:
+        part = (fn.get("label") or "").rsplit(".", 1)[-1].strip().casefold()
+        if part == seed or fn.get("is_target") or fn.get("id") in live:
+            kept.append(fn)
     return kept
 
 
@@ -2988,6 +3032,13 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     new_edges = _apply_field_involvement(new_edges, field, relevance_filter,
                                          physical_model=physical_model,
                                          sql_text=sql_text)
+    # The 3a ruling's node half (USER RULING 2026-09-01, confirmed):
+    # sibling chips whose last edge the filter just dropped leave the
+    # view with it. FLOW-ONLY ONLY — the full view has no searched field
+    # to be involved, and keeps every chip (the J2-era contract).
+    if relevance_filter:
+        field_nodes = _prune_orphan_sibling_chips(field_nodes, new_edges,
+                                                  field)
 
     # R46a (2026-08-31, FSB audit): the seed CLAIM is scoped here — the
     # searched table's entity set plus the write targets receiving the

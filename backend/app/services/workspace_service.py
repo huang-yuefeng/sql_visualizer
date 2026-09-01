@@ -129,13 +129,28 @@ def get_workspace(ws_id: str) -> dict | None:
     return meta
 
 def delete_workspace(ws_id: str) -> bool:
-    """Remove workspace directory recursively."""
+    """Remove workspace directory recursively.
+
+    P2 (audit): the directory is only HALF of a delete. The per-user index
+    rows used to be purged solely by the API path (routers →
+    remove_from_my_history → remove_ws_from_all_indexes), so an out-of-band
+    delete (the test janitor, a manual rm, a future admin tool) left every
+    user's entry pointing at a deleted workspace FOREVER — and each dead
+    entry still consumed MAX_WORKSPACES_PER_USER, so enough of them locked a
+    real user out of opening a new workspace (409 "list is full"). The purge
+    is the same one the creator's remove-from-history runs, and it comes
+    AFTER the rmtree: if the removal fails, the workspace still exists and
+    its index rows must survive. Imported lazily — auth_service imports
+    WORKSPACE_ROOT from this module, so a module-level import is a cycle.
+    """
     if not _WS_ID_RE.fullmatch(ws_id):
         return False
     ws_dir = WORKSPACE_ROOT / ws_id
     if not ws_dir.exists():
         return False
     shutil.rmtree(ws_dir)
+    from app.services.auth_service import remove_ws_from_all_indexes
+    remove_ws_from_all_indexes(ws_id)
     return True
 
 def get_script_path(ws_id: str, relative_path: str) -> Path | None:

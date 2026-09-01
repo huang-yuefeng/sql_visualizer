@@ -88,108 +88,6 @@
       },
       {
         "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 11,
-          "id": "l2e_6797557e4d61",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016wss@L1 \u2192 mon_sales@L11\u2016",
-          "source": "l2_tbl_7843bf8654",
-          "target": "fld_ca29adc45b",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 15,
-          "id": "l2e_87a77800f25e",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016wss@L1 \u2192 tue_sales@L15\u2016",
-          "source": "l2_tbl_7843bf8654",
-          "target": "fld_ff9cc87e15",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 19,
-          "id": "l2e_dd3790d37bbc",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016wss@L1 \u2192 wed_sales@L19\u2016",
-          "source": "l2_tbl_7843bf8654",
-          "target": "fld_741c4ed0d7",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 23,
-          "id": "l2e_e39a30963475",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016wss@L1 \u2192 thu_sales@L23\u2016",
-          "source": "l2_tbl_7843bf8654",
-          "target": "fld_93d9e118fc",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 27,
-          "id": "l2e_8c5770215988",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016wss@L1 \u2192 fri_sales@L27\u2016",
-          "source": "l2_tbl_7843bf8654",
-          "target": "fld_ac25609a23",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 31,
-          "id": "l2e_300539134f8a",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016wss@L1 \u2192 sat_sales@L31\u2016",
-          "source": "l2_tbl_7843bf8654",
-          "target": "fld_5965b5fe4f",
-          "width": 1
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -223,7 +121,7 @@
         }
       }
     ],
-    "filtered_nodes": 24,
+    "filtered_nodes": 6,
     "nodes": [
       {
         "data": {
@@ -281,90 +179,6 @@
       },
       {
         "data": {
-          "field_group": "indirect",
-          "id": "fld_ca29adc45b",
-          "is_target": false,
-          "label": "mon_sales",
-          "line_start": 11,
-          "orig_type": "aggregate",
-          "original_id": "b28887393825038c",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_ff9cc87e15",
-          "is_target": false,
-          "label": "tue_sales",
-          "line_start": 15,
-          "orig_type": "aggregate",
-          "original_id": "a77a581cdd561536",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_741c4ed0d7",
-          "is_target": false,
-          "label": "wed_sales",
-          "line_start": 19,
-          "orig_type": "aggregate",
-          "original_id": "4fb2285190f5bbc9",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_93d9e118fc",
-          "is_target": false,
-          "label": "thu_sales",
-          "line_start": 23,
-          "orig_type": "aggregate",
-          "original_id": "31c03af651b02358",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_ac25609a23",
-          "is_target": false,
-          "label": "fri_sales",
-          "line_start": 27,
-          "orig_type": "aggregate",
-          "original_id": "633adf804b0a8727",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_5965b5fe4f",
-          "is_target": false,
-          "label": "sat_sales",
-          "line_start": 31,
-          "orig_type": "aggregate",
-          "original_id": "3f4bfae907a99bc9",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
           "field_group": "direct",
           "id": "fld_b5ebf217fc",
           "is_target": true,
@@ -372,90 +186,6 @@
           "line_start": 51,
           "orig_type": "column",
           "original_id": "321993824344244c",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_a9b6cee238",
-          "is_target": false,
-          "label": "mon_sales1",
-          "line_start": 52,
-          "orig_type": "column",
-          "original_id": "98e7242cb21ef28a",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_589731ea01",
-          "is_target": false,
-          "label": "tue_sales1",
-          "line_start": 53,
-          "orig_type": "column",
-          "original_id": "d441d17082dfe5b6",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_3a33570182",
-          "is_target": false,
-          "label": "wed_sales1",
-          "line_start": 54,
-          "orig_type": "column",
-          "original_id": "d342e0ffa195bdef",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_4cd791a0f6",
-          "is_target": false,
-          "label": "thu_sales1",
-          "line_start": 55,
-          "orig_type": "column",
-          "original_id": "343f3925ff23ee7c",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_bc3dececfa",
-          "is_target": false,
-          "label": "fri_sales1",
-          "line_start": 56,
-          "orig_type": "column",
-          "original_id": "8e277c95cfafdd7d",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_e0061821b3",
-          "is_target": false,
-          "label": "sat_sales1",
-          "line_start": 57,
-          "orig_type": "column",
-          "original_id": "d163d5ebc4846d43",
           "parent": "l2_tbl_7843bf8654",
           "type": "field",
           "variable_type": "field"
@@ -474,96 +204,12 @@
           "type": "field",
           "variable_type": "field"
         }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_c6b5bb71f4",
-          "is_target": false,
-          "label": "mon_sales2",
-          "line_start": 68,
-          "orig_type": "column",
-          "original_id": "f5cd79f06fde0845",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_2308be50e8",
-          "is_target": false,
-          "label": "tue_sales2",
-          "line_start": 69,
-          "orig_type": "column",
-          "original_id": "735b48186bc618d1",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_ebac2cc10e",
-          "is_target": false,
-          "label": "wed_sales2",
-          "line_start": 70,
-          "orig_type": "column",
-          "original_id": "4963953e7e323e5f",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_49822fdcda",
-          "is_target": false,
-          "label": "thu_sales2",
-          "line_start": 71,
-          "orig_type": "column",
-          "original_id": "39f38a8f66a36c9d",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_d4bbb90cf0",
-          "is_target": false,
-          "label": "fri_sales2",
-          "line_start": 72,
-          "orig_type": "column",
-          "original_id": "a57da5e92073e3e3",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "indirect",
-          "id": "fld_14a1a66a86",
-          "is_target": false,
-          "label": "sat_sales2",
-          "line_start": 73,
-          "orig_type": "column",
-          "original_id": "504186230edaf218",
-          "parent": "l2_tbl_7843bf8654",
-          "type": "field",
-          "variable_type": "field"
-        }
       }
     ],
     "script_name": "59.sql",
     "search_matched": true,
     "target": "wss.sun_sales",
-    "total_edges": 13,
+    "total_edges": 7,
     "total_nodes": 38
   },
   "full": {

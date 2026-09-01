@@ -294,14 +294,19 @@ def test_gate_preserves_own_occurrence_anchor_lines():
 # 3. R46c — the co-written projection exclusion
 # ═══════════════════════════════════════════════════════════════════════
 
-def test_cowritten_projection_value_legs_drop_and_belongs_to_stays():
+def test_cowritten_projection_value_legs_and_belongs_to_drop():
     """`reserved_field8` is co-written with `lending_ref` in loan_final's
-    projection list (SUP_M @82/@183). Its VALUE legs are its own flow, not
-    the searched field's, so the gate drops them; what survives is the
-    value-cone edge the searched field feeds (`lending_ref →
-    reserved_field8` COMPUTED @82) and the belongs-to SCHEMA facts of the
-    chip — nothing is SUPPRESSED, the sibling's own edges simply lose an
-    endpoint they no longer have."""
+    projection list (SUP_M @82/@183). NOTHING of the sibling anchors it in
+    the searched field's flow view any more — USER RULING 2026-09-01: its
+    belongs-to SCHEMA facts are DROPPED (rule 3a reversed; was ✅
+    "skeleton"), its value legs were already dropped by the field-
+    involvement gate, and the edge-less chip prune removes any sibling
+    chip left floating. What survives is exactly the value-cone edge the
+    SEARCHED field feeds (`lending_ref → reserved_field8` COMPUTED @82) —
+    which is also the only reason the chip is still in the closure at all
+    (a chip survives while a kept edge of the searched field's own flow
+    touches it). Nothing is SUPPRESSED in the full view: there the
+    sibling keeps all of its own edges."""
     _r, nodes, edges = _served(SUP_M, "bdm_acc_loan_info", "lending_ref")
     sib = [e for e in edges
            if "reserved_field8" in (nodes.get(e["source"], {}).get("label")
@@ -309,9 +314,10 @@ def test_cowritten_projection_value_legs_drop_and_belongs_to_stays():
            or "reserved_field8" in (nodes.get(e["target"], {}).get("label")
                                     or "").lower()]
     assert sib, "the sibling chip vanished from the closure entirely"
-    # belongs-to facts stay …
-    assert any(e["edge_type"] == "SCHEMA" for e in sib), sib
-    # … the value-cone edge the searched field feeds stays …
+    # belongs-to facts are GONE from the flow view (ruling 2026-09-01) …
+    assert not any(e["edge_type"] == "SCHEMA" for e in sib), sib
+    # … the value-cone edge the searched field feeds stays — the chip's
+    # only surviving anchor …
     assert any(e["edge_type"] == "COMPUTED"
                and e.get("highlight_line") == 82 for e in sib), sib
     # … and no value leg OF the sibling is served: nothing sourced BY it,

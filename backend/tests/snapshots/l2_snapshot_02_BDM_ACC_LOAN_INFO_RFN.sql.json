@@ -105,23 +105,6 @@
       },
       {
         "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 109,
-          "id": "l2e_92c0777cfaee",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016ods_gdc_split_fg_rating_temp@L100 \u2192 rn@L109\u2016",
-          "source": "l2_tbl_44542fa4a2",
-          "target": "fld_2e87755977",
-          "width": 1
-        }
-      },
-      {
-        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -560,23 +543,6 @@
           "source": "fld_c07c5ac5c9",
           "target": "l2_tbl_b2e898e75e",
           "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 807,
-          "id": "l2e_f39af7fa338a",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016gdc_wjfl@L804 \u2192 gdc_wjfl.rn@L807\u2016",
-          "source": "l2_tbl_a85af8f6c6",
-          "target": "fld_2e87755977",
-          "width": 1
         }
       },
       {
@@ -1430,7 +1396,7 @@
         }
       }
     ],
-    "filtered_nodes": 42,
+    "filtered_nodes": 40,
     "nodes": [
       {
         "data": {
@@ -1814,34 +1780,6 @@
       {
         "data": {
           "field_group": "direct",
-          "id": "fld_4b5067f9dd",
-          "is_target": false,
-          "label": "borrower_ids",
-          "line_start": 101,
-          "orig_type": "column",
-          "original_id": "96f1ba63f10b1fc2",
-          "parent": "l2_tbl_0c05bc8d51",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "direct",
-          "id": "fld_2e87755977",
-          "is_target": false,
-          "label": "rn",
-          "line_start": 109,
-          "orig_type": "window",
-          "original_id": "9526d602e57d47e0",
-          "parent": "l2_tbl_44542fa4a2",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
-          "field_group": "direct",
           "id": "fld_e1cced8b5b",
           "is_target": false,
           "label": "CUST_NO",
@@ -2025,7 +1963,7 @@
     "script_name": "BDM_ACC_LOAN_INFO_RFN.sql",
     "search_matched": true,
     "target": "ods_gdc_split_fg_rating_temp.cust_no",
-    "total_edges": 84,
+    "total_edges": 82,
     "total_nodes": 59
   },
   "full": {

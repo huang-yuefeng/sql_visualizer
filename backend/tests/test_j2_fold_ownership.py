@@ -271,27 +271,29 @@ def test_synthetic_join_partner_partition_column_stays_on_its_own_box():
         % [(e["id"], e.get("highlight_line"), e.get("reason")) for e in guessed])
 
 
-# ── Defect C: pl↓PL — the J12-20 co-filter sibling stays served ─────────
+# ── Defect C, REVERSED 2026-09-01: the J12-20 co-filter sibling ─────────
+# J12-20 pinned the edgeless co-filter sibling as a closure member; the J2
+# round made the filtered path serve it like its DL mirror; USER RULING
+# 2026-09-01 (rule 3a reversal, chips confirmed) removes an edge-less
+# sibling chip from the searched field's closure — "If the sibling chips,
+# which is not [the] searched target field, and doesn't have any edge,
+# they are not contributing to the data flow. I think they should be
+# removed." The unfiltered (full) view keeps it; the filtered views of
+# BOTH mirrors drop it.
 
-def test_pl_filtered_view_serves_the_co_filter_sibling():
-    """charge_department@265 is a documented closure member (J12-20, W4
-    co-filter sibling of the seed's WHERE clause, edgeless). The filtered
-    path must serve it exactly like its byte-identical DL mirror."""
+def test_pl_filtered_view_drops_the_co_filter_sibling():
+    """charge_department@265 was a documented closure member (J12-20, W4;
+    served again by J2's Defect C round) — the 2026-09-01 rule-3a ruling
+    removes it: edge-less, non-searched sibling chips are pruned from the
+    filtered closure."""
     _r, nodes, edges = _build("BDM_ACC_LOAN_INFO_PL.sql",
                               "bdm_acc_loan_info", "data_dt")
     sibs = [nd for nd in nodes.values()
             if nd.get("label", "").casefold() == "charge_department"
             and nd.get("line_start") == 265]
-    assert sibs, "the PL filtered view must serve charge_department@265"
-    parents = {_parent_of(nodes, nd) for nd in sibs}
-    assert parents == {"bdm_acc_loan_info"}, (
-        "the sibling renders on the searched table's compound, got %s" % parents)
-    touching = [e for e in edges
-                if e["source"] in {nd["id"] for nd in sibs}
-                or e["target"] in {nd["id"] for nd in sibs}]
-    assert not touching, (
-        "the J12-20 sibling is edgeless: %s"
-        % [(e["id"], e.get("edge_type"), e.get("highlight_line")) for e in touching])
+    assert not sibs, (
+        "the edge-less co-filter sibling must be pruned from the filtered "
+        "view (USER RULING 2026-09-01): %s" % [nd.get("id") for nd in sibs])
 
 
 def _parent_of(nodes, nd):
@@ -309,15 +311,17 @@ def test_pl_unfiltered_view_keeps_the_co_filter_sibling():
         "the unfiltered view keeps charge_department@265")
 
 
-def test_dl_mirror_serves_the_co_filter_sibling():
-    """The reference: the byte-identical DL job-log statement keeps serving
-    its sibling @561 (it never regressed)."""
+def test_dl_mirror_drops_the_co_filter_sibling():
+    """Mirror symmetry of the 2026-09-01 ruling: the byte-identical DL
+    job-log statement's edge-less sibling @561 is pruned from the
+    FILTERED view exactly like PL's @265."""
     _r, nodes, edges = _build("BDM_ACC_LOAN_INFO_Digitallending.sql",
                               "bdm_acc_loan_info", "data_dt")
-    assert [nd for nd in nodes.values()
-            if nd.get("label", "").casefold() == "charge_department"
-            and nd.get("line_start") == 561], (
-        "the DL mirror keeps charge_department@561 in the filtered view")
+    assert not [nd for nd in nodes.values()
+                if nd.get("label", "").casefold() == "charge_department"
+                and nd.get("line_start") == 561], (
+        "the DL mirror's edge-less sibling must be pruned from the "
+        "filtered view (USER RULING 2026-09-01)")
 
 
 # ── No-regression: the canonical ownership rows keep serving ────────────

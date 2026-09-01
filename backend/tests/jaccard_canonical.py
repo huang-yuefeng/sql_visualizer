@@ -370,7 +370,9 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
    - lending_ref↑DL: the §3.1 chain start was wrong (the doc's acnw
      @62/@82 belongs to the temp_kmbh_gl segment, not this chain) --
      the chain starts at the ODS FROM source A.acctnbr @426 and the
-     output column is A.acctnbr AS LENDING_REF @101 (rows LFD1-7);
+     output column is A.acctnbr AS LENDING_REF @101 (rows LFD1-7 at
+     that round; LFD1 is REMOVED by point 26 -- the sibling
+     belongs-to);
      the FROM-source admission is typed JOIN (the upstream invariant
      bans FILTER/INDIRECT, NOT JOIN -- see the consumer test).
      GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §2.1/§3.1
@@ -510,8 +512,10 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
      nodes / 147 edges, 6 served edges ledgered unpinned -- now
      RULE-DROPPED, point 21). R46c (2026-09-01, point 20) removed the
      sibling join-key chips, their belongs-to SCHEMAs, the sibling
-     write-zone columns and the rrcdm log trunk, so the closure NOW
-     stands at 21 CANONICAL_NODES_DIR entries / 66 CANONICAL_EDGES rows
+     write-zone columns and the rrcdm log trunk, and point 26 (2026-09-01,
+     USER RULING -- sibling belongs-to dropped) removed the 4
+     reserved_field8 belongs-to rows, so the closure NOW
+     stands at 21 CANONICAL_NODES_DIR entries / 62 CANONICAL_EDGES rows
      -- A = B at 1.0000/1.0000 on the v3.3.195 tree. Never
      cite 38/103 or 45/141 as live; re-derive from the module (import
      and count).
@@ -653,7 +657,9 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
     after the re-derivation against the v3.3.195 tree:
     lending_ref↓SUP_M 21 nodes / 66 edges / 27 highlights,
     iiapty↓SUP_M 7 / 9 / 5, lending_ref↑DL 6 / 9 / 3 -- all
-    1.0000/1.0000, and the whole gate is 20/20.
+    1.0000/1.0000, and the whole gate is 20/20. (Historical counts --
+    point 26's ruling removed 4 more lending_ref↓SUP_M rows and 1 more
+    lending_ref↑DL row, re-measured there.)
 
 21. J1's SIX OVER-INCLUDED EDGES -- RULE-DROPPED LEDGER (2026-08-31,
     user ruling "only edges where the searched field is involved in the
@@ -687,6 +693,12 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
     (reserved_field8's own belongs-to and its @183 write-projection
     twins) survive: the L82 COMPUTED edge puts reserved_field8 INSIDE
     lending_ref's value cone, so its skeleton is the searched field's.
+    REVERSED 2026-09-01 (point 26, USER RULING -- sibling belongs-to
+    dropped): the "STAY" ground above is superseded. LFS135/LFS143-145
+    are REMOVED from B (a sibling's belongs-to is that sibling's own
+    structural fact and does not render in the searched field's
+    flow-only closure); LFS134 (dst = the SEARCHED field) stays, and so
+    does the "ALIAS / table/VT skeleton" half of this paragraph.
 
 22. R46d CONTINUATION-TWIN ROWS (2026-09-01, team CANON -- V5's
     EXTRACTOR_VERSION 2026-08-28.12, dependency_graph Phase 9 + the
@@ -773,6 +785,13 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
     charge_department@265 node is served again. The refusal GROUNDS
     above stay as the standing rule (re-derivation never absorbs an
     engine emission); only the "prints red" state is historical.
+    AMENDED 2026-09-01 (point 26, USER RULING -- edge-less sibling chip
+    pruned): the (c) ground "the node STAYS in B" is superseded -- the
+    chip is a NON-searched field carrying no edge, so the ruling removes
+    it and the charge_department@265/@561 entries are gone from
+    CANONICAL_NODES. That is a ground-truth repair by ruling (the
+    J12-20 doc rows need the same repair), not the gate absorbing an
+    engine regression.
 
 24. CR10 CLOSING RE-DERIVATION (2026-09-01, canonical re-derivation team
     -- the v3.3.195 gate). The last ten `"pending": True` rows of point
@@ -855,6 +874,67 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
         any case (lending_ref↓SUP_M 21/21 nodes / 66/66 edges, sup 7/9
         nodes realized-by-merge / 14/14 edges, pl 7/9 / 9/9, dl 9/9
         edges, east5 5/7 downstream and 3/3 upstream, rrcdm 3/3).
+        (Historical counts -- point 26 re-measures the lending_ref,
+        pl and dl cases.)
+
+26. SIBLING BELONGS-TO DROPPED + EDGE-LESS SIBLING CHIP PRUNED (2026-09-01,
+    USER RULING, quoted; landed in the engine by fix team 3a as
+    `l2_builder._apply_field_involvement` Class 3 +
+    `_prune_orphan_sibling_chips` -- flow-only views ONLY, the FULL view is
+    untouched, verified 0 full-view diffs across all 32 changed snapshot
+    baselines). Two rules:
+      1. RULE 3a REVERSED: "a sibling field's belongs-to edge should not
+         be shown in the data flow of the searched field ... they do not
+         contribute to data flow" -- a belongs-to edge whose TARGET is a
+         non-searched field leaves the flow-only closure. This REVERSES
+         point 21's "the belongs-to/structural facts of a sibling chip
+         (SCHEMA TABLE_COLUMN, ALIAS, the table/VT skeleton) STAY".
+      2. CHIP PRUNE CONFIRMED: "If the sibling chips, which is not [the]
+         searched target field, and doesn't have any edge, they are not
+         contributing to the data flow. I think they should be removed."
+         -- a sibling chip survives only while one of the searched field's
+         own kept edges touches it.
+    The re-derivation follows CR10 (from the SQL text + the RULES, never
+    read off the engine's output). 5 edge rows + 3 canonical node entries
+    removed; every removal carries an inline `REMOVED (USER RULING
+    2026-09-01 ...)` marker at its old site. The floors are untouched --
+    every case stays at set equality:
+      lending_ref↓SUP_M -- LFS135 (loan_final@64 -> reserved_field8@82
+          SCHEMA@82; L82 `... END AS reserved_field8` names the SIBLING
+          column, so the belongs-to is the sibling's own structural fact)
+          and LFS143/144/145 (the L183 `,p1.reserved_field8 AS
+          reserved_field8` belongs-to trio, one row per p1 instance; the
+          searched field lending_ref is on neither endpoint of any of
+          them). The seed's OWN belongs-to rows STAY (LFS134 p6@155 ->
+          lending_ref@82; LFS139-142, every dst=lending_ref) -- rule 1
+          drops a SIBLING's belongs-to, never the searched field's own.
+          LFS133 STAYS and keeps the reserved_field8 chip alive: the
+          searched field is the SOURCE of that COMPUTED edge, so one of
+          the searched field's own kept edges still touches the sibling
+          chip (rule 2's survival condition).
+      lending_ref↑DL -- LFD1 (A@426@426 -> acctnbr@101 SCHEMA@101; L101
+          `A.acctnbr AS LENDING_REF`, L426 `FROM ods_ccb_cb_loan_acctloan
+          A` -- the belongs-to of the ODS-side SIBLING occurrence), and
+          WITH it the acctnbr@101 NODE: after rule 1 drops the edge, no
+          kept LFD row touches the chip (LFD3/LFD8 are the output column's
+          membership/write, LFD9/LFD10 the projection copy, LFD4/LFD5/LFD6
+          the table/alias skeleton, LFD7 the write leg), so rule 2 prunes
+          it. lending_ref's provenance stays pinned at the TABLE level
+          (LFD9/LFD10 from ods_ccb_cb_loan_acctloan@426).
+      pl↓PL / dl↓DL -- the charge_department@265/@561 NODES (the W4
+          co-filter siblings of the job-log WHERE `AND charge_department =
+          '...'`): they carry NO edge at all in the flow-only closure, so
+          rule 2 prunes them. This REVERSES point 23(c)'s "the node STAYS
+          in B (a documented closure member; dropping it would be the gate
+          absorbing an engine regression)" -- the ground truth changed BY
+          RULING, not by gate absorption; the J12-20 doc rows
+          (GROUND_TRUTH_BDM_ACC_LOAN_INFO.md §8.6, ..._Digitallending.md
+          §8.5) need the same repair (owner: docs).
+    Measured after the re-derivation on the 3a tree (20/20 cases,
+    N=E=H 1.0000/1.0000 -- set equality): lending_ref↓SUP_M 21 nodes /
+    62 edges / 26 highlights, lending_ref↑DL 5 / 8 / 3, pl↓PL 8 canonical
+    node entries / 9 edges / 5 highlights, dl↓DL 8 / 9 / 5; the other 16
+    cases byte-unchanged.
 """
 
 CANONICAL_ROWS = [
@@ -1171,9 +1251,12 @@ CANONICAL_EDGES = [
     # NOT-PINNED (a) of the iiapty block.
     # AND: the J12-20 edgeless co-filter sibling charge_department@265
     # (doc §8.6) is no longer served by the FILTERED view, while its DL
-    # mirror @561 still is (the unfiltered view still serves it) -- the
-    # node STAYS in B above (a documented closure member), so pl↓PL nodes
-    # recall prints 8/9 until the filtered path is repaired (point 23c).
+    # mirror @561 still is (the unfiltered view still serves it). It was
+    # kept in B above as a documented closure member (point 23c) -- but
+    # the USER RULING 2026-09-01 (point 26 rule 2) removes the edge-less
+    # sibling chip from B: it is not the searched field and no edge
+    # touches it, so pl↓PL nodes recall is 8/8 again (its DL mirror went
+    # the same way).
     # ── dl closure (9): P15/P18/P22/P16 -- REQUIREMENT rows (doc §8.5,
     #    the R19.3 no-bypass chain; P15/P16/V1/V2 carry "stmt": the
     #    write legs must attach to their OWN statement's output VT --
@@ -1403,17 +1486,31 @@ CANONICAL_EDGES = [
     #    admission into the statement output is typed JOIN (the
     #    walker's seed-zone JOIN rule; the upstream invariant in the
     #    consumer test bans FILTER/INDIRECT, NOT JOIN -- see the
-    #    evidence comment there). LFD1/LFD2 are the source table's
-    #    membership + admission edges (A@426 → acctnbr@101 SCHEMA,
-    #    ods@426 → output JOIN@101); LFD3 is the output column's
+    #    evidence comment there). LFD2 WAS the source table's
+    #    admission edge (ods@426 → output JOIN@101 -- removed by point 20
+    #    class X5, and LFD1 the sibling belongs-to by point 26);
+    #    LFD3 is the output column's
     #    membership (output → LENDING_REF@101); LFD4-LFD6 are the
     #    alias + FROM hops of the source table (ods@426 → A@426
     #    ALIAS@426, A@426 → output TABLE_FLOW@426, ods@426 → A@426
     #    REF@426); LFD7 is the write leg (output → bdm@99, the P15
     #    mirror). The statement's other ODS inputs and output columns
     #    are different fields -- excluded (doc §3.1). ──
-    {"row": "LFD1", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
-     "src": "A@426@426", "dst": "acctnbr@101", "type": "SCHEMA", "anchor": 101, "spec": "anchor_rel_ep"},
+    # LFD1 REMOVED (USER RULING 2026-09-01 — sibling belongs-to dropped,
+    # docstring point 26 rule 1). It pinned the source table's belongs-to
+    # A@426@426 -> acctnbr@101 SCHEMA@101 (L101 `A.acctnbr AS LENDING_REF`,
+    # L426 `FROM ods_ccb_cb_loan_acctloan A`): a belongs-to edge whose
+    # TARGET is the ODS-side sibling occurrence acctnbr@101, not the
+    # searched field lending_ref. The ruling drops a sibling's belongs-to
+    # from the searched field's flow-only closure, and with the edge gone
+    # the acctnbr@101 chip keeps NO edge at all — every other LFD row is
+    # the output column's membership/copy leg (LFD3/LFD8/LFD9/LFD10) or
+    # the table/alias skeleton (LFD4/LFD5/LFD6/LFD7) — so rule 2 prunes
+    # the chip too (its CANONICAL_NODES_DIR entry is removed with it). The
+    # value provenance of LENDING_REF@101 stays pinned at the TABLE level
+    # (LFD9/LFD10, ods_ccb_cb_loan_acctloan@426 -> LENDING_REF@101), which
+    # is the searched field's own flow.
+
     # LFD2 REMOVED (R46c value-cone gate, user-approved 2026-09-01, class X5: JOIN carrier anchored at a projection line --
     # point 20 X5 names this row explicitly: DL L101 `A.acctnbr AS LENDING_REF` is the SELECT projection; the statement's
     # join sites are L428/L431/... The J1 field-involvement rule (CLAUDE.md #48) drops the served edge, so canonical and
@@ -2117,8 +2214,10 @@ CANONICAL_EDGES = [
     #   (b) SIBLING-FIELD VALUE/READ LEGS — 4 edges (J1 Class 2: a value
     #       leg of a NON-searched field is that sibling's own flow).
     #       reserved_field8 IS a closure member (it is computed FROM
-    #       p6.lending_ref at L82 and written at L183), so its belongs-to
-    #       rows ARE pinned below (LFS135/LFS143-145); its own VALUE chain
+    #       p6.lending_ref at L82), so its chip survives through LFS133;
+    #       its belongs-to rows were pinned below (LFS135/LFS143-145) but
+    #       are REMOVED now (USER RULING 2026-09-01 -- sibling belongs-to
+    #       dropped, point 26 rule 1); its own VALUE chain
     #       through the write is not this seed's flow -- the searched field
     #       is on neither endpoint:
     #       l2e_43563f4fce74 (SCHEMA output@160 -> reserved_field8@82 @183,
@@ -2131,6 +2230,9 @@ CANONICAL_EDGES = [
     # Measured on the v3.3.195 tree (R46c walker gate + R46d twins + J1's
     # rule landed, point 20 re-derivation): the case is A = B at
     # 21/21 nodes, 66/66 edges, 27/27 highlights -- 1.0000/1.0000 both
+    # directions. Re-measured after point 26's ruling removed
+    # LFS135/LFS143-145 (the sibling belongs-to rows): 21/21 nodes,
+    # 62/62 edges, 26/26 highlights -- still 1.0000/1.0000 both
     # directions.
     #
     # LFS128 — the p6 alias hop: L155 `LEFT JOIN rollover_loan_info p6`
@@ -2178,12 +2280,19 @@ CANONICAL_EDGES = [
     # owns the occurrence its qualification names).
     {"row": "LFS134", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "p6@155@82", "dst": "lending_ref@82", "type": "SCHEMA", "anchor": 82, "spec": "anchor_rel_ep"},
-    # LFS135 — the L82 belongs-to of the SIBLING column the line defines
-    # (`... END AS reserved_field8`): loan_final owns reserved_field8.
-    # reserved_field8 is a closure member (LFS133), so its belongs-to is
-    # the LFS75/LFS77 sibling-member precedent.
-    {"row": "LFS135", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "loan_final@64", "dst": "reserved_field8@82", "type": "SCHEMA", "anchor": 82, "spec": "anchor_rel_ep"},
+    # LFS135 REMOVED (USER RULING 2026-09-01 — sibling belongs-to dropped,
+    # docstring point 26 rule 1). The L82 belongs-to of the SIBLING column
+    # the line defines (`... END AS reserved_field8` @82): loan_final owns
+    # reserved_field8. Point 21 had kept it on the LFS75/LFS77
+    # sibling-member precedent (reserved_field8 is a closure member through
+    # LFS133), but the ruling is explicit that a sibling field's belongs-to
+    # edge does not appear in the searched field's flow-only closure — "they
+    # do not contribute to data flow". The belongs-to is reserved_field8's
+    # OWN structural fact: the searched field is not the target, so B no
+    # longer pins it. LFS133 (lending_ref -> reserved_field8 COMPUTED) and
+    # LFS134 (p6@155 -> lending_ref@82) stay — the seed's own compute and
+    # the seed's own belongs-to.
+
     # LFS136 — the read leg onto the p6 instance (the LFS4/LFS14/LFS43/LFS70
     # class: the field read lands on the alias instance that carries it,
     # anchored at that instance's line L155).
@@ -2217,16 +2326,19 @@ CANONICAL_EDGES = [
      "src": "p1@84@163", "dst": "lending_ref@163", "type": "SCHEMA", "anchor": 163, "spec": "anchor_rel_ep"},
     {"row": "LFS142", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "p1@198@163", "dst": "lending_ref@163", "type": "SCHEMA", "anchor": 163, "spec": "anchor_rel_ep"},
-    # LFS143/144/145 — the L183 belongs-to of the reserved_field8 read
-    # (`,p1.reserved_field8 AS reserved_field8`), one row per p1 instance —
-    # the LFS75/LFS77 sibling-member precedent (reserved_field8 is a
-    # closure member through LFS133). L145 is the scope-correct one.
-    {"row": "LFS143", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "p1@29@183", "dst": "reserved_field8@82", "type": "SCHEMA", "anchor": 183, "spec": "anchor_rel_ep"},
-    {"row": "LFS144", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "p1@84@183", "dst": "reserved_field8@82", "type": "SCHEMA", "anchor": 183, "spec": "anchor_rel_ep"},
-    {"row": "LFS145", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "p1@198@183", "dst": "reserved_field8@82", "type": "SCHEMA", "anchor": 183, "spec": "anchor_rel_ep"},
+    # LFS143/144/145 REMOVED (USER RULING 2026-09-01 — sibling belongs-to
+    # dropped, docstring point 26 rule 1). The L183 belongs-to of the
+    # reserved_field8 read (`,p1.reserved_field8 AS reserved_field8` @183),
+    # one row per p1 instance — L145 was the scope-correct one. These are
+    # the SIBLING column's own belongs-to rows: the searched field
+    # (lending_ref) is on neither endpoint of any of them, and the ruling
+    # is explicit that a sibling's belongs-to "should not be shown in the
+    # data flow of the searched field ... they do not contribute to data
+    # flow". Point 21 had kept them under the LFS75/LFS77 sibling-member
+    # precedent — reversed by the ruling. The reserved_field8 CHIP still
+    # survives the case's closure (LFS133, the seed's own L82 COMPUTED
+    # edge, touches it).
+
     # LFS146 — the L163 read leg onto the p1@198 instance (the
     # LFS14/LFS43/LFS70 class, anchored at the instance's own line L198).
     {"row": "LFS146", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
@@ -2525,13 +2637,14 @@ CANONICAL_NODES = {
          "note": "stmt1 output VT -- R44 F1 (2026-08-28): the bare INSERT@19 + SELECT@21-251 are ONE statement (TOP0); the ⟐insert@19 trunk is gone, the merged output VT is born at the SELECT@21 (served label 'output', line_start 21)"},
         {"label": "⟐output", "line": None, "kind": "vt",
          "note": "stmt2 output VT -- served label 'output'"},
-        # M-BM1 (2026-08-26): charge_department@265 is a documented closure
+        # M-BM1 (2026-08-26): charge_department@265 WAS a documented closure
         # member (J12-20 / GROUND_TRUTH_BDM_ACC_LOAN_INFO.md §8.6 -- the W4
         # co-filter sibling of the seed's WHERE clause, rendered edgeless).
-        # line=None (label-only) because the edgeless field carries no line
-        # evidence in the served payload.
-        {"label": "charge_department", "line": None, "kind": "field",
-         "note": "J12-20 documented closure member -- W4 co-filter sibling @265, edgeless"},
+        # REMOVED (USER RULING 2026-09-01 -- edge-less sibling chip pruned,
+        # docstring point 26 rule 2): the chip is not the searched field and
+        # carries no edge in the flow-only closure, so "they are not
+        # contributing to the data flow. I think they should be removed."
+        # The J12-20 doc row needs the same repair (owner: docs).
     ],
     # "dl" seed (2026-08-12 dl-seed round,
     # BDM_ACC_LOAN_INFO_Digitallending.sql -- the data_dt closure per
@@ -2562,13 +2675,13 @@ CANONICAL_NODES = {
          "note": "stmt1 output VT -- TOP0 (INSERT@99)"},
         {"label": "⟐output", "line": None, "kind": "vt",
          "note": "stmt2 output VT -- TOP1 (job-log INSERT@549)"},
-        # M-BM1 (2026-08-26): charge_department@561 is a documented closure
+        # M-BM1 (2026-08-26): charge_department@561 WAS a documented closure
         # member (J12-20 / GROUND_TRUTH_BDM_ACC_LOAN_INFO_Digitallending.md
         # §8.5 -- the W4 co-filter sibling of the seed's WHERE clause,
-        # rendered edgeless). line=None (label-only) because the edgeless
-        # field carries no line evidence in the served payload.
-        {"label": "charge_department", "line": None, "kind": "field",
-         "note": "J12-20 documented closure member -- W4 co-filter sibling @561, edgeless"},
+        # rendered edgeless). REMOVED (USER RULING 2026-09-01 -- edge-less
+        # sibling chip pruned, docstring point 26 rule 2): not the searched
+        # field and no edge touches it in the flow-only closure -- pruned,
+        # the DL mirror of the pl@265 removal above.
     ],
 }
 
@@ -2707,11 +2820,13 @@ CANONICAL_NODES_DIR = {
     # bdm_acc_loan_info.lending_ref @99 (DML forward)).
     ("lending_ref", "BDM_ACC_LOAN_INFO_Digitallending.sql", "upstream"): [
         {"label": "ods_ccb_cb_loan_acctloan", "line": 426, "kind": "table",
-         "note": "the chain start (the A alias's FROM source @426; carries acctnbr)"},
+         "note": "the chain start (the A alias's FROM source @426; carries acctnbr -- the acctnbr CHIP itself is not a closure member, see the LFD1 note)"},
         {"label": "A@426", "line": 426, "kind": "table",
          "note": "the A alias node (alias label embeds the line)"},
-        {"label": "acctnbr", "line": 101, "kind": "field",
-         "note": "the producing field instance on A (A.acctnbr AS LENDING_REF @101)"},
+        # acctnbr@101 REMOVED (USER RULING 2026-09-01 -- edge-less sibling
+        # chip pruned, docstring point 26 rule 2): the ODS-side sibling
+        # occurrence `A.acctnbr AS LENDING_REF`@101 lost its only edge when
+        # LFD1 (its belongs-to) was removed by the same ruling.
         {"label": "LENDING_REF", "line": 101, "kind": "field",
          "note": "the statement output column writing bdm.lending_ref"},
         {"label": "bdm", "line": 99, "kind": "table",
@@ -2736,7 +2851,9 @@ CANONICAL_NODES_DIR = {
     # LFS110, the phantom twin of LFS74, and F-K removed LFS109 -- point
     # 19). R46c (2026-09-01, point 20) then removed the sibling join-key
     # chips, their belongs-to SCHEMAs, the sibling write-zone columns and
-    # the rrcdm log trunk, so the closure is now 21 entries / 66
+    # the rrcdm log trunk, and point 26 (2026-09-01, USER RULING -- sibling
+    # belongs-to dropped) removed the 4 reserved_field8 belongs-to rows
+    # LFS135/LFS143-145, so the closure is now 21 entries / 62
     # CANONICAL_EDGES rows -- A = B at 1.0000/1.0000 on the v3.3.195 tree.
     # The one ⟐output entry left is the TOP0 sup-write output VT @64
     # (the TOP1 job-log VT @211 and the rrcdm target left with the trunk);

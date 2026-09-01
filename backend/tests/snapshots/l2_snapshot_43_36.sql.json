@@ -20,108 +20,6 @@
       },
       {
         "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 4,
-          "id": "l2e_0e7821213e7b",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016results@L1 \u2192 gross_margin@L4\u2016",
-          "source": "l2_tbl_bb6a0f06c2",
-          "target": "fld_6eac31a1e4",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 21,
-          "id": "l2e_14e27b126af9",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016results_rollup@L20 \u2192 gross_margin@L21\u2016",
-          "source": "l2_tbl_597e4d2c55",
-          "target": "fld_6eac31a1e4",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 22,
-          "id": "l2e_2f7473db738b",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016results_rollup@L20 \u2192 i_category@L22\u2016",
-          "source": "l2_tbl_597e4d2c55",
-          "target": "fld_aabbc32bec",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 28,
-          "id": "l2e_4f1cdc873120",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016results_rollup@L20 \u2192 gross_margin@L28\u2016",
-          "source": "l2_tbl_597e4d2c55",
-          "target": "fld_e42e3dae52",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 29,
-          "id": "l2e_6be02887c1ae",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016results_rollup@L20 \u2192 i_category@L29\u2016",
-          "source": "l2_tbl_597e4d2c55",
-          "target": "fld_aabbc32bec",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 35,
-          "id": "l2e_3053c965563d",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016results@L1 \u2192 results.i_category@L35\u2016",
-          "source": "l2_tbl_bb6a0f06c2",
-          "target": "fld_aabbc32bec",
-          "width": 1
-        }
-      },
-      {
-        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -204,26 +102,9 @@
           "target": "fld_e42e3dae52",
           "width": 2
         }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 36,
-          "id": "l2e_6a0062ee55cf",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016results_rollup@L20 \u2192 gross_margin@L36\u2016",
-          "source": "l2_tbl_597e4d2c55",
-          "target": "fld_e42e3dae52",
-          "width": 1
-        }
       }
     ],
-    "filtered_nodes": 9,
+    "filtered_nodes": 7,
     "nodes": [
       {
         "data": {
@@ -311,20 +192,6 @@
       },
       {
         "data": {
-          "field_group": "indirect",
-          "id": "fld_aabbc32bec",
-          "is_target": false,
-          "label": "i_category",
-          "line_start": 22,
-          "orig_type": "column",
-          "original_id": "469ed56e916e49d9",
-          "parent": "l2_tbl_bb6a0f06c2",
-          "type": "field",
-          "variable_type": "field"
-        }
-      },
-      {
-        "data": {
           "field_group": "direct",
           "id": "fld_e42e3dae52",
           "is_target": false,
@@ -336,26 +203,12 @@
           "type": "field",
           "variable_type": "field"
         }
-      },
-      {
-        "data": {
-          "field_group": "direct",
-          "id": "fld_50d6a5916d",
-          "is_target": false,
-          "label": "ss_ext_sales_price",
-          "line_start": 36,
-          "orig_type": "column",
-          "original_id": "973189ed136fb797",
-          "parent": "l2_tbl_bb6a0f06c2",
-          "type": "field",
-          "variable_type": "field"
-        }
       }
     ],
     "script_name": "36.sql",
     "search_matched": true,
     "target": "results.ss_net_profit",
-    "total_edges": 13,
+    "total_edges": 6,
     "total_nodes": 15
   },
   "full": {

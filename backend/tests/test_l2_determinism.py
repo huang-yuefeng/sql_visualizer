@@ -179,17 +179,20 @@ def test_dependency_set_is_seed_independent():
 
 @pytest.mark.xfail(
     reason="the dependency list order is PYTHONHASHSEED-dependent and the "
-           "L2 full view inherits it (first-wins dedup + closure walks). "
-           "LANDING RECIPE (proven 2026-09-01, reverted at the gate): insert "
-           "the canonical sort at the end of build_dependency_graph — "
-           "deps.sort(key=(var_order[source], var_order[target], relationship, "
-           "operation, sql_context, containment)) — bump EXTRACTOR_VERSION, "
-           "regen snapshots, drop this marker. GATED ON RULING 7-D: with the "
-           "sort, the canonical-order walk admits ONE sibling chip + one "
-           "routed REF edge the natural-order walk did not (PL filtered, "
-           "data_dt seed: CHARGE_DEPARTMENT@L19, precision N 1.0 -> 0.875) — "
-           "the ⟐output membership boundary of sibling chips, parked with "
-           "the user. Resolve 7-D first, then land.",
+           "L2 full view inherits it. LANDS AFTER THE WALKER IS MADE "
+           "ORDER-INSENSITIVE (measured 2026-09-01, post-3a-ruling): with "
+           "the canonical sort at the end of build_dependency_graph "
+           "(key: var_order[src], var_order[tgt], relationship, operation, "
+           "sql_context, containment) the four data_dt benchmark cases "
+           "gain EXTRA edges (sup E 1.0->0.7778, bdm/SUP_M ->0.8529, "
+           "pl/dl ->0.9) — the walker's admission decisions themselves "
+           "are order-sensitive, so sorting the list changes WHICH edges "
+           "the closure admits, not just their order. Fix = content-key "
+           "every order-sensitive pick/admission in compute_field_flow "
+           "(the V8 walker-determinism program), then: sort + "
+           "EXTRACTOR_VERSION bump + one snapshot regen + drop this "
+           "marker. Earlier false pass came from stale .12 caches serving "
+           "unsorted graphs — always invalidate/bump before measuring.",
     strict=False)
 def test_l2_full_view_is_byte_identical_across_hash_seeds():
     """The served L2 full view byte-equals itself across hash seeds.
