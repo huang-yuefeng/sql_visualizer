@@ -298,23 +298,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 15,
-          "id": "l2e_cc9b5a8f3759",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016c@L15 \u2192 \u27d0 output@L1\u2016",
-          "source": "l2_tbl_930b1d90b7",
-          "target": "l2_tbl_bddeb902ce",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#1ABC9C",
           "desc": "Original \u2192 alias",
@@ -328,6 +311,23 @@
           "source": "l2_tbl_dab014fd6f",
           "target": "l2_tbl_930b1d90b7",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 15,
+          "id": "l2e_cc9b5a8f3759",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016c@L15 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_930b1d90b7",
+          "target": "l2_tbl_bddeb902ce",
+          "width": 3
         }
       },
       {
@@ -349,23 +349,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 16,
-          "id": "l2e_37c6167ca384",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016ca@L16 \u2192 \u27d0 output@L1\u2016",
-          "source": "l2_tbl_353d8415dd",
-          "target": "l2_tbl_bddeb902ce",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#1ABC9C",
           "desc": "Original \u2192 alias",
@@ -379,6 +362,23 @@
           "source": "l2_tbl_5678b67164",
           "target": "l2_tbl_353d8415dd",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 16,
+          "id": "l2e_37c6167ca384",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016ca@L16 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_353d8415dd",
+          "target": "l2_tbl_bddeb902ce",
+          "width": 3
         }
       },
       {
@@ -525,12 +525,12 @@
           "edge_type": "FILTER",
           "flow_kind": "field flow",
           "highlight_line": 24,
-          "id": "l2e_53b269c78b77",
+          "id": "l2e_d002764b0452",
           "label": "FILTER",
           "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016c.c_current_cdemo_sk@L24 \u2192 \u27d0 output@L1\u2016",
-          "source": "l2_tbl_dab014fd6f",
-          "target": "l2_tbl_bddeb902ce",
+          "reason": "field flow (filter step) \u2014 \u2016cd_demo_sk@L24 \u2192 customer_demographics@L17\u2016",
+          "source": "fld_8ef2f1eb18",
+          "target": "l2_tbl_cd5ba378a6",
           "width": 2
         }
       },
@@ -542,12 +542,12 @@
           "edge_type": "FILTER",
           "flow_kind": "field flow",
           "highlight_line": 24,
-          "id": "l2e_d002764b0452",
+          "id": "l2e_53b269c78b77",
           "label": "FILTER",
           "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016cd_demo_sk@L24 \u2192 customer_demographics@L17\u2016",
-          "source": "fld_8ef2f1eb18",
-          "target": "l2_tbl_cd5ba378a6",
+          "reason": "field flow (filter step) \u2014 \u2016c.c_current_cdemo_sk@L24 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_dab014fd6f",
+          "target": "l2_tbl_bddeb902ce",
           "width": 2
         }
       },

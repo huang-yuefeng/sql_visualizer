@@ -27,18 +27,40 @@ pattern — PYTHONHASHSEED must be fixed before interpreter start):
 
 * ``test_l2_full_view_is_byte_identical_across_hash_seeds`` — the
   acceptance test: the served L2 full view byte-equals itself across
-  PYTHONHASHSEED=0,1,2,3,7. XFAIL today (measured: 5 distinct byte
-  outputs for BDM_ACC_LOAN_INFO_Digitallending across those seeds).
+  PYTHONHASHSEED=0,1,2,3,7.
 
-  Landing the canonical order turns this green — and it CANNOT be green
-  together with test_l2_snapshot.py: the committed snapshots are the
-  SEED-0 bytes, the seed-0 order is itself an artifact of hash order,
-  and every dependency reorder measurably changes the served payload
-  (edge array order everywhere, plus the first-wins representative and
-  the ``reason`` hop chain on the order-sensitive edges). So this test
-  flipping to XPASS is the signal to run the ONE human-reviewed
-  snapshot rebaseline (L2_SNAPSHOT_UPDATE=1) in the same change — never
-  before, never separately.
+  LANDED (team V8, 2026-09-02) — the xfail marker is GONE; this test is
+  now a hard gate. Two halves landed together and neither is sufficient
+  alone:
+
+    1. ``build_dependency_graph`` sorts the emitted dependency list
+       canonically (key: var_order[src], var_order[tgt], relationship,
+       operation, sql_context, containment) — the list becomes a pure
+       function of the SQL text.
+    2. ``lineage.compute_field_flow`` stops taking "the first edge in
+       list order" as a decision: every node's adjacency is walked in a
+       canonical content order (``lineage._WALK_RANK`` — the expansion
+       loop's own rule precedence first, then edge type, operation,
+       neighbour id, direction) and the frontier is walked in
+       registration order. This was the load-bearing half: the DML
+       admit's side effects (the R29 ``_effect_cols`` recording and the
+       ``_cont_cols`` continuation admission) fire only when the DML
+       edge is the one that ADMITS its target, so the order of two edges
+       into the same table changed WHICH edges the closure admitted —
+       measured before the fix: sorting the list alone grew the four
+       data_dt benchmark cases (sup↓ 14 → 18 served edges, bdm↓ 29 → 34,
+       pl/dl 9 → 10; jaccard edges precision 1.0 → 0.7778).
+
+  With both halves: the jaccard gate is 20/20 at 1.0000/1.0000, the four
+  data_dt cases return to EXACTLY their pre-sort served sets, and the
+  108-script L2 snapshot corpus shows ZERO semantic node-set / edge-set
+  diffs — the byte diffs that remain are keeper re-picks (``fld_*`` /
+  ``l2e_*`` ids are md5 of the raw var id, so a different representative
+  occurrence rehashes an id without changing any served content) plus
+  array reordering. So this test CAN be green together with
+  test_l2_snapshot.py's baselines; the committed snapshot bytes still
+  move (id rehash + order), which is what the ONE human-reviewed
+  rebaseline (L2_SNAPSHOT_UPDATE=1) re-pins.
 """
 
 import json
@@ -177,30 +199,7 @@ def test_dependency_set_is_seed_independent():
                 f"into the edge set, a canonical sort would be unsound")
 
 
-@pytest.mark.xfail(
-    reason="the dependency list order is PYTHONHASHSEED-dependent and the "
-           "L2 full view inherits it. LANDS AFTER THE WALKER IS MADE "
-           "ORDER-INSENSITIVE (measured 2026-09-01, post-3a-ruling): with "
-           "the canonical sort at the end of build_dependency_graph "
-           "(key: var_order[src], var_order[tgt], relationship, operation, "
-           "sql_context, containment) the four data_dt benchmark cases "
-           "gain EXTRA edges (sup E 1.0->0.7778, bdm/SUP_M ->0.8529, "
-           "pl/dl ->0.9) — the walker's admission decisions themselves "
-           "are order-sensitive, so sorting the list changes WHICH edges "
-           "the closure admits, not just their order. Fix = content-key "
-           "every order-sensitive pick/admission in compute_field_flow "
-           "(the V8 walker-determinism program), then: sort + "
-           "EXTRACTOR_VERSION bump + one snapshot regen + drop this "
-           "marker. Earlier false pass came from stale .12 caches serving "
-           "unsorted graphs — always invalidate/bump before measuring.",
-    strict=False)
 def test_l2_full_view_is_byte_identical_across_hash_seeds():
-    """The served L2 full view byte-equals itself across hash seeds.
-
-    Pairwise over every seed pair — a server process can serve any of
-    them across restarts, so first-wins instability between ANY two is
-    the defect. This is the acceptance test for the canonical-order fix.
-    """
     for script_name, payloads in _outputs("full").items():
         for seed in SEEDS[1:]:
             assert payloads[seed] == payloads[SEEDS[0]], (

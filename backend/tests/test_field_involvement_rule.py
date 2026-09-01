@@ -39,7 +39,7 @@ The 6 over-included edges this rule removes on the cross-check corpus
   l2e_c1f940d2eb0f      JOIN lending_ref@82   -> loan_final@64  @82   (C1)
   l2e_9a0b140bd2cc      JOIN lending_ref@163  -> output@160     @163  (C1)
   l2e_43563f4fce74      SCHEMA output@160     -> reserved_field8 @183 (C2)
-  l2e_3e806f355c16_value TABLE_FLOW reserved_field8 -> output@160   @183 (C2)
+  l2e_c25f32314a53_value TABLE_FLOW reserved_field8 -> output@160   @183 (C2; id re-derived by the V8 walk-order fix, 2026-09-02)
   l2e_95a6f49b4f2e      REF reserved_field8@82 -> p1@198        @198  (C2)
   l2e_1eb5aca70da6      TABLE_FLOW p1@198      -> output@160    @198  (C2)
 """
@@ -187,7 +187,10 @@ def test_sibling_value_legs_are_dropped():
     # the pre-rule engine served all four
     nodes0, edges0 = _build("bdm_acc_loan_info", "lending_ref", disable_rule=True)
     assert len(_by_id(edges0, "l2e_43563f4fce74")) == 1
-    assert len(_by_id(edges0, "l2e_3e806f355c16_value")) == 1
+    # the l2e id re-derived 2026-09-02: _combine_edges rehashes a colliding
+    # raw base by its carrier order, which the V8 canonical walk order
+    # changed — same edge (reserved_field8 → output, TABLE_FLOW @183, write)
+    assert len(_by_id(edges0, "l2e_c25f32314a53_value")) == 1
     assert len(_by_id(edges0, "l2e_95a6f49b4f2e")) == 1
     assert len(_by_id(edges0, "l2e_1eb5aca70da6")) == 1
 
@@ -477,3 +480,193 @@ def test_predicate_admits_when_the_model_is_silent():
     e = _carrier(et="TABLE_FLOW", src="p1", tgt="⟐ output", op="FROM", line=198,
                  tgt_output=True, own_seg=1, hops=[("p1.reserved_field8", 183)])
     assert _apply_field_involvement([e], "lending_ref", True) == [e]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# USER RULING 2026-09-01, rule 7-A — "write leg only"
+# ═══════════════════════════════════════════════════════════════════════
+#
+# "when the SEARCHED field is the column being WRITTEN by a statement,
+#  its write edge SHOWS in the flow-only closure — even when the value
+#  written is a constant/literal."  Boundary (write leg only): the
+#  statement's OTHER literal columns stay out (siblings written with
+#  constants — the 3a/chip-prune ruling drops them), the FROM-read of the
+#  searched table does not drag the searched field's upstream closure
+#  into the statement, and no other statement machinery shows.
+#
+# Corollary: for fields the statement does NOT write, NOTHING shows —
+# the old R29 "always continue through the log-write" behavior is dead.
+#
+# Sample site: SUP_M's job-log statement —
+#   L211 INSERT INTO TABLE rrcdm_job_log_exec_par(data_dt, object_domain, …)
+#   L213     '$(load_date)' AS data_dt      ← the constant projection
+#   L214-221 object_domain / COUNT(1) / …   ← the sibling literal columns
+#   L222 FROM bdm_acc_loan_info_sup         ← the searched table's read
+#   L225 WHERE data_dt = '$(load_date)'     ← the row-selection filter
+# The write leg is served through the statement's ⟐output frame (the R44
+# R1 write-completion admission admits the constant projection's output VT
+# upstream; the admission condition in `_apply_field_involvement` that
+# keeps the leg served is the SKELETON rule — a write leg carries no field
+# endpoint beyond the searched one, so it is never a sibling's value leg —
+# plus the seed-endpoint check on the searched chip's own legs). These
+# tests PIN that admission: tighten the skeleton rule without a write-leg
+# carve-out and they go red.
+
+LOG_WRITE_LINE = 211
+LOG_STMT_LINES = frozenset(range(211, 226))
+# the log's OTHER projection lines — L213 is the searched column's own
+# constant projection (`'$(load_date)' AS data_dt`) and stays served.
+LOG_LITERAL_PROJECTION_LINES = frozenset(range(214, 222))
+# the log's literal/co-written columns — never the searched data_dt itself
+LOG_SIBLING_COLUMNS = frozenset({
+    "object_domain", "sub_src_system", "table_name", "job_name",
+    "total_rows", "load_time", "status", "remarks",
+})
+
+
+def _seed_chip_labels(nodes):
+    return {n.get("label", "").rsplit(".", 1)[-1].casefold()
+            for n in nodes.values()}
+
+
+def _build_lines(table, field, full_view=False):
+    """The served closure's highlight-line set, in either view — the
+    flow-only closure by default, the unfiltered FULL view with
+    full_view=True (relevance_filter=False is the no-search contract)."""
+    sql = FLAGSHIP.read_text(encoding="utf-8")
+    result = _build_l2_graph("j1", "BDM_ACC_LOAN_INFO_SUP_M.sql", sql,
+                             table, field, relevance_filter=not full_view,
+                             direction="downstream")
+    graph = result.get("graph") if isinstance(result.get("graph"), dict) else result
+    return {e["data"]["highlight_line"] for e in graph["edges"]}
+
+
+def test_ruling_7a_write_leg_shows_for_the_written_column():
+    """Searching bdm_acc_loan_info_sup.data_dt on SUP_M: the job-log
+    statement writes the data_dt column (@211 column list, @213
+    `'$(load_date)' AS data_dt`), so its write leg IS served — exactly
+    ONE edge at the INSERT line, the routed DML write leg from the
+    statement's ⟐output frame into rrcdm_job_log_exec_par."""
+    nodes, edges = _build("bdm_acc_loan_info_sup", "data_dt")
+    at_write = _edges_of(edges, "TABLE_FLOW", LOG_WRITE_LINE)
+    assert len(at_write) == 1, (
+        f"expected exactly one write-leg edge @L{LOG_WRITE_LINE}, got "
+        f"{[(e['edge_type'], e.get('flow_kind')) for e in at_write]}")
+    leg = at_write[0]
+    assert _label(nodes, leg, "target") == "rrcdm_job_log_exec_par"
+    assert leg.get("flow_kind") == "write", leg
+    assert "output" in (_label(nodes, leg, "source") or "").casefold(), (
+        "the write leg must route through the statement's ⟐output frame")
+    # the written column's own value legs ride with it: the constant
+    # projection's chip → ⟐output value edge and the ⟐output membership
+    assert _edges_of(edges, "TABLE_FLOW", 213), \
+        "the constant projection's value edge @213 went dark"
+    assert _edges_of(edges, "SCHEMA", 213), \
+        "the ⟐output membership of the written column @213 went dark"
+    # and the write target's box joins the closure
+    assert any(n.get("table_name") == "rrcdm_job_log_exec_par"
+               for n in nodes.values()), "the log's write target box is gone"
+
+
+def test_ruling_7a_write_leg_carries_a_real_highlight_line():
+    """INV-2: every closure edge carries a SQL line. The write leg's
+    anchor IS the INSERT/SELECT statement's own line — never 0/absent —
+    otherwise the edge would be unclickable and unhighlightable."""
+    _, edges = _build("bdm_acc_loan_info_sup", "data_dt")
+    for e in edges:
+        assert isinstance(e.get("highlight_line"), int) and e["highlight_line"] >= 1, e
+    leg = _edges_of(edges, "TABLE_FLOW", LOG_WRITE_LINE)
+    assert leg and leg[0]["highlight_line"] == LOG_WRITE_LINE
+
+
+def test_ruling_7a_sibling_literal_columns_stay_out():
+    """Boundary (write leg only): the INSERT's OTHER literal columns —
+    object_domain, the COUNT(1) aggregate, … — are siblings written with
+    constants, so neither their chips nor any of their legs show."""
+    nodes, edges = _build("bdm_acc_loan_info_sup", "data_dt")
+    present = _seed_chip_labels(nodes)
+    assert not (present & LOG_SIBLING_COLUMNS), (
+        f"sibling literal column chips leaked into the closure: "
+        f"{sorted(present & LOG_SIBLING_COLUMNS)}")
+    leaked = [e for e in edges
+              if e.get("highlight_line") in LOG_LITERAL_PROJECTION_LINES]
+    assert not leaked, (
+        f"the log's other projection lines are lit: "
+        f"{[(e['edge_type'], e['highlight_line']) for e in leaked]}")
+    # the whole log statement contributes exactly ONE edge (the write leg)
+    # plus the searched column's own two legs (@213) — nothing else of the
+    # statement's projection machinery is in the closure.
+    in_stmt = [e for e in edges
+               if e.get("highlight_line") in LOG_STMT_LINES
+               and e.get("highlight_line") not in (223, 225)]
+    assert sorted(e["highlight_line"] for e in in_stmt) == [211, 213, 213]
+
+
+def test_ruling_7a_log_unwritten_field_gets_nothing():
+    """Corollary: for a field the log does NOT write, NOTHING of the log
+    statement shows — the old R29 "always continue through the log-write"
+    behavior is dead. lending_ref (read by the sup-write statement, never
+    written by the log) and iiapty (the join key) both end at the sup
+    write: no log anchor, no rrcdm box."""
+    for table, field in (("bdm_acc_loan_info", "lending_ref"),
+                         ("ods_hie_ipacmsp", "iiapty")):
+        nodes, edges = _build(table, field)
+        anchors = {e["highlight_line"] for e in edges} & LOG_STMT_LINES
+        assert not anchors, (
+            f"{field}: the log statement still shows in the closure at "
+            f"L{sorted(anchors)}")
+        assert not any(n.get("table_name") == "rrcdm_job_log_exec_par"
+                       for n in nodes.values()), (
+            f"{field}: the log's write target box still shows")
+        # the sup-write statement itself is untouched — the chain still
+        # ends at the seed's own sup write leg
+        assert _edges_of(edges, "TABLE_FLOW", 160), (
+            f"{field}: the sup write leg @160 went dark")
+
+
+def test_ruling_7a_constant_write_leg_renders():
+    """'even when the value written is a constant/literal' — the other
+    site of the same rule on the same sample: the sup-write statement's
+    constant columns (`NULL AS reserved_field8` class @183). The seed IS
+    the written column, so its write value leg (@183) and the DML write
+    leg into the target box (@160) render; the co-written constant
+    siblings (reserved_field6/7) stay out."""
+    nodes, edges = _build("bdm_acc_loan_info_sup", "reserved_field8")
+    value_legs = [e for e in _edges_of(edges, "TABLE_FLOW", SIBLING_WRITE_LINE)
+                  if _label(nodes, e, "source") == "reserved_field8"]
+    assert value_legs, "the constant projection's write value leg went dark"
+    # the DML-routing value edge is the one whose id carries the engine's
+    # `_value` suffix (the carried `_value_edge` flag is not served)
+    assert any((e.get("id") or "").endswith("_value") for e in value_legs), (
+        [(e.get("id"), e.get("highlight_line")) for e in value_legs])
+    # the constant write renders as the routed leg: the seed's chip feeds
+    # the statement's ⟐output frame (@183) and THAT frame's write leg
+    # lands on the target box (@160, flow_kind='write') — the R19.3 chain,
+    # served for a literal projection exactly as for a real field chain
+    write_legs = [e for e in edges
+                  if e.get("flow_kind") == "write"
+                  and _label(nodes, e, "target") == "bdm_acc_loan_info_sup"
+                  and (e.get("id") or "").endswith("_dml_out")]
+    assert write_legs, "the constant write's DML leg into the target went dark"
+    for e in write_legs:
+        assert e["highlight_line"] >= 1, e
+        assert "output" in (_label(nodes, e, "source") or "").casefold()
+    present = _seed_chip_labels(nodes)
+    assert not (present & {"reserved_field6", "reserved_field7"}), (
+        f"co-written constant siblings leaked into the closure: "
+        f"{sorted(present & {'reserved_field6', 'reserved_field7'})}")
+
+
+def test_ruling_7a_full_view_is_unchanged():
+    """The rule is flow-only: the FULL view (no search filter) keeps the
+    whole job-log statement — the write leg @211, every literal
+    projection line @213-221, the FROM read @223 and the filter @225 —
+    exactly as it was before the ruling."""
+    full = _build_lines("bdm_acc_loan_info_sup", "data_dt", full_view=True)
+    assert LOG_WRITE_LINE in full, "the full view lost the log write leg"
+    assert full >= {211, 213, 214, 215, 216, 217, 218, 219, 220, 221, 223, 225}, (
+        f"the full view lost log-statement lines: "
+        f"{sorted(LOG_STMT_LINES - full)}")
+    # and the flow-only closure is a strict subset of the full view
+    flow = _build_lines("bdm_acc_loan_info_sup", "data_dt")
+    assert flow <= full

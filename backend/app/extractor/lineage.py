@@ -475,6 +475,41 @@ _OWNERLESS_SEED = True
 # False reduces the gate to AD3's literal four chip rules.
 _OWN_BOX_CHIPS = True
 
+# ── V8 walker determinism: the CANONICAL EXPANSION PRECEDENCE ──
+# The closure walk below is a monotone fixpoint EXCEPT for one coupling:
+# the DML admit carries SIDE EFFECTS (the R29 `_effect_cols` recording and
+# the `_cont_cols` continuation admission), and those fire only when the
+# DML edge is the edge that ADMITS its target. Which edge that is used to
+# be decided by the model's adjacency order — i.e. by the order the
+# dependency list happened to be emitted in, which is PYTHONHASHSEED-
+# dependent upstream (`_extract_source_columns` → `list(set(cols))`).
+# Reordering the dependency list therefore changed WHICH edges the closure
+# admitted (measured 2026-09-02 on the four data_dt benchmark cases:
+# sorting the list grew sup↓ 14 → 18 served edges and bdm↓ 29 → 34).
+#
+# The fix is to make that pick CONTENT-KEYED: every node's adjacency is
+# walked in a canonical order derived from the edge's own fields — the
+# walker's rule rank first (the expansion loop's own if/elif precedence,
+# the order the rules are declared in), then the edge type, the operation,
+# the neighbour id and the direction. Never a repr, never a hash, never a
+# set/dict iteration order. The rank is the load-bearing term: an
+# identity/structure admission of a table (its field chip's REF/READ) must
+# outrank the DML write leg into the same table, or the continuation would
+# fire on a table the closure reached by identity — the over-admission the
+# canonical data_dt closures pin against.
+_WALK_RANK = {et: i for i, et in enumerate((
+    # FIELD_LAND (walkable_set.FIELD_WALKABLE, its own declaration order) —
+    # the identity/production edges the expansion's first branch walks.
+    "REF", "TRANSFORM", "AGGREGATE", "WINDOW", "COMPUTED",
+    # the CONDITIONAL branches, in the expansion loop's declaration order.
+    "ALIAS", "FILTER", "JOIN", "DML", "TABLE_FLOW",
+    # NEVER_WALKED (and anything unknown) — walked last so they can never
+    # outrank a rule that admits.
+    "SCHEMA", "INDIRECT", "SET_OP", "SUBQUERY", "SUBSET", "CORRELATED",
+    "ROW_FLOW",
+))}
+
+
 # V7's two switches (mirror of the three above), both inside the R-GATE:
 #   `_PHANTOM_COPY_GATE` — False restores the cross-owner same-name REF
 #   copy as a traversable cone edge (the G1 `src_b` residual comes back).
@@ -1228,6 +1263,19 @@ def compute_field_flow(graph_data, target_table, target_field,
             (E.target_id, E.edge_type, True, read, E.operation))
         adjacency.setdefault(E.target_id, []).append(
             (E.source_id, E.edge_type, False, read, E.operation))
+    # V8 walker determinism: the adjacency ORDER is a content key, never
+    # the dependency-list order the model was built from. The DML admit's
+    # side effects (`_effect_cols` + the `_cont_cols` continuation) fire
+    # only when the DML edge is the one that admits its target, so the
+    # order of two edges into the same table decides the ADMITTED SET —
+    # and the dependency list's order is PYTHONHASHSEED-dependent
+    # (`_extract_source_columns` → `list(set(cols))`). Sorting each list
+    # on the edge's own fields (rule rank first — see `_WALK_RANK`) makes
+    # that decision a pure function of the model. No repr, no hash, no
+    # dict/set order anywhere in the key.
+    for _adj in adjacency.values():
+        _adj.sort(key=lambda _t: (_WALK_RANK.get(_t[1], len(_WALK_RANK)),
+                                  _t[1], _t[4] or "", _t[0], not _t[2]))
 
     # ── seed_zone: memoized BFS from the seeds over FIELD_LAND edges
     # (both directions), computed lazily per queried node. ──
@@ -1705,7 +1753,13 @@ def compute_field_flow(graph_data, target_table, target_field,
         changed = False
         rounds += 1
         # ── expansion round (walks the model's PhysicalEdges) ──
-        stack = list(visited)
+        # V8: the frontier is walked in canonical id order, never in a
+        # set's hash order — with the DML admit's side effects being
+        # order-sensitive (they fire only when the DML edge admits the
+        # target), the traversal order is part of the admitted SET. Var
+        # ids are extraction-counter keys, so this is registration order:
+        # a stable content key, never a hash seed.
+        stack = sorted(visited)
         while stack:
             nid = stack.pop()
             for (nb, et, fwd, read, op) in adjacency.get(nid, []):
@@ -1999,7 +2053,10 @@ def compute_field_flow(graph_data, target_table, target_field,
 
         # ── identity-admission round (owner-holders, physical tables,
         # CTE containers — existing rules, model-sourced) ──
-        for nid in list(visited):
+        # V8: canonical iteration order (registration order) — the round's
+        # own admissions are bulk, but every set-order walk in this
+        # function is a latent seed dependence.
+        for nid in sorted(visited):
             o = occ(nid)
             if not o:
                 continue
@@ -2052,7 +2109,7 @@ def compute_field_flow(graph_data, target_table, target_field,
         # own) left the write target and the ⟐ VT out of the closure — the
         # seed rendered with ZERO touching edges.
         if direction == "downstream":
-            for nid in list(visited):
+            for nid in sorted(visited):
                 o = occ(nid)
                 if not o or o.get("variable_type") not in FIELD_LIKE:
                     continue
@@ -2388,8 +2445,12 @@ def compute_field_flow(graph_data, target_table, target_field,
                         _stack.append(_nb)
             _cid += 1
         # The seed component (the value-flow side holding the nested VT).
+        # V8: content-keyed — the canonically-FIRST seed (registration
+        # order) names its component, never the first of a hash-ordered
+        # set. Only matters when the seeds span several components, which
+        # is exactly the disconnected-closure case this bridge exists for.
         _seed_comp = None
-        for _s in seeds:
+        for _s in sorted(seeds):
             if _s in comp_of:
                 _seed_comp = comp_of[_s]
                 break

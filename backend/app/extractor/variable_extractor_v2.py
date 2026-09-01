@@ -307,7 +307,7 @@ from app.models.variable import VariableDefinition, VariableType
 #  there (measured: walked backwards through the ⟐ output anchor it
 #  over-admits sibling arms into every other seed's closure) — the arm
 #  stays recorded, so landing it is a Phase-9-local change.
-EXTRACTOR_VERSION = "2026-08-28.12"
+EXTRACTOR_VERSION = "2026-08-28.13"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────

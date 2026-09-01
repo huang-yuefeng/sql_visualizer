@@ -1463,6 +1463,31 @@ def build_dependency_graph(
             continue
         _add_edge(v, anchors[0], "FILTER", "ROW_SELECTION")
 
+    # ── V8 walker determinism: the CANONICAL DEPENDENCY ORDER ──
+    # The emitted list is a SET function of the SQL text but never was an
+    # ORDER function of it: the per-variable source columns are
+    # materialized through `list(set(...))`
+    # (variable_extractor_v2._extract_source_columns), so the order the
+    # edges arrive in is PYTHONHASHSEED-dependent. The order was
+    # load-bearing (l2_builder's first-wins dedup and the closure walk's
+    # admission decisions both take the first candidate), so a server
+    # process served differently CHOSEN graphs across restarts.
+    #
+    # Two halves land together (either alone changes the served sets):
+    #   1. THIS sort — the list becomes a pure function of the SQL text.
+    #   2. lineage.compute_field_flow's canonical expansion precedence —
+    #      the walker stops taking "the first edge in list order" as a
+    #      decision (see lineage._WALK_RANK).
+    # Keys are content only: the two endpoints' registration order (the
+    # extractor's own counter, stable across processes) then the edge's
+    # own fields. Never a repr, never a hash, never a set/dict order.
+    deps.sort(key=lambda d: (var_order.get(d.source_id, 0),
+                             var_order.get(d.target_id, 0),
+                             d.relationship,
+                             d.operation or "",
+                             d.sql_context or "",
+                             bool(d.containment)))
+
     return deps
 
 

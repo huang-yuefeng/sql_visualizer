@@ -363,43 +363,52 @@ def test_r29_lending_ref_upstream_matches_doc(loan_info_3ws):
 
 
 def test_r29_lending_ref_downstream_matches_doc(loan_info_3ws):
-    """§2.2 downstream L1 — row-level continuation (user ruling
-    2026-08-12: a statement that USES the queried field carries the
-    flow into ALL its write targets; a later statement reading those
-    rows continues the chain).
+    """§2.2 downstream L1 — row-level continuation bounded at the write
+    leg (user ruling 2026-08-12: a statement that USES the queried field
+    carries the flow into ALL its write targets; USER RULING 2026-09-01,
+    rule 7-A — "write leg only": the continuation runs through the
+    searched field's OWN write leg, so a statement whose write does not
+    include the searched column contributes NOTHING).
 
     REPAIRED 2026-08-12 (repin round, probe evidence; the doc's §2.2 is
     the authority): the downstream READING flow of lending_ref starts at
     the READ instances, which live ONLY in SUP_M — the sup-write
     statement uses the seed as join keys / SELECT outputs (@41/@117/@150),
     so the effect rides its output ROWS into ALL its write targets —
-    bdm_acc_loan_info_sup (@160); the rrcdm statement then filters
-    sup.data_dt (@225 — a column the sup write produced) — row-level
-    continuation — and writes rrcdm_job_log_exec_par (@211). DL/PL carry
-    the seed's WRITE instance (the UPSTREAM side), so they stay OUT of the
-    downstream projection. Scripts: SUP_M only; tables:
-    {bdm_acc_loan_info, bdm_acc_loan_info_sup, bdm_evt_loan_trans,
-    rrcdm_job_log_exec_par} — bdm_evt_loan_trans is the NOT-IN read
-    target @52, admitted by the seed-zone FILTER rule."""
+    bdm_acc_loan_info_sup (@160). DL/PL carry the seed's WRITE instance
+    (the UPSTREAM side), so they stay OUT of the downstream projection.
+
+    REPAIRED 2026-09-01 (doc §2.2 repaired to the ruled reality; probe
+    evidence, SQL text):
+    (a) rrcdm_job_log_exec_par is OUT — the 2026-08-12 second hop
+        ("a later statement whose ROW-SELECTION uses a column the write
+        produced continues the chain") is superseded by rule 7-A's write
+        leg boundary: the job-log statement's SELECT is literals +
+        COUNT(1) writing data_dt/object_domain/… (@211 column list,
+        @213 `'$(load_date)' AS data_dt`), never lending_ref, so its
+        FROM-read of sup (@223) and its sup.data_dt filter (@225) are
+        not lending_ref's flow and its write leg stays out;
+    (b) ods_hub_lsacmsp is OUT — the R46c canonical re-derivation
+        (decision #55) removed the sibling join-key operand legs
+        (class X1) and the JOIN carriers anchored at projection lines
+        (class X5), so the derived join partner
+        (`CONCAT(p2.poctcd, …) = p1.lending_ref` @41/@117) no longer
+        participates;
+    (c) ods_ccb_cb_loan_acctloan is IN — the owner box of DL's
+        write-side occurrence `A.acctnbr AS LENDING_REF` @101 (the R44
+        write-occurrence twin rides the `A` alias of that table, and
+        the seed's WRITE occurrences render downstream too).
+    Multi-source partners (the p4 chain @128-144) carry no single-source
+    twin and stay out. bdm_evt_loan_trans is the NOT-IN read target @52,
+    admitted by the seed-zone FILTER rule."""
     l1, scripts, tables = _r29_projection(
         loan_info_3ws, "bdm_acc_loan_info", "lending_ref", "downstream")
     assert l1["flow_empty"] is False
-    # R44 (2026-08-28, CR10-style SQL-text evidence, doc §2.2 repaired):
-    # (a) the seed's WRITE occurrences render downstream too (occurrence
-    # coverage) — DL's write-side instance `A.acctnbr AS LENDING_REF` @101
-    # and PL's @21 (bare-INSERT idiom, see the upstream test) join SUP_M;
-    # (b) ods_hub_lsacmsp joins as the single-source derived join partner
-    # of the seed's join keys: `CONCAT(p2.poctcd, p2.pogmab, …) =
-    # p1.lending_ref` @41/@117, p2 = the subquery over ods_hub_lsacmsp
-    # @33-47/@109-121 (the join-key expression's feeding reads are
-    # occurrences of the join). Multi-source partners (the p4 chain
-    # @128-144) carry no single-source twin and stay out.
     assert scripts == ["BDM_ACC_LOAN_INFO_Digitallending.sql",
                        "BDM_ACC_LOAN_INFO_PL.sql",
                        "BDM_ACC_LOAN_INFO_SUP_M.sql"], scripts
     assert tables == ["bdm_acc_loan_info", "bdm_acc_loan_info_sup",
-                      "bdm_evt_loan_trans", "ods_hub_lsacmsp",
-                      "rrcdm_job_log_exec_par"], \
+                      "bdm_evt_loan_trans", "ods_ccb_cb_loan_acctloan"], \
         tables
 
 
@@ -416,27 +425,37 @@ def test_r29_iiapty_upstream_empty_matches_doc(loan_info_3ws):
 
 
 def test_r29_iiapty_downstream_matches_doc(loan_info_3ws):
-    """§2.2 downstream L1 — row-level continuation (user ruling
-    2026-08-12: a statement that USES the queried field carries the
-    flow into ALL its write targets; a later statement reading those
-    rows continues the chain).
+    """§2.2 downstream L1 — row-level continuation bounded at the write
+    leg (user ruling 2026-08-12: a statement that USES the queried field
+    carries the flow into ALL its write targets; USER RULING 2026-09-01,
+    rule 7-A — "write leg only": the continuation runs through the
+    searched field's OWN write leg).
 
     The seed is a JOIN KEY of the sup-write statement (@151), so the
     using statement carries the effect into ALL its write targets —
     bdm_acc_loan_info_sup (@160) — even though iiapty itself is NOT
     among the written columns (the ROW the effect rides on is selected
-    by the join key, so the carried rows are the write's rows). The
-    rrcdm statement filters sup.data_dt (@225 — a column the sup write
-    produced) — row-level continuation — and writes
-    rrcdm_job_log_exec_par (@211). Scripts: SUP_M only (the seed lives
-    only there); tables: {ods_hie_ipacmsp, bdm_acc_loan_info_sup,
-    rrcdm_job_log_exec_par}."""
+    by the join key, so the carried rows are the write's rows).
+
+    REPAIRED 2026-09-01 (doc §2.2 repaired to the ruled reality, probe
+    evidence): rrcdm_job_log_exec_par is OUT — the 2026-08-12
+    "row-selection continuation" hop is superseded by rule 7-A's write
+    leg boundary. The job-log statement writes
+    rrcdm_job_log_exec_par.data_dt (@211 column list / @213
+    `'$(load_date)' AS data_dt`) and NEVER the iiapty column, so the
+    chain ends at the sup write: the log's FROM-read of sup (@223) and
+    its sup.data_dt filter (@225) are the data_dt field's flow, not
+    iiapty's, and they drag nothing of the log statement in. The mirror
+    case — searching data_dt, where the SAME statement's write leg IS
+    served — is pinned by test_field_involvement_rule.py
+    (test_ruling_7a_write_leg_*) and by the jaccard canonical rows
+    16/17/X3 (sup/bdm data_dt). Scripts: SUP_M only (the seed lives
+    only there); tables: {ods_hie_ipacmsp, bdm_acc_loan_info_sup}."""
     l1, scripts, tables = _r29_projection(
         loan_info_3ws, "ods_hie_ipacmsp", "iiapty", "downstream")
     assert l1["flow_empty"] is False
     assert scripts == ["BDM_ACC_LOAN_INFO_SUP_M.sql"], scripts
-    assert tables == ["bdm_acc_loan_info_sup", "ods_hie_ipacmsp",
-                      "rrcdm_job_log_exec_par"], tables
+    assert tables == ["bdm_acc_loan_info_sup", "ods_hie_ipacmsp"], tables
 
 
 # GROUND_TRUTH_RRCDM_JOB_LOG_EXEC_PAR.md §2.1/2.2 (rrcdm data_dt seed)

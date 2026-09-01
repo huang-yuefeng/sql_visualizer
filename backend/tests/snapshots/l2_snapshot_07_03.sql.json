@@ -20,23 +20,6 @@
       },
       {
         "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 4,
-          "id": "l2e_5aa3c3303d33",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ss_ext_sales_price@L4 \u2192 sum_agg@L4\u2016",
-          "source": "fld_8bcea7ff1d",
-          "target": "fld_69cc5659e5",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -50,6 +33,23 @@
           "source": "l2_tbl_6f5935ee28",
           "target": "fld_69cc5659e5",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 4,
+          "id": "l2e_5aa3c3303d33",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_ext_sales_price@L4 \u2192 sum_agg@L4\u2016",
+          "source": "fld_8bcea7ff1d",
+          "target": "fld_69cc5659e5",
+          "width": 3
         }
       }
     ],
@@ -127,6 +127,23 @@
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
           "highlight_line": 1,
+          "id": "l2e_bfd642d679f8",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 dt.d_year@L1\u2016",
+          "source": "l2_tbl_6f5935ee28",
+          "target": "fld_2154765e23",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 1,
           "id": "l2e_37cde3a9e0ff",
           "label": "SCHEMA",
           "line_style": "dotted",
@@ -143,13 +160,13 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 1,
-          "id": "l2e_bfd642d679f8",
+          "highlight_line": 2,
+          "id": "l2e_c28d38ba3a5e",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 dt.d_year@L1\u2016",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 brand_id@L2\u2016",
           "source": "l2_tbl_6f5935ee28",
-          "target": "fld_2154765e23",
+          "target": "fld_31a67de5eb",
           "width": 1
         }
       },
@@ -189,23 +206,6 @@
       },
       {
         "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 2,
-          "id": "l2e_c28d38ba3a5e",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 brand_id@L2\u2016",
-          "source": "l2_tbl_6f5935ee28",
-          "target": "fld_31a67de5eb",
-          "width": 1
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -218,6 +218,23 @@
           "reason": "read \u2014 \u2016ss_ext_sales_price@L4 \u2192 item@L2\u2016",
           "source": "fld_8bcea7ff1d",
           "target": "l2_tbl_c38b59735c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 3,
+          "id": "l2e_76af5d7d905b",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 brand@L3\u2016",
+          "source": "l2_tbl_6f5935ee28",
+          "target": "fld_7acfb06804",
           "width": 1
         }
       },
@@ -245,13 +262,13 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 3,
-          "id": "l2e_76af5d7d905b",
+          "highlight_line": 4,
+          "id": "l2e_c3d34b5c60d4",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 brand@L3\u2016",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 sum_agg@L4\u2016",
           "source": "l2_tbl_6f5935ee28",
-          "target": "fld_7acfb06804",
+          "target": "fld_69cc5659e5",
           "width": 1
         }
       },
@@ -275,17 +292,17 @@
       {
         "data": {
           "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 4,
-          "id": "l2e_c3d34b5c60d4",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 sum_agg@L4\u2016",
-          "source": "l2_tbl_6f5935ee28",
-          "target": "fld_69cc5659e5",
+          "color": "#1ABC9C",
+          "desc": "Original \u2192 alias",
+          "edge_type": "ALIAS",
+          "flow_kind": "chain",
+          "highlight_line": 5,
+          "id": "l2e_80912c38c24d",
+          "label": "ALIAS",
+          "line_style": "dashed",
+          "reason": "chain (alias hop) \u2014 \u2016date_dim@L5 \u2192 dt@L5\u2016",
+          "source": "l2_tbl_97b25f7b6d",
+          "target": "l2_tbl_fc74533c4b",
           "width": 1
         }
       },
@@ -304,23 +321,6 @@
           "source": "l2_tbl_fc74533c4b",
           "target": "l2_tbl_6f5935ee28",
           "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#1ABC9C",
-          "desc": "Original \u2192 alias",
-          "edge_type": "ALIAS",
-          "flow_kind": "chain",
-          "highlight_line": 5,
-          "id": "l2e_80912c38c24d",
-          "label": "ALIAS",
-          "line_style": "dashed",
-          "reason": "chain (alias hop) \u2014 \u2016date_dim@L5 \u2192 dt@L5\u2016",
-          "source": "l2_tbl_97b25f7b6d",
-          "target": "l2_tbl_fc74533c4b",
-          "width": 1
         }
       },
       {

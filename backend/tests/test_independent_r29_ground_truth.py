@@ -174,7 +174,13 @@ def test_iiapty_down_seed_zone_and_continuation():
     """iiapty↓SUP_M — the seed is the p5.iiapty join key @151-153 inside
     the sup-write statement; the row-level continuation carries the flow
     through the sup write @160 and the sup.data_dt filter @225 into the
-    rrcdm write @211."""
+    rrcdm write @211.
+
+    RE-BOUNDED 2026-09-01 (USER RULING rule 7-A, "write leg only"): the
+    @211/@223/@225 lines below stay SQL-TEXT facts — they are the boundary
+    evidence — but they are NO LONGER members of the served closure or the
+    canonical (the log never writes the iiapty column, so its legs are not
+    iiapty's flow); see GROUND_TRUTH_ODS_HIE_IPACMSP.md §2.2."""
     lines = sql_lines(SQL_SUP_M)
     # seed zone
     assert_sql_fact(lines, 151, "LEFT JOIN ods_hie_ipacmsp p5", "iiapty seed zone")
@@ -186,8 +192,9 @@ def test_iiapty_down_seed_zone_and_continuation():
     assert_sql_fact(lines, 199, "LEFT JOIN bdm_acc_loan_info_sup p2",
                     "iiapty p2 self-join")
     assert_sql_fact(lines, 202, "p2.data_dt", "iiapty p2 data_dt key")
-    # rrcdm continuation: the log statement reads sup rows selected by
-    # data_dt @225 and writes rrcdm @211.
+    # rrcdm continuation lines — SQL-TEXT facts and the rule 7-A boundary
+    # evidence only (NOT closure members since the 2026-09-01 ruling: the
+    # log writes data_dt, never iiapty).
     assert_sql_fact(lines, 211, "INSERT INTO TABLE rrcdm_job_log_exec_par",
                     "iiapty rrcdm write")
     assert_sql_fact(lines, 222, "FROM", "iiapty rrcdm FROM")
@@ -240,7 +247,13 @@ def test_lending_ref_up_acnw_not_the_chain():
 def test_lending_ref_down_sup_m_flow():
     """lending_ref↓SUP_M — the CTE-zone usages (rollover/loan_final join
     keys @41/@117/@150, the NOT-IN read @52, SELECT outputs @67) plus the
-    row-level continuation through the sup write @160 into rrcdm @211."""
+    row-level continuation through the sup write @160 into rrcdm @211.
+
+    RE-BOUNDED 2026-09-01 (USER RULING rule 7-A, "write leg only"): the
+    chain ENDS at the sup write @160 — the @211/@223/@225 lines below stay
+    SQL-TEXT facts (the boundary evidence) but are NO LONGER closure or
+    canonical members, because the log never writes the lending_ref
+    column; see GROUND_TRUTH_BDM_ACC_LOAN_INFO_LENDING_REF.md §2.2."""
     lines = sql_lines(SQL_SUP_M)
     # rollover CTE SELECT output
     assert_sql_fact(lines, 13, "lending_ref", "lending_ref↓ rollover output")
@@ -257,7 +270,9 @@ def test_lending_ref_down_sup_m_flow():
                     "lending_ref↓ loan_final join key")
     assert_sql_fact(lines, 150, "RPAD(p4.iiapty,3,'')||p4.iiblno = p1.lending_ref",
                     "lending_ref↓ p4 join key")
-    # sup write + p2 self-join + rrcdm continuation
+    # sup write + p2 self-join + the rrcdm lines (SQL-TEXT facts and the
+    # rule 7-A boundary evidence only — NOT closure members since the
+    # 2026-09-01 ruling: the log writes data_dt, never lending_ref)
     assert_sql_fact(lines, 160, "INSERT OVERWRITE TABLE bdm_acc_loan_info_sup",
                     "lending_ref↓ sup write")
     assert_sql_fact(lines, 199, "LEFT JOIN bdm_acc_loan_info_sup p2",

@@ -195,9 +195,21 @@ def test_gate_shrinks_and_never_grows_the_served_closure():
         result1, nodes1, edges1 = _served(script, table, field, gate=True)
         result0, nodes0, edges0 = _served(script, table, field, gate=False)
         assert set(nodes1) <= set(nodes0), (script, table, field)
-        assert {e["id"] for e in edges1} <= {e["id"] for e in edges0}, \
+        # Compare CONTENT (type + endpoints + anchor line), not raw ids:
+        # an l2e_* id is the md5 of a raw var/carrier base, so
+        # _combine_edges re-derives it when the carrier order changes —
+        # the V8 canonical walk order (2026-09-02) does exactly that,
+        # same edge content under a different id (measured EAST5 ×
+        # data_dt: gate-on 10 content keys ⊆ gate-off 31; the flagged
+        # `l2e_a444ae6b4255_dml_out` == gate-off's
+        # `l2e_049021fa3ec2_dml_out`).
+        content = lambda e: (e.get("edge_type"), e.get("source"),
+                             e.get("target"), e.get("highlight_line"))
+        c1 = {content(e) for e in edges1}
+        c0 = {content(e) for e in edges0}
+        assert c1 <= c0, \
             (script, table, field,
-             [e for e in edges1 if e["id"] not in {x["id"] for x in edges0}])
+             [e for e in edges1 if content(e) not in c0])
         assert result1.get("search_matched", True), (script, table, field)
 
 

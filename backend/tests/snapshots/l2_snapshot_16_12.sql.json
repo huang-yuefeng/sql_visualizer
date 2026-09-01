@@ -3,23 +3,6 @@
     "edges": [
       {
         "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 6,
-          "id": "l2e_f7fad922e5f5",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ws_ext_sales_price@L6 \u2192 itemrevenue@L6\u2016",
-          "source": "fld_1c5c5f812e",
-          "target": "fld_c92aceaacc",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -33,6 +16,23 @@
           "source": "l2_tbl_77ede55984",
           "target": "fld_c92aceaacc",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 6,
+          "id": "l2e_f7fad922e5f5",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016ws_ext_sales_price@L6 \u2192 itemrevenue@L6\u2016",
+          "source": "fld_1c5c5f812e",
+          "target": "fld_c92aceaacc",
+          "width": 3
         }
       },
       {
@@ -260,6 +260,23 @@
       },
       {
         "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 6,
+          "id": "l2e_c40c40f6249b",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 itemrevenue@L6\u2016",
+          "source": "l2_tbl_77ede55984",
+          "target": "fld_c92aceaacc",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "aggregate",
           "color": "#8E44AD",
           "desc": "SUM/COUNT/AVG",
@@ -282,13 +299,13 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 6,
-          "id": "l2e_c40c40f6249b",
+          "highlight_line": 7,
+          "id": "l2e_4f995ab95b9a",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 itemrevenue@L6\u2016",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 revenueratio@L7\u2016",
           "source": "l2_tbl_77ede55984",
-          "target": "fld_c92aceaacc",
+          "target": "fld_2c8010e6ca",
           "width": 1
         }
       },
@@ -324,23 +341,6 @@
           "source": "fld_1c5c5f812e",
           "target": "l2_tbl_77ede55984",
           "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 7,
-          "id": "l2e_4f995ab95b9a",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 revenueratio@L7\u2016",
-          "source": "l2_tbl_77ede55984",
-          "target": "fld_2c8010e6ca",
-          "width": 1
         }
       },
       {

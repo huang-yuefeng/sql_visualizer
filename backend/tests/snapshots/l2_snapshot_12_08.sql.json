@@ -3,23 +3,6 @@
     "edges": [
       {
         "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 2,
-          "id": "l2e_2087996ae1cf",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ss_net_profit@L2 \u2192 SUMss_net_profit@L2\u2016",
-          "source": "fld_2c2be3d1b1",
-          "target": "fld_948dbbe599",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -33,6 +16,23 @@
           "source": "l2_tbl_1c334ba476",
           "target": "fld_948dbbe599",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 2,
+          "id": "l2e_2087996ae1cf",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_net_profit@L2 \u2192 SUMss_net_profit@L2\u2016",
+          "source": "fld_2c2be3d1b1",
+          "target": "fld_948dbbe599",
+          "width": 3
         }
       }
     ],
@@ -141,23 +141,6 @@
       },
       {
         "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 2,
-          "id": "l2e_2087996ae1cf",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ss_net_profit@L2 \u2192 SUMss_net_profit@L2\u2016",
-          "source": "fld_2c2be3d1b1",
-          "target": "l2_tbl_1c334ba476",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -171,6 +154,23 @@
           "source": "l2_tbl_1c334ba476",
           "target": "fld_948dbbe599",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 2,
+          "id": "l2e_2087996ae1cf",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_net_profit@L2 \u2192 SUMss_net_profit@L2\u2016",
+          "source": "fld_2c2be3d1b1",
+          "target": "l2_tbl_1c334ba476",
+          "width": 3
         }
       },
       {
@@ -222,6 +222,40 @@
           "source": "l2_tbl_8b5e9f199a",
           "target": "l2_tbl_1c334ba476",
           "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 6,
+          "id": "l2e_f19bd7932f5a",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 V1@L6 \u2192 ca_zip@L6\u2016",
+          "source": "l2_tbl_bbdaee402f",
+          "target": "fld_38c9d2305d",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 6,
+          "id": "l2e_676d54caa52e",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016\u27d0 V1/subq/A2/union1@L410 \u2192 \u27d0 V1@L6\u2016",
+          "source": "l2_tbl_0ab4e3f3fb",
+          "target": "l2_tbl_bbdaee402f",
+          "width": 1
         }
       },
       {
@@ -289,40 +323,6 @@
           "reason": "field flow (value copy) \u2014 \u2016ca_zip@L6 \u2192 V1.ca_zip@L424\u2016",
           "source": "l2_tbl_bd071813a9",
           "target": "l2_tbl_5df5de7042",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 6,
-          "id": "l2e_f19bd7932f5a",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 V1@L6 \u2192 ca_zip@L6\u2016",
-          "source": "l2_tbl_bbdaee402f",
-          "target": "fld_38c9d2305d",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "read",
-          "highlight_line": 6,
-          "id": "l2e_676d54caa52e",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "read (read into output) \u2014 \u2016\u27d0 V1/subq/A2/union1@L410 \u2192 \u27d0 V1@L6\u2016",
-          "source": "l2_tbl_0ab4e3f3fb",
-          "target": "l2_tbl_bbdaee402f",
           "width": 1
         }
       },
@@ -430,23 +430,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 415,
-          "id": "l2e_3b79d0ea6b70",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016customer@L415 \u2192 \u27d0 V1/subq/A2/union1/subq/A1@L412\u2016",
-          "source": "l2_tbl_64d6256403",
-          "target": "l2_tbl_f4bbd77b4a",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -460,6 +443,23 @@
           "source": "l2_tbl_06f44163bf",
           "target": "l2_tbl_64d6256403",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 415,
+          "id": "l2e_3b79d0ea6b70",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016customer@L415 \u2192 \u27d0 V1/subq/A2/union1/subq/A1@L412\u2016",
+          "source": "l2_tbl_64d6256403",
+          "target": "l2_tbl_f4bbd77b4a",
+          "width": 3
         }
       },
       {
@@ -532,23 +532,6 @@
       },
       {
         "data": {
-          "category": "combine",
-          "color": "#16A085",
-          "desc": "Subquery reference",
-          "edge_type": "SUBQUERY",
-          "flow_kind": "field flow",
-          "highlight_line": 419,
-          "id": "l2e_37f845db428e",
-          "label": "SUBQUERY",
-          "line_style": "dotted",
-          "reason": "field flow (combine step) \u2014 \u2016A1@L419 \u2192 \u27d0 V1/subq/A2/union1/subq/A1@L412\u2016",
-          "source": "l2_tbl_06f44163bf",
-          "target": "l2_tbl_f4bbd77b4a",
-          "width": 2
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -579,6 +562,23 @@
           "source": "l2_tbl_ed582e6bad",
           "target": "l2_tbl_bd071813a9",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "combine",
+          "color": "#16A085",
+          "desc": "Subquery reference",
+          "edge_type": "SUBQUERY",
+          "flow_kind": "field flow",
+          "highlight_line": 419,
+          "id": "l2e_37f845db428e",
+          "label": "SUBQUERY",
+          "line_style": "dotted",
+          "reason": "field flow (combine step) \u2014 \u2016A1@L419 \u2192 \u27d0 V1/subq/A2/union1/subq/A1@L412\u2016",
+          "source": "l2_tbl_06f44163bf",
+          "target": "l2_tbl_f4bbd77b4a",
+          "width": 2
         }
       },
       {
@@ -708,12 +708,12 @@
           "edge_type": "FILTER",
           "flow_kind": "field flow",
           "highlight_line": 424,
-          "id": "l2e_dcaa4cab0f4c",
+          "id": "l2e_d7c2a4789a18",
           "label": "FILTER",
           "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016V1.ca_zip@L424 \u2192 \u27d0 output@L1\u2016",
-          "source": "l2_tbl_5df5de7042",
-          "target": "l2_tbl_1c334ba476",
+          "reason": "field flow (filter step) \u2014 \u2016s_zip@L424 \u2192 store@L5\u2016",
+          "source": "fld_edf06aefe6",
+          "target": "l2_tbl_8b5e9f199a",
           "width": 2
         }
       },
@@ -725,12 +725,12 @@
           "edge_type": "FILTER",
           "flow_kind": "field flow",
           "highlight_line": 424,
-          "id": "l2e_d7c2a4789a18",
+          "id": "l2e_dcaa4cab0f4c",
           "label": "FILTER",
           "line_style": "solid",
-          "reason": "field flow (filter step) \u2014 \u2016s_zip@L424 \u2192 store@L5\u2016",
-          "source": "fld_edf06aefe6",
-          "target": "l2_tbl_8b5e9f199a",
+          "reason": "field flow (filter step) \u2014 \u2016V1.ca_zip@L424 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_5df5de7042",
+          "target": "l2_tbl_1c334ba476",
           "width": 2
         }
       }

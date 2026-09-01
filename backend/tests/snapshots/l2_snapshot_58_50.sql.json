@@ -9,23 +9,6 @@
           "edge_type": "AGGREGATE",
           "flow_kind": "field flow",
           "highlight_line": 12,
-          "id": "l2e_6154039ec4f8",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ss_sold_date_sk@L12 \u2192 30 days@L0\u2016",
-          "source": "fld_958a8a6b6b",
-          "target": "fld_1d0defd401",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 12,
           "id": "l2e_a84323f1dbc1",
           "label": "AGGREGATE",
           "line_style": "solid",
@@ -43,11 +26,11 @@
           "edge_type": "AGGREGATE",
           "flow_kind": "field flow",
           "highlight_line": 12,
-          "id": "l2e_091c3871efed",
+          "id": "l2e_9f3004cffc9b",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ss_sold_date_sk@L12 \u2192 31-60 days@L0\u2016",
-          "source": "fld_958a8a6b6b",
+          "reason": "field flow (aggregate step) \u2014 \u2016sr_returned_date_sk@L12 \u2192 31-60 days@L0\u2016",
+          "source": "fld_20aa6b1e37",
           "target": "l2_tbl_718ea4cfbb",
           "width": 3
         }
@@ -60,11 +43,28 @@
           "edge_type": "AGGREGATE",
           "flow_kind": "field flow",
           "highlight_line": 12,
-          "id": "l2e_9f3004cffc9b",
+          "id": "l2e_6154039ec4f8",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016sr_returned_date_sk@L12 \u2192 31-60 days@L0\u2016",
-          "source": "fld_20aa6b1e37",
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_sold_date_sk@L12 \u2192 30 days@L0\u2016",
+          "source": "fld_958a8a6b6b",
+          "target": "fld_1d0defd401",
+          "width": 3
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 12,
+          "id": "l2e_091c3871efed",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_sold_date_sk@L12 \u2192 31-60 days@L0\u2016",
+          "source": "fld_958a8a6b6b",
           "target": "l2_tbl_718ea4cfbb",
           "width": 3
         }
@@ -568,11 +568,11 @@
           "edge_type": "AGGREGATE",
           "flow_kind": "field flow",
           "highlight_line": 12,
-          "id": "l2e_6154039ec4f8",
+          "id": "l2e_a84323f1dbc1",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ss_sold_date_sk@L12 \u2192 30 days@L0\u2016",
-          "source": "fld_958a8a6b6b",
+          "reason": "field flow (aggregate step) \u2014 \u2016sr_returned_date_sk@L12 \u2192 30 days@L0\u2016",
+          "source": "fld_20aa6b1e37",
           "target": "l2_tbl_718ea4cfbb",
           "width": 3
         }
@@ -585,11 +585,11 @@
           "edge_type": "AGGREGATE",
           "flow_kind": "field flow",
           "highlight_line": 12,
-          "id": "l2e_a84323f1dbc1",
+          "id": "l2e_6154039ec4f8",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016sr_returned_date_sk@L12 \u2192 30 days@L0\u2016",
-          "source": "fld_20aa6b1e37",
+          "reason": "field flow (aggregate step) \u2014 \u2016ss_sold_date_sk@L12 \u2192 30 days@L0\u2016",
+          "source": "fld_958a8a6b6b",
           "target": "l2_tbl_718ea4cfbb",
           "width": 3
         }
@@ -647,23 +647,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 37,
-          "id": "l2e_58039689efca",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016d1@L37 \u2192 \u27d0 output@L1\u2016",
-          "source": "l2_tbl_2ece04e8a2",
-          "target": "l2_tbl_718ea4cfbb",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#1ABC9C",
           "desc": "Original \u2192 alias",
@@ -694,6 +677,23 @@
           "source": "l2_tbl_3f61faa44a",
           "target": "l2_tbl_63637ffb69",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 37,
+          "id": "l2e_58039689efca",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016d1@L37 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_2ece04e8a2",
+          "target": "l2_tbl_718ea4cfbb",
+          "width": 3
         }
       },
       {

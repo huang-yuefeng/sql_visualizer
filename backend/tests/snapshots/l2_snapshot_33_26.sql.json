@@ -3,23 +3,6 @@
     "edges": [
       {
         "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 2,
-          "id": "l2e_9546cd441e7b",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016cs_quantity@L2 \u2192 agg1@L2\u2016",
-          "source": "fld_0b0b5fb226",
-          "target": "fld_eb05e42d9a",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -33,6 +16,23 @@
           "source": "l2_tbl_15688e56fa",
           "target": "fld_eb05e42d9a",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 2,
+          "id": "l2e_9546cd441e7b",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016cs_quantity@L2 \u2192 agg1@L2\u2016",
+          "source": "fld_0b0b5fb226",
+          "target": "fld_eb05e42d9a",
+          "width": 3
         }
       }
     ],
@@ -192,23 +192,6 @@
       },
       {
         "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 2,
-          "id": "l2e_9546cd441e7b",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016cs_quantity@L2 \u2192 agg1@L2\u2016",
-          "source": "fld_0b0b5fb226",
-          "target": "l2_tbl_15688e56fa",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -231,12 +214,12 @@
           "desc": "SUM/COUNT/AVG",
           "edge_type": "AGGREGATE",
           "flow_kind": "field flow",
-          "highlight_line": 3,
-          "id": "l2e_83d3a6b21fc6",
+          "highlight_line": 2,
+          "id": "l2e_9546cd441e7b",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016cs_list_price@L3 \u2192 agg2@L3\u2016",
-          "source": "fld_b183f187a5",
+          "reason": "field flow (aggregate step) \u2014 \u2016cs_quantity@L2 \u2192 agg1@L2\u2016",
+          "source": "fld_0b0b5fb226",
           "target": "l2_tbl_15688e56fa",
           "width": 3
         }
@@ -265,12 +248,12 @@
           "desc": "SUM/COUNT/AVG",
           "edge_type": "AGGREGATE",
           "flow_kind": "field flow",
-          "highlight_line": 4,
-          "id": "l2e_c9e6ccf00240",
+          "highlight_line": 3,
+          "id": "l2e_83d3a6b21fc6",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016cs_coupon_amt@L4 \u2192 agg3@L4\u2016",
-          "source": "fld_ec451812a4",
+          "reason": "field flow (aggregate step) \u2014 \u2016cs_list_price@L3 \u2192 agg2@L3\u2016",
+          "source": "fld_b183f187a5",
           "target": "l2_tbl_15688e56fa",
           "width": 3
         }
@@ -299,12 +282,12 @@
           "desc": "SUM/COUNT/AVG",
           "edge_type": "AGGREGATE",
           "flow_kind": "field flow",
-          "highlight_line": 5,
-          "id": "l2e_27e75b7d9467",
+          "highlight_line": 4,
+          "id": "l2e_c9e6ccf00240",
           "label": "AGGREGATE",
           "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016cs_sales_price@L5 \u2192 agg4@L5\u2016",
-          "source": "fld_c12e9051ba",
+          "reason": "field flow (aggregate step) \u2014 \u2016cs_coupon_amt@L4 \u2192 agg3@L4\u2016",
+          "source": "fld_ec451812a4",
           "target": "l2_tbl_15688e56fa",
           "width": 3
         }
@@ -324,6 +307,23 @@
           "source": "l2_tbl_15688e56fa",
           "target": "fld_065b6ced53",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 5,
+          "id": "l2e_27e75b7d9467",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016cs_sales_price@L5 \u2192 agg4@L5\u2016",
+          "source": "fld_c12e9051ba",
+          "target": "l2_tbl_15688e56fa",
+          "width": 3
         }
       },
       {

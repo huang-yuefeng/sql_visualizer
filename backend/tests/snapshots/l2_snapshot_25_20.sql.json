@@ -3,23 +3,6 @@
     "edges": [
       {
         "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 7,
-          "id": "l2e_0f9991dae65e",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016cs_ext_sales_price@L7 \u2192 itemrevenue@L7\u2016",
-          "source": "fld_a25b387bdc",
-          "target": "fld_c51346b8e1",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -33,6 +16,23 @@
           "source": "l2_tbl_a97788ebf4",
           "target": "fld_c51346b8e1",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 7,
+          "id": "l2e_0f9991dae65e",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016cs_ext_sales_price@L7 \u2192 itemrevenue@L7\u2016",
+          "source": "fld_a25b387bdc",
+          "target": "fld_c51346b8e1",
+          "width": 3
         }
       },
       {
@@ -260,6 +260,23 @@
       },
       {
         "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 7,
+          "id": "l2e_db36b878e4fd",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L2 \u2192 itemrevenue@L7\u2016",
+          "source": "l2_tbl_a97788ebf4",
+          "target": "fld_c51346b8e1",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "aggregate",
           "color": "#8E44AD",
           "desc": "SUM/COUNT/AVG",
@@ -282,31 +299,14 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 7,
-          "id": "l2e_db36b878e4fd",
+          "highlight_line": 8,
+          "id": "l2e_b740980477b6",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L2 \u2192 itemrevenue@L7\u2016",
+          "reason": "structure \u2014 \u2016\u27d0 output@L2 \u2192 revenueratio@L8\u2016",
           "source": "l2_tbl_a97788ebf4",
-          "target": "fld_c51346b8e1",
+          "target": "fld_eee97263fc",
           "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "aggregate",
-          "color": "#9B59B6",
-          "desc": "ROW_NUMBER/RANK/LAG",
-          "edge_type": "WINDOW",
-          "flow_kind": "field flow",
-          "highlight_line": 8,
-          "id": "l2e_bf876bf58a82",
-          "label": "WINDOW",
-          "line_style": "dashed",
-          "reason": "field flow (window step) \u2014 \u2016cs_ext_sales_price@L7 \u2192 revenueratio@L8\u2016",
-          "source": "fld_a25b387bdc",
-          "target": "l2_tbl_a97788ebf4",
-          "width": 2
         }
       },
       {
@@ -328,19 +328,19 @@
       },
       {
         "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
+          "category": "aggregate",
+          "color": "#9B59B6",
+          "desc": "ROW_NUMBER/RANK/LAG",
+          "edge_type": "WINDOW",
+          "flow_kind": "field flow",
           "highlight_line": 8,
-          "id": "l2e_b740980477b6",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L2 \u2192 revenueratio@L8\u2016",
-          "source": "l2_tbl_a97788ebf4",
-          "target": "fld_eee97263fc",
-          "width": 1
+          "id": "l2e_bf876bf58a82",
+          "label": "WINDOW",
+          "line_style": "dashed",
+          "reason": "field flow (window step) \u2014 \u2016cs_ext_sales_price@L7 \u2192 revenueratio@L8\u2016",
+          "source": "fld_a25b387bdc",
+          "target": "l2_tbl_a97788ebf4",
+          "width": 2
         }
       },
       {

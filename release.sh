@@ -23,32 +23,25 @@ echo "=== Pre-flight: pytest ==="
 cd backend
 PREFLIGHT_RUN=0
 if [ -d venv ]; then
-    # The 2 lending_ref jaccard cases are USER-RULED trade-offs of the
-    # field-involvement closure rule (#48, 2026-08-31) — the ground-truth
-    # decision (re-pin vs keep) is pending with the user. Deselect exactly
-    # those two; every other test must pass. Remove once ruled.
-    # The 2 R29 L1 doc tests are red-documented PENDING the user's edge-rule
-    # ruling (job-log continuation: R29 connected-flow vs the field-value
-    # principle — FLOW_ONLY_VIEW_RULES.md §7-A). The user suspended edge-rule
-    # work, so the docs stay unrepaired and the tests stay red until ruled.
-    # (The former 2 lending_ref jaccard deselects are GONE: the v3.3.195
-    # canonical re-derivation + V7 admission fixes put both at 1.0000/1.0000,
-    # verified 2026-09-01 — they are back under the gate.)
-    RULED1="tests/test_l1_physical_model.py::test_r29_lending_ref_downstream_matches_doc"
-    RULED2="tests/test_l1_physical_model.py::test_r29_iiapty_downstream_matches_doc"
-    venv/bin/python -m pytest tests/ -q --tb=short \
-        --deselect "$RULED1" --deselect "$RULED2" || {
+    # NO deselects. The 2 R29 L1 doc tests went GREEN 2026-09-01: the user
+    # ruled §7-A ("write leg only" — the job-log continuation is bounded at
+    # the searched field's own write leg), GROUND_TRUTH_*.md §2.2/§3.1 were
+    # repaired to the ruled reality, and both assertions now match. (The
+    # former 2 lending_ref jaccard deselects went earlier: the v3.3.195
+    # canonical re-derivation + V7 admission fixes put both at 1.0000/1.0000.)
+    # A deselect that no longer carries a ruling is a lie the suite tells at
+    # every release — keep this list EMPTY unless a test is red-documented
+    # PENDING a ruling, and cite the ruling + the removal date when you add.
+    venv/bin/python -m pytest tests/ -q --tb=short || {
         echo -e "${RED}❌ Tests failed — aborting release${NC}"
         exit 1
     }
     PREFLIGHT_RUN=1
 elif docker ps --format '{{.Names}}' | grep -qx 'gps-sql-backend'; then
     echo "  no host venv — running the suite in gps-sql-backend (mounted working tree)"
-    # The 2 R29 doc tests (pending §7-A ruling) deselected here; the former
-    # lending_ref jaccard deselects are gone — both cases are green again.
-    docker exec -w /app/backend gps-sql-backend python3 -m pytest tests/ -q --tb=short \
-        --deselect "tests/test_l1_physical_model.py::test_r29_lending_ref_downstream_matches_doc" \
-        --deselect "tests/test_l1_physical_model.py::test_r29_iiapty_downstream_matches_doc" || {
+    # NO deselects (see the host-venv branch above): the §7-A ruling landed
+    # 2026-09-01 and both doc tests are green.
+    docker exec -w /app/backend gps-sql-backend python3 -m pytest tests/ -q --tb=short || {
         echo -e "${RED}❌ Tests failed (container pre-flight) — aborting release${NC}"
         exit 1
     }
@@ -124,10 +117,11 @@ echo ""
 echo "=== Pytest (container) ==="
 # R4 M: the container suite is the same gate as the pre-flight — a failure
 # must stop the release, never print a warning and ship anyway.
-# Same 2 user-ruled lending_ref trade-offs (#48) deselected here.
-docker exec -w /app/backend gps-test python3 -m pytest tests/ -q --tb=short \
-    --deselect "tests/test_l1_physical_model.py::test_r29_lending_ref_downstream_matches_doc" \
-    --deselect "tests/test_l1_physical_model.py::test_r29_iiapty_downstream_matches_doc" || {
+# NO deselects: the 2 R29 doc tests went GREEN 2026-09-01 when the user
+# ruled §7-A ("write leg only") and the ground-truth docs were repaired —
+# the deselect list stays EMPTY unless a test is red-documented PENDING a
+# ruling, and the ruling is cited at every site it is added to.
+docker exec -w /app/backend gps-test python3 -m pytest tests/ -q --tb=short || {
     echo -e "${RED}❌ Container pytest FAILED — aborting release${NC}"
     docker rm -f gps-test >/dev/null 2>&1 || true
     exit 1

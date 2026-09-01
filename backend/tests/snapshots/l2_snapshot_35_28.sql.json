@@ -78,23 +78,6 @@
       {
         "data": {
           "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 1,
-          "id": "l2e_68263d3ef8a5",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 *@L1\u2016",
-          "source": "l2_tbl_c6348bd5e8",
-          "target": "fld_0e92ab1959",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
           "color": "#7F8C8D",
           "desc": "Disconnected bridge",
           "edge_type": "SUBSET",
@@ -106,6 +89,23 @@
           "reason": "bridge \u2014 \u2016\u27d0 output@L1 \u2192 \u27d0 B1@L3\u2016",
           "source": "l2_tbl_c6348bd5e8",
           "target": "l2_tbl_239d28711a",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 1,
+          "id": "l2e_68263d3ef8a5",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 *@L1\u2016",
+          "source": "l2_tbl_c6348bd5e8",
+          "target": "fld_0e92ab1959",
           "width": 1
         }
       },
@@ -151,12 +151,12 @@
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
           "highlight_line": 4,
-          "id": "l2e_2ef7444503d1",
+          "id": "l2e_8a1dd88749ae",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "reason": "structure \u2014 \u2016store_sales@L6 \u2192 store_sales.ss_list_price@L4\u2016",
-          "source": "l2_tbl_9b980d2cbd",
-          "target": "fld_a1b364a4a7",
+          "reason": "structure \u2014 \u2016\u27d0 B1@L3 \u2192 B1_CNT@L4\u2016",
+          "source": "l2_tbl_239d28711a",
+          "target": "fld_ba796c5087",
           "width": 1
         }
       },
@@ -168,12 +168,12 @@
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
           "highlight_line": 4,
-          "id": "l2e_8a1dd88749ae",
+          "id": "l2e_2ef7444503d1",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 B1@L3 \u2192 B1_CNT@L4\u2016",
-          "source": "l2_tbl_239d28711a",
-          "target": "fld_ba796c5087",
+          "reason": "structure \u2014 \u2016store_sales@L6 \u2192 store_sales.ss_list_price@L4\u2016",
+          "source": "l2_tbl_9b980d2cbd",
+          "target": "fld_a1b364a4a7",
           "width": 1
         }
       },
@@ -202,12 +202,12 @@
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
           "highlight_line": 5,
-          "id": "l2e_eaa03959c54f",
+          "id": "l2e_f52d1aca485c",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "reason": "structure \u2014 \u2016store_sales@L6 \u2192 store_sales.ss_list_price@L5\u2016",
-          "source": "l2_tbl_9b980d2cbd",
-          "target": "fld_a1b364a4a7",
+          "reason": "structure \u2014 \u2016\u27d0 B1@L3 \u2192 B1_CNTD@L5\u2016",
+          "source": "l2_tbl_239d28711a",
+          "target": "fld_9ba30d8b83",
           "width": 1
         }
       },
@@ -219,12 +219,12 @@
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
           "highlight_line": 5,
-          "id": "l2e_f52d1aca485c",
+          "id": "l2e_eaa03959c54f",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 B1@L3 \u2192 B1_CNTD@L5\u2016",
-          "source": "l2_tbl_239d28711a",
-          "target": "fld_9ba30d8b83",
+          "reason": "structure \u2014 \u2016store_sales@L6 \u2192 store_sales.ss_list_price@L5\u2016",
+          "source": "l2_tbl_9b980d2cbd",
+          "target": "fld_a1b364a4a7",
           "width": 1
         }
       },
@@ -247,23 +247,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 6,
-          "id": "l2e_2f7c627fb2e2",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016store_sales@L6 \u2192 \u27d0 B1@L3\u2016",
-          "source": "l2_tbl_9b980d2cbd",
-          "target": "l2_tbl_239d28711a",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -277,6 +260,23 @@
           "source": "l2_tbl_425bc8a027",
           "target": "l2_tbl_9b980d2cbd",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 6,
+          "id": "l2e_2f7c627fb2e2",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L6 \u2192 \u27d0 B1@L3\u2016",
+          "source": "l2_tbl_9b980d2cbd",
+          "target": "l2_tbl_239d28711a",
+          "width": 3
         }
       },
       {
@@ -485,23 +485,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 14,
-          "id": "l2e_336120f975af",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016store_sales@L14 \u2192 \u27d0 B2@L11\u2016",
-          "source": "l2_tbl_9b980d2cbd",
-          "target": "l2_tbl_d2a67443fd",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -515,6 +498,23 @@
           "source": "l2_tbl_3d02496f5a",
           "target": "l2_tbl_9b980d2cbd",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 14,
+          "id": "l2e_336120f975af",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L14 \u2192 \u27d0 B2@L11\u2016",
+          "source": "l2_tbl_9b980d2cbd",
+          "target": "l2_tbl_d2a67443fd",
+          "width": 3
         }
       },
       {
@@ -723,23 +723,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 22,
-          "id": "l2e_8e5ad5642e23",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016store_sales@L22 \u2192 \u27d0 B3@L19\u2016",
-          "source": "l2_tbl_9b980d2cbd",
-          "target": "l2_tbl_3a939f6e41",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -753,6 +736,23 @@
           "source": "l2_tbl_e109b12d99",
           "target": "l2_tbl_9b980d2cbd",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 22,
+          "id": "l2e_8e5ad5642e23",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L22 \u2192 \u27d0 B3@L19\u2016",
+          "source": "l2_tbl_9b980d2cbd",
+          "target": "l2_tbl_3a939f6e41",
+          "width": 3
         }
       },
       {
@@ -961,23 +961,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 30,
-          "id": "l2e_ae494e30ae2b",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016store_sales@L30 \u2192 \u27d0 B4@L27\u2016",
-          "source": "l2_tbl_9b980d2cbd",
-          "target": "l2_tbl_f486cb0e16",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -991,6 +974,23 @@
           "source": "l2_tbl_d528617634",
           "target": "l2_tbl_9b980d2cbd",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 30,
+          "id": "l2e_ae494e30ae2b",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L30 \u2192 \u27d0 B4@L27\u2016",
+          "source": "l2_tbl_9b980d2cbd",
+          "target": "l2_tbl_f486cb0e16",
+          "width": 3
         }
       },
       {
@@ -1199,23 +1199,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 38,
-          "id": "l2e_e1eb2b8db2a7",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016store_sales@L38 \u2192 \u27d0 B5@L35\u2016",
-          "source": "l2_tbl_9b980d2cbd",
-          "target": "l2_tbl_371d60c8f3",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -1229,6 +1212,23 @@
           "source": "l2_tbl_12a1c58bfc",
           "target": "l2_tbl_9b980d2cbd",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 38,
+          "id": "l2e_e1eb2b8db2a7",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L38 \u2192 \u27d0 B5@L35\u2016",
+          "source": "l2_tbl_9b980d2cbd",
+          "target": "l2_tbl_371d60c8f3",
+          "width": 3
         }
       },
       {
@@ -1297,6 +1297,23 @@
           "source": "l2_tbl_9b980d2cbd",
           "target": "l2_tbl_12a1c58bfc",
           "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 43,
+          "id": "l2e_9c78637c319e",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 B6@L43 \u2192 B6_LP@L43\u2016",
+          "source": "l2_tbl_f8f053f888",
+          "target": "fld_a218309cbb",
+          "width": 1
         }
       },
       {
@@ -1408,23 +1425,6 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 43,
-          "id": "l2e_9c78637c319e",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 B6@L43 \u2192 B6_LP@L43\u2016",
-          "source": "l2_tbl_f8f053f888",
-          "target": "fld_a218309cbb",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
           "highlight_line": 44,
           "id": "l2e_0825163c85e0",
           "label": "SCHEMA",
@@ -1522,23 +1522,6 @@
       },
       {
         "data": {
-          "category": "flow",
-          "color": "#2ECC71",
-          "desc": "Table feeds output",
-          "edge_type": "TABLE_FLOW",
-          "flow_kind": "chain",
-          "highlight_line": 46,
-          "id": "l2e_9267282c055d",
-          "label": "TABLE_FLOW",
-          "line_style": "solid",
-          "reason": "chain (read into output) \u2014 \u2016store_sales@L46 \u2192 \u27d0 B6@L43\u2016",
-          "source": "l2_tbl_9b980d2cbd",
-          "target": "l2_tbl_f8f053f888",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -1552,6 +1535,23 @@
           "source": "l2_tbl_49d4527d17",
           "target": "l2_tbl_9b980d2cbd",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "flow",
+          "color": "#2ECC71",
+          "desc": "Table feeds output",
+          "edge_type": "TABLE_FLOW",
+          "flow_kind": "chain",
+          "highlight_line": 46,
+          "id": "l2e_9267282c055d",
+          "label": "TABLE_FLOW",
+          "line_style": "solid",
+          "reason": "chain (read into output) \u2014 \u2016store_sales@L46 \u2192 \u27d0 B6@L43\u2016",
+          "source": "l2_tbl_9b980d2cbd",
+          "target": "l2_tbl_f8f053f888",
+          "width": 3
         }
       },
       {

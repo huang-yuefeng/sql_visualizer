@@ -3,6 +3,23 @@
     "edges": [
       {
         "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 2,
+          "id": "l2e_cfac392fd692",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 customername@L2\u2016",
+          "source": "l2_tbl_14f442ec52",
+          "target": "fld_e9293fb4c5",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "compute",
           "color": "#D35400",
           "desc": "COALESCE/CAST/CONCAT",
@@ -33,23 +50,6 @@
           "source": "fld_ab1dfc5b4d",
           "target": "fld_e9293fb4c5",
           "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 2,
-          "id": "l2e_cfac392fd692",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 customername@L2\u2016",
-          "source": "l2_tbl_14f442ec52",
-          "target": "fld_e9293fb4c5",
-          "width": 1
         }
       }
     ],
@@ -120,23 +120,6 @@
     "edges": [
       {
         "data": {
-          "category": "copy",
-          "color": "#27AE60",
-          "desc": "Column reference",
-          "edge_type": "REF",
-          "flow_kind": "field flow",
-          "highlight_line": 1,
-          "id": "l2e_fda796bf9524",
-          "label": "REF",
-          "line_style": "solid",
-          "reason": "field flow (value copy) \u2014 \u2016c_customer_id@L1 \u2192 customer_id@L1\u2016",
-          "source": "fld_cd04c0eff5",
-          "target": "fld_db9a7cfa89",
-          "width": 1
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -166,6 +149,23 @@
           "reason": "read (read into output) \u2014 \u2016c_customer_id@L1 \u2192 \u27d0 output@L1\u2016",
           "source": "fld_cd04c0eff5",
           "target": "l2_tbl_14f442ec52",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 1,
+          "id": "l2e_fda796bf9524",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016c_customer_id@L1 \u2192 customer_id@L1\u2016",
+          "source": "fld_cd04c0eff5",
+          "target": "fld_db9a7cfa89",
           "width": 1
         }
       },
@@ -205,6 +205,23 @@
       },
       {
         "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 2,
+          "id": "l2e_cfac392fd692",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 customername@L2\u2016",
+          "source": "l2_tbl_14f442ec52",
+          "target": "fld_e9293fb4c5",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "compute",
           "color": "#D35400",
           "desc": "COALESCE/CAST/CONCAT",
@@ -235,23 +252,6 @@
           "source": "fld_ab1dfc5b4d",
           "target": "l2_tbl_14f442ec52",
           "width": 2
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 2,
-          "id": "l2e_cfac392fd692",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 customername@L2\u2016",
-          "source": "l2_tbl_14f442ec52",
-          "target": "fld_e9293fb4c5",
-          "width": 1
         }
       },
       {

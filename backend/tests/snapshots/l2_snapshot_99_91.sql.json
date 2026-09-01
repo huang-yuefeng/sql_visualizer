@@ -3,23 +3,6 @@
     "edges": [
       {
         "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 4,
-          "id": "l2e_f76280b299b5",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016cr_net_loss@L4 \u2192 Returns_Loss@L4\u2016",
-          "source": "fld_07e78a5f7a",
-          "target": "fld_4baf09b3c7",
-          "width": 3
-        }
-      },
-      {
-        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -33,6 +16,23 @@
           "source": "l2_tbl_f1cbc2ca59",
           "target": "fld_4baf09b3c7",
           "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#8E44AD",
+          "desc": "SUM/COUNT/AVG",
+          "edge_type": "AGGREGATE",
+          "flow_kind": "field flow",
+          "highlight_line": 4,
+          "id": "l2e_f76280b299b5",
+          "label": "AGGREGATE",
+          "line_style": "solid",
+          "reason": "field flow (aggregate step) \u2014 \u2016cr_net_loss@L4 \u2192 Returns_Loss@L4\u2016",
+          "source": "fld_07e78a5f7a",
+          "target": "fld_4baf09b3c7",
+          "width": 3
         }
       }
     ],
@@ -90,6 +90,23 @@
     "edges": [
       {
         "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 1,
+          "id": "l2e_caa991de2173",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 Call_Center@L1\u2016",
+          "source": "l2_tbl_f1cbc2ca59",
+          "target": "fld_b850256ba2",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -111,31 +128,14 @@
           "color": "#27AE60",
           "desc": "Column reference",
           "edge_type": "REF",
-          "flow_kind": "field flow",
+          "flow_kind": "read",
           "highlight_line": 1,
-          "id": "l2e_ec86ef6b0ffa",
+          "id": "l2e_4a55dcef9377",
           "label": "REF",
           "line_style": "solid",
-          "reason": "field flow (value copy) \u2014 \u2016cc_call_center_id@L1 \u2192 Call_Center@L1\u2016",
+          "reason": "read (read into output) \u2014 \u2016cc_call_center_id@L1 \u2192 \u27d0 output@L1\u2016",
           "source": "fld_07c5d3ba2c",
-          "target": "fld_b850256ba2",
-          "width": 1
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 1,
-          "id": "l2e_caa991de2173",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 Call_Center@L1\u2016",
-          "source": "l2_tbl_f1cbc2ca59",
-          "target": "fld_b850256ba2",
+          "target": "l2_tbl_f1cbc2ca59",
           "width": 1
         }
       },
@@ -145,14 +145,14 @@
           "color": "#27AE60",
           "desc": "Column reference",
           "edge_type": "REF",
-          "flow_kind": "read",
+          "flow_kind": "field flow",
           "highlight_line": 1,
-          "id": "l2e_4a55dcef9377",
+          "id": "l2e_ec86ef6b0ffa",
           "label": "REF",
           "line_style": "solid",
-          "reason": "read (read into output) \u2014 \u2016cc_call_center_id@L1 \u2192 \u27d0 output@L1\u2016",
+          "reason": "field flow (value copy) \u2014 \u2016cc_call_center_id@L1 \u2192 Call_Center@L1\u2016",
           "source": "fld_07c5d3ba2c",
-          "target": "l2_tbl_f1cbc2ca59",
+          "target": "fld_b850256ba2",
           "width": 1
         }
       },
@@ -209,6 +209,23 @@
       },
       {
         "data": {
+          "category": "structure",
+          "color": "#3498DB",
+          "desc": "Table\u2192Column ownership",
+          "edge_type": "SCHEMA",
+          "flow_kind": "structure",
+          "highlight_line": 2,
+          "id": "l2e_25add5797d4d",
+          "label": "SCHEMA",
+          "line_style": "dotted",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 Call_Center_Name@L2\u2016",
+          "source": "l2_tbl_f1cbc2ca59",
+          "target": "fld_3597c2c0fb",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -231,13 +248,13 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 2,
-          "id": "l2e_25add5797d4d",
+          "highlight_line": 3,
+          "id": "l2e_997c225bff0f",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 Call_Center_Name@L2\u2016",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 Manager@L3\u2016",
           "source": "l2_tbl_f1cbc2ca59",
-          "target": "fld_3597c2c0fb",
+          "target": "fld_1996548aaa",
           "width": 1
         }
       },
@@ -265,13 +282,13 @@
           "desc": "Table\u2192Column ownership",
           "edge_type": "SCHEMA",
           "flow_kind": "structure",
-          "highlight_line": 3,
-          "id": "l2e_997c225bff0f",
+          "highlight_line": 4,
+          "id": "l2e_2f806932d3c1",
           "label": "SCHEMA",
           "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 Manager@L3\u2016",
+          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 Returns_Loss@L4\u2016",
           "source": "l2_tbl_f1cbc2ca59",
-          "target": "fld_1996548aaa",
+          "target": "fld_4baf09b3c7",
           "width": 1
         }
       },
@@ -290,23 +307,6 @@
           "source": "fld_07e78a5f7a",
           "target": "l2_tbl_f1cbc2ca59",
           "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "structure",
-          "color": "#3498DB",
-          "desc": "Table\u2192Column ownership",
-          "edge_type": "SCHEMA",
-          "flow_kind": "structure",
-          "highlight_line": 4,
-          "id": "l2e_2f806932d3c1",
-          "label": "SCHEMA",
-          "line_style": "dotted",
-          "reason": "structure \u2014 \u2016\u27d0 output@L1 \u2192 Returns_Loss@L4\u2016",
-          "source": "l2_tbl_f1cbc2ca59",
-          "target": "fld_4baf09b3c7",
-          "width": 1
         }
       },
       {
