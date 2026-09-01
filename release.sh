@@ -27,27 +27,26 @@ if [ -d venv ]; then
     # field-involvement closure rule (#48, 2026-08-31) — the ground-truth
     # decision (re-pin vs keep) is pending with the user. Deselect exactly
     # those two; every other test must pass. Remove once ruled.
-    RULED="tests/test_jaccard_benchmark.py::test_jaccard_benchmark[lending_ref-BDM_ACC_LOAN_INFO_Digitallending-upstream]"
-    RULED2="tests/test_jaccard_benchmark.py::test_jaccard_benchmark[lending_ref-BDM_ACC_LOAN_INFO_SUP_M-downstream]"
     # The 2 R29 L1 doc tests are red-documented PENDING the user's edge-rule
     # ruling (job-log continuation: R29 connected-flow vs the field-value
     # principle — FLOW_ONLY_VIEW_RULES.md §7-A). The user suspended edge-rule
     # work, so the docs stay unrepaired and the tests stay red until ruled.
-    RULED3="tests/test_l1_physical_model.py::test_r29_lending_ref_downstream_matches_doc"
-    RULED4="tests/test_l1_physical_model.py::test_r29_iiapty_downstream_matches_doc"
+    # (The former 2 lending_ref jaccard deselects are GONE: the v3.3.195
+    # canonical re-derivation + V7 admission fixes put both at 1.0000/1.0000,
+    # verified 2026-09-01 — they are back under the gate.)
+    RULED1="tests/test_l1_physical_model.py::test_r29_lending_ref_downstream_matches_doc"
+    RULED2="tests/test_l1_physical_model.py::test_r29_iiapty_downstream_matches_doc"
     venv/bin/python -m pytest tests/ -q --tb=short \
-        --deselect "$RULED" --deselect "$RULED2" \
-        --deselect "$RULED3" --deselect "$RULED4" || {
+        --deselect "$RULED1" --deselect "$RULED2" || {
         echo -e "${RED}❌ Tests failed — aborting release${NC}"
         exit 1
     }
     PREFLIGHT_RUN=1
 elif docker ps --format '{{.Names}}' | grep -qx 'gps-sql-backend'; then
     echo "  no host venv — running the suite in gps-sql-backend (mounted working tree)"
-    # Same 2 user-ruled lending_ref trade-offs (#48) deselected here.
+    # The 2 R29 doc tests (pending §7-A ruling) deselected here; the former
+    # lending_ref jaccard deselects are gone — both cases are green again.
     docker exec -w /app/backend gps-sql-backend python3 -m pytest tests/ -q --tb=short \
-        --deselect "tests/test_jaccard_benchmark.py::test_jaccard_benchmark[lending_ref-BDM_ACC_LOAN_INFO_Digitallending-upstream]" \
-        --deselect "tests/test_jaccard_benchmark.py::test_jaccard_benchmark[lending_ref-BDM_ACC_LOAN_INFO_SUP_M-downstream]" \
         --deselect "tests/test_l1_physical_model.py::test_r29_lending_ref_downstream_matches_doc" \
         --deselect "tests/test_l1_physical_model.py::test_r29_iiapty_downstream_matches_doc" || {
         echo -e "${RED}❌ Tests failed (container pre-flight) — aborting release${NC}"
@@ -127,8 +126,6 @@ echo "=== Pytest (container) ==="
 # must stop the release, never print a warning and ship anyway.
 # Same 2 user-ruled lending_ref trade-offs (#48) deselected here.
 docker exec -w /app/backend gps-test python3 -m pytest tests/ -q --tb=short \
-    --deselect "tests/test_jaccard_benchmark.py::test_jaccard_benchmark[lending_ref-BDM_ACC_LOAN_INFO_Digitallending-upstream]" \
-    --deselect "tests/test_jaccard_benchmark.py::test_jaccard_benchmark[lending_ref-BDM_ACC_LOAN_INFO_SUP_M-downstream]" \
     --deselect "tests/test_l1_physical_model.py::test_r29_lending_ref_downstream_matches_doc" \
     --deselect "tests/test_l1_physical_model.py::test_r29_iiapty_downstream_matches_doc" || {
     echo -e "${RED}❌ Container pytest FAILED — aborting release${NC}"
