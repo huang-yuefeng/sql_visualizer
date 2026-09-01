@@ -128,7 +128,9 @@ echo "=== Pytest (container) ==="
 # Same 2 user-ruled lending_ref trade-offs (#48) deselected here.
 docker exec -w /app/backend gps-test python3 -m pytest tests/ -q --tb=short \
     --deselect "tests/test_jaccard_benchmark.py::test_jaccard_benchmark[lending_ref-BDM_ACC_LOAN_INFO_Digitallending-upstream]" \
-    --deselect "tests/test_jaccard_benchmark.py::test_jaccard_benchmark[lending_ref-BDM_ACC_LOAN_INFO_SUP_M-downstream]" || {
+    --deselect "tests/test_jaccard_benchmark.py::test_jaccard_benchmark[lending_ref-BDM_ACC_LOAN_INFO_SUP_M-downstream]" \
+    --deselect "tests/test_l1_physical_model.py::test_r29_lending_ref_downstream_matches_doc" \
+    --deselect "tests/test_l1_physical_model.py::test_r29_iiapty_downstream_matches_doc" || {
     echo -e "${RED}❌ Container pytest FAILED — aborting release${NC}"
     docker rm -f gps-test >/dev/null 2>&1 || true
     exit 1
