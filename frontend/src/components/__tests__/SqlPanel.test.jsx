@@ -314,6 +314,43 @@ describe('SqlPanel — the header stays reachable on a late-line highlight', () 
     expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 
+  it('targets the CONTENT offset, not the viewport offset (the panel already scrolled)', () => {
+    // USER BUG (2026-09-01): the rect math forgot `+ box.scrollTop`, so the
+    // target was computed relative to wherever the panel was parked — a line
+    // above the view clamped to 0, a line below it overshot to the bottom,
+    // and a Field Story step looked like it scrolled nothing. Same geometry
+    // as the test above, but the list is ALREADY 2000px down its content.
+    const ref = createRef();
+    const long = Array.from({ length: 400 }, (_, i) => `-- line ${i + 1}`).join('\n');
+    const { container } = render(
+      <div className="inline-l2-sql"><SqlPanel ref={ref} sqlText={long} scriptName="q14.sql" /></div>,
+    );
+    const list = container.querySelector('.sql-content');
+    const LINE_H = 18;
+    const VIEW = 250;
+    const AT = 2000;                    // where the panel happens to be parked
+    const contentTop = 399 * LINE_H;    // line 400's offset in the content
+    Object.defineProperty(list, 'clientHeight', { value: VIEW, configurable: true });
+    // jsdom does no scrolling — pin the parked position as an own property
+    // rather than trusting its scrollTop setter.
+    Object.defineProperty(list, 'scrollTop', { value: AT, configurable: true });
+    list.getBoundingClientRect = () => ({ top: 100, height: VIEW });
+    container.querySelector('[data-line="400"]').getBoundingClientRect = () =>
+      ({ top: 100 + (contentTop - AT), height: LINE_H });
+
+    // this describe has no beforeEach of its own, so the spy still holds the
+    // previous tests' calls — start from a clean slate and assert on the ONE
+    // call this test makes.
+    Element.prototype.scrollTo.mockClear();
+    ref.current.scrollToLine(400);
+
+    // absolute: the same line asks for the same scrollTop from ANY position
+    expect(Element.prototype.scrollTo).toHaveBeenCalledTimes(1);
+    expect(Element.prototype.scrollTo).toHaveBeenCalledWith({
+      top: contentTop - (VIEW - LINE_H) / 2, behavior: 'smooth',
+    });
+  });
+
   it('never scrolls above line 1 (the clamp), and centres an early line at 0', () => {
     const ref = createRef();
     const { container } = render(

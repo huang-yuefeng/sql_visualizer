@@ -89,9 +89,22 @@ const SqlPanel = React.forwardRef(function SqlPanel({
     if (!el) return;
     // Rect math rather than offsetTop: the panel's ancestors carry no
     // positioning, so offsetParent is not guaranteed to be the line list.
+    //
+    // `elRect.top - boxRect.top` is the line's offset inside the VISIBLE part
+    // of the scroller, not in its content — the difference is exactly
+    // `box.scrollTop`. Omitting it made the target relative to wherever the
+    // panel happened to be parked: a line ABOVE the view computed negative and
+    // clamped to 0, a line BELOW it overshot to the bottom clamp, and only a
+    // line already on screen landed near centre (measured on east5 p_dt:
+    // step 1 drove scrollTop 2751 → 0 with L41 still 542px off centre). The
+    // `+ box.scrollTop` term is what makes the same line scroll to the SAME
+    // scrollTop from any starting position.
     const boxRect = box.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
-    const topInContent = elRect.top - boxRect.top - box.clientTop;
+    const topInContent = elRect.top - boxRect.top - box.clientTop + box.scrollTop;
+    // No upper clamp here: the browser clamps a scrollTop write to
+    // `scrollHeight - clientHeight` itself, and jsdom (no layout) reports 0
+    // for both, so an explicit min() would flatten every target to 0 in tests.
     const target = Math.max(0,
       Math.round(topInContent - (box.clientHeight - elRect.height) / 2));
     if (typeof box.scrollTo === 'function') box.scrollTo({ top: target, behavior: 'smooth' });

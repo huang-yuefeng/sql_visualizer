@@ -162,8 +162,9 @@ export default function FieldStoryBar({
           The counter is the diff summary the feature exists to show, so it
           STAYS visible while the bands are hidden; only ◀/▶ are disabled
           then. Hidden also removes the bands and the active outline (the
-          parent passes none while hidden) — toggling never resets the
-          cursor. */}
+          parent passes none while hidden) — the bar only reports the click;
+          what the cursor does on activation is the parent's rule (it lands
+          the layer back on its FIRST match and re-centers the panel). */}
       {stringMatchSummary != null && (
         <>
           <span aria-hidden="true" className="sm-divider" />

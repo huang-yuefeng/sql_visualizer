@@ -1334,6 +1334,11 @@ export default function DataFlowApp({
     return { active: true, edgeIds, nodeIds: step.nodeIds || [], exemptNodeIds: Array.from(exempt) };
   }, [graphLevel, storyActiveIndex, fieldStory, isL2Merged, l2Result]);
 
+  // R11-3: the imperative scroll handle the story path uses below. The panel
+  // also scrolls declaratively when `sqlHighlightLine` CHANGES; the explicit
+  // call covers the case a value-change effect cannot see.
+  const sqlPanelRef = useRef(null);
+
   // Shared applicator: index + the R37 single SQL-highlight channel —
   // stepping the story scrolls the SQL panel exactly like an edge/node
   // click does (integer ≥ 1 guard, same as every other writer). R3 finding
@@ -1348,6 +1353,13 @@ export default function DataFlowApp({
     if (Number.isInteger(ln) && ln >= 1) {
       setSqlHighlightLine(ln);
       setSqlLineNotice(null);
+      // EVERY step click re-centers the line, including a step whose line is
+      // already the highlighted one — adjacent steps often share a line
+      // (east5 p_dt: birth-41 then written-41), and the panel's declarative
+      // scroll is a value-CHANGE effect, so on a repeated line it would
+      // no-op and the click would move nothing. Same target either way; the
+      // declarative scroll that follows is a no-op re-statement of it.
+      sqlPanelRef.current?.scrollToLine(ln);
     } else {
       // Story steps are INV-2 gated (only valid highlight_lines build a
       // step) — this branch is defensive and never sets a notice of its own.
@@ -1475,10 +1487,17 @@ export default function DataFlowApp({
   const handleStringMatchNext = handleStringMatchStep;
 
   const handleToggleStringMatch = useCallback(() => {
-    // Toggling hides the bands + the outline only — it never resets the
-    // cursor, so re-showing lands where the browse left off.
+    // Turning the layer ON lands on the FIRST match (user requirement,
+    // 2026-09-01): the naive bands are a comparison aid with no anchor of
+    // their own, so activation picks the top of the match list and the
+    // panel's browse channel scrolls that line to the middle. Resetting the
+    // cursor HERE — on every activation, not only when it was idle — is what
+    // makes repeated toggles re-land on the first match every time.
+    if (!stringMatchVisible && stringMatches.length > 0) setStringMatchCursor(0);
+    // Turning it OFF only hides the bands + the outline; the cursor keeps its
+    // value (the ◀/▶ readout above stays put) and is re-set on the next ON.
     setStringMatchVisible(v => !v);
-  }, []);
+  }, [stringMatchVisible, stringMatches]);
 
   // Breadcrumb navigation
   const breadcrumb = [];
@@ -1823,6 +1842,7 @@ export default function DataFlowApp({
             <>
               <div className="inline-l2-sql" style={{ height: sqlPanelHeight }}>
                 <SqlPanel
+                  ref={sqlPanelRef}
                   sqlText={sqlText}
                   sqlHighlightLine={sqlHighlightLine}
                   scriptName={currentScriptName}
