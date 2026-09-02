@@ -2576,6 +2576,53 @@ def _apply_field_involvement(new_edges: list, field: str,
     #     is one statement's (RFN: 867 vs 1429) — comparing lines compares
     #     different statements by construction.
     #
+    # ── THE occurrence identity (F1, 2026-09-02) ────────────────────────
+    # ONE definition of "is this chip the SEARCHED field's own?" for every
+    # STRUCTURE question this pass asks — today that is Class 3's
+    # `_own_belongs_to`, the branch F1 landed it in. The pass's VALUE
+    # questions (the seed-endpoint exemption, the 7-A write-leg/frame
+    # evidence, the feeder set) are deliberately COLUMN-level, each with its
+    # ruling-backed reason at its own site below; they used to sit next to
+    # the identity with NOTHING marking the difference, which read as one
+    # rule answering two questions. Measured (HEAD vs this tree, hash-seed
+    # pinned, 21 acceptance closures): keeping the value sites name-level
+    # moves 0 served edges, while identity-narrowing them costs canonical
+    # ground-truth rows — DL × lending_ref upstream and the bdm seed on
+    # SUP_M (the details are at each site).
+    #
+    # The identity is the searched `table.field`: the chip's part must be
+    # the searched field, and its RESOLVED OWNER must be the searched table
+    # (`_tgt_canon` for a belongs-to target — the extractor's own I2
+    # source-table resolution). Three provisos, all extraction-time facts:
+    #   no owner evidence (no searched table — the legacy unit-test shapes —
+    #     or an ownerless chip) ⇒ own: never drop on missing evidence;
+    #   a LITERAL chip owns nothing (its `source_tables[0]` is the box the
+    #     constant is written into — a write target, never an owner), so it
+    #     is never a foreign column of the searched name;
+    #   a foreign-owned same-named COLUMN is STILL the searched value
+    #     carried through a container (a CTE/VT/derived column) while it is
+    #     not a written column of its own — a chip the statement writes
+    #     under its own name is a second column of that name, a sibling
+    #     (the F1 written-chip proviso).
+    written_chips = {e.get("source") for e in new_edges
+                     if e.get("_value_edge") and e.get("_tgt_output")}
+
+    def _own_occurrence(part, owner, chip_id, column=True):
+        if part != seed:
+            return False
+        owner = (owner or "").strip().casefold()
+        if not table_key or not owner or owner == table_key:
+            return True
+        if not column:
+            # a constant projection carries no column ownership at all: the
+            # extractor puts the box the constant is written INTO in its
+            # `source_tables`, which is a write target, never an owner — so
+            # there is no foreign column here to be a sibling of (7-A rule
+            # 1's own case: `'$(load_date)' AS data_dt` writes the searched
+            # column as a literal).
+            return True
+        return chip_id not in written_chips
+
     # The write projection a statement publishes is read off the carried
     # chips: the value edges' own source chip IS the written value, and the
     # searched column counts as written when that chip is the searched
@@ -2583,6 +2630,14 @@ def _apply_field_involvement(new_edges: list, field: str,
     # are `SUBSTRING(A.CUST_NO, …)` expression chips — not seed-labelled,
     # but the closure carries the searched chip's own REFERENCE edges INTO
     # them). The written BOX is the value edge's `_tgt_canon`.
+    #
+    # This set is deliberately keyed at the COLUMN level (7-A is a ruling
+    # about the column being written: "when the SEARCHED field is the column
+    # being WRITTEN by a statement, its write edge SHOWS"), never narrowed
+    # to the occurrence identity — the write-target evidence feeds the
+    # carve-out that keeps the searched column's own write legs served
+    # (RFN's @768/@1168 legs into bdm_acc_loan_info), and a name-level
+    # column read is what that evidence is.
     seed_value_chips = set()
     for _c in new_edges:
         _hops = _c.get("_path_hops") or []
@@ -2595,8 +2650,34 @@ def _apply_field_involvement(new_edges: list, field: str,
 
     def _seed_written(e):
         """True when the value edge writes the searched column's own value
-        (its written chip is the searched column or a chip the searched
-        value flows into)."""
+        (its written chip is the searched column, or a chip the searched
+        value flows into — RFN's `SUBSTRING(A.CUST_NO, …)` expression chips
+        are not seed-labelled, but the closure carries the searched chip's
+        own REFERENCE edges INTO them). The written BOX is the value edge's
+        `_tgt_canon`; the frame it lands on is the ⟐output frame the edge
+        targets.
+
+        DELIBERATELY COLUMN-level, exactly as wide as 7-A's own wording —
+        "when the SEARCHED field is the column being WRITTEN by a statement,
+        its write edge SHOWS" — and this ONE test feeds both 7-A consumers:
+        `seed_write_targets` (which boxes the searched column is written
+        into) and `own_frame_keys` (which ⟐output frames are the searched
+        field's OWN frames, the §7-A statement-level frame test). Narrowing
+        it to the occurrence identity `_own_occurrence` was MEASURED and
+        REJECTED: the identity calls a foreign-owned same-named chip a
+        sibling, which strips the frame status from the write frames the
+        canonical ground truth needs — DL × `lending_ref` upstream
+        (`acctnbr AS lending_ref`, an ods_ccb_cb_loan_acctloan chip, anchors
+        ⟐output@99) and the bdm seed on SUP_M (`data_dt@160`, a
+        bdm_acc_loan_info_sup chip, anchors ⟐output@160) both lose canonical
+        rows. The RESIDUAL is real and is the FINDING-1 frame-identity
+        class: on RFN × `ods_gdc_split_fg_rating_temp.cust_no` the
+        column-level rule also admits `A.CUST_NO@1178` — a `bdm_acc_loan_info`
+        chip the merge-back statement writes under its own name — so the
+        job-log statement's ⟐output@1429 frame counts as own.
+        `test_frame_is_own_only_when_a_value_edge_lands_the_searched_column`
+        and `test_rfn_write_legs_stay_served_and_job_log_stays_dark` pin the
+        two sides of that decision that today's engine owns."""
         _p = _part(e.get("_src_label"))
         return _p == seed or (_p and _p in seed_value_chips)
 
@@ -2624,6 +2705,16 @@ def _apply_field_involvement(new_edges: list, field: str,
         _idx = _safe_int(_c.get("_own_seg_idx"))
         if _idx is None or not (0 <= _idx < len(_hops)):
             continue
+        # The FEEDER set is deliberately NOT occurrence-identity keyed — it
+        # stays on the field NAME. It is the set of BOXES the searched
+        # field's own value is carried between, and a box that PRODUCES the
+        # searched field's own value counts through the chip it produces
+        # (EAST5 × charge_department: the partition column's value IS
+        # `a.charge_department`, a bdm_acc_entrusted_payment chip, so its
+        # box `a@141` stays the admitted feeder; DL's
+        # `ods_ccb_cb_loan_acctloan@426 → LENDING_REF@101` likewise) — a
+        # question the producing chip's ownership cannot answer. Identity
+        # lives in the SEGMENT/FRAME tests, not here.
         if seed not in (_part(_hops[_idx][0]), _part(_c.get("_tgt_label"))):
             continue
         feeders.add((_c.get("_src_owner") or "").strip().casefold())
@@ -2697,6 +2788,17 @@ def _apply_field_involvement(new_edges: list, field: str,
         if not field:
             return _box_skeleton_carrier(e)
         part = _part(lbl)
+        # The VALUE-flow half of the same-named-chip question stays at the
+        # field NAME on purpose: a same-named chip that the statement also
+        # writes under its own name is a SIBLING for the STRUCTURE question
+        # (Class 3's `_own_belongs_to` drops its belongs-to), but its value
+        # still IS the searched field's own value when the searched column
+        # is produced from it (EAST5 × charge_department: the partition
+        # column's value IS `a.charge_department`, a bdm_acc_entrusted_payment
+        # chip — its reads, filters and computes are this seed's provenance,
+        # which is what keeps that closure at the audited 32). The identity
+        # decides the STRUCTURE question (Class 3, above); the value flow is
+        # the walker's own closure, already occurrence-covered (R44).
         if part == seed:
             return part
         if e.get("_dml_origin") and not e.get("_value_edge"):
@@ -2774,14 +2876,10 @@ def _apply_field_involvement(new_edges: list, field: str,
                 .startswith("SELECT"))
 
     # ── F1/F2 facts, read once from the carried payload ─────────────────
-    # Every chip the statement WRITES under its own name: the source of a
-    # write value leg that lands on an ⟐output frame (the DML-routing
-    # value edge `_simplify_dml_edges` stamps `_value_edge`).
-    written_chips = {e.get("source") for e in new_edges
-                     if e.get("_value_edge") and e.get("_tgt_output")}
-    # The boxes the closure's write legs land on (the DML write targets,
-    # carried on the routed ⟐output → target leg — never the value legs,
-    # whose target is the ⟐output frame itself).
+    # (`written_chips` is read once ABOVE, beside the occurrence identity
+    # that consults it.) The boxes the closure's write legs land on (the DML
+    # write targets, carried on the routed ⟐output → target leg — never the
+    # value legs, whose target is the ⟐output frame itself):
     write_targets = {(e.get("_tgt_label") or "").rsplit(".", 1)[-1]
                      .strip().casefold()
                      for e in new_edges
@@ -2856,12 +2954,16 @@ def _apply_field_involvement(new_edges: list, field: str,
         ruling). No carried owner (the legacy unit-test shapes) ⇒ the
         legacy field-part behaviour stands: never drop on missing
         extraction-time evidence."""
-        if tgt_part != seed:
-            return False
+        # the target-side evidence corrections: `_tgt_canon` falls back to
+        # ECHOING the chip's own label when the extractor resolved nothing —
+        # an echo is no ownership evidence, never a foreign owner — and a
+        # LITERAL chip owns nothing at all (its `source_tables[0]` is the box
+        # the constant is written INTO).
         canon = (e.get("_tgt_canon") or "").strip().casefold()
-        if not table_key or not canon or canon == table_key:
-            return True
-        return e.get("target") not in written_chips
+        if canon and canon == tgt_part:
+            canon = ""
+        return _own_occurrence(tgt_part, canon, e.get("target"),
+                               column=e.get("_tgt_vt") != "literal")
 
     clauses = line_clause_map(sql_text)
     kept = []
@@ -2888,7 +2990,19 @@ def _apply_field_involvement(new_edges: list, field: str,
                 kept.append(e)
             continue
         # ── Class 2: is the searched field involved? ──
-        if seed in (src_part, tgt_part):     # the seed chip / a same-name copy
+        # The seed chip / a same-name copy. Deliberately the field NAME, not
+        # the occurrence identity: this is the VALUE-flow half of the
+        # same-named-chip question, and a same-named chip is the searched
+        # value's carrier whenever the searched column is produced from it —
+        # EAST5 × charge_department (the partition column's value IS
+        # `a.charge_department`, a bdm_acc_entrusted_payment chip) and
+        # DL × lending_ref upstream (`acctnbr AS lending_ref`, an
+        # ods_ccb_cb_loan_acctloan chip) are canonical ground truth rows.
+        # Narrowing THIS test to `_own_src`/`_own_target` was measured and
+        # rejected: it costs the DL upstream row. The identity answers the
+        # STRUCTURE question (Class 3 above); the value flow is the walker's
+        # own closure, already occurrence-covered (R44).
+        if seed in (src_part, tgt_part):
             kept.append(e)
             continue
         # ── F2: the searched field's own value leg routed through an

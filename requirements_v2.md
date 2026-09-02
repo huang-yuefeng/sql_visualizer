@@ -742,7 +742,10 @@ engine (R46c/R46d).**
 
 ### Amendment (2026-09-02) — L2 flow-only-only UI: the Full view and the detailed views are CUT FROM THE REQUIREMENT (source kept; upgraded from POSTPONED later the same day)
 
-> **Status: ✅ LANDED in the UI (2026-09-02) — a POSTPONEMENT, not a removal.** USER RULING, verbatim:
+> **Status: ✅ LANDED in the UI (2026-09-02) — postponed, then CUT the same day: a postponement in
+> substance (every view code path and the payload contract are kept in the repo) and a CUT in
+> requirement status (no user entry point, none planned — CUT is the authoritative status, see the
+> legend's ✂ row in the traceability matrix).** USER RULING, verbatim:
 > *"just first close full view in UI, this requirement is postponed, the source code is kept and not
 > removed from git repo. We first release flow only view to user."*
 > Traceability row **R53** (`wiki/REQUIREMENTS_TRACEABILITY.md` §R53). Design decision `CLAUDE.md` #59.
@@ -820,19 +823,19 @@ decision `CLAUDE.md` #59.
 
 
 
-## Amendment (2026-09-02) — self-loop line style is the uniform edge style
+### Amendment (2026-09-02) — self-loop line style is the uniform edge style
 
 **Ruling (user, verbatim):** "the self loop line style should be the same to other
 edges, do not use a special red color."
 
 **Scope:** the merged flow-only self-loop (an absorbed FILTER rendered as a
-self-loop on its table box, class `filter-selfloop`) previously wore a special red.
-**Scope boundary (user, same day): "keep them the same as it is"** — the per-type
+self-loop on its table box, class `filter-selfloop`) previously wore a special red
+treatment (`#E74C3C`, width 7, end-arrow scale 1.6), and a Field Story "Filtered"
+step re-coloured it `#FF6B6B` at width 9; the ruling replaced BOTH with the uniform
+edge style. **Scope boundary (user, same day): "keep them the same as it is"** — the per-type
 FILTER edge color (`edge[category="filter"]`, #E74C3C dashed — the standard 16-type
 palette) and the red-tinted box fills are OUT OF SCOPE and stay unchanged; only the
-self-loop's special treatment goes uniform.
-treatment (`#E74C3C`, width 7, end-arrow scale 1.6), and a Field Story "Filtered"
-step re-coloured it `#FF6B6B` at width 9. Both are REMOVED. The self-loop keeps its
+self-loop's special treatment goes uniform. The self-loop keeps its
 GEOMETRY — the enlarged bezier (`loopstep`/`loopdir` data) that makes it render
 around the box, stay clickable, and highlight its absorbed SQL line — but its LINE
 STYLE is now exactly the uniform L2 edge style: `#7F8C8D`, width 2, mid-target
@@ -853,8 +856,8 @@ with no red. Implementation: `graphStyles.js` (`FILTER_LOOP_GEOM_STYLES`,
 ### Amendment (2026-09-02) — four new L2 flow-only edge rules from the BBZ/p_dt script investigations (2h, 4e, 6d, 6e) + the carrier-is-None fix
 
 > **Status:** 2h ✅ (enforcement shipped v3.3.198 as audit fix F2; USER CONFIRMED as a rule
-> 2026-09-02) · 6d / 6e / the orphan-box prune ✅ (in the v3.3.199 pending-release tree) ·
-> 4e ⏳ LANDING (v3.3.199/200 — the diff is uncommitted at the time of this amendment).
+> 2026-09-02) · 6d / 6e / the orphan-box prune ✅ · 4e ✅ — **all four rules LANDED in v3.3.199
+> (commit `8c5c6a4`)**.
 > USER APPROVED 2026-09-02. Traceability **R54** (`wiki/REQUIREMENTS_TRACEABILITY.md` §R54);
 > design decision `CLAUDE.md` #60; rule-by-rule examples with verbatim SQL:
 > `wiki/FLOW_ONLY_VIEW_RULES.md` §2h / §4e / §6d / §6e; canonical re-pin:
@@ -862,12 +865,15 @@ with no red. Implementation: `graphStyles.js` (`FILTER_LOOP_GEOM_STYLES`,
 
 **The requirement.** In the L2 flow-only view, an edge is served only when the searched
 `table.field` is involved in the data flow it carries — refined by four rules the EAST5 × `BBZ`
-and EAST5 × `p_dt` investigations produced. The common root cause they close is the
+and EAST5 × `p_dt` investigations produced. The common root cause they narrow is the
 **carrier-is-None skeleton fallback**: when the hop carrier resolved to None on a frame, the
 field-involvement filter (#48) had no sibling chip to refuse, so a foreign statement's whole
 write/read plumbing was admitted as "skeleton". From this amendment the evidence is the edge's
 OWN carried hop segment (`_src_label` / `_own_seg_idx` / `_path_hops`), never its display
-endpoints and never the hop the walk arrived through.
+endpoints and never the hop the walk arrived through. NARROWED, not closed: the `carrier is None`
+admission itself stays in `l2_builder.py` (`:2936`) as the legacy contract that admits the
+table/VT skeleton's own structural legs — what the rules above remove is the false evidence that
+used to reach it.
 
 - **2h — provenance-linked AS-alias routing (USER CONFIRMED).** A searched source field's value
   written to the target under an AS-alias keeps the alias's ⟐output legs served, so the value

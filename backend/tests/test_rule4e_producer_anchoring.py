@@ -107,10 +107,16 @@ def _producer_edges(res, deps, target_name="BBZ"):
 
 def test_extractor_version_bumped_for_rule_4e():
     """Rule 4e changes EXTRACTION output (new occurrence twin + moved
-    producer anchors), so version-matched caches must invalidate: .13 → .14."""
-    assert EXTRACTOR_VERSION == "2026-08-28.14", (
-        f"EXTRACTOR_VERSION is {EXTRACTOR_VERSION!r} — rule 4e changes "
-        f"extraction output and must bump the version past .13")
+    producer anchors), so version-matched caches must invalidate: .13 → .14.
+
+    Frame statement anchor (2026-08-28.15) moved the version again — the
+    frame VTs of the `INSERT INTO TABLE` statements carry their own
+    statement's anchor line — so this pins PAST .13 (the pre-4e version),
+    never one exact literal: every later extraction-output change must
+    keep invalidating the version-matched caches."""
+    assert EXTRACTOR_VERSION > "2026-08-28.13", (
+        f"EXTRACTOR_VERSION is {EXTRACTOR_VERSION!r} — rule 4e (and every "
+        f"later extraction-output change) must keep the version past .13")
 
 
 # ═══════════════════════════════════════════════════════════════════════

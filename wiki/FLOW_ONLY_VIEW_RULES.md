@@ -4,10 +4,15 @@
 > from the flagship scripts, and the confusing ones labeled. Written 2026-09-01 for the
 > user's review; the two ⚡ ruling items were RESOLVED the same day (§7-A write leg only,
 > §7-B the edge drops and the edge-less chip is pruned) — their §7 entries keep the history.
-> Every trace row below is payload-checked (REV 8, 2026-09-02): against the regenerated
+> Every trace row below is payload-checked (REV 15, 2026-09-02): against the regenerated
 > flow-only baselines in `backend/tests/snapshots/` where the searched field is a snapshot
 > seed, otherwise against a live in-process build of the same `_build_l2_graph` path
 > (`PYTHONHASHSEED=0`), labeled "live build" on the row.
+>
+> **REV 9–15 (2026-09-02)** added rule 2h (provenance-linked AS-alias routing), rules 6d/6e
+> (alias/feeder-box scope + own-segment classification) with the orphan-BOX prune, rule 4e
+> (producer-occurrence anchoring, LANDED — commit `8c5c6a4`, v3.3.199), the flow-only-only UI
+> (Full view CUT, R53), and the trace corrections (EAST5 × `BBZ` = 10 edges / 6 nodes).
 
 ## The foundation: two ways an edge earns its place
 
@@ -368,7 +373,7 @@ where it is not), shown (✅) vs dropped (❌).
 | 4b | **JOIN-ON AND-continuation legs** (family-4 twins) | ✅ | SUP_M L201: `p2.lending_ref = p1.lending_ref` — the searched field's own leg anchors its own line (the sibling legs @202/@203 stay dark — rule 3b); PL L224 `AND a.p_dt = c.p_dt` — the continuation leg of the searched field's own JOIN serves 2 JOIN + 2 SCHEMA rows (live build) |
 | 4c | A line already anchored by a surviving var — no duplicate | ❌ | The L82 NVL read: anchored once |
 | 4d | A twin with **no owner evidence** is not minted | ❌ | EAST5 L43: `d.org_no_cbrc` inside `NVL(c.org_no_cbrc,d.org_no_cbrc)` — a bare occurrence with no clause owner of its own earns no twin (the paren-scope owner rule); L42 is a SQL comment in the sample |
-| 4e | **Producer-occurrence anchoring** (USER APPROVED 2026-09-02 — landing): an edge carrying the searched field's value from a producer column anchors at the occurrence INSIDE the searched field's own expression | ✅ | EAST5 × `BBZ`: the `a.ccy_code` producer edge anchors **L71** (arm-2 condition `A.ccy_code<>B.ccy_code`), never **L47** (`a.ccy_code AS bz` — the sibling column `bz`'s birth line); the `a.charge_department` edge anchors **L70** (arm-1 condition), never the `stzfdxzh` CASE's L51 |
+| 4e | **Producer-occurrence anchoring** (USER APPROVED 2026-09-02 — landed, v3.3.199 commit `8c5c6a4`): an edge carrying the searched field's value from a producer column anchors at the occurrence INSIDE the searched field's own expression | ✅ | EAST5 × `BBZ`: the `a.ccy_code` producer edge anchors **L71** (arm-2 condition `A.ccy_code<>B.ccy_code`), never **L47** (`a.ccy_code AS bz` — the sibling column `bz`'s birth line); the `a.charge_department` edge anchors **L70** (arm-1 condition), never the `stzfdxzh` CASE's L51 |
 
 ---
 
@@ -985,7 +990,7 @@ L199:        LEFT JOIN bdm_acc_loan_info_sup p2 -- 贷款借据信息附属表  
 ```
 
 
-**4e — producer-occurrence anchoring (landed 2026-09-02, Team 4E).**
+**4e — producer-occurrence anchoring (landed 2026-09-02, Team 4E — v3.3.199, commit `8c5c6a4`).**
 
 > **The rule in one picture** — the producer column appears at two lines; the edge
 > lights where BBZ's expression READS it, not where the column first appears:
@@ -1006,11 +1011,11 @@ L199:        LEFT JOIN bdm_acc_loan_info_sup p2 -- 贷款借据信息附属表  
 > and `L71 → BBZ`. Same value story — only the anchor lines move to the arms that
 > actually feed BBZ.
 
-*Trace (EAST5 × `BBZ`, live build: 10 edges / 10 nodes)*
+*Trace (EAST5 × `BBZ`, live build: 10 edges / 6 nodes)*
 
 - Search field: `east5_stzfxxb.BBZ` (script: EAST5_STZFXXB_M.sql)
-- L70: `CASE WHEN a.charge_department = 'GTRF_RFN' THEN a.remark` — ✅ (edge: COMPUTED @70, `bdm_acc_entrusted_payment@141` → `BBZ@73` — `‖a.remark@L70 → BBZ@L73‖`: arm-1's THEN)
-- L71: `WHEN a.TAG_PRIMARY_ACCOUNTABLE_PARTY="WSB_GTRF_CoreTrade" AND A.ccy_code<>B.ccy_code THEN …‖B.ccy_code` — ✅ ×2 (edge: COMPUTED @71, `bdm_acc_entrusted_payment@141` → `BBZ@73` — `‖a.TAG_PRIMARY_ACCOUNTABLE_PARTY@L71 → BBZ@L73‖`) (edge: COMPUTED @71, `bdm_acc_loan_info@142` → `BBZ@73` — `‖B.ccy_code@L71 → BBZ@L73‖`: the condition AND the THEN concat)
+- L70: `CASE WHEN a.charge_department = 'GTRF_RFN' THEN a.remark` — ✅ ×2 (edge: COMPUTED @70, `bdm_acc_entrusted_payment@141` → `BBZ@73` — `‖a.remark@L70 → BBZ@L73‖`: arm-1's THEN) (edge: COMPUTED @70, `bdm_acc_entrusted_payment@141` → `BBZ@73` — `‖a.charge_department@L70 → BBZ@L73‖`: arm-1's condition)
+- L71: `WHEN a.TAG_PRIMARY_ACCOUNTABLE_PARTY="WSB_GTRF_CoreTrade" AND A.ccy_code<>B.ccy_code THEN …‖B.ccy_code` — ✅ ×3 (edge: COMPUTED @71, `bdm_acc_loan_info@142` → `BBZ@73` — `‖B.ccy_code@L71 → BBZ@L73‖`: the condition AND the THEN concat) (edge: COMPUTED @71, `bdm_acc_entrusted_payment@141` → `BBZ@73` — `‖a.TAG_PRIMARY_ACCOUNTABLE_PARTY@L71 → BBZ@L73‖`) (edge: COMPUTED @71, `bdm_acc_entrusted_payment@141` → `BBZ@73` — `‖A.ccy_code@L71 → BBZ@L73‖`: the 4e producer, anchored at its own arm)
 - L73: `END AS BBZ` — ✅ (edge: own ⟐output membership @73) (edge: TABLE_FLOW/write value, `BBZ@73 → output@41`)
 - History: the pre-4e engine anchored these producers at **L47** (`bz`'s birth line) and **L51** (the `stzfdxzh` CASE's line) — sibling columns' expressions. Post-4e both anchor at their own arm lines; context: complete in the rows above.
 
@@ -1266,7 +1271,7 @@ L201:          p2.lending_ref = p1.lending_ref -- p1表和p2表贷款借据编�
 
 *Example 1 — an alias enters only while the searched field's expression reads through it (EAST5 × `BBZ`)*
 
-- Search field: `east5_stzfxxb.BBZ` (script: EAST5_STZFXXB_M.sql — verified by live build: 10 edges / 10 nodes)
+- Search field: `east5_stzfxxb.BBZ` (script: EAST5_STZFXXB_M.sql — verified by live build: 10 edges / 6 nodes)
 - L141: `FROM bdm_acc_entrusted_payment a` — ✅ (edge: ALIAS/chain @141, `bdm_acc_entrusted_payment@141` → `a@141`) (edge: TABLE_FLOW/chain @141, `a@141` → `output@41` — BBZ's arm conditions read `a.charge_department` / `a.TAG_PRIMARY_ACCOUNTABLE_PARTY` THROUGH this alias: it is a feeder box)
 - L151: `LEFT JOIN BDM_ACC_INTERNAL_COUNTERPARTY e` — ❌ (no edges served — `e.acct_no` feeds `stzfdxzh`@53 only, never BBZ; the served chips `e@152`/`f@155` and their chains drop with it)
 - L154: `LEFT JOIN v_bdm_sys_ftpsje_jydsf('$(load_date)') f` — ❌ (no edges served — `f.df_dfzh/df_dfhm` feed `stzfdx*` only)
@@ -1296,12 +1301,12 @@ context: complete in the rows above.
 
 - Search field: `east5_stzfxxb.p_dt` (script: EAST5_STZFXXB_M.sql — verified by live build)
 - L179: `INSERT INTO TABLE rrcdm_job_log_exec_par( data_dt ,object_domain ,sub_src_system ,table_name ,job_name ,total_rows ,load_time ,STATUS ,remarks )` — ❌ no edge (the job-log writes `data_dt` + literals + `COUNT(1)` — never `p_dt`; the old trunk `‖⟐ output@L179 → rrcdm_job_log_exec_par@L179‖` drops: its own carried segment is not `p_dt`'s participation — 7-A corollary)
-- L189: `FROM EAST5_STZFXXB` — ✅ (edge: REF/read @189, `p_dt@190` → `east5_stzfxxb@189` — the read the @190 predicate filters)
-- L190: `WHERE p_dt = '$(load_date)'` — ✅ (edge: FILTER/field flow @190, `p_dt@190` → `east5_stzfxxb@189` — the searched field's own row selection)
+- L189: `FROM EAST5_STZFXXB` — ✅ (edge: REF/read @189, `p_dt@190` → `east5_stzfxxb@189` — carried segment `‖p_dt@L190 → east5_stzfxxb@L189‖`: the read the @190 predicate filters)
+- L190: `WHERE p_dt = '$(load_date)'` — ✅ (edge: FILTER/field flow @190, `p_dt@190` → `east5_stzfxxb@189` — carried segment `‖p_dt@L190 → east5_stzfxxb@L189‖`: the searched field's own row selection)
 
 *Example 2 — the legal-stay contrast: the searched field's OWN write trunk (same closure)*
 
-- L41: `INSERT OVERWRITE TABLE east5_stzfxxb PARTITION(p_dt='$(load_date)',charge_department)` — ✅ the @41 write legs STAY (edge: TABLE_FLOW/write @41, `output@41` → `east5_stzfxxb@41`; plus the write-value pair and the own membership — 7-A rule 1: `p_dt` IS a column this INSERT writes). The 6e test is what separates this trunk (the searched field is written here → stays) from the job-log trunk @179 (the searched field is not written there → drops).
+- L41: `INSERT OVERWRITE TABLE east5_stzfxxb PARTITION(p_dt='$(load_date)',charge_department)` — ✅ the @41 write legs STAY — 3 edges (edge: TABLE_FLOW/write leg @41, `output@41` → `east5_stzfxxb@41`) (edge: REF/read into output @41, `p_dt@41` → `output@41`) (edge: TABLE_FLOW/write value @41, `p_dt@41` → `output@41`); there is NO own-membership edge here (7-A rule 1: `p_dt` IS a column this INSERT writes). The 6e test is what separates this trunk (the searched field is written here → stays) from the job-log trunk @179 (the searched field is not written there → drops).
 
 The cited lines in their SQL (EAST5 L179 → L190, head and tail, verbatim):
 
@@ -1483,8 +1488,15 @@ the searched field's own membership shows in the flow view.
 ```
 Is the edge about the SEARCHED field's VALUE?
 ├── YES → shown (read/write/compute/filter/join-key/group-key/window-key/
-│         occurrence twin/AND-leg, each at its own line)
-├── Is it STRUCTURAL SKELETON (headers, belongs-to, containers, aliases) → shown as context
+│         occurrence twin/AND-leg, each at its own line). A producer edge
+│         anchors INSIDE the searched field's own producing expression —
+│         the CASE arm — never at a sibling column's birth line (rule 4e)
+├── Is it STRUCTURAL SKELETON → shown as context ONLY while it is the searched
+│   field's OWN: headers, containers, the searched field's belongs-to, and an
+│   alias/feeder box the searched field's expression reads through (6d).
+│   A SIBLING's belongs-to DROPS (3a), an edge whose OWN carried segment is
+│   not the field's participation DROPS (6e), and a box left with no edge is
+│   pruned (3c extended to boxes)
 ├── Is it ANOTHER FIELD's value flow → dropped (the field-involvement rule)
 ├── Is it a statement that only NAMES the field but writes literals
 │   (the job-log writes data_dt) → ✅ its write leg shows (RULING 7-A,
@@ -1508,4 +1520,4 @@ Is the edge about the SEARCHED field's VALUE?
 | Model persistence beside graph cache | graph_service `model_{key}.json` | V6/FSC-2 |
 | Own-segment classification + alias/feeder-box scope (6d/6e) | l2_builder `_apply_field_involvement` | SEGMENT, 2026-09-02 |
 | Provenance-linked AS-alias routing (2h) | l2_builder `_apply_field_involvement` own-frames admission | F1F2, 2026-09-02 |
-| Producer-occurrence anchoring (4e) | dependency_graph Phase 9 + extractor occurrence twins | 4E, 2026-09-02 (landing) |
+| Producer-occurrence anchoring (4e) | dependency_graph Phase 9b + extractor family 5 (`8c5c6a4`, v3.3.199) | 4E, 2026-09-02 (landed) |

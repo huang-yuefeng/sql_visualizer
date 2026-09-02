@@ -318,7 +318,16 @@ from app.models.variable import VariableDefinition, VariableType
 #  occurrence instead of the collapsed group's keeper line elsewhere in
 #  the statement. Changes EXTRACTION output (new twins, new anchor lines)
 #  — version-matched caches must invalidate.
-EXTRACTOR_VERSION = "2026-08-28.14"
+#
+#  .15 (2026-08-28, frame statement anchor): `_statement_anchor` also tries
+#  the source-faithful `INSERT INTO TABLE` head spelling the render cannot
+#  produce (sqlglot's Insert node has no argument for the TABLE keyword), so
+#  a DML statement whose head never matched the stream anchors on its OWN
+#  keyword line instead of 0. Changes EXTRACTION output — the ⟐ output frame
+#  VTs of those statements carry their own statement's anchor line instead of
+#  another statement's (RFN: TOP1 1429→1168, TOP2 1168→1429) — version-matched
+#  caches must invalidate.
+EXTRACTOR_VERSION = "2026-08-28.15"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
@@ -639,6 +648,16 @@ class ExtractionResult:
     # sees a single byte change. dependency_graph Phase 9 is the only
     # consumer.
     occurrence_arms: dict[str, str] = field(default_factory=dict)
+    # Frame statement anchor (2026-08-28.15): context → the statement's own
+    # first-token line. A context is ONE statement (C-9 "TOP{n}" plus its
+    # nested bodies), so this is the line every table-like var registered
+    # under that context anchors on — the ⟐ output frame VT's line above
+    # all. Unlike `_stmt_anchor_lines` (the LAST-WINS def-site RANGE floor,
+    # which the body SELECT's walk overwrites) this is the statement
+    # IDENTITY: it is what makes "this frame's line is its own statement's
+    # line" assertable from outside the walker
+    # (tests/test_frame_statement_anchor.py).
+    statement_anchor_lines: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -988,6 +1007,11 @@ def extract_variables_from_sql(sql_text: str, script_name: str) -> ExtractionRes
 
     # R20: orphan resolution coverage report
     result.resolution_stats = extractor.build_resolution_stats()
+
+    # Frame statement anchor (2026-08-28.15): publish each context's own
+    # statement line (see the field's comment) — extraction-time truth, the
+    # statement identity the ⟐ output frame VT's line must carry.
+    result.statement_anchor_lines = dict(extractor._stmt_first_anchor_lines)
     return result
 
 
@@ -1412,6 +1436,14 @@ class _RoleBasedExtractor:
         # `_register_flow_occurrence_twins` re-anchors them as
         # occurrence-side twins.
         self._collapsed_occurrences: list[dict] = []
+        # Frame statement anchor (2026-08-28.15): context → the EARLIEST line
+        # any walk of that context anchored on = the context's statement's own
+        # first-token line (a context is ONE statement — C-9 "TOP{n}" plus its
+        # nested bodies). `_stmt_anchor_lines` is the LAST-WINS def-site floor
+        # and deliberately differs; this one is the statement identity the
+        # ⟐ output frame VT's line must equal, published on the result as
+        # `statement_anchor_lines`.
+        self._stmt_first_anchor_lines: dict[str, int] = {}
         # R45 Fix E (2026-08-28.9): per-context columns a MERGE actually
         # WRITES — the WHEN MATCHED UPDATE SET left-hand targets plus the
         # WHEN NOT MATCHED INSERT column list (casefolded; SQL identifiers
@@ -1504,51 +1536,77 @@ class _RoleBasedExtractor:
                 # later one's head (L16).
                 head = [t.text.lower() for t in rendered
                         if not _is_as_keyword(t)][:6]
+                # Statement-anchor candidates (frame-anchor fix, 2026-08-28.15):
+                # the render head first, then the source-faithful spellings a
+                # render cannot reproduce. sqlglot's Insert node has no
+                # argument for the Hive/ODPS `TABLE` keyword, so
+                # `INSERT INTO TABLE t` renders `INSERT INTO t` in EVERY
+                # dialect and the plain head never matches the stream — the
+                # statement anchored 0, its context then recorded the body
+                # SELECT's line (LAST-WINS I1) and every def-site lookup
+                # scoped to a range whose floor was one line PAST the DML
+                # keyword. RFN's two `INSERT INTO TABLE` statements both
+                # degraded this way and their ⟐ output frame VTs fell
+                # through to the generic 2-token run (`head_run[:2]`,
+                # ["insert", "into"]) — matching whichever statement's
+                # INSERT came next in the stream, so the two frames carried
+                # each OTHER statement's line. The variant is tried STRICTLY
+                # AFTER the plain head and only inserts the one dropped
+                # keyword, so a head that matches today still matches first
+                # and no other anchor moves.
+                if len(head) >= 3 and head[:2] == ["insert", "into"]:
+                    heads = [head, head[:2] + ["table"] + head[2:]]
+                else:
+                    heads = [head]
+                head_key = ()
                 # S3: an identical earlier statement's body already claimed
                 # this head — search strictly after its matched line so THIS
                 # node lands on its own occurrence (walks are in stream
                 # order per head).
-                head_key = tuple(head)
-                last_line = self._anchor_head_last.get(head_key, 0)
                 # C-13(b): candidate scan via the first-token position index
                 # (built once in __init__). Identical matching semantics to
                 # the linear scan below — the index only skips tokens that
                 # cannot start the subsequence (head[0] mismatch).
                 tokens = self._tokens_wo_as
-                limit = len(tokens) - len(head) + 1
-                candidates = self._first_token_index.get(head[0], [])
-                for i in candidates:
-                    if i >= limit:
-                        break
-                    if tokens[i].line <= last_line:
-                        continue
-                    match = True
-                    for j in range(1, len(head)):
-                        if tokens[i + j].text.lower() != head[j]:
-                            match = False
+                for cand in heads:
+                    head_key = tuple(cand)
+                    last_line = self._anchor_head_last.get(head_key, 0)
+                    limit = len(tokens) - len(cand) + 1
+                    candidates = self._first_token_index.get(cand[0], [])
+                    for i in candidates:
+                        if i >= limit:
                             break
-                    if match:
-                        line = tokens[i].line
-                        break
-                if not line and candidates:
-                    # Index miss (defensive — head[0] came from the same
-                    # tokenizer family) → full linear scan fallback, the
-                    # pre-C-13(b) behavior.
-                    for i, tok in enumerate(tokens):
-                        if i + len(head) > len(tokens):
-                            break
-                        if tok.text.lower() != head[0]:
-                            continue
-                        if tok.line <= last_line:
+                        if tokens[i].line <= last_line:
                             continue
                         match = True
-                        for j in range(1, len(head)):
-                            if tokens[i + j].text.lower() != head[j]:
+                        for j in range(1, len(cand)):
+                            if tokens[i + j].text.lower() != cand[j]:
                                 match = False
                                 break
                         if match:
-                            line = tok.line
+                            line = tokens[i].line
                             break
+                    if not line and candidates:
+                        # Index miss (defensive — head[0] came from the same
+                        # tokenizer family) → full linear scan fallback, the
+                        # pre-C-13(b) behavior.
+                        for i, tok in enumerate(tokens):
+                            if i + len(cand) > len(tokens):
+                                break
+                            if tok.text.lower() != cand[0]:
+                                continue
+                            if tok.line <= last_line:
+                                continue
+                            match = True
+                            for j in range(1, len(cand)):
+                                if tokens[i + j].text.lower() != cand[j]:
+                                    match = False
+                                    break
+                            if match:
+                                line = tok.line
+                                break
+                    if line:
+                        break
         if line and head_key:
             self._anchor_head_last[head_key] = line
         self._anchor_cache[key] = line
@@ -1563,11 +1621,24 @@ class _RoleBasedExtractor:
         target, its alias, PARTITION columns) have already resolved against
         the INSERT's anchor by then, and the body vars that follow resolve
         against their own SELECT — each var's own statement, D-series.
+
+        The EARLIEST anchor is kept separately on
+        `_stmt_first_anchor_lines` (exposed as
+        `ExtractionResult.statement_anchor_lines`): a context is ONE
+        statement (C-9 "TOP{n}" plus that statement's nested bodies), so
+        its earliest anchored line is the statement's own start — the line
+        a frame VT registered under that context must carry (the frame
+        statement-anchor pin, 2026-08-28.15). `_stmt_anchor_lines` above
+        stays LAST-WINS: it is the def-site RANGE floor, not the statement
+        identity.
         """
         if context:
             line = self._statement_anchor(stmt)
             if line > 0:
                 self._stmt_anchor_lines[context] = line
+                known = self._stmt_first_anchor_lines.get(context)
+                if known is None or line < known:
+                    self._stmt_first_anchor_lines[context] = line
 
     def _stmt_anchor_for(self, context: str) -> int:
         """Longest recorded context that is a '/'-segment prefix of `context`."""

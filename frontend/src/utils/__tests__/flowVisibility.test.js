@@ -351,7 +351,7 @@ describe('mergedView — #376 edgeless field chips hide only in merged modes', (
     cy.nodes().forEach(n => expect(n.hidden()).toBe(false));
   });
 
-  it('fitAllElements forwards mergedView — the restored state re-prunes but keeps the seed', () => {
+  it('fitVisibleElements forwards mergedView — the restored state re-prunes but keeps the seed', () => {
     const cy = makeFakeCy(mergedGraph);
     fitVisibleElements(cy, {
       flowOnly: true,

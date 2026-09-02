@@ -71,6 +71,20 @@ The 6 over-included edges this rule removes on the cross-check corpus
     field's own on the written box (the §7-A boundary — EAST5's
     `PARTITION(…, charge_department)`). A sibling's frame satisfies none of
     the three together, so `reserved_field8`'s legs stay dropped.
+
+  Class 6 — THE ORPHAN-BOX PRUNE + ONE IDENTITY INSIDE THE PASS (2026-09-02,
+    the post-v3.3.199 review). `_prune_orphan_boxes` extends rule 3c's
+    prune from chips to BOXES: a non-seed box whose every edge the rule
+    dropped leaves the flow-only view with them (RFN's `rrcdm_job_log_exec_par`,
+    iiapty's `p2@199`). And the pass's "is this chip the searched field's
+    own?" question now has ONE definition — `_own_occurrence`, the
+    resolved-owner identity F1 landed in Class 3 — while the pass's
+    VALUE questions (the seed-endpoint exemption, the 7-A write-leg/frame
+    evidence, the feeder set) stay deliberately COLUMN-level, each with the
+    measured reason at its own site: narrowing them was tried and costs
+    canonical ground-truth rows (DL × lending_ref upstream, the bdm seed on
+    SUP_M). 0 served edges move corpus-wide on this delta; these pins hold
+    the line.
 """
 
 import contextlib
@@ -98,6 +112,8 @@ FLAGSHIP = SAMPLES / "BDM_ACC_LOAN_INFO_SUP_M.sql"
 FLAGSHIP_NAME = "BDM_ACC_LOAN_INFO_SUP_M.sql"
 EAST5 = SAMPLES / "EAST5_STZFXXB_M.sql"
 EAST5_NAME = "EAST5_STZFXXB_M.sql"
+RFN = SAMPLES / "BDM_ACC_LOAN_INFO_RFN.sql"
+RFN_NAME = "BDM_ACC_LOAN_INFO_RFN.sql"
 
 # The L82 / L163 anchors of the two mis-anchored JOIN carriers, and the
 # sibling write zone (L183 the write projection, L198 the alias instance
@@ -168,6 +184,12 @@ def _build_east5(table, field, disable_rule=False):
     """Served EAST5 closure — the F1/F2 audit corpus."""
     return _run(EAST5.read_text(encoding="utf-8"), EAST5_NAME,
                 table, field, disable_rule=disable_rule)
+
+
+def _build_rfn(table, field, disable_rule=False, relevance_filter=True):
+    """Served RFN closure — the same-name-chip / job-log frame corpus."""
+    return _run(RFN.read_text(encoding="utf-8"), RFN_NAME, table, field,
+                disable_rule=disable_rule, relevance_filter=relevance_filter)
 
 
 def _label(nodes, edge, side):
@@ -1103,15 +1125,17 @@ def test_p_dt_job_log_trunk_is_dropped():
         "the pre-rule engine no longer serves the job-log trunk (stale pin)")
     assert any(i.startswith("l2e_95d728846a99") for i in pre), (
         "the pre-rule engine no longer serves the job-log read chain")
-    # the served closure is exactly the audited five, asserted PER EDGE
-    # (id prefix — the builder rehashes the routed/value ids)
-    assert served == {i for i in P_DT_SERVED
-                      if any(s.startswith(i) for s in served)} or all(
-                          any(s.startswith(i) for s in served)
-                          for i in P_DT_SERVED), (
-        f"the p_dt closure moved: {sorted(served)}")
-    assert len(served) == len(P_DT_SERVED), (
-        f"the p_dt closure is not the audited five: {sorted(served)}")
+    # the served closure is exactly the audited five, matched PER EDGE by id
+    # prefix (the builder rehashes the routed/value ids). Asserted in BOTH
+    # directions and without an `or` fallback — the previous shape
+    # (`served == {…} or all(…)`) was vacuously true on an empty closure,
+    # because the left set is empty exactly when `served` is (the R1.6/R4-L
+    # class: an assertion that cannot fail is not a pin).
+    matched = {i for i in P_DT_SERVED
+               if any(s.startswith(i) for s in served)}
+    assert matched == set(P_DT_SERVED) and len(served) == len(P_DT_SERVED), (
+        f"the p_dt closure is not the audited five: "
+        f"missing={sorted(set(P_DT_SERVED) - matched)} served={sorted(served)}")
 
 
 def test_p_dt_own_legs_stay():
@@ -1349,3 +1373,224 @@ def test_chain_leg_driven_by_a_sibling_still_drops():
                        ("⟐ output", 160)])
     assert _apply_field_involvement([e], "lending_ref", True,
                                     physical_model=_model()) == []
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Class 4/F1 follow-up — ONE occurrence identity inside the pass (2026-09-02)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# FINDING 1 (REVIEW-L2, post-v3.3.199): the seed-endpoint exemption and the
+# frame prelude still matched the field NAME while `_own_belongs_to` used
+# the resolved-owner identity, so the two rules in one function disagreed
+# about what "the searched field's own chip" means. The pass now asks the
+# ONE identity everywhere it asks the question at all
+# (`l2_builder._apply_field_involvement._own_occurrence`), and the places
+# that stay deliberately NAME-level carry the reason in their docstring:
+# the 7-A write-leg/frame evidence is a ruling about the COLUMN being
+# written, and the feeder set is a set of BOXES the searched value is
+# carried between (a box that PRODUCES the searched field's own value
+# counts through the chip it produces).
+#
+# Measured on HEAD vs this tree, PYTHONHASHSEED-pinned, over the 21
+# acceptance closures (SUP_M/PL/DL/EAST5/RFN): 0 served edges move. That is
+# the finding's own prediction — "today nothing illegal SURVIVES corpus-wide
+# (a weaker test stands)" — so these pins exist to keep the identity from
+# drifting apart again, not to move the corpus.
+
+RFN_CUST_NO = ("ods_gdc_split_fg_rating_temp", "cust_no")
+# RFN's write legs into bdm_acc_loan_info: the two INSERT statements that
+# consume the searched CTE column (7-A rule 1 — the column is written).
+RFN_WRITE_LEG_LINES = (768, 1168)
+# RFN's job-log statement — the INSERT @1429 writes literals and COUNT(1),
+# never `cust_no`, so none of its write machinery may show.
+RFN_JOB_LOG_INSERT_LINE = 1429
+RFN_JOB_LOG_TARGET = "rrcdm_job_log_exec_par"
+# The row-source chains of the boxes that feed the statement whose frame
+# carries the searched column's own written value (the ⟐output@867 frame):
+# the legs the frame test must keep admitting while it is own.
+RFN_OWN_FRAME_CHAIN_LINES = (100, 290, 495, 1103, 1121)
+
+
+def test_seed_endpoint_exemption_is_the_occurrence_identity():
+    """The seed-endpoint exemption and Class 3's `_own_belongs_to` now share
+    ONE identity: a same-named chip whose RESOLVED OWNER is another table is
+    a sibling's chip for the exemption exactly as it is for the belongs-to
+    drop — unless it is an ownerless chip, a LITERAL (which owns nothing:
+    its `source_tables[0]` is the box the constant is written into), or a
+    container chip that is not a written column of its own."""
+    model = _east5_model()
+    own = _carrier(et="COMPUTED", src="a.remark", tgt="stzfdxzh", op="REFERENCE",
+                   line=51, src_owner="bdm_acc_entrusted_payment",
+                   own_seg=0, hops=[("a.remark", 51), ("stzfdxzh", 53)],
+                   src_field_like=True)
+    # the sibling chip's own leg is decided by the same identity that drops
+    # its belongs-to: not the searched table's chip, so no seed exemption
+    assert _apply_field_involvement(
+        [own], "charge_department", True, physical_model=model,
+        table="east5_stzfxxb") == []
+    # an ownerless same-named chip keeps the legacy contract: never drop on
+    # missing extraction-time evidence
+    ownerless = _carrier(et="REF", src="p1.charge_department", tgt="p1",
+                         op="READ", defined_in="JOIN ON", line=51, own_seg=0,
+                         hops=[("p1.charge_department", 51), ("p1", 51)])
+    assert _apply_field_involvement(
+        [ownerless], "charge_department", True, physical_model=model,
+        table="east5_stzfxxb") == [ownerless]
+    # a LITERAL chip owns nothing, so it is the searched column's own
+    # constant write even though its `source_tables[0]` names the written box
+    literal = _carrier(et="TABLE_FLOW", src="data_dt", tgt="⟐ output",
+                       op="INSERT", line=213, value_edge=True, tgt_output=True,
+                       src_owner="rrcdm_job_log_exec_par", src_id="lit",
+                       tgt_id="out")
+    assert _apply_field_involvement(
+        [literal], "data_dt", True, physical_model=model,
+        table="bdm_acc_loan_info_sup") == [literal]
+
+
+def test_frame_is_own_only_when_a_value_edge_lands_the_searched_column():
+    """The §7-A statement-level frame test, in isolation — the mechanism the
+    FINDING-1 frame-identity class lives in: an ⟐output frame is the
+    searched field's OWN frame only while a value edge lands the searched
+    column's written value on it, and a box leg into any other frame is
+    another statement's plumbing. A frame no value edge anchors never
+    becomes own, whatever its endpoints render as.
+
+    (The RFN × cust_no case this documents: the job-log statement's
+    ⟐output@1429 frame is own today on the strength of
+    `‖A.CUST_NO@L1178 → ⟐output@1429‖` — a `bdm_acc_loan_info` chip —
+    because the frame evidence is COLUMN-level by ruling. Narrowing it to
+    the occurrence identity was measured and REJECTED: it costs the
+    canonical its DL × lending_ref upstream and bdm-on-SUP_M rows.)"""
+    own_value = _carrier(et="TABLE_FLOW", src="cust_no", tgt="⟐ output",
+                         op="INSERT", line=101, tgt_line=867, value_edge=True,
+                         tgt_output=True, src_owner="ods_gdc_split_fg_rating_temp",
+                         src_id="chip", tgt_id="own_frame")
+    chain_into_own = _carrier(et="TABLE_FLOW", src="temp_rfn", tgt="⟐ output",
+                              op="FROM", line=110, tgt_line=867, tgt_output=True,
+                              own_seg=0, hops=[("temp_rfn", 110), ("⟐ output", 867)],
+                              src_id="box_a", tgt_id="own_frame")
+    chain_into_foreign = _carrier(et="TABLE_FLOW", src="B", tgt="⟐ output",
+                                  op="FROM", line=1422, tgt_line=1429,
+                                  tgt_output=True, own_seg=0,
+                                  hops=[("B", 1422), ("⟐ output", 1429)],
+                                  src_id="box_b", tgt_id="job_log_frame")
+    served = _apply_field_involvement(
+        [own_value, chain_into_own, chain_into_foreign], "cust_no", True,
+        physical_model=_east5_model(), table="ods_gdc_split_fg_rating_temp")
+    assert served == [own_value, chain_into_own], (
+        "the frame test admitted a frame no value edge anchored: "
+        f"{[(e.get('_src_label'), e.get('_tgt_line')) for e in served]}")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Class 6 — the orphan-BOX prune (`_prune_orphan_boxes`, rule 3c's box half)
+# ═══════════════════════════════════════════════════════════════════════
+
+def _box(nid, name, l2_id=None):
+    """A table compound as `_classify_compound_nodes` emits it: keyed by the
+    RAW node id, carrying its L2 keeper id separately."""
+    return {"id": l2_id or nid, "table_name": name, "label": name}
+
+
+def test_box_prune_unit_survivor_rules():
+    """The prune's exact survivor rules, unit-tested on synthetic compounds:
+    a box whose every edge the involvement rule dropped is removed; a box
+    any kept edge touches survives — through its RAW dict key or through its
+    L2 keeper id (the same split `_attach_flow_roles` documents); the
+    searched table's own keeper survives even edge-less; and a box holding a
+    surviving chip survives, through either id the chip's `parent` may
+    name."""
+    boxes = {
+        "raw_dead": _box("raw_dead", "rrcdm_job_log_exec_par", "l2_dead"),
+        "raw_edge": _box("raw_edge", "a_box", "l2_edge"),
+        "raw_keep": _box("raw_keep", "b_box", "l2_keep"),
+        "raw_seed": _box("raw_seed", "east5_stzfxxb", "l2_seed"),
+        "raw_hold": _box("raw_hold", "c_box", "l2_hold"),
+        "raw_hold2": _box("raw_hold2", "d_box", "l2_hold2"),
+    }
+    edges = [{"source": "l2_edge", "target": "f1"},          # keeper-id keying
+             {"source": "raw_keep", "target": "f2"}]         # raw-id keying
+    chips = [{"id": "f3", "label": "cust_no", "parent": "l2_hold"},
+             {"id": "f4", "label": "cust_no", "parent": "raw_hold2"}]
+
+    kept = LB._prune_orphan_boxes(boxes, edges, chips, "cust_no",
+                                  "east5_stzfxxb")
+    assert set(kept) == {"raw_edge", "raw_keep", "raw_seed", "raw_hold",
+                         "raw_hold2"}, sorted(kept)
+    assert "raw_dead" not in kept, "the edge-less non-seed box survived"
+
+
+def test_box_prune_unit_no_search_is_a_no_op():
+    """No searched field ⇒ the prune cannot run (the full view has no
+    searched field to be involved): the dict is returned untouched."""
+    boxes = {"a": _box("a", "x"), "b": _box("b", "y")}
+    assert LB._prune_orphan_boxes(boxes, [], [], "", "") is boxes
+    assert LB._prune_orphan_boxes(boxes, [], [], "   ", "x") is boxes
+
+
+def test_box_prune_full_view_keeps_every_box():
+    """The prune is flow-only: it runs behind the search filter
+    (`_build_l2_graph` calls it under `relevance_filter`), so the FULL view
+    keeps every box the engine classified — byte-identical with the rule
+    disabled."""
+    full_nodes, _ = _build_rfn(*RFN_CUST_NO, relevance_filter=False)
+    full_nodes0, _ = _build_rfn(*RFN_CUST_NO, relevance_filter=False,
+                                disable_rule=True)
+    boxes = {n["id"] for n in full_nodes.values()
+             if str(n.get("id", "")).startswith("l2_tbl_")}
+    boxes0 = {n["id"] for n in full_nodes0.values()
+              if str(n.get("id", "")).startswith("l2_tbl_")}
+    assert boxes == boxes0 and boxes, (
+        "the full view's box set moved: "
+        f"{sorted(boxes ^ boxes0)}")
+
+
+def test_rfn_write_legs_stay_served_and_job_log_stays_dark():
+    """RFN × `ods_gdc_split_fg_rating_temp.cust_no` — the real-SQL pin for
+    the 7-A write legs and the job-log frame.
+
+    SERVED: both write legs into `bdm_acc_loan_info` (@768 the bulk INSERT,
+    @1168 the merge-back INSERT) — the statements that consume the searched
+    CTE column write the column it feeds (7-A rule 1) — and the row-source
+    chains of the boxes feeding the frame that carries the searched column's
+    own written value (the ⟐output@867 frame).
+
+    DARK: the job-log statement (@1429) writes literals and COUNT(1), never
+    `cust_no`, so none of its write machinery shows and its write-target box
+    never enters the closure."""
+    nodes, edges = _build_rfn(*RFN_CUST_NO)
+    write_legs = [e for e in edges
+                  if e.get("flow_kind") == "write"
+                  and _label(nodes, e, "target") == "bdm_acc_loan_info"]
+    assert len(write_legs) == len(RFN_WRITE_LEG_LINES), (
+        f"the RFN write legs: "
+        f"{[(e['highlight_line'], _label(nodes, e, 'target')) for e in write_legs]}")
+    # the anchors are the two writing INSERT statements' own lines (the
+    # compound keeper pick decides which of the two a shared leg carries)
+    assert {e["highlight_line"] for e in write_legs} <= set(RFN_WRITE_LEG_LINES), (
+        f"the RFN write legs moved: {sorted(e['highlight_line'] for e in write_legs)}")
+    for e in write_legs:
+        assert "output" in (_label(nodes, e, "source") or "").casefold(), (
+            "the write leg must route through the statement's ⟐output frame")
+        assert e["highlight_line"] >= 1
+    # the searched column's own write frame's row chains stay served
+    chains = [e for e in edges
+              if e.get("edge_type") == "TABLE_FLOW"
+              and _label(nodes, e, "target") == "output"
+              and e["highlight_line"] in RFN_OWN_FRAME_CHAIN_LINES]
+    assert {e["highlight_line"] for e in chains} == set(RFN_OWN_FRAME_CHAIN_LINES), (
+        f"the own-frame row chains went dark: "
+        f"{sorted(RFN_OWN_FRAME_CHAIN_LINES - {e['highlight_line'] for e in chains})}")
+    # the job-log statement's write machinery stays dark
+    log_legs = [e for e in edges
+                if e.get("flow_kind") == "write"
+                and e["highlight_line"] == RFN_JOB_LOG_INSERT_LINE]
+    assert not log_legs, (
+        f"the job-log statement shows a write leg: "
+        f"{[(_label(nodes, e, 'source'), _label(nodes, e, 'target')) for e in log_legs]}")
+    assert not any(e.get("flow_kind") == "write"
+                   and _label(nodes, e, "target") == RFN_JOB_LOG_TARGET
+                   for e in edges), "a job-log write leg is served"
+    assert not any(n.get("table_name") == RFN_JOB_LOG_TARGET
+                   for n in nodes.values()), (
+        "the job-log write-target box is served as an edge-less box")
