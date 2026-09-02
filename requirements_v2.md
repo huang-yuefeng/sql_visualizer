@@ -785,6 +785,25 @@ this field's value go?"), so that is what ships to users first; the Full and det
 deferred until there is user demand for them, with the code kept so reviving them costs a UI change,
 not a rebuild.
 
+#### Fit frames the VISIBLE closure (E-M8/#283 amended the same day)
+
+`flowVisibility.fitVisibleElements` (renamed from `fitAllElements`) applies the flow visibility pass
+FIRST, then `cy.fit(cy.elements(':visible'), padding)` — the fitted collection is exactly the visible
+closure, never the whole model, and it is still never a layout (positions stay byte-identical). The
+old E-M8 order (#283, 2026-08-24) — show every element, `cy.fit()` the FULL graph, then re-apply the
+flow visibility — existed only so the closed Full view's nodes stayed reachable after a resize
+auto-fit; with the Full view cut from this requirement (above), hidden elements are unreachable by
+any UI path, so fitting them serves nothing. The old order zoomed out over the hidden elements'
+space: the `east5` box reserved 55 chip slots for 1 visible chip — 2890 px of dead space before
+COMPACT's compaction.
+
+**The user's reasoning:** with one view, everything that should be visible IS visible — "visible"
+and "the graph" are the same collection, so framing the visible closure IS framing the graph.
+Pins: `flowVisibility.test.js` (the fake `cy` honors `elements(':visible')` and asserts the fitted
+collection is exactly `['e1', 'n1', 'n2']`); `fitZoomException.test.js` keeps the min-zoom-floor
+coverage over the same hook Fit path. Traceability row **R31.26** (AMENDED 2026-09-02); design
+decision `CLAUDE.md` #59.
+
 #### Non-goals
 
 - No engine change, no payload change, no cache invalidation, no snapshot rebaseline, no versioned
@@ -803,7 +822,11 @@ not a rebuild.
 edges, do not use a special red color."
 
 **Scope:** the merged flow-only self-loop (an absorbed FILTER rendered as a
-self-loop on its table box, class `filter-selfloop`) previously wore a special red
+self-loop on its table box, class `filter-selfloop`) previously wore a special red.
+**Scope boundary (user, same day): "keep them the same as it is"** — the per-type
+FILTER edge color (`edge[category="filter"]`, #E74C3C dashed — the standard 16-type
+palette) and the red-tinted box fills are OUT OF SCOPE and stay unchanged; only the
+self-loop's special treatment goes uniform.
 treatment (`#E74C3C`, width 7, end-arrow scale 1.6), and a Field Story "Filtered"
 step re-coloured it `#FF6B6B` at width 9. Both are REMOVED. The self-loop keeps its
 GEOMETRY — the enlarged bezier (`loopstep`/`loopdir` data) that makes it render
@@ -821,3 +844,87 @@ story style groups; (3) the loop stays visible, clickable, and side-assigned as
 before (geometry untouched); (4) browser capture shows the loop in the uniform grey
 with no red. Implementation: `graphStyles.js` (`FILTER_LOOP_GEOM_STYLES`,
 `FILTER_LOOPLINE_STYLES`, `STORY_STYLES`); pin: `selfLoopFilterLabel.test.js`.
+
+
+### Amendment (2026-09-02) — four new L2 flow-only edge rules from the BBZ/p_dt script investigations (2h, 4e, 6d, 6e) + the carrier-is-None fix
+
+> **Status:** 2h ✅ (enforcement shipped v3.3.198 as audit fix F2; USER CONFIRMED as a rule
+> 2026-09-02) · 6d / 6e / the orphan-box prune ✅ (in the v3.3.199 pending-release tree) ·
+> 4e ⏳ LANDING (v3.3.199/200 — the diff is uncommitted at the time of this amendment).
+> USER APPROVED 2026-09-02. Traceability **R54** (`wiki/REQUIREMENTS_TRACEABILITY.md` §R54);
+> design decision `CLAUDE.md` #60; rule-by-rule examples with verbatim SQL:
+> `wiki/FLOW_ONLY_VIEW_RULES.md` §2h / §4e / §6d / §6e; canonical re-pin:
+> `backend/tests/jaccard_canonical.py` docstring point 27.
+
+**The requirement.** In the L2 flow-only view, an edge is served only when the searched
+`table.field` is involved in the data flow it carries — refined by four rules the EAST5 × `BBZ`
+and EAST5 × `p_dt` investigations produced. The common root cause they close is the
+**carrier-is-None skeleton fallback**: when the hop carrier resolved to None on a frame, the
+field-involvement filter (#48) had no sibling chip to refuse, so a foreign statement's whole
+write/read plumbing was admitted as "skeleton". From this amendment the evidence is the edge's
+OWN carried hop segment (`_src_label` / `_own_seg_idx` / `_path_hops`), never its display
+endpoints and never the hop the walk arrived through.
+
+- **2h — provenance-linked AS-alias routing (USER CONFIRMED).** A searched source field's value
+  written to the target under an AS-alias keeps the alias's ⟐output legs served, so the value
+  chain reaches the DML without a hole. Admission needs all three, from extraction-time facts
+  only: (a) the closure already serves the `field → alias` TRANSFORM (provenance), (b) the frame
+  is the write target's own column, (c) the statement writes no searched-field column itself (the
+  7-A boundary). Example: EAST5 L50 `REPLACE(a.entd_paym_dt,"_","") As stzfrq` — 4 edges served,
+  the chain reaches the L41 `INSERT OVERWRITE` whole. Counter-case: SUP_M L82
+  `CASE WHEN NVL(p6.lending_ref,'') <> '' THEN 'Rollover2' END AS reserved_field8` — the alias's
+  value is the literal, provenance fails, its ⟐output legs stay dropped.
+- **4e — producer-occurrence anchoring.** An edge carrying the searched field's value from a
+  producer column anchors at the occurrence INSIDE the searched field's own producing expression
+  (the CASE arm line), never at the collapsed group's keeper line elsewhere in the statement.
+  Example: EAST5 × `BBZ` — `A.ccy_code` anchors L71 (arm 2's condition), never L47
+  (`a.ccy_code AS bz`, the sibling column `bz`'s birth line); `a.charge_department` anchors L70
+  (arm 1), never L51 (the `stzfdxzh` CASE's WHEN line). The move is a RE-ANCHOR, never a second
+  edge, and it moves `EXTRACTOR_VERSION` (.13 → .14): version-matched caches must invalidate.
+- **6d — alias/feeder-box scope.** An alias compound and its row-source chain enter only while
+  the searched field's producing expression reads through that alias. Example: EAST5 × `BBZ` —
+  `a@141` stays (BBZ's arms read `a.*` through it); `e@152`/`f@155` and their chain legs drop
+  (they feed `stzfdxzh/stzfdxhm/stzfdxhh/stzfdxxm` only).
+- **6e — own-segment rule.** An edge is served only if its OWN carried hop segment is the
+  searched field's participation; a missing segment index is NO evidence, never hop 0. Example:
+  EAST5 × `p_dt` — the job-log trunk `‖⟐output@179 → rrcdm_job_log_exec_par@179‖` drops even
+  though its display endpoints render as the searched table's pair; `p_dt`'s only role there is
+  the @190 filter, which stays, as does `p_dt`'s own @41 write trunk (7-A rule 1). The write
+  frame test is resolved at STATEMENT level, never line-vs-line — the write leg's carried target
+  line is the write target's keeper occurrence (RFN @768/@1168) while the frames are compound
+  keepers whose line is one statement's (RFN 867 vs 1429). That carve-out RESTORES the searched
+  field's own write legs, which the old line comparison dropped by construction.
+- **The orphan-box prune (3c extended to boxes).** A non-seed box whose every edge the rules
+  above dropped is pruned from the flow-only view, exactly as the edge-less sibling chip is
+  (`_prune_orphan_sibling_chips`, #58). KEPT: every box a kept edge still touches, the searched
+  table's own keeper, and the holder of any surviving chip.
+
+**Enforcement.** 2h / 6d / 6e / the box prune live in `l2_builder._apply_field_involvement` (the
+J1 pass) plus `_prune_orphan_boxes`; 4e lives in `variable_extractor_v2` (family 5
+`_register_case_producer_twins`, `_case_arm_roles`) and `dependency_graph` Phase 9b
+(`_case_alias_spans` + `_producer_occurrence_in_span`). All flow-only-view only: the pass runs
+behind the search filter, so a full view is byte-untouched.
+
+**Acceptance criteria.**
+
+1. The EAST5 × `BBZ` closure serves 10 edges (was 17 — 7 illegal dropped), each surviving edge
+   pinned per edge: `a@141`'s alias hop + row chain stay, the non-feeder boxes and their chains
+   drop (`test_field_involvement_rule.py::test_bbz_legal_edges_stay_per_edge` /
+   `test_bbz_illegal_edges_are_dropped_per_edge`).
+2. The EAST5 × `p_dt` closure serves 5 edges (was 7): the job-log trunk and its read side are
+   gone; `p_dt`'s own @41 write trunk and the @189/@190 read/filter stay
+   (`test_p_dt_job_log_trunk_is_dropped`, `test_p_dt_own_legs_stay`).
+3. RFN's own write legs are served again (carried target lines @768/@1168) — the R40.12 audit's
+   written-768/written-1168 record holds under the 7-A carve-out.
+4. 4e: every COMPUTED edge into a CASE output anchors inside that CASE's own span; no producer
+   edge anchors at a keeper line it shares with a sibling column's flow, and each producer keeps
+   exactly one leg (`test_rule4e_producer_anchoring.py`).
+5. The jaccard gate stays **20/20 at 1.0000/1.0000 recall AND precision** — the canonical is
+   re-derived FROM THE SQL TEXT for the affected seeds (point 27: 5 edge rows + 3 canonical node
+   entries removed, each with an inline removal marker), never reconciled with the engine.
+
+**Non-goals.** No new edge type, no payload-shape change, no full-view behaviour change, and no
+retroactive edit of the canonical: the removals are re-derivations from the SQL text with the
+ruling cited, so the OLD canonical stays in git history. 2h does not revive a sibling alias's
+legs (the 3b/3a rulings still hold), and 6d's feeder set never admits a box on the strength of
+the box's own skeleton alone.

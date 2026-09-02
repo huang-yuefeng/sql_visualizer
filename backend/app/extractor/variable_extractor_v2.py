@@ -307,7 +307,18 @@ from app.models.variable import VariableDefinition, VariableType
 #  there (measured: walked backwards through the ⟐ output anchor it
 #  over-admits sibling arms into every other seed's closure) — the arm
 #  stays recorded, so landing it is a Phase-9-local change.
-EXTRACTOR_VERSION = "2026-08-28.13"
+#
+#  2026-08-28.14 — rule 4e, producer-occurrence anchoring. Family 5
+#  (`_register_case_producer_twins`) mints the occurrence twin of a CASE
+#  output column's own operand when no variable anchors that span line
+#  (EAST5's `A.ccy_code` condition operand at L71 had none — a different
+#  alias spelling than the `a.ccy_code AS bz` keeper, so `_add` recorded
+#  no collapse for family 3 to re-anchor), and dependency_graph Phase 9b
+#  re-anchors a producer edge into a CASE output at that in-span
+#  occurrence instead of the collapsed group's keeper line elsewhere in
+#  the statement. Changes EXTRACTION output (new twins, new anchor lines)
+#  — version-matched caches must invalidate.
+EXTRACTOR_VERSION = "2026-08-28.14"
 
 
 # ── Orphan resolution (R20) constants ─────────────────────────────────
@@ -2542,6 +2553,11 @@ class _RoleBasedExtractor:
         # token stream instead.
         self._register_join_leg_twins(innermost)
 
+        # ── family 5: rule 4e (2026-08-28.14) — the CASE output column's
+        # own operand occurrences. Runs LAST so a span line a family 1-4
+        # mint already anchors is never handed out twice.
+        self._register_case_producer_twins(innermost)
+
     def _base_var_for(self, ident: str,
                       context: str) -> VariableDefinition | None:
         """The surviving node a collapsed occurrence group belongs to.
@@ -2745,6 +2761,143 @@ class _RoleBasedExtractor:
                 self._arm_role_claims.get(key, 0) + 1
             return roles[idx]
         return None
+
+    def _case_span_of_alias(self, alias: str,
+                            end_line: int) -> tuple[int, int] | None:
+        """(first line, END line) of the CASE whose `END AS <alias>` sits on
+        `end_line` — rule 4e's producing-expression resolution (2026-08-28.14).
+
+        A CASE output column's var anchors at its AS-alias line (the END
+        line, `END AS BBZ`), so the expression that PRODUCES the value is
+        the span the alias's END closes — read off the SAME token stream
+        every other line fact here uses. The alias token on `end_line`
+        identifies the END (`AS` immediately before it), and the matching
+        CASE is the nearest `CASE` token whose END depth comes back to
+        zero; nesting is counted exactly as `_case_arm_roles` counts it, so
+        a nested CASE inside an arm never closes the outer one. No alias
+        (`END,`), no alias token on that line, or no matching CASE → None
+        (the producing CASE is not resolvable, and the rule never guesses).
+        """
+        tokens = self._tokens
+        if not tokens or not alias or not end_line:
+            return None
+        alias_run = _name_token_run(alias)
+        if not alias_run:
+            return None
+        for _ln, idx in self._all_match_lines(alias_run, end_line,
+                                              end_line + 1):
+            j = idx - 1
+            if j >= 0 and _is_as_keyword(tokens[j]):
+                j -= 1
+            if j < 0 or tokens[j].token_type != TokenType.END:
+                continue
+            depth = 0
+            k = j
+            while k >= 0:
+                tt = tokens[k].token_type
+                if tt == TokenType.END:
+                    depth += 1
+                elif tt == TokenType.CASE:
+                    depth -= 1
+                    if depth == 0:
+                        return (tokens[k].line, tokens[j].line)
+                k -= 1
+        return None
+
+    def _register_case_producer_twins(self, innermost: dict[int, str]) -> None:
+        """Rule 4e (2026-08-28.14) family 5 — the producing expression's OWN
+        operand occurrences.
+
+        A CASE output column's `source_columns` name the fields its arms
+        read; where one of those fields occurs INSIDE the CASE's own span
+        but no variable anchors that line, the occurrence left no node at
+        all — EAST5's `A.ccy_code` registered once for `a.ccy_code AS bz`
+        (L47, the SIBLING column's birth line) and never again, because the
+        L71 condition operand (`A.ccy_code<>B.ccy_code`) is a different
+        alias spelling that `_add`'s (name, type, context) dedup does not
+        fold: no collapse was recorded, so family 3 had no occurrence to
+        re-anchor. The consequence for rule 4e is that the producer edge
+        into the CASE output had no in-span occurrence to anchor at.
+
+        So this pass reads the operand occurrences straight off the CASE's
+        own span: for every CASE output column, for every field its
+        `source_columns` name, every span line the token run occurs on that
+        no registered COLUMN var of the same field part anchors yet gets
+        its twin — the same `_mint_occurrence_twin` the other families use,
+        with the same owner evidence (a surviving var's `source_tables`,
+        never a guess), the same arm stamp (`_arm_role_for` — the span IS
+        arm territory) and the same scope guard (a line a nested recorded
+        scope owns is never this context's occurrence).
+
+        Grouping by the CASE's own span — never by the statement range —
+        is what keeps the mint inside the expression that produces the
+        value: a producer's occurrences elsewhere in the statement stay
+        exactly as families 1-4 left them.
+        """
+        tokens = self._tokens
+        if not tokens:
+            return
+        # (context, owner, field part) → lines a registered COLUMN var of
+        # that field already anchors. OWNED is the deliberate difference
+        # from family 3's field-part index: one span line can carry TWO
+        # producers' occurrences of the same field part under different
+        # owners (`A.ccy_code<>B.ccy_code` — bdm_acc_entrusted_payment's
+        # and bdm_acc_loan_info's), and a field-part-only taken set would
+        # let the first owner's anchor starve the second's twin. Rebuilt
+        # AFTER the families 1-4 mints so no span line is handed to two
+        # twins of the same (owner, field).
+        field_lines: dict[tuple[str, str, str], set[int]] = {}
+        for v in self.result.variables:
+            if (v.variable_type != VariableType.COLUMN or not v.line_start
+                    or not v.source_tables):
+                continue
+            key = (v.context or "", v.source_tables[0].casefold(),
+                   v.name.rsplit(".", 1)[-1].casefold())
+            field_lines.setdefault(key, set()).add(v.line_start)
+        for case_var in list(self.result.variables):
+            if case_var.variable_type != VariableType.CASE:
+                continue
+            if not case_var.line_start or not case_var.source_columns:
+                continue
+            ctx = case_var.context or "TOP"
+            span = self._case_span_of_alias(case_var.name,
+                                            case_var.line_start)
+            if span is None:
+                continue
+            lo, hi = span
+            anchor = self._stmt_anchor_for(ctx)
+            clause_by_line = self._line_clauses(anchor, hi + 1)
+            # Sorted: `source_columns` is materialized through a set, so its
+            # order is PYTHONHASHSEED-shaped — the mint order (and the
+            # per-(owner, field) line handout inside it) must be a function
+            # of the SQL text alone (the V8 determinism ruling).
+            for src_col in sorted(case_var.source_columns):
+                run = _name_token_run(src_col)
+                if not run:
+                    continue
+                bare = "." not in src_col
+                base = self._base_var_for(src_col, ctx)
+                if base is None or not base.source_tables:
+                    continue  # never guess an owner
+                taken = field_lines.setdefault(
+                    (ctx, base.source_tables[0].casefold(),
+                     src_col.rsplit(".", 1)[-1].casefold()), set())
+                for ln, first_idx in self._all_match_lines(run, lo, hi + 1):
+                    if ln in taken:
+                        continue
+                    if bare and first_idx > 0 \
+                            and tokens[first_idx - 1].text == ".":
+                        continue  # a qualified spelling — another group's
+                    owner = innermost.get(ln)
+                    if (owner is not None and owner != ctx
+                            and not (ctx.startswith(owner + "/")
+                                     or ctx.startswith(owner + ":"))):
+                        continue  # a nested body's line is its own scope's
+                    taken.add(ln)
+                    self._mint_occurrence_twin(
+                        base, ln, base.defined_in or "SELECT expr",
+                        clause_by_line,
+                        arm_role=self._arm_role_for(base.name, ln))
 
     def _register_join_leg_twins(self, innermost: dict[int, str]) -> None:
         """R46d family 4 — the JOIN ON clause's AND-continuation legs.

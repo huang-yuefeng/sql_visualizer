@@ -261,6 +261,40 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 5,
+          "id": "l2e_823c115f0ede",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016ws1.ws_ship_addr_sk@L11 \u2192 ws1@L5\u2016",
+          "source": "l2_tbl_0eacb48231",
+          "target": "l2_tbl_eed9a3c218",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 5,
+          "id": "l2e_74eeb7d164dc",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016ws1.ws_ship_date_sk@L10 \u2192 ws1@L5\u2016",
+          "source": "l2_tbl_0eacb48231",
+          "target": "l2_tbl_eed9a3c218",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -594,6 +628,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016ws2.ws_order_number@L18 \u2192 ws2@L17\u2016",
+          "source": "l2_tbl_0eacb48231",
+          "target": "l2_tbl_dbbc3b71cb",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 17,
+          "id": "l2e_82d5510633ec",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016ws2.ws_warehouse_sk@L19 \u2192 ws2@L17\u2016",
           "source": "l2_tbl_0eacb48231",
           "target": "l2_tbl_dbbc3b71cb",
           "width": 1
@@ -941,7 +992,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "FROM",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_eed9a3c218",
           "label": "ws1@5",
           "line_end": 23,
@@ -1015,7 +1066,7 @@
         "data": {
           "context": "TOP0/exists1",
           "defined_in": "FROM",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_dbbc3b71cb",
           "label": "ws2@17",
           "line_end": 23,
@@ -1332,7 +1383,7 @@
     "script_name": "94.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 49,
+    "total_edges": 52,
     "total_nodes": 35
   },
   "script_name": "94.sql",

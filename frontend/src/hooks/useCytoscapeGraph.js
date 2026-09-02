@@ -27,7 +27,9 @@ import { stripFieldParents, computeFieldRelPos, positionTableFields } from '../u
 import { TABLE_SELECTOR, FIT_PADDING, fitWholeGraph, FIT_ONLY_MIN_ZOOM } from '../config/layout';
 import { runSnakeLayout } from '../utils/snakeLayout';
 import { decorateLabelWithLine } from '../utils/labelDecoration';
-import { applyFlowVisibility, fitAllElements } from '../utils/flowVisibility';
+import { applyFlowVisibility, fitVisibleElements } from '../utils/flowVisibility';
+import { applyFlowCompaction, activeFieldRel, fullSpacePositions,
+  EMPTY_COMPACTION } from '../utils/flowCompaction';
 
 const TABLE_SEL = TABLE_SELECTOR;
 
@@ -80,8 +82,14 @@ function flowRoleBadge(d) {
  * Collect absolute node positions {nodeId: [x, y]} for every NON-field node
  * (fields are re-derived from their table at table + frozen offset, so they
  * are never saved — applyLayout and the drag handler position them).
+ *
+ * Reported in FULL-layout space: a flow-compacted box sits `dy` below the
+ * place the frozen layout knows about (see utils/flowCompaction), and the
+ * persisted resume layout must never learn a compacted coordinate — a drag
+ * while compacted would otherwise pin the box offset from its own chips on
+ * the next open. `fullSpacePositions` subtracts the recorded displacement.
  */
-function collectPositions(cy) {
+function collectPositions(cy, compaction) {
   if (!cy || cy.destroyed()) return {};
   const out = {};
   cy.nodes().forEach(n => {
@@ -90,7 +98,23 @@ function collectPositions(cy) {
     const p = n.position();
     if (p) out[n.id()] = [Math.round(p.x), Math.round(p.y)];
   });
-  return out;
+  return fullSpacePositions(out, compaction);
+}
+
+/**
+ * Visibility + compaction, in the one order that keeps the D-H2 contract:
+ * the flow filter hides the non-closure elements first, THEN each table box
+ * is re-sized to whatever is still visible ("compact the field size",
+ * user ruling 2026-09-02). Both are projection-only — no layout, no fit — so
+ * the frozen full-layout positions survive every toggle untouched.
+ *
+ * Returns the new compaction bookkeeping ({dy, rel, compacted}); the caller
+ * stores it and hands it back here on the next call so displacements compose
+ * instead of accumulating.
+ */
+function applyFlowViewAndCompact(cy, opts, fieldRel, prevCompaction) {
+  applyFlowVisibility(cy, opts);
+  return applyFlowCompaction(cy, fieldRel, prevCompaction);
 }
 
 /**
@@ -201,6 +225,11 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
   const optsRef = useRef(options);
   optsRef.current = options;
   const fieldRelRef = useRef(null);
+  // Flow-view compaction bookkeeping (utils/flowCompaction): the per-table
+  // displacement currently applied + the offset map the drag handler must
+  // use while boxes are compacted. Reset with every fresh graph and every
+  // re-layout (both write FULL-space positions).
+  const compactionRef = useRef(EMPTY_COMPACTION);
   // L2 flow toggle: the layout must run ONCE on the FULL graph (all nodes
   // visible) and only THEN hide non-flow elements. This ref gates the
   // standalone flow effect so it never hides before the initial
@@ -284,20 +313,28 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     // discrepancy (a directly-dragged field, a coalesced drag frame, a
     // stale position left by a programmatic move) instead of correcting
     // it — that was the drift root cause.
+    //
+    // Flow-compacted views use the COMPACT offset map while any box is
+    // shrunk (activeFieldRel): the visible chips stay glued to the box and
+    // the hidden ones are never moved (they are not in the compact map).
+    // Toggling back to the full view swaps in the frozen full map, so a
+    // compacted drag survives both directions without drift.
     cy.on('drag', TABLE_SEL, evt => {
-      if (fieldRelRef.current) positionTableFields(cy, evt.target.id(), fieldRelRef.current);
+      const rel = activeFieldRel(compactionRef.current, fieldRelRef.current);
+      if (rel) positionTableFields(cy, evt.target.id(), rel);
     });
     // Final snap after release — guarantees exact offsets even if the
     // last drag frame's event was dropped.
     cy.on('dragfree', TABLE_SEL, evt => {
-      if (fieldRelRef.current) positionTableFields(cy, evt.target.id(), fieldRelRef.current);
+      const rel = activeFieldRel(compactionRef.current, fieldRelRef.current);
+      if (rel) positionTableFields(cy, evt.target.id(), rel);
     });
     // R31/A-M5: report node positions after any drag ends (tables + scripts;
     // fields follow their table via frozen offsets) — DataFlowApp autosaves
     // them ≤1/s + on close (design §4 Q4). Fires for every draggable node.
     cy.on('dragfree', () => {
       const o = optsRef.current;
-      if (o.onPositionsChange) o.onPositionsChange(collectPositions(cy));
+      if (o.onPositionsChange) o.onPositionsChange(collectPositions(cy, compactionRef.current));
     });
 
     // ── Role badges on script nodes ─────────────────────────────
@@ -412,6 +449,9 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     // Fresh graph: layout+fit must run on the FULL graph before the flow
     // filter hides anything (see layoutDoneRef docstring above).
     layoutDoneRef.current = false;
+    // A new instance starts from the FULL layout — no compaction displacement
+    // from the previous graph may survive into it.
+    compactionRef.current = EMPTY_COMPACTION;
     // Devtools-only debug handles (nothing in the app reads them). Gated
     // on DEV so the globals never exist in production; both are cleared
     // on unmount so they can't outlive the cytoscape instance.
@@ -443,7 +483,12 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
         if (o.savedPositions) {
           applySavedPositions(cy, o.savedPositions, fieldRelRef.current);
         }
-        applyFlowVisibility(cy, o);
+        // Visibility first (hide the non-closure elements), then compact each
+        // box to what is still visible — the same order the toggle effect
+        // below uses, so the initial render and a later toggle land in the
+        // identical state.
+        compactionRef.current = applyFlowViewAndCompact(
+          cy, o, fieldRelRef.current, compactionRef.current);
         layoutDoneRef.current = true;
       };
       if (layoutMode === 'pipeline') {
@@ -472,11 +517,25 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
   // across toggles. Gated on layoutDoneRef: on a fresh graph the initial
   // cy.ready→layout+fit runs first (the fit must see the FULL graph), and
   // cy.ready applies the initial visibility itself.
+  //
+  // Flow-view COMPACTION rides the same effect ("compact the field size",
+  // user ruling 2026-09-02): after each show/hide, every table box is
+  // re-sized to its VISIBLE chips and those chips re-stack tightly under the
+  // header. The compaction is a pure projection of the frozen full offsets +
+  // what is hidden right now, so toggling compact → full → compact lands in
+  // the same state every time (the full view restores the frozen layout
+  // exactly) and no chip can drift, overlap, or escape its box — verified in
+  // utils/__tests__/flowCompaction.test.js.
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy || cy.destroyed()) return;
     if (!layoutDoneRef.current) return; // initial layout not done yet
-    applyFlowVisibility(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedView });
+    compactionRef.current = applyFlowViewAndCompact(
+      cy,
+      { flowOnly, flowNodeIds, flowEdgeIds, mergedView },
+      fieldRelRef.current,
+      compactionRef.current,
+    );
     // mergedView rides along (#376): only the line-merged members prune their
     // edgeless field chips — switching detailed ↔ merged re-runs this effect.
   }, [flowOnly, flowNodeIds, flowEdgeIds, mergedView]);
@@ -491,13 +550,13 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     const floor = cy.minZoom();
     cy.minZoom(FIT_ONLY_MIN_ZOOM);
     try {
-      // E-M8 (#283): while a flow-only (View 1) filter is active, a plain fit
-      // bounds only the visible closure — View 2's non-closure nodes would sit
-      // off-screen after every resize. Fit the FULL graph, then restore the
-      // flow visibility (never a layout — positions are preserved).
+      // E-M8 (#283, amended 2026-09-02 — the Full view is CUT, so hidden
+      // elements are unreachable): fit the VISIBLE closure directly —
+      // visibility pass first, then cy.fit(:visible). Never a layout —
+      // positions are preserved.
       const o = optsRef.current;
       if (o.flowOnly || o.flowNodeIds || o.flowEdgeIds) {
-        fitAllElements(cy, {
+        fitVisibleElements(cy, {
           flowOnly: o.flowOnly,
           flowNodeIds: o.flowNodeIds,
           flowEdgeIds: o.flowEdgeIds,
@@ -531,7 +590,13 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
     // The flow-only ↔ full toggle itself stays pure visibility (no re-layout).
     cy.elements().show();
     fieldRelRef.current = computeFieldRelPos(cy);
-    const onFit = () => applyFlowVisibility(cy, optsRef.current);
+    // The layout writes FULL-space table positions, so any compaction
+    // displacement it may have been carrying is void from here on.
+    compactionRef.current = EMPTY_COMPACTION;
+    const onFit = () => {
+      compactionRef.current = applyFlowViewAndCompact(
+        cy, optsRef.current, fieldRelRef.current, compactionRef.current);
+    };
     if (mode === "pipeline") {
       pipelineLayout(cy, {}, onFit);
     } else {

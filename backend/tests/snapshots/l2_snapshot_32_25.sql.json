@@ -515,6 +515,40 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 12,
+          "id": "l2e_e85f2900a133",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d1.d_moy@L17 \u2192 d1@L12\u2016",
+          "source": "l2_tbl_05d462374e",
+          "target": "l2_tbl_f89439cabb",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 12,
+          "id": "l2e_5769921a4462",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d1.d_year@L18 \u2192 d1@L12\u2016",
+          "source": "l2_tbl_05d462374e",
+          "target": "l2_tbl_f89439cabb",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -549,6 +583,40 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 13,
+          "id": "l2e_d3233f3a00a8",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d2.d_moy@L26 \u2192 d2@L13\u2016",
+          "source": "l2_tbl_05d462374e",
+          "target": "l2_tbl_e0a180ca9b",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 13,
+          "id": "l2e_fd45665cc31f",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d2.d_date_sk@L25 \u2192 d2@L13\u2016",
+          "source": "l2_tbl_05d462374e",
+          "target": "l2_tbl_e0a180ca9b",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -576,6 +644,40 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016d3.d_year@L32 \u2192 d3@L14\u2016",
+          "source": "l2_tbl_05d462374e",
+          "target": "l2_tbl_945fc05418",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 14,
+          "id": "l2e_776349b123aa",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d3.d_moy@L31 \u2192 d3@L14\u2016",
+          "source": "l2_tbl_05d462374e",
+          "target": "l2_tbl_945fc05418",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 14,
+          "id": "l2e_46229e5b1314",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d3.d_date_sk@L30 \u2192 d3@L14\u2016",
           "source": "l2_tbl_05d462374e",
           "target": "l2_tbl_945fc05418",
           "width": 1
@@ -1240,7 +1342,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_f89439cabb",
           "label": "d1@12",
           "line_end": 32,
@@ -1255,7 +1357,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_e0a180ca9b",
           "label": "d2@13",
           "line_end": 32,
@@ -1270,7 +1372,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_945fc05418",
           "label": "d3@14",
           "line_end": 32,
@@ -1672,7 +1774,7 @@
     "script_name": "25.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 63,
+    "total_edges": 69,
     "total_nodes": 43
   },
   "script_name": "25.sql",

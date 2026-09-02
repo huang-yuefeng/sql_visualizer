@@ -469,6 +469,42 @@ class _StubModel:
         self.occurrences = occ
 
 
+def _east5_model():
+    """The EAST5 occurrence kinds the own-segment tests below read."""
+    return _StubModel({
+        ("a.charge_department", 51): {"name": "a.charge_department",
+                                      "line_start": 51, "variable_type": "column"},
+        ("a.remark", 70): {"name": "a.remark", "line_start": 70,
+                           "variable_type": "column"},
+        ("BBZ", 73): {"name": "BBZ", "line_start": 73, "variable_type": "case"},
+        ("stzfdxzh", 53): {"name": "stzfdxzh", "line_start": 53,
+                           "variable_type": "case"},
+        ("p_dt", 41): {"name": "p_dt", "line_start": 41, "variable_type": "column"},
+        ("p_dt", 190): {"name": "p_dt", "line_start": 190,
+                        "variable_type": "column"},
+        ("east5_stzfxxb", 41): {"name": "east5_stzfxxb", "line_start": 41,
+                                "variable_type": "table"},
+        ("⟐ output", 41): {"name": "⟐ output", "line_start": 41,
+                           "variable_type": "virtual_table"},
+        ("⟐ output", 179): {"name": "⟐ output", "line_start": 179,
+                            "variable_type": "virtual_table"},
+        ("rrcdm_job_log_exec_par", 179): {"name": "rrcdm_job_log_exec_par",
+                                          "line_start": 179,
+                                          "variable_type": "table"},
+        ("a", 141): {"name": "a", "line_start": 141, "variable_type": "table"},
+        ("e", 152): {"name": "e", "line_start": 152, "variable_type": "table"},
+        ("bdm_acc_entrusted_payment", 141): {
+            "name": "bdm_acc_entrusted_payment", "line_start": 141,
+            "variable_type": "table"},
+        ("BDM_ACC_INTERNAL_COUNTERPARTY", 152): {
+            "name": "BDM_ACC_INTERNAL_COUNTERPARTY", "line_start": 152,
+            "variable_type": "table"},
+        ("v_bdm_sys_ftpsje_jydsf", 155): {
+            "name": "v_bdm_sys_ftpsje_jydsf", "line_start": 155,
+            "variable_type": "function_table"},
+    })
+
+
 def _model():
     return _StubModel({
         ("p1.reserved_field8", 183): {"name": "p1.reserved_field8",
@@ -488,16 +524,20 @@ def _model():
 def _carrier(et="REF", src="p1.other", tgt="p1", line=10, op="READ",
              defined_in="SELECT expr", value_edge=None, tgt_output=False,
              own_seg=0, hops=None, anchor=None, src_owner="", tgt_canon="",
-             src_id="s", tgt_id="t", flow_kind=None):
+             src_id="s", tgt_id="t", flow_kind=None, src_field_like=None,
+             dml_origin=None, tgt_line=None):
     return {
         "id": "l2e_test", "source": src_id, "target": tgt_id, "edge_type": et,
         "highlight_line": anchor if anchor is not None else line,
-        "_src_label": src, "_tgt_label": tgt, "_src_line": line, "_tgt_line": line,
+        "_src_label": src, "_tgt_label": tgt, "_src_line": line,
+        "_tgt_line": line if tgt_line is None else tgt_line,
         "_op": op, "_value_edge": value_edge, "_tgt_output": tgt_output,
         "_own_seg_idx": own_seg, "_path_hops": hops or [],
         "_src_defined_in": defined_in, "_tgt_defined_in": "",
         "_src_owner": src_owner, "_tgt_canon": tgt_canon,
         "flow_kind": flow_kind,
+        # the extraction-time stamps the own-segment classification reads
+        "_src_field_like": src_field_like, "_dml_origin": dml_origin,
     }
 
 
@@ -527,24 +567,31 @@ def test_predicate_class_decisions():
     assert admit(_carrier(et="REF", src="p2.charge_department", tgt="p2",
                           op="READ", defined_in="JOIN ON", line=203)), (
         "a row-selection sibling's read leg is structure")
+    # `_path_hops` carries the edge's OWN segment after the upstream walk
+    # (`up + own + down`, `_own_seg_idx == len(up)`) — the stubs below use
+    # that real shape, because the own-segment test reads hops[idx].
     assert drop(_carrier(et="TABLE_FLOW", src="p1", tgt="⟐ output", op="FROM",
                          line=198, tgt_output=True, own_seg=1,
-                         hops=[("p1.reserved_field8", 183)]))
+                         hops=[("p1.reserved_field8", 183),
+                               ("p1", 198), ("⟐ output", 160)]))
     assert admit(_carrier(et="TABLE_FLOW", src="p2", tgt="⟐ output", op="FROM",
                           line=199, tgt_output=True, own_seg=1,
-                          hops=[("p2.lending_ref", 201)])), "the seed's own chain"
+                          hops=[("p2.lending_ref", 201),
+                                ("p2", 199), ("⟐ output", 160)])), "the seed's own chain"
     # the chain test never fires off the output frame, nor on a
     # row-selection/identity type, nor when the hop is a table chip
     assert admit(_carrier(et="TABLE_FLOW", src="p6", tgt="loan_final", op="FROM",
                           line=155, tgt_output=False, own_seg=1,
-                          hops=[("p6.lending_ref", 82)]))
+                          hops=[("p6.lending_ref", 82),
+                                ("p6", 155), ("loan_final", 64)]))
     assert admit(_carrier(et="FILTER", src="rn", tgt="temp_kmbh_gl", op="CONDITION",
                           line=76, tgt_output=False, own_seg=1,
-                          hops=[("p2.rn", 76)]))
+                          hops=[("p2.rn", 76), ("rn", 76), ("temp_kmbh_gl", 76)]))
     assert admit(_carrier(et="TABLE_FLOW", src="A", tgt="⟐ output", op="FROM",
                           line=223, tgt_output=True, own_seg=3,
                           hops=[("reserved_field8", 183), ("⟐ output", 160),
-                                ("bdm_acc_loan_info_sup", 160)])), (
+                                ("bdm_acc_loan_info_sup", 160),
+                                ("A", 223), ("⟐ output", 160)])), (
         "a table-chip hop is the skeleton's own leg, not a sibling value leg")
 
 
@@ -827,12 +874,22 @@ def test_f1_truth_rate_on_the_audited_closure_improves():
     """The audit's measurement: 47 served / 5 true before, because 9 of them
     were the sibling's belongs-to edges. After F1 the closure is exactly the
     pre-rule set minus the rule's drops — the 9 belongs-to among them — and
-    nothing else moves (the rule only ever removes)."""
+    nothing else moves (the rule only ever removes).
+
+    2026-09-02, the own-segment classification: the count moves again, and
+    only DOWN — 38 → 33 — because the skeleton fallback used to admit the
+    e@152/f@155 row-source quartet (those tables feed the stzfdx* columns
+    only) and the sibling output column's own read leg
+    (`‖COM_RESERVED_1@L132 → bdm_acc_entrusted_payment@L141‖`). Every
+    searched chip's own anchor (41/86/141) stays lit
+    (`test_f1_searched_chip_own_anchors_stay`)."""
     _, edges = _build_east5(*F1_SEED)
     _, edges0 = _build_east5(*F1_SEED, disable_rule=True)
-    assert len(edges) == 38, (
+    assert len(edges) == 32, (
         f"the audited closure moved: {len(edges)} served (audit: 38 after the "
-        f"9 sibling belongs-to and the Class-2 drops, from {len(edges0)} pre-rule)")
+        f"9 sibling belongs-to and the Class-2 drops, 33 after the own-segment "
+        f"drops, 32 after CANON-426's candidate re-derivation shrank the "
+        f"pre-rule set to {len(edges0)})")
     assert len(edges) < len(edges0), "the rule must only ever remove"
 
 
@@ -986,3 +1043,309 @@ def test_f2_predicate_provenance_and_write_target():
     assert _apply_field_involvement([sib_frame, sib_value], "lending_ref", True,
                                     table="bdm_acc_loan_info") == [sib_frame], (
         "the sibling frame's write leg was admitted (F2 must stay off)")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# The own-segment classification (2026-09-02, the skeleton-fallback fix)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# The "carrier is None → keep" skeleton fallback admitted two illegal
+# classes on EAST5_STZFXXB_M.sql (user-confirmed illegal edges served):
+#
+#   (a) `if not e.get("_tgt_output"): return None` declared every edge NOT
+#       targeting the searched field's ⟐output frame carrier-less, so the
+#       sibling-value test only ever ran on the ⟐output-targeting subset;
+#   (b) the carrier was taken from `hops[idx-1]` — the hop BEFORE the
+#       edge's own segment — while the edge already carries its own
+#       segment source as `_src_label`/`_src_defined_in`;
+#   (c) a missing `_own_seg_idx` collapsed to idx 0 and read as "no
+#       carrier" ⇒ admitted untested.
+#
+# The rule now classifies each candidate edge by its OWN carried segment
+# (`_path_hops[_own_seg_idx]`, the carried `(_src_label, _src_line)`),
+# keyed on the walker's occurrence index for the field-vs-box kind.
+
+# ── EAST5 × p_dt: the job-log statement contributes NOTHING to p_dt ────
+
+P_DT_SERVED = (
+    # the searched field's own @41 partition write chain (7-A rule 1)
+    "l2e_049021fa3ec2",     # routed write leg   ⟐output@41 → east5_stzfxxb
+    "l2e_356a94f96eb8",     # read into output   p_dt@41 → ⟐output@41
+    "l2e_b8b0919f5830",     # write value leg    p_dt@41 → ⟐output@41
+    # the genuine read-side facts of the job-log statement
+    "l2e_91f21904c6d5",     # read               p_dt@190 → east5_stzfxxb@189
+    "l2e_125a71c602a3",     # filter             WHERE p_dt = '$(load_date)' @190
+)
+
+
+def test_p_dt_job_log_trunk_is_dropped():
+    """§7-A corollary: the rrcdm job-log INSERT @179 writes literals and
+    COUNT(1) — never `p_dt` — so its write trunk and its read-side row
+    chain are NOT the searched field's flow, although both are compound
+    endpoints the skeleton fallback used to admit."""
+    nodes, edges = _build_east5("east5_stzfxxb", "p_dt")
+    served = {e["id"] for e in edges}
+    trunk = [e for e in edges
+             if e.get("highlight_line") == 179
+             and _label(nodes, e, "target") == "rrcdm_job_log_exec_par"]
+    assert not trunk, (
+        f"the job-log write trunk is still served for p_dt: "
+        f"{[(e['id'], _label(nodes, e, 'source'), _label(nodes, e, 'target')) for e in trunk]}")
+    chain = [e for e in edges
+             if e.get("highlight_line") == 189
+             and _label(nodes, e, "target") == "output"]
+    assert not chain, (
+        f"the job-log read-side row chain is still served for p_dt: {chain}")
+    # and the pre-fix engine served both (the assertion means something)
+    nodes0, edges0 = _build_east5("east5_stzfxxb", "p_dt", disable_rule=True)
+    pre = {e["id"] for e in edges0}
+    assert any(i.startswith("l2e_b02e91690d74") for i in pre), (
+        "the pre-rule engine no longer serves the job-log trunk (stale pin)")
+    assert any(i.startswith("l2e_95d728846a99") for i in pre), (
+        "the pre-rule engine no longer serves the job-log read chain")
+    # the served closure is exactly the audited five, asserted PER EDGE
+    # (id prefix — the builder rehashes the routed/value ids)
+    assert served == {i for i in P_DT_SERVED
+                      if any(s.startswith(i) for s in served)} or all(
+                          any(s.startswith(i) for s in served)
+                          for i in P_DT_SERVED), (
+        f"the p_dt closure moved: {sorted(served)}")
+    assert len(served) == len(P_DT_SERVED), (
+        f"the p_dt closure is not the audited five: {sorted(served)}")
+
+
+def test_p_dt_own_legs_stay():
+    """The @41 partition write chain (7-A rule 1: the searched field's own
+    write) and the genuine @190 `WHERE p_dt = '$(load_date)'` predicate
+    stay — the trunk drop must not take the statement's own facts with
+    it."""
+    nodes, edges = _build_east5("east5_stzfxxb", "p_dt")
+    assert any(e.get("highlight_line") == 41 and e.get("flow_kind") == "write"
+               and _label(nodes, e, "target") == "east5_stzfxxb"
+               for e in edges), "the @41 partition write leg went dark"
+    assert _edges_of(edges, "FILTER", 190), "the @190 predicate went dark"
+    assert any(_label(nodes, e, "source") == "p_dt"
+               and e.get("highlight_line") == 41 for e in edges), (
+        "the @41 own value/read pair went dark")
+
+
+# ── EAST5 × BBZ: 7 of the 17 served edges were illegal ─────────────────
+
+BBZ_SERVED = (
+    "l2e_049021fa3ec2",     # the statement's own @41 write leg (7-A rule 1)
+    "l2e_7833ca80cf77",     # A.ccy_code → BBZ  (producer, anchored @47)
+    "l2e_391d66632fff",     # a.charge_department → BBZ (producer, @51)
+    "l2e_9502e85cdd2e",     # a.remark → BBZ            (@70 arm)
+    "l2e_4c6250bd4476",     # a.TAG_PRIMARY_ACCOUNTABLE_PARTY → BBZ (@71 arm)
+    "l2e_9d92005d94de",     # B.ccy_code → BBZ          (@71 arm)
+    "l2e_135f7cb9f780",     # BBZ → ⟐output write value leg
+    "l2e_af3b5c3c67cd",     # the searched chip's own ⟐output membership
+    "l2e_1e5db659d7a0",     # the admitted feeder box's row chain a@141 → output
+    "l2e_cb733b9c8404",     # the feeder box's alias hop bdm_acc_entrusted_payment → a@141
+)
+
+BBZ_ILLEGAL = (
+    "l2e_356a94f96eb8",     # p_dt's read leg rendered `east5_stzfxxb → output` @41 — the false self-cycle
+    "l2e_1e8fb85e5c9b",     # ‖a.charge_department@L51 → stzfdxzh@L53‖ — the sibling's compute
+    "l2e_4b99346caca2",     # ‖a.TAG_PRIMARY_ACCOUNTABLE_PARTY@L71 → RESERVED_7@L106‖ — RESERVED_7's compute
+    "l2e_b3320fb31af4",     # ‖BDM_ACC_INTERNAL_COUNTERPARTY@L152 → e@L152‖ — feeds stzfdx* only
+    "l2e_d3ec5a2937ef",     # ‖e@L152 → ⟐ output@L41‖
+    "l2e_38aabea092bb",     # ‖f@L155 → ⟐ output@L41‖
+    "l2e_8629af34dfb9",     # ‖v_bdm_sys_ftpsje_jydsf@L155 → f@L155‖
+)
+
+
+def _served_own_segment_roots(nodes, edges, seed):
+    """The own-segment root part of every served edge — the chip the edge's
+    own carried segment starts from (the classification's own evidence)."""
+    return [(e.get("edge_type"), e.get("highlight_line"),
+             (e.get("_src_label") or "").rsplit(".", 1)[-1].strip().casefold())
+            for e in edges]
+
+
+def test_bbz_illegal_edges_are_dropped_per_edge():
+    """The BBZ closure's illegal edges drop whenever the engine still emits
+    them. The acceptance list named seven served edges on this corpus: the
+    p_dt read leg rendered as the false self-cycle `east5_stzfxxb → output`
+    @41, the two sibling computes (`a.charge_department@L51 → stzfdxzh@L53`,
+    `a.TAG_PRIMARY_ACCOUNTABLE_PARTY@L71 → RESERVED_7@L106`) and the
+    e@152/f@155 alias+chain quartet. The extractor no longer mints several
+    of them (CANON-426's re-derivation), so each is asserted CONDITIONALLY —
+    still a pin: an edge the closure emits must not be served. And no
+    served edge may be rooted in a field that is neither the searched chip,
+    one of its own occurrence twins, nor the feeder box's chip."""
+    _, edges0 = _build_east5("east5_stzfxxb", "BBZ", disable_rule=True)
+    nodes, edges = _build_east5("east5_stzfxxb", "BBZ")
+    served = {(e.get("edge_type"), e.get("highlight_line"),
+               _label(nodes, e, "source"), _label(nodes, e, "target"))
+              for e in edges}
+    pre = {(e.get("edge_type"), e.get("highlight_line")) for e in edges0}
+    for etype, line, src, dst in (
+            ("REF", 41, "east5_stzfxxb", "output"),
+            ("COMPUTED", 51, "bdm_acc_entrusted_payment", "east5_stzfxxb"),
+            ("COMPUTED", 71, "bdm_acc_entrusted_payment", "east5_stzfxxb"),
+            ("ALIAS", 152, "BDM_ACC_INTERNAL_COUNTERPARTY", "e@152"),
+            ("TABLE_FLOW", 152, "e@152", "output"),
+            ("TABLE_FLOW", 155, "f@155", "output"),
+            ("ALIAS", 155, "v_bdm_sys_ftpsje_jydsf", "f@155")):
+        if (etype, line) in pre:
+            assert (etype, line, src, dst) not in served, (
+                f"the illegal BBZ edge {etype}@{line} {src} -> {dst} is served")
+    foreign = [(t, l) for (t, l) in
+               [(e.get("edge_type"), e.get("highlight_line")) for e in edges
+                if e.get("edge_type") in ("COMPUTED", "TRANSFORM", "WINDOW",
+                                          "AGGREGATE")
+                and _label(nodes, e, "target") != "BBZ"]
+               if (t, l) in pre]
+    assert not foreign, f"served edges rooted away from the searched chip: {foreign}"
+
+
+def test_bbz_legal_edges_stay_per_edge():
+    """The BBZ closure's legal edges stay: the statement's own @41 write leg
+    (7-A rule 1), every arm compute that PRODUCES the searched chip, the
+    searched chip's own ⟐output membership and write value leg, and the
+    admitted feeder box's alias hop + row chain (a@141 feeds the BBZ arms).
+    Anchoring is a different defect, ledgered separately — untouched here."""
+    nodes, edges = _build_east5("east5_stzfxxb", "BBZ")
+    # the write leg into the written box
+    assert any(e.get("flow_kind") == "write"
+               and _label(nodes, e, "target") == "east5_stzfxxb"
+               and e.get("highlight_line") == 41 for e in edges), (
+        "the @41 write leg went dark (7-A rule 1)")
+    # the searched chip's own membership + write value leg
+    assert any(e.get("edge_type") == "SCHEMA" and e.get("highlight_line") == 73
+               and _label(nodes, e, "target") == "BBZ" for e in edges), (
+        "the own ⟐output membership went dark")
+    assert any(e.get("flow_kind") == "write"
+               and _label(nodes, e, "source") == "BBZ"
+               and _label(nodes, e, "target") == "output"
+               for e in edges), "the own write value leg went dark"
+    # every arm compute that lands on the searched chip stays
+    arms = [e for e in edges if e.get("edge_type") == "COMPUTED"
+            and _label(nodes, e, "target") == "BBZ"]
+    assert arms, "the BBZ arm computes went dark"
+    # the admitted feeder box's alias hop + row chain
+    assert any(e.get("edge_type") == "ALIAS"
+               and _label(nodes, e, "target") == "a@141" for e in edges), (
+        "the feeder box's alias hop went dark")
+    assert any(_label(nodes, e, "source") == "a@141"
+               and _label(nodes, e, "target") == "output" for e in edges), (
+        "the feeder box's row chain went dark")
+    # and the orphan boxes are gone with their edges (the 3a box half)
+    labels = {n.get("label") for n in nodes.values()}
+    for orphan in ("rrcdm_job_log_exec_par", "BDM_ACC_INTERNAL_COUNTERPARTY",
+                   "v_bdm_sys_ftpsje_jydsf"):
+        assert orphan not in labels, f"the edge-less box {orphan} is still served"
+
+
+# ── the classification in isolation ────────────────────────────────────
+
+def test_own_segment_foreign_field_drops_regardless_of_endpoints():
+    """Sub-defect (a): a sibling's value leg drops even when it does not
+    target the ⟐output frame — the old `if not _tgt_output: return None`
+    admitted it as skeleton."""
+    e = _carrier(et="COMPUTED", src="a.charge_department", tgt="stzfdxzh",
+                 op="REFERENCE", line=51, src_owner="bdm_acc_entrusted_payment",
+                 own_seg=0, hops=[("a.charge_department", 51),
+                                  ("stzfdxzh", 53)],
+                 src_field_like=True)
+    assert _apply_field_involvement([e], "BBZ", True,
+                                    physical_model=_east5_model()) == []
+
+
+def test_own_segment_seed_field_stays():
+    """The searched field's own segment stays whatever the endpoints are —
+    the @41 partition write chain under its own search and the @190
+    predicate under the job-log statement's."""
+    write_leg = _carrier(et="TABLE_FLOW", src="p_dt", tgt="east5_stzfxxb",
+                         op="INSERT", line=41, flow_kind="write",
+                         src_owner="east5_stzfxxb", own_seg=0,
+                         hops=[("p_dt", 41), ("east5_stzfxxb", 41)],
+                         src_field_like=True)
+    predicate = _carrier(et="FILTER", src="p_dt", tgt="east5_stzfxxb",
+                         op="CONDITION", line=190, flow_kind="field flow",
+                         src_owner="east5_stzfxxb", own_seg=0,
+                         hops=[("p_dt", 190), ("east5_stzfxxb", 189)],
+                         src_field_like=True)
+    served = _apply_field_involvement([write_leg, predicate], "p_dt", True,
+                                      physical_model=_east5_model())
+    assert served == [write_leg, predicate], (
+        f"the searched field's own segments dropped: {served}")
+
+
+def test_write_leg_of_the_searched_fields_own_statement_stays():
+    """7-A rule 1 under a SIBLING search: the routed write leg
+    `‖p_dt@L41 → east5_stzfxxb@41‖` is the writing statement's own
+    skeleton and stays under the BBZ search, because that statement's
+    ⟐output frame is the one the searched field's own written value lands
+    on — while the same-shaped leg of the job-log statement (whose frame
+    carries no BBZ value) drops."""
+    bbz_frame = _carrier(et="TABLE_FLOW", src="BBZ", tgt="⟐ output", op="INSERT",
+                         line=73, tgt_line=41, value_edge=True, tgt_output=True,
+                         src_owner="east5_stzfxxb", tgt_canon="east5_stzfxxb",
+                         own_seg=0,
+                         hops=[("BBZ", 73), ("⟐ output", 41)],
+                         src_field_like=True)
+    own_write = _carrier(et="TABLE_FLOW", src="p_dt", tgt="east5_stzfxxb",
+                         op="INSERT", line=41, tgt_line=41, flow_kind="write",
+                         src_owner="east5_stzfxxb", tgt_canon="east5_stzfxxb",
+                         own_seg=0, dml_origin=True,
+                         hops=[("p_dt", 41), ("east5_stzfxxb", 41),
+                               ("rrcdm_job_log_exec_par", 41)],
+                         src_field_like=True)
+    log_write = _carrier(et="TABLE_FLOW", src="⟐ output", tgt="rrcdm_job_log_exec_par",
+                         op="INSERT", line=179, tgt_line=179, flow_kind="write",
+                         own_seg=0, dml_origin=True,
+                         hops=[("⟐ output", 179), ("rrcdm_job_log_exec_par", 179)])
+    served = _apply_field_involvement([bbz_frame, own_write, log_write],
+                                      "BBZ", True, physical_model=_east5_model())
+    assert served == [bbz_frame, own_write], (
+        f"the write-leg carve-out is wrong: "
+        f"{[(e['edge_type'], e.get('_src_label'), e.get('_tgt_label')) for e in served]}")
+
+
+def test_box_skeleton_of_a_non_feeder_box_drops():
+    """The row-source chain and the alias hop of a box that feeds none of
+    the searched field's own occurrences are that sibling column's flow —
+    EAST5's e@152/f@155 feed the stzfdx* columns only, while a@141 feeds
+    the BBZ arms and stays."""
+    e_chain = _carrier(et="TABLE_FLOW", src="e", tgt="⟐ output", op="FROM",
+                       line=152, tgt_output=True, src_owner="BDM_ACC_INTERNAL_COUNTERPARTY",
+                       own_seg=0, hops=[("e", 152), ("⟐ output", 41),
+                                        ("p_dt", 41), ("east5_stzfxxb", 41)])
+    e_alias = _carrier(et="ALIAS", src="BDM_ACC_INTERNAL_COUNTERPARTY", tgt="e",
+                       op="ALIAS", line=152, tgt_canon="BDM_ACC_INTERNAL_COUNTERPARTY",
+                       own_seg=0, hops=[("BDM_ACC_INTERNAL_COUNTERPARTY", 152),
+                                        ("e", 152), ("⟐ output", 41),
+                                        ("p_dt", 41), ("east5_stzfxxb", 41)])
+    a_chain = _carrier(et="TABLE_FLOW", src="a", tgt="⟐ output", op="FROM",
+                       line=141, tgt_output=True, src_owner="bdm_acc_entrusted_payment",
+                       own_seg=0, hops=[("a", 141), ("⟐ output", 41),
+                                        ("p_dt", 41), ("east5_stzfxxb", 41)])
+    a_alias = _carrier(et="ALIAS", src="bdm_acc_entrusted_payment", tgt="a",
+                       op="ALIAS", line=141, tgt_canon="bdm_acc_entrusted_payment",
+                       own_seg=0, hops=[("bdm_acc_entrusted_payment", 141),
+                                        ("a", 141), ("⟐ output", 41),
+                                        ("p_dt", 41), ("east5_stzfxxb", 41)])
+    feeder = _carrier(et="COMPUTED", src="a.remark", tgt="BBZ", op="REFERENCE",
+                      line=70, src_owner="bdm_acc_entrusted_payment",
+                      own_seg=0, hops=[("a.remark", 70), ("BBZ", 73)],
+                      src_field_like=True, src_id="f1", tgt_id="t1")
+    served = _apply_field_involvement([e_chain, e_alias, a_chain, a_alias, feeder],
+                                      "BBZ", True, physical_model=_east5_model())
+    assert served == [a_chain, a_alias, feeder], (
+        f"the feeder-box test is wrong: "
+        f"{[(e['edge_type'], e.get('_src_label'), e.get('_tgt_label')) for e in served]}")
+
+
+def test_chain_leg_driven_by_a_sibling_still_drops():
+    """Class 2's chain leg, unchanged: the row source the closure walk
+    reaches THROUGH another field's value is the chain leg that sibling's
+    write drives (`‖p1@L198 → ⟐ output@L160‖` arrives through
+    `p1.reserved_field8@L183`)."""
+    e = _carrier(et="TABLE_FLOW", src="p1", tgt="⟐ output", op="FROM", line=198,
+                 tgt_output=True, own_seg=1, src_owner="loan_final",
+                 hops=[("p1.reserved_field8", 183), ("p1", 198),
+                       ("⟐ output", 160)])
+    assert _apply_field_involvement([e], "lending_ref", True,
+                                    physical_model=_model()) == []

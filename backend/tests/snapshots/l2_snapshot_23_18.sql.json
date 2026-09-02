@@ -685,6 +685,57 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 14,
+          "id": "l2e_7f5742aba7ac",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016cd1.cd_education_status@L25 \u2192 cd1@L14\u2016",
+          "source": "l2_tbl_79288ecb2b",
+          "target": "l2_tbl_d52d176346",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 14,
+          "id": "l2e_b283181d65f5",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016cd1.cd_gender@L24 \u2192 cd1@L14\u2016",
+          "source": "l2_tbl_79288ecb2b",
+          "target": "l2_tbl_d52d176346",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 14,
+          "id": "l2e_93f6c6b50378",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016cd1.cd_demo_sk@L22 \u2192 cd1@L14\u2016",
+          "source": "l2_tbl_79288ecb2b",
+          "target": "l2_tbl_d52d176346",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -1188,6 +1239,57 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read (read into output) \u2014 \u2016foo.i_item_id@L127 \u2192 \u27d0 output@L42\u2016",
+          "source": "l2_tbl_9eeff9577a",
+          "target": "l2_tbl_34dc6e7d17",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 42,
+          "id": "l2e_36dd0509bac4",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016foo.ca_country@L124 \u2192 \u27d0 output@L42\u2016",
+          "source": "l2_tbl_9eeff9577a",
+          "target": "l2_tbl_34dc6e7d17",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 42,
+          "id": "l2e_5a079f133cae",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016foo.ca_state@L125 \u2192 \u27d0 output@L42\u2016",
+          "source": "l2_tbl_9eeff9577a",
+          "target": "l2_tbl_34dc6e7d17",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 42,
+          "id": "l2e_a0b6b4b99151",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016foo.ca_county@L126 \u2192 \u27d0 output@L42\u2016",
           "source": "l2_tbl_9eeff9577a",
           "target": "l2_tbl_34dc6e7d17",
           "width": 1
@@ -2232,6 +2334,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 85,
+          "id": "l2e_0cad9f483ab4",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016county@L88 \u2192 \u27d0 union1@L85\u2016",
+          "source": "l2_tbl_1392f72865",
+          "target": "l2_tbl_12daecd582",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -2470,6 +2589,40 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 99,
+          "id": "l2e_68bbaa656868",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016ca_state@L101 \u2192 \u27d0 union1@L99\u2016",
+          "source": "l2_tbl_1392f72865",
+          "target": "l2_tbl_cf498e9a8c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 99,
+          "id": "l2e_ca8dcd0ca6ef",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016county@L102 \u2192 \u27d0 union1@L99\u2016",
+          "source": "l2_tbl_1392f72865",
+          "target": "l2_tbl_cf498e9a8c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -2684,6 +2837,57 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read (read into output) \u2014 \u2016i_item_id@L112 \u2192 \u27d0 union1@L112\u2016",
+          "source": "l2_tbl_1392f72865",
+          "target": "l2_tbl_0910b1236e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 112,
+          "id": "l2e_2f5b8b613a1c",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016ca_country@L113 \u2192 \u27d0 union1@L112\u2016",
+          "source": "l2_tbl_1392f72865",
+          "target": "l2_tbl_0910b1236e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 112,
+          "id": "l2e_ac00e1127114",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016ca_state@L114 \u2192 \u27d0 union1@L112\u2016",
+          "source": "l2_tbl_1392f72865",
+          "target": "l2_tbl_0910b1236e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 112,
+          "id": "l2e_155844464a16",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016county@L115 \u2192 \u27d0 union1@L112\u2016",
           "source": "l2_tbl_1392f72865",
           "target": "l2_tbl_0910b1236e",
           "width": 1
@@ -3063,7 +3267,7 @@
         "data": {
           "context": "CTE{results}",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_d52d176346",
           "label": "cd1@14",
           "line_end": 41,
@@ -4209,7 +4413,7 @@
     "script_name": "18.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 172,
+    "total_edges": 184,
     "total_nodes": 134
   },
   "script_name": "18.sql",

@@ -349,6 +349,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 15,
+          "id": "l2e_62214fd1e18b",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016c.c_current_addr_sk@L18 \u2192 c@L15\u2016",
+          "source": "l2_tbl_dab014fd6f",
+          "target": "l2_tbl_930b1d90b7",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#1ABC9C",
           "desc": "Original \u2192 alias",
@@ -1607,7 +1624,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "FROM",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_930b1d90b7",
           "label": "c@15",
           "line_end": 48,
@@ -2276,7 +2293,7 @@
     "script_name": "10.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 89,
+    "total_edges": 90,
     "total_nodes": 55
   },
   "script_name": "10.sql",

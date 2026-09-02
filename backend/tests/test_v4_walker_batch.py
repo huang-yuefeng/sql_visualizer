@@ -374,12 +374,18 @@ def test_foreign_statement_trunk_excluded():
                  if e.get("highlight_line") == 41
                  and nodes.get(e["target"], {}).get("label") == "east5_stzfxxb"]
     assert own_trunk, "the searched field's own write trunk must stay"
-    # … and the pre-gate engine served the foreign trunk (meaningful)
+    # … HISTORICAL (the "meaningful before" half): the PRE-GATE engine
+    # served the foreign trunk, which is what made the gate meaningful
+    # when this test was written (2026-08-2x). Since the 2026-09-02
+    # carrier-is-None fix (#426) the DISPLAY-LAYER involvement rule drops
+    # the foreign trunk on BOTH sides of the gate pair, so a before/after
+    # difference no longer exists — the intent above (the trunk must drop
+    # for ccy_code; the field's own write trunk stays) is the whole
+    # contract now. This block asserts the still-true half: with the gate
+    # OFF the build is at least non-empty and well-formed.
     _r0, nodes0, edges0 = _served(EAST5, "bdm_acc_entrusted_payment", "ccy_code",
                                   gate=False)
-    assert any(e.get("highlight_line") == 179
-               and nodes0.get(e["target"], {}).get("label")
-               == "rrcdm_job_log_exec_par" for e in edges0)
+    assert edges0, "the gate-off build must still produce a graph"
 
 
 def test_rrcdm_seed_keeps_its_three_edges():

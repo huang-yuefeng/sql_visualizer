@@ -949,6 +949,23 @@
       },
       {
         "data": {
+          "category": "filter",
+          "color": "#E74C3C",
+          "desc": "WHERE/JOIN ON condition",
+          "edge_type": "FILTER",
+          "flow_kind": "field flow",
+          "highlight_line": 24,
+          "id": "l2e_c22604150a85",
+          "label": "FILTER",
+          "line_style": "solid",
+          "reason": "field flow (filter step) \u2014 \u2016household_demographics.hd_vehicle_count@L24 \u2192 \u27d0 dn@L8\u2016",
+          "source": "l2_tbl_97f34b4818",
+          "target": "l2_tbl_3eef8fe05e",
+          "width": 2
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -1078,6 +1095,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read (read into output) \u2014 \u2016\u27d0 dn.ss_ticket_number@L40 \u2192 dn@L32\u2016",
+          "source": "l2_tbl_3eef8fe05e",
+          "target": "l2_tbl_535c6b5b8e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 32,
+          "id": "l2e_4198cf6b827d",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016\u27d0 dn.ss_customer_sk@L32 \u2192 dn@L32\u2016",
           "source": "l2_tbl_3eef8fe05e",
           "target": "l2_tbl_535c6b5b8e",
           "width": 1
@@ -1563,7 +1597,7 @@
     "script_name": "34.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 52,
+    "total_edges": 54,
     "total_nodes": 38
   },
   "script_name": "34.sql",

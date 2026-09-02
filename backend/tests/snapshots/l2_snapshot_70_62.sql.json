@@ -26,46 +26,12 @@
           "edge_type": "AGGREGATE",
           "flow_kind": "field flow",
           "highlight_line": 5,
-          "id": "l2e_1cbddabb10fd",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ws_ship_date_sk@L5 \u2192 31-60 days@L0\u2016",
-          "source": "fld_d271c5c9de",
-          "target": "l2_tbl_b58df5ebc6",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 5,
           "id": "l2e_396e0999043c",
           "label": "AGGREGATE",
           "line_style": "solid",
           "reason": "field flow (aggregate step) \u2014 \u2016ws_sold_date_sk@L5 \u2192 30 days@L0\u2016",
           "source": "fld_208a38d675",
           "target": "fld_23f26c88c3",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 5,
-          "id": "l2e_de042b1b0cd9",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ws_sold_date_sk@L5 \u2192 31-60 days@L0\u2016",
-          "source": "fld_208a38d675",
-          "target": "l2_tbl_b58df5ebc6",
           "width": 3
         }
       }
@@ -130,7 +96,7 @@
     "script_name": "62.sql",
     "search_matched": true,
     "target": "\u27d0 output.30 days",
-    "total_edges": 4,
+    "total_edges": 2,
     "total_nodes": 8
   },
   "full": {

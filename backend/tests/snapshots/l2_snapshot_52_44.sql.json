@@ -380,6 +380,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 11,
+          "id": "l2e_0b99d93b1e21",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016ss_net_profit@L12 \u2192 \u27d0 V1@L11\u2016",
+          "source": "l2_tbl_0394333566",
+          "target": "l2_tbl_77887a59b4",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -1213,6 +1230,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 41,
+          "id": "l2e_cdbc730f15b8",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016i1.i_item_sk@L44 \u2192 i1@L41\u2016",
+          "source": "l2_tbl_4fd5ee78de",
+          "target": "l2_tbl_9f431c3afe",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -1240,6 +1274,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016i2.i_product_name@L3 \u2192 i2@L42\u2016",
+          "source": "l2_tbl_4fd5ee78de",
+          "target": "l2_tbl_65ff4515b9",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 42,
+          "id": "l2e_78de98e007d0",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016i2.i_item_sk@L45 \u2192 i2@L42\u2016",
           "source": "l2_tbl_4fd5ee78de",
           "target": "l2_tbl_65ff4515b9",
           "width": 1
@@ -1794,7 +1845,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_9f431c3afe",
           "label": "i1@41",
           "line_end": 45,
@@ -1809,7 +1860,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_65ff4515b9",
           "label": "i2@42",
           "line_end": 45,
@@ -2188,7 +2239,7 @@
     "script_name": "44.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 84,
+    "total_edges": 87,
     "total_nodes": 70
   },
   "script_name": "44.sql",

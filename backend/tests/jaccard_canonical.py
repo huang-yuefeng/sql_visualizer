@@ -934,7 +934,71 @@ Conventions (drift-free, pinned 2026-08-10 from the doc):
     N=E=H 1.0000/1.0000 -- set equality): lending_ref↓SUP_M 21 nodes /
     62 edges / 26 highlights, lending_ref↑DL 5 / 8 / 3, pl↓PL 8 canonical
     node entries / 9 edges / 5 highlights, dl↓DL 8 / 9 / 5; the other 16
-    cases byte-unchanged.
+    cases byte-unchanged. (Historical counts -- point 27 re-measures the
+    east5↓, iiapty↓ and lending_ref↑DL cases.)
+
+27. THE 7-A COROLLARY RESIDUE -- TRUNK / BOX / SKELETON-TWIN ROWS (2026-09-02,
+    canonical re-pin round, team CANON-426). The 2026-09-01 user rulings
+    (7-A write leg only; 3a sibling belongs-to + rule 2 chip prune) landed
+    in the engine together with Team SEGMENT's carrier-is-None fix, which
+    stops serving the SKELETON edges those rulings remove. Measured on that
+    tree: 17/20 cases green with precision 1.0000 everywhere (nothing
+    illegal added) and three cases carrying RECALL moves -- five canonical
+    rows the rulings now refute. 5 rows REMOVED; every removal carries an
+    inline `REMOVED (USER RULING 2026-09-01 7-A corollary + 3a/3c;
+    carrier-is-None fix 2026-09-02) — skeleton-class rows the rulings
+    remove` marker at its old site. The floors are untouched.
+
+      east5↓ -- E5D4 and E5D6, the rrcdm job-log trunk legs of the stmt2
+          statement (TOP11, L179-191): E5D4 the WRITE trunk
+          (⟐output@0 -> rrcdm@179 TABLE_FLOW@179, TOP11) -- the same trunk
+          R46c class X4 removed from lending_ref↓SUP_M / iiapty↓SUP_M. The
+          searched field here is p_dt and the job-log INSERT writes NO
+          p_dt column, so the leg carries no searched-field evidence
+          (7-A corollary: the log writes no such column, the trunk drops).
+          E5D6 the same trunk's READ side (east5_stzfxxb@189 -> ⟐output@0
+          TABLE_FLOW@189, the P22 mirror): the box-level FROM admission of
+          the job-log statement, no field carrier on the leg. E5D5 (the
+          p_dt@190 FROM read) and E5D7 (the p_dt@190 WHERE filter) STAY.
+      iiapty↓ -- IID7 and IID11, the p2 BOX chain (R46c class X6's
+          box-leg family): IID7 sup@160 -> p2@199@199 ALIAS@160 rides the
+          L199 `LEFT JOIN bdm_acc_loan_info_sup p2` self-join and IID11
+          p2@199@199 -> ⟐output@0 TABLE_FLOW@199 is the box-level
+          duplicate of the field-level flow IID1/IID9 already pin -- p2
+          feeds NO iiapty occurrence (the sibling-feeder shape of BBZ's
+          e@152/f@155 quartet).
+      lending_ref↑DL -- LFD6 (ods_ccb_cb_loan_acctloan@426 -> A@426@426
+          REF@426): the REF twin of LFD4 -- identical endpoints, identical
+          anchor, type alone differs -- a skeleton REF with no field
+          carrier. LFD4/LFD5 (the alias + FROM hops), LFD7 (the write leg)
+          and the value chain LFD3/LFD8/LFD9/LFD10 all STAY, verified
+          served after the removal (the L426 FROM line renders the alias
+          edge and the FROM hop, not a second REF).
+
+    NODES -- RE-CHECK 2026-09-02 (box prune landed): iiapty↓ p2@199,
+    east5↓ rrcdm@179 AND the east5↓ stmt2 (TOP11) ⟐output VT are REMOVED
+    from CANONICAL_NODES_DIR, each with the box-prune citation at its old
+    site. History of the ground: when the 5 rows above left, those chips
+    lost their last edge but were still SERVED, because
+    `_prune_orphan_sibling_chips` scoped rule 3c to FIELD chips
+    ("table/VT compounds are skeleton"); point 27 first re-pinned p2@199 /
+    rrcdm@179 label-only to hold set equality. Team SEGMENT's box prune
+    (2026-09-02) then extended the hide to a non-seed BOX whose EVERY edge
+    the involvement rule dropped (the searched table / seed holder box
+    exempt), which took the whole TOP11 write frame with rrcdm@179 and the
+    p2@199 alias box. The label-only re-pins were therefore transient
+    (one measurement round) and are superseded, not rewritten silently --
+    the re-check citations name them. east5↓ keeps ONE ⟐output VT entry
+    (the stmt1 TOP0 frame; the surviving served 'output' node carries only
+    the @41 incident lines) and iiapty↓ keeps its ⟐output@64 (TOP0).
+
+    Measured after the re-derivation (20/20 cases, N=E=H 1.0000/1.0000 --
+    set equality, no improvement backlog, no unrealized canonical node):
+    first round, on the carrier-is-None tree: east5↓ 5 nodes / 5 edges /
+    3 highlights, iiapty↓ 7 / 7 / 4, lending_ref↑DL 5 / 7 / 3. After the
+    box prune (point 27 re-check, current): east5↓ 3 nodes / 5 edges /
+    3 highlights, iiapty↓ 6 / 7 / 4, lending_ref↑DL unchanged; the other
+    17 cases byte-unchanged.
 """
 
 CANONICAL_ROWS = [
@@ -1402,6 +1466,12 @@ CANONICAL_EDGES = [
     #    IID17 is the sup read leg @223. The other join keys (p4.iiapty,
     #    p5.p_dt, p4.p_dt) are different field instances -- excluded
     #    (doc §3.1). ──
+    #    AMENDED 2026-09-02 (point 27 -- USER RULING 2026-09-01 7-A
+    #    corollary + 3a/3c, carrier-is-None fix): IID7/IID11 REMOVED -- the
+    #    p2 BOX chain (p2 feeds no iiapty occurrence). IID9 (the sup write
+    #    @160) and the seed-zone rows IID1-IID6 stay; the p2@199 compound
+    #    stays as a label-only node pin (table/VT compounds are never
+    #    pruned).
     {"row": "IID1", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "loan_final@64", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 64, "spec": "anchor_rel_ep"},
     {"row": "IID2", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
@@ -1425,14 +1495,21 @@ CANONICAL_EDGES = [
     # field, so the chip iiapty@151 belongs to p5@151 with line evidence 153.
     {"row": "IID6", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "p5@151@151", "dst": "iiapty@151", "type": "SCHEMA", "anchor": 153, "spec": "anchor_rel_ep"},
-    {"row": "IID7", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "sup@160", "dst": "p2@199@199", "type": "ALIAS", "anchor": 160, "spec": "anchor_rel_ep"},
+    # IID7 REMOVED (USER RULING 2026-09-01 7-A corollary + 3a/3c; carrier-is-None fix 2026-09-02) — skeleton-class rows the rulings remove.
+    # Ground: the p2 BOX chain (R46c class X6's sibling write-zone/box-leg family) -- sup@160 -> p2@199@199 ALIAS@160 rides the L199
+    # `LEFT JOIN bdm_acc_loan_info_sup p2` self-join, and p2 feeds NO iiapty occurrence: the sibling-feeder shape of BBZ's e@152/f@155
+    # quartet. The alias skeleton edge is the box's own structural fact, not the searched field's flow.
+    # {"row": "IID7", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+    #  "src": "sup@160", "dst": "p2@199@199", "type": "ALIAS", "anchor": 160, "spec": "anchor_rel_ep"},
     # IID8 REMOVED (R46c value-cone gate, user-approved 2026-09-01, class X6: sibling write-zone leg / box leg with no field evidence).
     {"row": "IID9", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
      "src": "⟐output@0", "dst": "sup@160", "type": "TABLE_FLOW", "anchor": 160, "spec": "anchor_rel_ep", "stmt": "TOP0"},
     # IID10 REMOVED (R46c value-cone gate, user-approved 2026-09-01, class X6: sibling write-zone leg / box leg with no field evidence).
-    {"row": "IID11", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
-     "src": "p2@199@199", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 199, "spec": "anchor_rel_ep"},
+    # IID11 REMOVED (USER RULING 2026-09-01 7-A corollary + 3a/3c; carrier-is-None fix 2026-09-02) — skeleton-class rows the rulings remove.
+    # Ground: the p2 BOX chain's return leg (p2@199@199 -> ⟐output@0 TABLE_FLOW@199, the box-level duplicate of the field-level flow IID1/IID9
+    # already pin). With IID7 gone the p2@199 chip keeps NO edge, so point 26 rule 2 prunes it -- its CANONICAL_NODES_DIR entry is removed with it.
+    # {"row": "IID11", "seed": "iiapty", "script": "BDM_ACC_LOAN_INFO_SUP_M.sql", "direction": "downstream",
+    #  "src": "p2@199@199", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 199, "spec": "anchor_rel_ep"},
     # IID12 REMOVED (R46c value-cone gate, user-approved 2026-09-01, class X6: sibling write-zone leg / box leg with no field evidence).
     # IID13 REMOVED (R46c value-cone gate, user-approved 2026-09-01, class X6: sibling write-zone leg / box leg with no field evidence).
     # IID14 REMOVED (R46c value-cone gate, user-approved 2026-09-01, class X6: sibling write-zone leg / box leg with no field evidence).
@@ -1497,6 +1574,12 @@ CANONICAL_EDGES = [
     #    REF@426); LFD7 is the write leg (output → bdm@99, the P15
     #    mirror). The statement's other ODS inputs and output columns
     #    are different fields -- excluded (doc §3.1). ──
+    #    AMENDED 2026-09-02 (point 27 -- USER RULING 2026-09-01 7-A
+    #    corollary + 3a/3c, carrier-is-None fix): LFD6 REMOVED -- the REF
+    #    twin of LFD4 (identical endpoints, identical anchor, type alone
+    #    differs; no field carrier). LFD4/LFD5 (the alias + FROM hops),
+    #    LFD7 (the write leg) and the value chain LFD3/LFD8/LFD9/LFD10
+    #    all stay -- verified served after the removal.
     # LFD1 REMOVED (USER RULING 2026-09-01 — sibling belongs-to dropped,
     # docstring point 26 rule 1). It pinned the source table's belongs-to
     # A@426@426 -> acctnbr@101 SCHEMA@101 (L101 `A.acctnbr AS LENDING_REF`,
@@ -1526,8 +1609,12 @@ CANONICAL_EDGES = [
      "src": "ods_ccb_cb_loan_acctloan@426", "dst": "A@426@426", "type": "ALIAS", "anchor": 426, "spec": "anchor_rel_ep"},
     {"row": "LFD5", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
      "src": "A@426@426", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 426, "spec": "anchor_rel_ep"},
-    {"row": "LFD6", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
-     "src": "ods_ccb_cb_loan_acctloan@426", "dst": "A@426@426", "type": "REF", "anchor": 426, "spec": "anchor_rel_ep"},
+    # LFD6 REMOVED (USER RULING 2026-09-01 7-A corollary + 3a/3c; carrier-is-None fix 2026-09-02) — skeleton-class rows the rulings remove.
+    # Ground: the REF twin of LFD4/LFD5 -- ods@426 -> A@426 REF@426 is the SAME L426 FROM-line fact LFD4 already pins as the ALIAS edge
+    # (identical endpoints, identical anchor, type alone differs): a table/alias skeleton REF with no field carrier, so the carrier-is-None
+    # pass stops serving it. LFD4/LFD5 (the alias + FROM hops) and the value chain LFD3/LFD8/LFD9/LFD10 STAY -- verified served.
+    # {"row": "LFD6", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
+    #  "src": "ods_ccb_cb_loan_acctloan@426", "dst": "A@426@426", "type": "REF", "anchor": 426, "spec": "anchor_rel_ep"},
     {"row": "LFD7", "seed": "lending_ref", "script": "BDM_ACC_LOAN_INFO_Digitallending.sql", "direction": "upstream",
      "src": "⟐output@0", "dst": "bdm@99", "type": "TABLE_FLOW", "anchor": 99, "spec": "anchor_rel_ep"},
     # ── LFD8-LFD10 (2026-08-29, F-D): the L101 projection's three
@@ -1771,18 +1858,36 @@ CANONICAL_EDGES = [
     #    identity re-pins. Verified by probing the extractor's statement
     #    contexts on the repaired sample: TOP11 = lines 179-191 (the
     #    rrcdm job-log INSERT).
+    #    AMENDED 2026-09-02 (point 27 -- USER RULING 2026-09-01 7-A
+    #    corollary + 3a/3c, carrier-is-None fix): E5D4/E5D6 REMOVED -- the
+    #    rrcdm job-log trunk legs (the job-log INSERT writes no p_dt
+    #    column, so neither its write trunk nor its box-level FROM
+    #    admission carries the searched field). The closure is now
+    #    5 nodes / 5 edges / 3 highlights {41,189,190}; E5D5/E5D7 (the
+    #    p_dt@190 read + filter) and the stmt1 write chain stay, and the
+    #    rrcdm compound stays as a label-only node pin (table/VT compounds
+    #    are never pruned). The ISSUE-4 case-boundary assertion above is
+    #    untouched -- it is E5D5/E5D7 that carry it.
     {"row": "E5D1", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
      "src": "⟐output@0", "dst": "east5_stzfxxb@41", "type": "TABLE_FLOW", "anchor": 41, "spec": "anchor_rel_ep", "stmt": "TOP0"},
     {"row": "E5D2", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
      "src": "p_dt@41", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 41, "spec": "anchor_rel_ep", "stmt": "TOP0"},
     {"row": "E5D3", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
      "src": "p_dt@41", "dst": "⟐output@0", "type": "REF", "anchor": 41, "spec": "anchor_rel_ep"},
-    {"row": "E5D4", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
-     "src": "⟐output@0", "dst": "rrcdm@179", "type": "TABLE_FLOW", "anchor": 179, "spec": "anchor_rel_ep", "stmt": "TOP11"},
+    # E5D4 REMOVED (USER RULING 2026-09-01 7-A corollary + 3a/3c; carrier-is-None fix 2026-09-02) — skeleton-class rows the rulings remove.
+    # Ground: the rrcdm job-log WRITE trunk (`INSERT INTO rrcdm_job_log_exec_par`@179 -> rrcdm@179, TOP11) -- the same trunk R46c class X4
+    # removed from lending_ref↓SUP_M / iiapty↓SUP_M. The searched field here is p_dt and the job-log INSERT writes NO p_dt column, so the
+    # write leg carries no searched-field evidence (7-A: write leg only); with the leg gone, point 26 rule 2 drops the rrcdm@179 node with it.
+    # {"row": "E5D4", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
+    #  "src": "⟐output@0", "dst": "rrcdm@179", "type": "TABLE_FLOW", "anchor": 179, "spec": "anchor_rel_ep", "stmt": "TOP11"},
     {"row": "E5D5", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
      "src": "p_dt@190", "dst": "east5_stzfxxb@189", "type": "REF", "anchor": 189, "spec": "anchor_rel_ep"},
-    {"row": "E5D6", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
-     "src": "east5_stzfxxb@189", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 189, "spec": "anchor_rel_ep"},
+    # E5D6 REMOVED (USER RULING 2026-09-01 7-A corollary + 3a/3c; carrier-is-None fix 2026-09-02) — skeleton-class rows the rulings remove.
+    # Ground: the same trunk's READ side -- the box-level FROM admission east5_stzfxxb@189 -> ⟐output@179 (the P22 mirror), the table/VT
+    # skeleton leg of the job-log statement. The statement's own searched-field facts are E5D5 (the p_dt@190 FROM read) and E5D7 (the
+    # p_dt@190 WHERE filter), both STAY; the admission leg has no field carrier, so the carrier-is-None pass stops serving it.
+    # {"row": "E5D6", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
+    #  "src": "east5_stzfxxb@189", "dst": "⟐output@0", "type": "TABLE_FLOW", "anchor": 189, "spec": "anchor_rel_ep"},
     {"row": "E5D7", "seed": "east5", "script": "EAST5_STZFXXB_M.sql", "direction": "downstream",
      "src": "p_dt@190", "dst": "east5_stzfxxb@190", "type": "FILTER", "anchor": 190, "spec": "anchor_rel_ep"},
     #    east5↑ (p_dt upstream): the literal-terminated write chain
@@ -2804,8 +2909,13 @@ CANONICAL_NODES_DIR = {
          "note": "the p5 alias of the ODS read (alias node; label embeds the line)"},
         {"label": "sup", "line": 160, "kind": "table",
          "note": "the sup-write statement's target -- the flow's first write (DML @160)"},
-        {"label": "p2@199", "line": 199, "kind": "table",
-         "note": "the p2 alias of sup (the statement's own self-join; alias node, label embeds the line)"},
+        # p2@199 REMOVED (USER RULING 2026-09-01 7-A corollary + 3a/3c; carrier-is-None
+        # fix 2026-09-02 — skeleton-class rows the rulings remove; box prune 2026-09-02,
+        # point 27 re-check). IID7/IID11 (the p2 BOX chain) were this chip's ONLY edges
+        # and p2 feeds no iiapty occurrence; the box prune (a non-seed BOX whose every
+        # edge the involvement rule dropped is hidden, the searched table/seed holder
+        # exempt) removes the chip itself. Point 27 had re-pinned it label-only under
+        # the then-current "table/VT compounds are never pruned" scoping -- superseded.
         {"label": "loan_final", "line": 64, "kind": "cte",
          "note": "the sup-write statement's SELECT source CTE"},
         {"label": "⟐output", "line": 64, "kind": "vt",
@@ -2941,10 +3051,17 @@ CANONICAL_NODES_DIR = {
          "note": "the physical table -- canonical spelling east5_stzfxxb (spelled 11x lowercase (INSERT@41 + 10 ALTERs@166-175) vs 1 uppercase (FROM@189); ties -> lowercase)"},
         {"label": "⟐output", "line": None, "kind": "vt",
          "note": "stmt1 output VT (TOP0, line_start 41)"},
-        {"label": "⟐output", "line": None, "kind": "vt",
-         "note": "stmt2 output VT (TOP11, line_start 179)"},
-        {"label": "rrcdm", "line": 179, "kind": "table",
-         "note": "the job-log write target rrcdm_job_log_exec_par (INSERT@179)"},
+        # rrcdm@179 REMOVED (USER RULING 2026-09-01 7-A corollary + 3a/3c; carrier-is-None
+        # fix 2026-09-02 — skeleton-class rows the rulings remove; box prune 2026-09-02,
+        # point 27 re-check). E5D4 (the job-log write trunk) was this compound's ONLY
+        # edge; the box prune (a non-seed BOX whose every edge the involvement rule
+        # dropped is hidden, the searched table/seed holder exempt) removes the chip.
+        # WITH it the stmt2 ⟐output VT entry goes: the whole TOP11 write frame
+        # (L179-191) left the closure, so only the stmt1 (TOP0) output VT stays pinned
+        # above. Point 27 had re-pinned both label-only under the then-current
+        # "table/VT compounds are never pruned" scoping -- superseded.
+        # {"label": "⟐output", "line": None, "kind": "vt",
+        #  "note": "stmt2 output VT (TOP11, line_start 179)"},
     ],
     # east5↑ -- east5_stzfxxb.p_dt upstream: the literal-terminated
     # write chain (PARTITION(p_dt='$(load_date)')@41 -- no producing

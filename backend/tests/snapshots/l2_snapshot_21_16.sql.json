@@ -261,6 +261,40 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 4,
+          "id": "l2e_bb71f51e2c7d",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016cs1.cs_ship_addr_sk@L10 \u2192 cs1@L4\u2016",
+          "source": "l2_tbl_fde1a4948d",
+          "target": "l2_tbl_36617c286a",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 4,
+          "id": "l2e_94c384a9ed99",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016cs1.cs_ship_date_sk@L9 \u2192 cs1@L4\u2016",
+          "source": "l2_tbl_fde1a4948d",
+          "target": "l2_tbl_36617c286a",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -594,6 +628,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016cs2.cs_order_number@L17 \u2192 cs2@L16\u2016",
+          "source": "l2_tbl_fde1a4948d",
+          "target": "l2_tbl_d839262513",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 16,
+          "id": "l2e_74ebe64ae6dd",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016cs2.cs_warehouse_sk@L18 \u2192 cs2@L16\u2016",
           "source": "l2_tbl_fde1a4948d",
           "target": "l2_tbl_d839262513",
           "width": 1
@@ -941,7 +992,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "FROM",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_36617c286a",
           "label": "cs1@4",
           "line_end": 22,
@@ -1015,7 +1066,7 @@
         "data": {
           "context": "TOP0/exists1",
           "defined_in": "FROM",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_d839262513",
           "label": "cs2@16",
           "line_end": 22,
@@ -1332,7 +1383,7 @@
     "script_name": "16.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 49,
+    "total_edges": 52,
     "total_nodes": 35
   },
   "script_name": "16.sql",

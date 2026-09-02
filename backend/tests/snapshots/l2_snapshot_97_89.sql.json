@@ -315,6 +315,40 @@
       },
       {
         "data": {
+          "category": "filter",
+          "color": "#C0392B",
+          "desc": "HAVING\u2192SELECT match",
+          "edge_type": "INDIRECT",
+          "flow_kind": "filter",
+          "highlight_line": 3,
+          "id": "l2e_cd047cc75730",
+          "label": "INDIRECT",
+          "line_style": "dot-dash",
+          "reason": "filter (filter step) \u2014 \u2016avg_monthly_sales@L3 \u2192 avg_monthly_sales@L15\u2016",
+          "source": "l2_tbl_1b784ceb73",
+          "target": "l2_tbl_b5778ce307",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 3,
+          "id": "l2e_6980b6b5da4d",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016avg_monthly_sales@L3 \u2192 avg_monthly_sales@L15\u2016",
+          "source": "l2_tbl_1b784ceb73",
+          "target": "l2_tbl_b5778ce307",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "copy",
           "color": "#27AE60",
           "desc": "Column reference",
@@ -648,6 +682,91 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read (read into output) \u2014 \u2016\u27d0 tmp1.i_category@L13 \u2192 tmp1@L13\u2016",
+          "source": "l2_tbl_1b784ceb73",
+          "target": "l2_tbl_b5778ce307",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 13,
+          "id": "l2e_491b0039574a",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016\u27d0 tmp1.i_class@L13 \u2192 tmp1@L13\u2016",
+          "source": "l2_tbl_1b784ceb73",
+          "target": "l2_tbl_b5778ce307",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 13,
+          "id": "l2e_912128308d02",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016\u27d0 tmp1.i_brand@L13 \u2192 tmp1@L13\u2016",
+          "source": "l2_tbl_1b784ceb73",
+          "target": "l2_tbl_b5778ce307",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 13,
+          "id": "l2e_6ae814a3be13",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016\u27d0 tmp1.s_store_name@L19 \u2192 tmp1@L13\u2016",
+          "source": "l2_tbl_1b784ceb73",
+          "target": "l2_tbl_b5778ce307",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 13,
+          "id": "l2e_ffa7398348b9",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016\u27d0 tmp1.s_company_name@L13 \u2192 tmp1@L13\u2016",
+          "source": "l2_tbl_1b784ceb73",
+          "target": "l2_tbl_b5778ce307",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 13,
+          "id": "l2e_85ef939fc6c4",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016\u27d0 tmp1.d_moy@L13 \u2192 tmp1@L13\u2016",
           "source": "l2_tbl_1b784ceb73",
           "target": "l2_tbl_b5778ce307",
           "width": 1
@@ -1034,7 +1153,7 @@
     "script_name": "89.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 34,
+    "total_edges": 41,
     "total_nodes": 38
   },
   "script_name": "89.sql",

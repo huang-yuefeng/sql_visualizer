@@ -421,21 +421,12 @@ export default function DataFlowGraph(props) {
           </>
         )}
         {level === 'L2' && viewMode !== null && onViewModeChange && (
-          <label
+          <span
             className="flow-mode-toggle"
-            title="L2 view: Flow only / Full toggle positions without re-layout; the merged views render one SQL line per edge, the detailed views render every edge."
+            title="L2 view: Flow only. The line-merged closure — one SQL line per edge, chips collapsed to the searched field (user ruling 2026-09-02: the Full view and the detailed views are postponed, source code kept)."
           >
-            <select
-              className="flow-mode-select"
-              value={viewMode}
-              onChange={(e) => onViewModeChange(e.target.value)}
-            >
-              <option value="flow-merged">Flow only</option>
-              <option value="full-merged">Full</option>
-              <option value="flow">Flow only (detailed)</option>
-              <option value="full">Full (detailed)</option>
-            </select>
-          </label>
+            <span className="flow-mode-label">Flow only</span>
+          </span>
         )}
       </div>
       {/* V2-N2 (2026-08-29): the Fit/Export controls used to float

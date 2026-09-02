@@ -846,6 +846,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 26,
+          "id": "l2e_a35204abb769",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016ctr1.ctr_total_return@L29 \u2192 ctr1@L26\u2016",
+          "source": "l2_tbl_cfacc39c99",
+          "target": "l2_tbl_f76ce31026",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -1434,7 +1451,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "FROM",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_f76ce31026",
           "label": "ctr1@26",
           "line_end": 35,
@@ -1861,7 +1878,7 @@
     "script_name": "30.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 65,
+    "total_edges": 66,
     "total_nodes": 44
   },
   "script_name": "30.sql",

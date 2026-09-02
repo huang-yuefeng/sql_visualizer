@@ -202,6 +202,20 @@ stylesSuite('FILTER_SELFLOOP_STYLES / FILTER_CAPTION_STYLES — caption retireme
     expect(geom.style['loop-sweep']).toBe('-90deg');
   });
 
+  it('the loop wears the UNIFORM edge style — no special red (ruling 2026-09-02)', () => {
+    const geom = graphStylesModule.FILTER_LOOP_GEOM_STYLES
+      .find(r => r.selector === 'edge.filter-selfloop');
+    expect(geom.style['line-color']).toBe(graphStylesModule.L2_UNIFORM_EDGE_COLOR);
+    expect(geom.style['width']).toBe(2);
+    // the special story-step red is gone too: the generic story-active
+    // rule (width 5 > the loop's 2) is the only emphasis, with no colour
+    const story = graphStylesModule.STORY_STYLES;
+    expect(story.some(r => (r.selector || '').includes('filter-selfloop'))).toBe(false);
+    const composed = JSON.stringify({ geom, story });
+    expect(composed).not.toContain('#E74C3C');
+    expect(composed).not.toContain('#FF6B6B');
+  });
+
   it('flowVisibility no longer mints caption nodes', () => {
     const visSource = readSrc('../flowVisibility.js');
     expect(visSource).not.toMatch(/upsertFilterCaptions/);

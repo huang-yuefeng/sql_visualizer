@@ -128,6 +128,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 1,
+          "id": "l2e_d827dce118f8",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016i_item_id@L4 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_b4bc148b14",
+          "target": "l2_tbl_5657bc0d8d",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -584,6 +601,23 @@
           "target": "l2_tbl_b4bc148b14",
           "width": 1
         }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 23,
+          "id": "l2e_0364aa356450",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016\u27d0 x.i_item_id@L29 \u2192 x@L23\u2016",
+          "source": "l2_tbl_9093cbe00f",
+          "target": "l2_tbl_b4bc148b14",
+          "width": 1
+        }
       }
     ],
     "filtered_nodes": 25,
@@ -937,7 +971,7 @@
     "script_name": "21.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 30,
+    "total_edges": 32,
     "total_nodes": 29
   },
   "script_name": "21.sql",

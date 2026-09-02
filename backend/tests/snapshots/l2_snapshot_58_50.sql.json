@@ -26,46 +26,12 @@
           "edge_type": "AGGREGATE",
           "flow_kind": "field flow",
           "highlight_line": 12,
-          "id": "l2e_9f3004cffc9b",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016sr_returned_date_sk@L12 \u2192 31-60 days@L0\u2016",
-          "source": "fld_20aa6b1e37",
-          "target": "l2_tbl_718ea4cfbb",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 12,
           "id": "l2e_6154039ec4f8",
           "label": "AGGREGATE",
           "line_style": "solid",
           "reason": "field flow (aggregate step) \u2014 \u2016ss_sold_date_sk@L12 \u2192 30 days@L0\u2016",
           "source": "fld_958a8a6b6b",
           "target": "fld_1d0defd401",
-          "width": 3
-        }
-      },
-      {
-        "data": {
-          "category": "aggregate",
-          "color": "#8E44AD",
-          "desc": "SUM/COUNT/AVG",
-          "edge_type": "AGGREGATE",
-          "flow_kind": "field flow",
-          "highlight_line": 12,
-          "id": "l2e_091c3871efed",
-          "label": "AGGREGATE",
-          "line_style": "solid",
-          "reason": "field flow (aggregate step) \u2014 \u2016ss_sold_date_sk@L12 \u2192 31-60 days@L0\u2016",
-          "source": "fld_958a8a6b6b",
-          "target": "l2_tbl_718ea4cfbb",
           "width": 3
         }
       }
@@ -130,7 +96,7 @@
     "script_name": "50.sql",
     "search_matched": true,
     "target": "\u27d0 output.30 days",
-    "total_edges": 4,
+    "total_edges": 2,
     "total_nodes": 8
   },
   "full": {
@@ -742,6 +708,40 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016d2.d_date_sk@L44 \u2192 d2@L38\u2016",
+          "source": "l2_tbl_3f61faa44a",
+          "target": "l2_tbl_63637ffb69",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 38,
+          "id": "l2e_da315a1ac05a",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d2.d_year@L39 \u2192 d2@L38\u2016",
+          "source": "l2_tbl_3f61faa44a",
+          "target": "l2_tbl_63637ffb69",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 38,
+          "id": "l2e_564532f6fd06",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d2.d_moy@L40 \u2192 d2@L38\u2016",
           "source": "l2_tbl_3f61faa44a",
           "target": "l2_tbl_63637ffb69",
           "width": 1
@@ -1502,7 +1502,7 @@
     "script_name": "50.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 52,
+    "total_edges": 54,
     "total_nodes": 36
   },
   "script_name": "50.sql",

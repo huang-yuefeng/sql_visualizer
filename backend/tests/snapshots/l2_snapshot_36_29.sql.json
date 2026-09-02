@@ -515,6 +515,40 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 11,
+          "id": "l2e_874d93820e9c",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d1.d_moy@L16 \u2192 d1@L11\u2016",
+          "source": "l2_tbl_e82d01d60b",
+          "target": "l2_tbl_20d68a4269",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 11,
+          "id": "l2e_117304e67d10",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d1.d_year@L17 \u2192 d1@L11\u2016",
+          "source": "l2_tbl_e82d01d60b",
+          "target": "l2_tbl_20d68a4269",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -549,6 +583,40 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 12,
+          "id": "l2e_b11647d8b0eb",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d2.d_moy@L25 \u2192 d2@L12\u2016",
+          "source": "l2_tbl_e82d01d60b",
+          "target": "l2_tbl_e788c84eab",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 12,
+          "id": "l2e_6bd43303b292",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d2.d_date_sk@L24 \u2192 d2@L12\u2016",
+          "source": "l2_tbl_e82d01d60b",
+          "target": "l2_tbl_e788c84eab",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -576,6 +644,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016d3.d_year@L30 \u2192 d3@L13\u2016",
+          "source": "l2_tbl_e82d01d60b",
+          "target": "l2_tbl_2bd80a61c4",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 13,
+          "id": "l2e_ea2a17dc56b3",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d3.d_date_sk@L29 \u2192 d3@L13\u2016",
           "source": "l2_tbl_e82d01d60b",
           "target": "l2_tbl_2bd80a61c4",
           "width": 1
@@ -1206,7 +1291,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_20d68a4269",
           "label": "d1@11",
           "line_end": 30,
@@ -1221,7 +1306,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_e788c84eab",
           "label": "d2@12",
           "line_end": 30,
@@ -1236,7 +1321,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_2bd80a61c4",
           "label": "d3@13",
           "line_end": 30,
@@ -1638,7 +1723,7 @@
     "script_name": "29.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 61,
+    "total_edges": 66,
     "total_nodes": 42
   },
   "script_name": "29.sql",

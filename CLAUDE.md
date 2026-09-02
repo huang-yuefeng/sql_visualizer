@@ -11,7 +11,12 @@ Cytoscape.js data flow graphs (L1 cross-script pipeline, L2 per-script detail).
 - **Backend**: FastAPI + sqlglot (MySQL dialect), Docker `gps-sql-backend` on port 8000
 - **Frontend**: React 18 + Vite + Cytoscape.js, served from `frontend/dist/`
 - **Tests**: vitest (frontend, **438 tests across 34 files**, all green), pytest (backend, current gate **1551 passed / 11 skipped / 0 failed / 0 deselected / 0 xfailed** — the `release.sh` deselect list is **EMPTY at all three of its pytest sites** since v3.3.197: both R29 ruled-red doc tests went GREEN under the 2026-09-01 §7-A ruling, and the list is KEPT EMPTY by rule — it reopens only for a test that is red-documented PENDING a ruling, see #57). Jaccard benchmark gate **20/20 at 1.0000/1.0000 recall AND precision** (set equality, both directions — the two former ruled-red `lending_ref` cases are GREEN since the R46c/R46d canonical re-derivation, #55). L2 snapshots: **108 committed baselines, all green** — the last rebaseline was the v3.3.197 wave (103 files re-pinned, commit `6001ef9`; content sets identical, keeper re-picks rehash ids only)
-- **Version**: See `/VERSION` (**3.3.197 RELEASED 2026-09-02**, release commit `6c2ed1c`, deployed to prod and pushed to `origin/main`; `6001ef9` is the feature commit). The wave is **LANDED, not staged**: V4 walker batch, V5 occurrence twins, V6 model persistence (`graph_service.py` `MODEL_CACHE_*`, `cache/model_{key}.json`), V7 walker-admission fixes g1/d2 (`lineage.py`), V8 walker determinism (`_WALK_RANK` + the 5-seed byte-identity HARD gate, #58), rule 3a reversal + `_prune_orphan_sibling_chips` (#58), §7-A write-leg-only (#57), M-T1 TVF alias anchors (`skip_parens`), H11 Phase 4d-gc MERGE/predicate belongs-to edges, X1 deterministic PROVENANCE + guard 3b, J1 field-involvement + J2 fold ownership, H12 model-build perf, R31.35 file-driven user management. `EXTRACTOR_VERSION = "2026-08-28.13"`
+- **Version**: See `/VERSION` (**3.3.199 (releasing)** — feature commits `e5a8d84`/`a4ea4ed` are on
+  `origin/main` and VERSION on disk reads 3.3.199; the release commit lands after this edit. Prior
+  release: **3.3.197**, commit `6c2ed1c`, deployed to prod and pushed; `6001ef9` its feature commit).
+  The wave is **LANDED, not staged**: V4 walker batch, V5 occurrence twins, V6 model persistence (`graph_service.py` `MODEL_CACHE_*`, `cache/model_{key}.json`), V7 walker-admission fixes g1/d2 (`lineage.py`), V8 walker determinism (`_WALK_RANK` + the 5-seed byte-identity HARD gate, #58), rule 3a reversal + `_prune_orphan_sibling_chips` (#58), §7-A write-leg-only (#57), M-T1 TVF alias anchors (`skip_parens`), H11 Phase 4d-gc MERGE/predicate belongs-to edges, X1 deterministic PROVENANCE + guard 3b, J1 field-involvement + J2 fold ownership, H12 model-build perf, R31.35 file-driven user management. `EXTRACTOR_VERSION = "2026-08-28.13"` (→ **`.14`** in the
+  releasing tree — rule 4e's family 5 occurrence twins + `dependency_graph` Phase 9b, #60;
+  version-matched caches must invalidate)
 - **Service IP**: `192.168.0.66:8000` (never use `localhost`)
 
 ## File Map (Key Source Files)
@@ -985,3 +990,65 @@ curl -s http://192.168.0.66:8000/api/health       # health check
     (2026-09-02). Rationale: simplicity and a usable release — the
     flow-only view is the one that answers the debugging question, so it
     ships first; the rest waits for user demand with the code intact.
+    Fit is part of the same cut: `flowVisibility.fitVisibleElements` (renamed from
+    `fitAllElements`) frames the VISIBLE closure — the flow visibility pass runs FIRST,
+    then `cy.fit(cy.elements(':visible'))` — amending E-M8/#283 ("fit the FULL graph,
+    then restore visibility"), which existed only so the closed Full view's nodes stayed
+    reachable; hidden elements are unreachable by any UI path now (R31.26, amended
+    2026-09-02).
+
+60. **The BBZ/p_dt investigations produced four new edge rules + the carrier-is-None
+    fix (2026-09-02, USER APPROVED; traceability R54, requirement amendment
+    `requirements_v2.md` §"Amendment (2026-09-02) — four new L2 flow-only edge rules",
+    rule examples `wiki/FLOW_ONLY_VIEW_RULES.md` §2h/§4e/§6d/§6e)**: the EAST5 × `BBZ`
+    and EAST5 × `p_dt` closures served edges the flow-only rules forbid, and the root
+    cause under all of them was the **carrier-is-None skeleton fallback** (#426) — when
+    the hop carrier resolved to None on a frame the involvement filter had no sibling
+    chip to refuse, so a foreign statement's whole write/read plumbing was admitted as
+    "skeleton". The evidence the rules now read is the edge's OWN carried segment
+    (`_src_label`/`_own_seg_idx`/`_path_hops`), never its display endpoints and never the
+    hop the walk arrived through. **2h — provenance-linked AS-alias routing** (USER
+    CONFIRMED; enforcement shipped v3.3.198 as audit fix F2): a searched source field's
+    value written under an AS-alias keeps the alias's ⟐output legs, so the chain reaches
+    the DML without a hole — EAST5 L50 `REPLACE(a.entd_paym_dt,"_","") As stzfrq` serves
+    4 edges, while SUP_M's sibling alias `reserved_field8` (a literal, provenance fails)
+    keeps nothing; the own-frames test needs the frame to be the write target's own
+    column AND the statement to write no searched-field column itself (the 7-A
+    boundary). **4e — producer-occurrence anchoring** (Team 4E, ⏳ LANDING
+    v3.3.199/200): an edge carrying the searched value from a producer column anchors at
+    the occurrence INSIDE the searched field's own producing expression, never at the
+    collapsed group's keeper line — EAST5 × `BBZ`: `A.ccy_code` anchors L71 (arm 2's
+    condition), never L47 (`a.ccy_code AS bz`, the sibling column's birth line);
+    `a.charge_department` anchors L70, never L51 (the `stzfdxzh` CASE's WHEN). Extractor
+    **family 5** `_register_case_producer_twins` mints the in-span twin the `_add`
+    collapse never made (the L71 spelling `A.ccy_code` is a different alias spelling than
+    the L47 keeper, so family 3 had no collapsed occurrence to re-anchor) and
+    `dependency_graph` **Phase 9b** re-points the edge — a RE-ANCHOR, never a second edge,
+    with the spelling-duplicate group folded so the served set cannot depend on
+    PYTHONHASHSEED; `EXTRACTOR_VERSION .13 → .14`. **6d — alias/feeder-box scope** and
+    **6e — own-segment rule** (Team SEGMENT): an alias compound and its row-source chain
+    enter only while the searched field's expression reads through that alias
+    (`a@141` stays — BBZ's arms read `a.*`; `e@152`/`f@155` drop — they feed `stzfdx*`
+    only), and an edge is served only if its own carried segment is the searched field's
+    participation (the job-log trunk `‖⟐output@179 → rrcdm_job_log_exec_par@179‖` drops
+    even though its endpoints render as the searched table's pair — `p_dt`'s only role
+    there is the @190 filter). The 6e frame test is resolved at STATEMENT level, never
+    line-vs-line: the write leg's carried target line is the write target's KEEPER
+    occurrence (RFN @768/@1168) and the frames are compound keepers whose line is one
+    statement's (RFN 867 vs 1429), so the old comparison compared different statements by
+    construction — that carve-out is what RESTORED RFN's own write legs (@768/@1168) under
+    7-A. **The orphan-BOX prune** extends 3c's chip prune to boxes: a non-seed box whose
+    every edge the rule dropped is pruned (`_prune_orphan_boxes`) — EAST5's
+    `rrcdm_job_log_exec_par@179` and SUP_M's `p2@199` were served as edge-less boxes; the
+    searched table and every chip holder stay exempt. **Canonical point 27**
+    (`tests/jaccard_canonical.py`) re-pins the ground truth on that tree: 5 skeleton edge
+    rows removed (`east5↓` E5D4/E5D6, `iiapty↓` IID7/IID11, `lending_ref↑DL` LFD6 — the
+    job-log trunk, the `p2@199` box chain, the no-carrier REF twin) and 3 canonical node
+    entries removed (`p2@199`, `rrcdm@179`, the TOP11 ⟐output write frame), superseding
+    point 27's own transient label-only re-pins by citation. **Acceptance**: BBZ 17 → 10
+    served edges, EAST5 × `p_dt` 7 → 5, RFN write legs restored, and the jaccard gate
+    holds **20/20 at 1.0000/1.0000** (the three point-27 cases are recall moves re-derived
+    FROM THE SQL TEXT, every removal carrying an inline marker at its old site). 2h/6d/6e
+    and the box prune are the v3.3.199 pending-release tree; 4e is uncommitted at the time
+    of writing and is recorded as landing (v3.3.199/200) — no pytest was run for this
+    record.

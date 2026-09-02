@@ -1322,6 +1322,40 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 45,
+          "id": "l2e_95479b346833",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016sq3.c_last_name@L81 \u2192 \u27d0 output@L45\u2016",
+          "source": "l2_tbl_e59484df0b",
+          "target": "l2_tbl_73053a00eb",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 45,
+          "id": "l2e_9caf2bb93c92",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016sq3.c_first_name@L80 \u2192 \u27d0 output@L45\u2016",
+          "source": "l2_tbl_e59484df0b",
+          "target": "l2_tbl_73053a00eb",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -1570,6 +1604,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016\u27d0 union0.c_last_name@L63 \u2192 date_dim@L54\u2016",
+          "source": "l2_tbl_fdeaef1258",
+          "target": "l2_tbl_c19a02fb47",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 54,
+          "id": "l2e_1619e5d17b8e",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016\u27d0 union0.c_first_name@L64 \u2192 date_dim@L54\u2016",
           "source": "l2_tbl_fdeaef1258",
           "target": "l2_tbl_c19a02fb47",
           "width": 1
@@ -3242,7 +3293,7 @@
     "script_name": "23b.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 119,
+    "total_edges": 122,
     "total_nodes": 96
   },
   "script_name": "23b.sql",

@@ -2112,6 +2112,15 @@ def _dedup_edges(new_edges: list) -> list:
         key = ((e.get("source"), e.get("target"), e.get("edge_type"))
                if anchor is None else
                (e.get("source"), e.get("target"), e.get("edge_type"), anchor))
+        # Rule 4e (2026-09-02): co-located producers of ONE box stay distinct
+        # — the own-segment source field (`_src_label`, e.g. BBZ's arm-1
+        # `a.charge_department` vs arm-2 `a.TAG_PRIMARY_ACCOUNTABLE_PARTY`
+        # at the same box→BBZ pair) is part of the story the user ruled each
+        # producer keeps at its own anchor line. Edges without the label
+        # dedup exactly as before.
+        src_field = e.get("_src_label")
+        if src_field:
+            key = key + (src_field,)
         if key not in deduped:
             deduped[key] = e
     return list(deduped.values())
@@ -2540,26 +2549,221 @@ def _apply_field_involvement(new_edges: list, field: str,
     def _part(label):
         return (label or "").rsplit(".", 1)[-1].strip().casefold()
 
-    def _hop_carrier(e):
-        """The field occurrence that DRIVES this edge's own segment — the
-        hop immediately before it in the carried closure walk (None when
-        that hop is not a field occurrence: the edge is then the table/VT
-        skeleton's own leg). Consulted ONLY for the "chain into the output
-        frame" leg (a value-carrying edge whose target IS the ⟐output
-        frame) — never for a row-selection or combine edge, whose clause
-        zone is the searched field's own scope."""
-        if not e.get("_tgt_output"):
-            return None
-        if (e.get("edge_type") or "") not in _VALUE_CARRIER_TYPES:
-            return None
+    # ── Own-segment facts, read once from the carried payload ───────────
+    # The skeleton fallback used to consult the hop BEFORE the edge's own
+    # segment and to declare every edge that does not target the ⟐output
+    # frame carrier-less — so a sibling field's value leg (EAST5's
+    # `‖a.charge_department@L51 → stzfdxzh@L53‖`) and a foreign statement's
+    # whole write/read plumbing (EAST5's `‖⟐ output@L179 →
+    # rrcdm_job_log_exec_par@L179‖` job-log trunk) were admitted as
+    # "skeleton". The edge's OWN carried segment is the evidence:
+    #
+    #   `_own_seg_idx` — the index of the segment's own source hop in the
+    #     carried walk (`_path_hops[idx]` IS the carried
+    #     `(_src_label, _src_line)`); a MISSING index is NO segment
+    #     evidence, not hop 0 (hop 0 is a segment of its own);
+    #   the segment source's OCCURRENCE KIND — a FIELD occurrence drives a
+    #     value leg, a table/CTE/VT chip drives the box skeleton;
+    #   the segment target's ⟐output frame and write box, resolved at
+    #     STATEMENT level — a frame is the searched field's own when the
+    #     statement it belongs to WRITES the searched column, and the
+    #     written box is the searched field's own write target; a box leg
+    #     into any other frame is another statement's plumbing (§7-A
+    #     corollary: the job-log statement writes literals and COUNT(1),
+    #     never the searched field). Never line-vs-line: the write leg's
+    #     carried target line is the WRITE TARGET'S keeper occurrence
+    #     (RFN: 768/1168), and the frames are compound keepers whose line
+    #     is one statement's (RFN: 867 vs 1429) — comparing lines compares
+    #     different statements by construction.
+    #
+    # The write projection a statement publishes is read off the carried
+    # chips: the value edges' own source chip IS the written value, and the
+    # searched column counts as written when that chip is the searched
+    # column or a chip the searched value flows into (RFN's L877 projections
+    # are `SUBSTRING(A.CUST_NO, …)` expression chips — not seed-labelled,
+    # but the closure carries the searched chip's own REFERENCE edges INTO
+    # them). The written BOX is the value edge's `_tgt_canon`.
+    seed_value_chips = set()
+    for _c in new_edges:
+        _hops = _c.get("_path_hops") or []
+        _idx = _safe_int(_c.get("_own_seg_idx"))
+        if _idx is None or not (0 <= _idx < len(_hops)):
+            continue
+        if _part(_hops[_idx][0]) != seed:
+            continue
+        seed_value_chips.add(_part(_c.get("_tgt_label")))
+
+    def _seed_written(e):
+        """True when the value edge writes the searched column's own value
+        (its written chip is the searched column or a chip the searched
+        value flows into)."""
+        _p = _part(e.get("_src_label"))
+        return _p == seed or (_p and _p in seed_value_chips)
+
+    seed_write_targets = {(e.get("_tgt_canon") or "").strip().casefold()
+                          for e in new_edges
+                          if e.get("_value_edge") and _seed_written(e)}
+    own_frame_keys = {(e.get("_tgt_label"), _safe_int(e.get("_tgt_line")))
+                      for e in new_edges
+                      if e.get("_tgt_output") and e.get("_value_edge")
+                      and _seed_written(e)}
+    # The boxes the searched field's own chip is carried between — the
+    # admitted feeder boxes: the box owning each chip the segment touches
+    # and the box the other endpoint resolves to, taken over every edge
+    # whose own segment touches the searched field. A row source that feeds
+    # none of them is another column's feeder (EAST5's `e@152`/`f@155` feed
+    # the stzfdx* columns only), and its alias hop and row chain are that
+    # column's flow, not the searched field's. A box that PRODUCES the
+    # searched field's own value at box level counts too (DL's
+    # `ods_ccb_cb_loan_acctloan@426 → LENDING_REF@101` projection): the
+    # production leg's source chip is the BOX there, so the own hop's kind
+    # is deliberately not consulted.
+    feeders = set()
+    for _c in new_edges:
+        _hops = _c.get("_path_hops") or []
+        _idx = _safe_int(_c.get("_own_seg_idx"))
+        if _idx is None or not (0 <= _idx < len(_hops)):
+            continue
+        if seed not in (_part(_hops[_idx][0]), _part(_c.get("_tgt_label"))):
+            continue
+        feeders.add((_c.get("_src_owner") or "").strip().casefold())
+        feeders.add((_c.get("_tgt_canon") or "").strip().casefold())
+
+    def _own_hop(e):
+        """The edge's OWN carried segment source — `_path_hops[_own_seg_idx]`,
+        the same (label, line) the edge carries as `(_src_label, _src_line)`.
+        None when the walk carries no segment index (no evidence)."""
         hops = e.get("_path_hops") or []
-        idx = _safe_int(e.get("_own_seg_idx")) or 0
-        if not (0 < idx <= len(hops)):
+        idx = _safe_int(e.get("_own_seg_idx"))
+        if idx is None or not (0 <= idx < len(hops)):
             return None
-        lbl, lnn = hops[idx - 1]
-        if occ_kind.get((lbl, _safe_int(lnn))) not in FIELD_LIKE_TYPES:
+        return hops[idx]
+
+    def _up_hop(e):
+        """The hop the closure walk arrives THROUGH — the last hop before
+        the edge's own segment. Class 2's chain-leg test: a box-level row
+        source the walk reaches through another field's value is the chain
+        leg that sibling's write drives."""
+        hops = e.get("_path_hops") or []
+        idx = _safe_int(e.get("_own_seg_idx"))
+        if idx is None or not (1 <= idx < len(hops)):
             return None
-        return _part(lbl)
+        return hops[idx - 1]
+
+    def _hop_is_field(lbl, lnn):
+        """Field vs box chip, keyed on the walker's own occurrence index.
+        No index (no physical model) ⇒ None: nothing may drop on an
+        unknown kind."""
+        kind = occ_kind.get((lbl, _safe_int(lnn)))
+        return None if kind is None else kind in FIELD_LIKE_TYPES
+
+    def _box_id_of_owner(owner):
+        return (owner or "").strip().casefold()
+
+    def _own_segment_carrier(e):
+        """The field occurrence that DRIVES the edge's own carried segment
+        — read off the segment itself, never off the hop before it and
+        never off the display endpoints. Returns the driving part (the
+        seed ⇒ involved, anything else ⇒ that sibling's flow) or None when
+        the segment is the searched field's own box skeleton.
+
+        A FIELD-driven segment is the searched field's own flow only when
+        its driving occurrence IS the searched field. Otherwise it is a
+        sibling's value leg — §7-A corollary: a statement whose written
+        columns are other fields' values contributes nothing to the
+        searched field — with ONE exception, the routed DML write leg: the
+        writing statement's own skeleton, kept when the statement is the
+        one whose ⟐output frame carries the searched field's own written
+        value (7-A rule 1, EAST5's `PARTITION(p_dt, charge_department)`
+        write leg @41 stays under the `BBZ` search), dropped when it is
+        another statement's write (`‖⟐ output@L179 →
+        rrcdm_job_log_exec_par@L179‖` — the job-log trunk writes literals
+        and COUNT(1), never the searched field).
+
+        No occurrence index ⇒ no occurrence-kind evidence ⇒ nothing drops
+        here (the documented legacy contract stands).
+        """
+        if not occ_kind:
+            return None
+        own = _own_hop(e)
+        if own is None:
+            return None
+        lbl, lnn = own
+        field = _hop_is_field(lbl, lnn)
+        if field is None:
+            # no occurrence entry for the chip: the edge's own
+            # extraction-time stamp is the same classification
+            field = bool(e.get("_src_field_like"))
+        if not field:
+            return _box_skeleton_carrier(e)
+        part = _part(lbl)
+        if part == seed:
+            return part
+        if e.get("_dml_origin") and not e.get("_value_edge"):
+            _box = (e.get("_tgt_canon") or "").strip().casefold()
+            if seed_write_targets and _box not in seed_write_targets:
+                return _part(e.get("_tgt_label")) or part
+            return None
+        return part
+
+    def _box_skeleton_carrier(e):
+        """A leg whose own segment's source is a table/CTE/VT chip — the
+        box-level skeleton. KEPT (None) only as the searched field's own
+        skeleton; otherwise the carrier is the box the leg belongs to, and
+        the leg drops:
+          a row-source chain is not the searched field's when the closure
+            walk reaches it THROUGH another field's value (the Class-2
+            chain leg that sibling's write drives — `‖p1@L198 →
+            ⟐ output@L160‖` arrives through `p1.reserved_field8@L183`),
+          when it feeds an ⟐output frame the searched field's own written
+            value never lands on (`‖east5_stzfxxb@L189 → ⟐ output@L179‖`:
+            p_dt's own frame is ⟐ output@L41), or
+          when its box feeds none of the searched field's own occurrences
+            (`‖e@L152 → ⟐ output@L41‖`/`‖f@L155 → …``: e and f feed the
+            stzfdx* columns only, `a@141` feeds the BBZ arms)."""
+        own = _own_hop(e)
+        if own is None:
+            return None
+        # the routed DML write leg is the writing statement's own skeleton
+        # when that statement writes the searched column into the box the
+        # leg names (STATEMENT level — never the write target's keeper line)
+        if e.get("_dml_origin") and not e.get("_value_edge"):
+            _box = (e.get("_tgt_canon") or "").strip().casefold()
+            if seed_write_targets and _box not in seed_write_targets:
+                return _part(e.get("_tgt_label")) or _part(own[0])
+            return None
+        # the chain leg another field's write drives (Class 2)
+        up = _up_hop(e)
+        if up is not None:
+            up_field = _hop_is_field(up[0], up[1])
+            if up_field and _part(up[0]) != seed:
+                return _part(up[0])
+        # an ⟐output frame whose statement writes nothing of the searched
+        # column (RFN's two bdm_acc_loan_info frames are both own; EAST5's
+        # ⟐output@179 job-log frame is not)
+        if own_frame_keys and e.get("_tgt_output"):
+            if (e.get("_tgt_label"), _safe_int(e.get("_tgt_line"))) not in own_frame_keys:
+                return _part(e.get("_tgt_label")) or _part(own[0])
+        # the box that feeds none of the searched field's own occurrences
+        box = _box_id_of_owner(e.get("_src_owner"))
+        if box and feeders and box not in feeders:
+            return box
+        return None
+
+    def _bridge_box_carrier(e):
+        """The identity hop / bridge (ALIAS/SUBSET) — the skeleton of the
+        box it NAMES. Kept (None) when that box feeds the searched field's
+        own occurrences (`‖bdm_acc_entrusted_payment@L141 → a@L141``: a's
+        columns are the BBZ arms), dropped as another column's skeleton
+        when it does not (`‖BDM_ACC_INTERNAL_COUNTERPARTY@L152 → e@L152``
+        and `‖v_bdm_sys_ftpsje_jydsf@L155 → f@L155`` — those tables feed
+        the stzfdx* columns only). No feeder evidence ⇒ nothing drops."""
+        if not feeders:
+            return None
+        box = _box_id_of_owner(e.get("_tgt_canon"))
+        if box and box not in feeders:
+            return box
+        return None
 
     def _is_write_projection(e):
         """True when the raw SOURCE occurrence is a write projection's
@@ -2721,11 +2925,11 @@ def _apply_field_involvement(new_edges: list, field: str,
             # `_own_belongs_to`), never here.
             carrier = tgt_part
         elif etype in ("ALIAS", "SUBSET"):
-            carrier = None                  # identity hop / bridge: skeleton
+            carrier = _bridge_box_carrier(e)   # the box it names: skeleton iff a feeder
         elif (etype == "REF" and op == "READ" and _is_write_projection(e)):
             carrier = src_part                              # write value's read leg
         else:
-            carrier = _hop_carrier(e)                       # driving occurrence
+            carrier = _own_segment_carrier(e)   # the edge's OWN carried segment
         # No field carrier ⇒ the table/VT skeleton's own leg (CTE/FROM chain,
         # write leg, belongs-to) — structural, admitted. A carrier that IS
         # the searched field ⇒ involved. Anything else is a sibling's flow.
@@ -2760,6 +2964,43 @@ def _prune_orphan_sibling_chips(field_nodes: list, kept_edges: list,
         part = (fn.get("label") or "").rsplit(".", 1)[-1].strip().casefold()
         if part == seed or fn.get("is_target") or fn.get("id") in live:
             kept.append(fn)
+    return kept
+
+
+def _prune_orphan_boxes(table_nodes: dict, kept_edges: list, field_nodes: list,
+                        field: str, table: str) -> dict:
+    """The 3a ruling's BOX half (USER RULING, same intent — "siblings that
+    are not contributing to the data flow should be removed"): a non-seed
+    BOX whose every edge the involvement rule just dropped leaves the
+    flow-only view with them, exactly like the edge-less sibling chip
+    `_prune_orphan_sibling_chips` removes. EAST5's `rrcdm_job_log_exec_par`
+    (the job-log statement writes nothing of the searched field, so its
+    trunk and its read-side chain both drop) and SUP_M's `p2@199` were
+    served as edge-less boxes.
+
+    KEPT: every box a kept edge still touches; the searched table's own
+    keeper (`table`); and the holder of the searched field's surviving
+    chips — a box is never pruned out from under a chip that stays."""
+    seed = (field or "").strip().casefold()
+    table_key = (table or "").strip().casefold()
+    if (not table_nodes) or not seed:
+        return table_nodes
+    live = set()
+    for e in kept_edges:
+        live.add(e.get("source"))
+        live.add(e.get("target"))
+    holders = {fn.get("parent") for fn in (field_nodes or [])
+               if fn.get("parent")}
+    # table_nodes is keyed by the RAW node id while the edges and the
+    # field chips' parent name the compound's L2 keeper id — compare BOTH
+    # (the same split `_attach_flow_roles` documents).
+    kept = {}
+    for nid, tn in table_nodes.items():
+        l2_id = tn.get("id")
+        name = (tn.get("table_name") or tn.get("label") or "").strip().casefold()
+        if (nid in live or l2_id in live or l2_id in holders or nid in holders
+                or (table_key and name == table_key)):
+            kept[nid] = tn
     return kept
 
 
@@ -3158,6 +3399,10 @@ def _build_l2_graph(ws_id: str, script_name: str, sql_text: str,
     if relevance_filter:
         field_nodes = _prune_orphan_sibling_chips(field_nodes, new_edges,
                                                   field)
+        # the 3a ruling's box half: an edge-less non-seed box leaves with
+        # its edges (EAST5's rrcdm job-log box, SUP_M's p2@199)
+        table_nodes = _prune_orphan_boxes(table_nodes, new_edges, field_nodes,
+                                          field, table)
 
     # R46a (2026-08-31, FSB audit): the seed CLAIM is scoped here — the
     # searched table's entity set plus the write targets receiving the

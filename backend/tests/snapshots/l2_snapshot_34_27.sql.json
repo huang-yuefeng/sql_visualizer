@@ -740,6 +740,40 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 23,
+          "id": "l2e_c705622c8553",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016foo.i_item_id@L58 \u2192 \u27d0 output@L23\u2016",
+          "source": "l2_tbl_82a252e957",
+          "target": "l2_tbl_c74dcea8cf",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 23,
+          "id": "l2e_95a9e1a07f18",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016foo.s_state@L59 \u2192 \u27d0 output@L23\u2016",
+          "source": "l2_tbl_82a252e957",
+          "target": "l2_tbl_c74dcea8cf",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -1328,6 +1362,40 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read (read into output) \u2014 \u2016i_item_id@L50 \u2192 \u27d0 union1@L50\u2016",
+          "source": "l2_tbl_e2d727ddb0",
+          "target": "l2_tbl_b7b297c1e8",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 50,
+          "id": "l2e_8ab77848dd7b",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016s_state@L51 \u2192 \u27d0 union1@L50\u2016",
+          "source": "l2_tbl_e2d727ddb0",
+          "target": "l2_tbl_b7b297c1e8",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 50,
+          "id": "l2e_33e3e8c11d7e",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016g_state@L52 \u2192 \u27d0 union1@L50\u2016",
           "source": "l2_tbl_e2d727ddb0",
           "target": "l2_tbl_b7b297c1e8",
           "width": 1
@@ -2312,7 +2380,7 @@
     "script_name": "27.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 85,
+    "total_edges": 89,
     "total_nodes": 69
   },
   "script_name": "27.sql",

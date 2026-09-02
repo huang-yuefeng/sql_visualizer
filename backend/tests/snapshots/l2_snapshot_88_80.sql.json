@@ -53,7 +53,7 @@
         }
       }
     ],
-    "filtered_nodes": 6,
+    "filtered_nodes": 5,
     "nodes": [
       {
         "data": {
@@ -65,20 +65,6 @@
           "line_start": 1,
           "original_id": "9ee94608bdaa3d6b",
           "table_name": "ssr",
-          "type": "cte_table",
-          "variable_type": "cte"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP0",
-          "defined_in": "CTE{results}",
-          "id": "l2_tbl_5306767756",
-          "label": "results",
-          "line_end": 84,
-          "line_start": 58,
-          "original_id": "e93aa326e88f19fb",
-          "table_name": "results",
           "type": "cte_table",
           "variable_type": "cte"
         }
@@ -2801,6 +2787,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 85,
+          "id": "l2e_8996ad9a9a57",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016foo.id@L111 \u2192 \u27d0 output@L85\u2016",
+          "source": "l2_tbl_3531ce8960",
+          "target": "l2_tbl_d7a5189244",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -3389,6 +3392,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read (read into output) \u2014 \u2016channel@L104 \u2192 \u27d0 union1@L104\u2016",
+          "source": "l2_tbl_667df10f05",
+          "target": "l2_tbl_c836f5c468",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 104,
+          "id": "l2e_00023cd6aaa3",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016id@L105 \u2192 \u27d0 union1@L104\u2016",
           "source": "l2_tbl_667df10f05",
           "target": "l2_tbl_c836f5c468",
           "width": 1
@@ -5147,7 +5167,7 @@
     "script_name": "80.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 200,
+    "total_edges": 202,
     "total_nodes": 151
   },
   "script_name": "80.sql",

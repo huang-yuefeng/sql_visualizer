@@ -492,8 +492,14 @@ class TestPhaseNineAdmission:
 
     def test_no_second_story_for_a_twin_with_its_own_flow(self):
         """A twin that already carries an outgoing flow edge keeps exactly
-        that story — Phase 9 never adds a second one (corpus pin of the
-        guard: an arm edge's source has no other own flow edge)."""
+        that story — Phase 9 never adds a duplicate of it (corpus pin of
+        the guard). AMENDED 2026-09-02 (rule 4e, producer-occurrence
+        anchoring): a twin whose producer value leg feeds a CASE output now
+        legitimately carries TWO stories — the arm's ROW_SELECTION plus the
+        COMPUTED value leg into the CASE output — so the pin allows exactly
+        one ROW_SELECTION/VALUE story plus at most one COMPUTED-into-CASE-
+        output leg, and forbids everything else (a duplicate of the same
+        story is still a failure)."""
         own_flow = {"FILTER", "JOIN", "REF", "COMPUTED", "TRANSFORM",
                     "AGGREGATE", "WINDOW", "INDIRECT"}
         res, deps = _extract(SQL)
@@ -504,10 +510,19 @@ class TestPhaseNineAdmission:
                       if x.source_id == d.source_id
                       and x.relationship in own_flow
                       and (x.operation or "").upper() != "READ"]
-            assert len(others) == 1, (
+            stories = {(x.relationship, (x.operation or "").upper())
+                       for x in others}
+            assert len(stories) <= 2, (
                 f"{d.operation} from {d.source_id} sits next to "
                 f"{[(x.relationship, x.operation) for x in others]} — "
-                "a twin got a second story")
+                "a twin got a third story")
+            row_sel = [x for x in others
+                       if (x.operation or "").upper() == "ROW_SELECTION"]
+            compute_legs = [x for x in others
+                            if x.relationship == "COMPUTED"]
+            assert len(row_sel) <= 1 and len(compute_legs) <= 1, (
+                f"{d.operation} from {d.source_id}: duplicates within a "
+                f"story class — {[(x.relationship, x.operation) for x in others]}")
 
 
 # ══════════════════════════════════════════════════════════════════════

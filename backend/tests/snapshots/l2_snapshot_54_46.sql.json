@@ -159,6 +159,40 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 2,
+          "id": "l2e_0210f32a2cc7",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016amt@L7 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_e9968c518b",
+          "target": "l2_tbl_d31f8c3c76",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 2,
+          "id": "l2e_086a2558fd2c",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016profit@L8 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_e9968c518b",
+          "target": "l2_tbl_d31f8c3c76",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -594,6 +628,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016\u27d0 dn.ss_ticket_number@L33 \u2192 customer_address@L19\u2016",
+          "source": "l2_tbl_5b9ffe9592",
+          "target": "l2_tbl_3ef399d8a3",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 19,
+          "id": "l2e_9d22c15f0ed5",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016\u27d0 dn.ss_customer_sk@L34 \u2192 customer_address@L19\u2016",
           "source": "l2_tbl_5b9ffe9592",
           "target": "l2_tbl_3ef399d8a3",
           "width": 1
@@ -1155,6 +1206,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016current_addr.ca_city@L41 \u2192 current_addr@L38\u2016",
+          "source": "l2_tbl_3ef399d8a3",
+          "target": "l2_tbl_c62e16a89a",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 38,
+          "id": "l2e_ba267cea0fb9",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016current_addr.ca_address_sk@L40 \u2192 current_addr@L38\u2016",
           "source": "l2_tbl_3ef399d8a3",
           "target": "l2_tbl_c62e16a89a",
           "width": 1
@@ -1865,7 +1933,7 @@
     "script_name": "46.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 71,
+    "total_edges": 75,
     "total_nodes": 49
   },
   "script_name": "46.sql",

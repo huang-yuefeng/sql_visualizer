@@ -33,21 +33,26 @@ export function resolveFlowOnly(result) {
 const STRUCTURE_HIDDEN_CLASS = 'structure-hidden';
 
 /**
- * E-M8 (#283): fit the FULL graph (closure + non-closure) and then restore
- * the flow-only visibility.
- *
- * Cytoscape's `fit()` excludes `display:none` elements, so a plain
- * `cy.fit()` while View 1 (flow-only) is active bounds the viewport to the
- * visible closure only — toggling to View 2 then shows non-closure nodes
- * off-screen. This helper shows everything, fits, and re-applies the flow
- * visibility — never a layout, so node positions stay byte-identical.
+ * Fit the VISIBLE closure (user ruling 2026-09-02, amending E-M8/#283 —
+ * the Full view is cut from the requirement). Applies the flow visibility
+ * pass first, then `cy.fit` over `:visible` elements only, so the viewport
+ * frames exactly what the user sees — never a layout, so node positions
+ * stay byte-identical. (The old order — show everything, fit the FULL
+ * model, re-hide — zoomed out over the hidden elements' space, which no
+ * user can reach any more; with COMPACT's box compaction the visible
+ * bounds are the whole story.)
  */
-export function fitAllElements(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedView, recenter } = {},
+export function fitVisibleElements(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedView, recenter } = {},
   padding = 50) {
   if (!cy || (typeof cy.destroyed === 'function' && cy.destroyed())) return;
-  cy.elements().show();
-  cy.fit(undefined, padding);
+  // FLOW-ONLY-ONLY (user ruling 2026-09-02, amending E-M8/#283): the Full
+  // view is cut from the requirement, so Fit frames the VISIBLE closure —
+  // apply the visibility pass FIRST, then fit only what is shown. The old
+  // order (fit the FULL model, then hide) zoomed out over the hidden
+  // elements' space, which no user can reach any more. With COMPACT's box
+  // compaction the visible bounds are the whole story.
   applyFlowVisibility(cy, { flowOnly, flowNodeIds, flowEdgeIds, mergedView, recenter });
+  cy.fit(cy.elements(':visible'), padding);
 }
 
 /**
@@ -134,8 +139,9 @@ function hideEdgelessFieldChips(cy) {
  * search was effectively invisible (user-verified three times). Fix, purely
  * client-side:
  *   1. Tag every visible merged self-loop with `filter-selfloop` — the
- *      stylesheet (FILTER_LOOP_GEOM_STYLES) then draws it as a big red
- *      bezier loop hugging the table's LEFT border (per-edge
+ *      stylesheet (FILTER_LOOP_GEOM_STYLES) then draws it as an enlarged
+ *      bezier loop hugging the table's LEFT border in the uniform edge
+ *      style (no special color — user ruling 2026-09-02; per-edge
  *      control-point-step-size data + loop-direction data). The edge
  *      itself is the visible, clickable curve: its tap highlights the
  *      absorbed SQL line (R37), and the Field Story "Filtered" step names

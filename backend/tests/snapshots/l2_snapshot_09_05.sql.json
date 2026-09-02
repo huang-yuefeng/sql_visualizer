@@ -427,7 +427,7 @@
         }
       }
     ],
-    "filtered_nodes": 18,
+    "filtered_nodes": 16,
     "nodes": [
       {
         "data": {
@@ -551,34 +551,6 @@
           "line_start": 117,
           "original_id": "ad63b961d2bdc266",
           "table_name": "\u27d0 union0",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP0/subq/foo/union0/union1",
-          "defined_in": "TOP0/subq/foo/union0/union1",
-          "id": "l2_tbl_6631eeae28",
-          "label": "output(union1)",
-          "line_end": 137,
-          "line_start": 123,
-          "original_id": "85bb6e831999200b",
-          "table_name": "\u27d0 union1",
-          "type": "intermediate_table",
-          "variable_type": "virtual_table"
-        }
-      },
-      {
-        "data": {
-          "context": "TOP0/subq/foo/union1",
-          "defined_in": "TOP0/subq/foo/union1",
-          "id": "l2_tbl_061561b0b4",
-          "label": "output(union1)",
-          "line_end": 137,
-          "line_start": 130,
-          "original_id": "3297ef280af2626b",
-          "table_name": "\u27d0 union1",
           "type": "intermediate_table",
           "variable_type": "virtual_table"
         }
@@ -717,6 +689,57 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016salesreturns@L21 \u2192 ssr@L1\u2016",
+          "source": "l2_tbl_38d9cef7a8",
+          "target": "l2_tbl_7ff2417036",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 1,
+          "id": "l2e_525b16279fe5",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016sales_price@L3 \u2192 ssr@L1\u2016",
+          "source": "l2_tbl_38d9cef7a8",
+          "target": "l2_tbl_7ff2417036",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 1,
+          "id": "l2e_f7a3bcb46ac7",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016return_amt@L5 \u2192 ssr@L1\u2016",
+          "source": "l2_tbl_38d9cef7a8",
+          "target": "l2_tbl_7ff2417036",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 1,
+          "id": "l2e_6cf22d2e1b67",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016net_loss@L6 \u2192 ssr@L1\u2016",
           "source": "l2_tbl_38d9cef7a8",
           "target": "l2_tbl_7ff2417036",
           "width": 1
@@ -1601,6 +1624,40 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016sales_price@L30 \u2192 csr@L28\u2016",
+          "source": "l2_tbl_38d9cef7a8",
+          "target": "l2_tbl_ecdbb99e9b",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 28,
+          "id": "l2e_f0d4b42c7c49",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016return_amt@L32 \u2192 csr@L28\u2016",
+          "source": "l2_tbl_38d9cef7a8",
+          "target": "l2_tbl_ecdbb99e9b",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 28,
+          "id": "l2e_e483fb528ca8",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016net_loss@L33 \u2192 csr@L28\u2016",
           "source": "l2_tbl_38d9cef7a8",
           "target": "l2_tbl_ecdbb99e9b",
           "width": 1
@@ -4396,6 +4453,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 111,
+          "id": "l2e_21545b79b305",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016foo.id@L137 \u2192 \u27d0 output@L111\u2016",
+          "source": "l2_tbl_47823f27e3",
+          "target": "l2_tbl_11194c0158",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -4933,6 +5007,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read (read into output) \u2014 \u2016channel@L130 \u2192 \u27d0 union1@L130\u2016",
+          "source": "l2_tbl_6dd4f029ae",
+          "target": "l2_tbl_061561b0b4",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 130,
+          "id": "l2e_5e67531a5211",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016id@L131 \u2192 \u27d0 union1@L130\u2016",
           "source": "l2_tbl_6dd4f029ae",
           "target": "l2_tbl_061561b0b4",
           "width": 1
@@ -7174,7 +7265,7 @@
     "script_name": "05.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 259,
+    "total_edges": 266,
     "total_nodes": 202
   },
   "script_name": "05.sql",

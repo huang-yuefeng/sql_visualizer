@@ -13,7 +13,7 @@
 import {
   FIT_PADDING, TABLE_HDR_H, FIELD_RENDER_H, FIELD_H, FIELD_GAP,
   TABLE_MIN_H, TABLE_DEFAULT_W, SCRIPT_W, SCRIPT_H,
-  TBL_PAD_TOP, TBL_PAD_BOT, TABLE_SELECTOR, FIELD_SELECTOR,
+  TBL_PAD_TOP, TBL_PAD_BOT, TABLE_SELECTOR, FIELD_SELECTOR, FIELD_OFFSET_X,
   fitWholeGraph,
 } from '../config/layout';
 
@@ -62,7 +62,7 @@ export function computeFieldRelPos(cy) {
     const parentH = tableHeight(fids.length);
     const startY = -(parentH / 2) + TABLE_HDR_H + TBL_PAD_TOP + FIELD_RENDER_H / 2;
     fids.forEach((fid, i) => {
-      rel[fid] = { parentId: pid, rx: 8, ry: startY + i * FIELD_H };
+      rel[fid] = { parentId: pid, rx: FIELD_OFFSET_X, ry: startY + i * FIELD_H };
     });
   }
 

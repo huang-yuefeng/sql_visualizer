@@ -141,6 +141,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 2,
+          "id": "l2e_b091f31366da",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016profit@L7 \u2192 \u27d0 output@L2\u2016",
+          "source": "l2_tbl_8faa01543b",
+          "target": "l2_tbl_ab3720c927",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -525,6 +542,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016\u27d0 ms.ss_ticket_number@L28 \u2192 household_demographics@L17\u2016",
+          "source": "l2_tbl_0b5185b155",
+          "target": "l2_tbl_7e51d620c1",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 17,
+          "id": "l2e_9f6ff36e25c1",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016\u27d0 ms.ss_customer_sk@L29 \u2192 household_demographics@L17\u2016",
           "source": "l2_tbl_0b5185b155",
           "target": "l2_tbl_7e51d620c1",
           "width": 1
@@ -1100,7 +1134,7 @@
         "data": {
           "context": "TOP0/subq/ms",
           "defined_in": "JOIN",
-          "flow_role": "source",
+          "flow_role": "waypoint",
           "id": "l2_tbl_7e51d620c1",
           "label": "household_demographics",
           "line_end": 33,
@@ -1505,7 +1539,7 @@
     "script_name": "79.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 55,
+    "total_edges": 57,
     "total_nodes": 40
   },
   "script_name": "79.sql",

@@ -602,6 +602,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 5,
+          "id": "l2e_3fcdcd1c61a5",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016d1.d_date_sk@L9 \u2192 d1@L5\u2016",
+          "source": "l2_tbl_e8992133fe",
+          "target": "l2_tbl_ce0dd6b38a",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -1469,6 +1486,40 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 20,
+          "id": "l2e_53e153148d7e",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016results_rollup.i_category@L24 \u2192 \u27d0 output@L20\u2016",
+          "source": "l2_tbl_1686a6b5e5",
+          "target": "l2_tbl_2f33aed66e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 20,
+          "id": "l2e_4ec80ecd5aa5",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016results_rollup.lochierarchy@L23 \u2192 \u27d0 output@L20\u2016",
+          "source": "l2_tbl_1686a6b5e5",
+          "target": "l2_tbl_2f33aed66e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -1577,12 +1628,46 @@
           "edge_type": "REF",
           "flow_kind": "field flow",
           "highlight_line": 21,
+          "id": "l2e_79abcaba260b",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016i_category@L21 \u2192 i_category@L15\u2016",
+          "source": "l2_tbl_1686a6b5e5",
+          "target": "l2_tbl_4f5f603b5f",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 21,
           "id": "l2e_83347e84637c",
           "label": "REF",
           "line_style": "solid",
           "reason": "field flow (value copy) \u2014 \u2016i_class@L21 \u2192 i_class@L2\u2016",
           "source": "l2_tbl_1686a6b5e5",
           "target": "fld_31714e27d3",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "field flow",
+          "highlight_line": 21,
+          "id": "l2e_2b84e482c1be",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "field flow (value copy) \u2014 \u2016i_class@L21 \u2192 i_class@L15\u2016",
+          "source": "l2_tbl_1686a6b5e5",
+          "target": "l2_tbl_4f5f603b5f",
           "width": 1
         }
       },
@@ -1683,6 +1768,57 @@
           "label": "WINDOW",
           "line_style": "dashed",
           "reason": "field flow (window step) \u2014 \u2016total_sum@L21 \u2192 rank_within_parent@L25\u2016",
+          "source": "l2_tbl_1686a6b5e5",
+          "target": "l2_tbl_2f33aed66e",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#9B59B6",
+          "desc": "ROW_NUMBER/RANK/LAG",
+          "edge_type": "WINDOW",
+          "flow_kind": "field flow",
+          "highlight_line": 25,
+          "id": "l2e_b234b4888cac",
+          "label": "WINDOW",
+          "line_style": "dashed",
+          "reason": "field flow (window step) \u2014 \u2016i_category@L21 \u2192 rank_within_parent@L25\u2016",
+          "source": "l2_tbl_1686a6b5e5",
+          "target": "l2_tbl_2f33aed66e",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#9B59B6",
+          "desc": "ROW_NUMBER/RANK/LAG",
+          "edge_type": "WINDOW",
+          "flow_kind": "field flow",
+          "highlight_line": 25,
+          "id": "l2e_71925519eb85",
+          "label": "WINDOW",
+          "line_style": "dashed",
+          "reason": "field flow (window step) \u2014 \u2016lochierarchy@L21 \u2192 rank_within_parent@L25\u2016",
+          "source": "l2_tbl_1686a6b5e5",
+          "target": "l2_tbl_2f33aed66e",
+          "width": 2
+        }
+      },
+      {
+        "data": {
+          "category": "aggregate",
+          "color": "#9B59B6",
+          "desc": "ROW_NUMBER/RANK/LAG",
+          "edge_type": "WINDOW",
+          "flow_kind": "field flow",
+          "highlight_line": 25,
+          "id": "l2e_bef07d955632",
+          "label": "WINDOW",
+          "line_style": "dashed",
+          "reason": "field flow (window step) \u2014 \u2016g_class@L24 \u2192 rank_within_parent@L25\u2016",
           "source": "l2_tbl_1686a6b5e5",
           "target": "l2_tbl_2f33aed66e",
           "width": 2
@@ -1807,7 +1943,7 @@
         "data": {
           "context": "CTE{results}",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_ce0dd6b38a",
           "label": "d1@5",
           "line_end": 19,
@@ -2293,7 +2429,7 @@
     "script_name": "86.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 85,
+    "total_edges": 93,
     "total_nodes": 54
   },
   "script_name": "86.sql",

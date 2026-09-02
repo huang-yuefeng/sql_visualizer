@@ -1190,11 +1190,19 @@ export const FILTER_LOOP_GEOM_STYLES = [
       'control-point-step-size': 'data(loopstep)',
       'loop-direction': 'data(loopdir)',
       'loop-sweep': '-90deg',
-      'width': 7,
-      'line-color': '#E74C3C',
-      'target-arrow-color': '#E74C3C',
-      'target-arrow-shape': 'triangle',
-      'arrow-scale': 1.6,
+      // USER RULING 2026-09-02 ("the self loop line style should be the
+      // same to other edges, do not use a special red color"): the loop
+      // keeps its GEOMETRY (the enlarged bezier so the loop renders
+      // around the box and stays clickable) but loses the special red
+      // 7px treatment — it now wears the uniform edge style exactly like
+      // every other L2 edge (same color, width 2, mid-arrow, scale).
+      'width': 2,
+      'line-color': L2_UNIFORM_EDGE_COLOR,
+      'target-arrow-color': L2_UNIFORM_EDGE_COLOR,
+      'target-arrow-shape': 'none',
+      'mid-target-arrow-shape': 'triangle',
+      'mid-target-arrow-color': L2_UNIFORM_EDGE_COLOR,
+      'arrow-scale': 1.8,
       'z-index': 30,
     },
   },
@@ -1211,13 +1219,13 @@ export const FILTER_LOOPLINE_STYLES = [
   {
     selector: 'edge.filter-loopline',
     style: {
-      'width': 7,
-      'line-color': '#E74C3C',
-      'target-arrow-color': '#E74C3C',
-      'source-arrow-color': '#E74C3C',
-      'target-arrow-shape': 'triangle',
-      'source-arrow-shape': 'triangle',
-      'arrow-scale': 1.6,
+      // Same 2026-09-02 ruling: retired selector (nothing mints the
+      // class), unified to the uniform edge treatment should a resumed
+      // graph ever carry it.
+      'width': 2,
+      'line-color': L2_UNIFORM_EDGE_COLOR,
+      'target-arrow-color': L2_UNIFORM_EDGE_COLOR,
+      'source-arrow-color': L2_UNIFORM_EDGE_COLOR,
       'curve-style': 'bezier',
       'z-index': 30,
       'events': 'no',
@@ -1262,18 +1270,13 @@ export const HOVER_EMPHASIS_STYLES = [
 export const STORY_STYLES = [
   { selector: '.story-dim', style: { opacity: 0.15 } },
   { selector: 'edge.story-active', style: { width: 5, 'z-index': 25 } },
-  // Guard (f648 finding, updated v3.3.191): in merged views the Filtered
-  // step's visible form is the REAL self-loop edge (edge.filter-selfloop,
-  // the big border curve) — the synthetic loop-line bracket is retired and,
-  // since v3.3.194, so is the ⟂ caption node that used to sit above it (see
-  // FILTER_SELFLOOP_STYLES). A story step lights the self-loop through its
-  // merged edge id, and it must GROW, never shrink (edge.story-active
-  // width 5 < selfloop's 7): later rule wins the specificity tie. The legacy
-  // loop-line guard is kept for resumed graphs that still carry the class.
-  { selector: 'edge.filter-selfloop.story-active',
-    style: { width: 9, 'z-index': 36, 'line-color': '#FF6B6B',
-             'target-arrow-color': '#FF6B6B' } },
-  { selector: 'edge.filter-loopline.story-active',
-    style: { width: 9, 'z-index': 36, 'line-color': '#FF6B6B',
-             'target-arrow-color': '#FF6B6B', 'source-arrow-color': '#FF6B6B' } },
+  // Guard note (f648, updated 2026-09-02): in merged views the Filtered
+  // step's visible form is the REAL self-loop edge (edge.filter-selfloop).
+  // The former special `edge.filter-selfloop.story-active` rule (width 9 +
+  // red #FF6B6B) is REMOVED by the same ruling that unified the loop's
+  // colour: the generic `edge.story-active` (width 5) now applies to the
+  // loop like to every edge, and 5 > the loop's uniform width 2, so the
+  // f648 invariant "a story step GROWS the loop, never shrinks" still
+  // holds with no special colour. The legacy loop-line class (retired
+  // selector) is covered by the same generic rule.
 ];

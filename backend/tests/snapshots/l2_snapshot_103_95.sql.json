@@ -835,6 +835,23 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 5,
+          "id": "l2e_9399ecf257e9",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016ws1.ws_warehouse_sk@L3 \u2192 ws1@L5\u2016",
+          "source": "l2_tbl_3ec29efe3d",
+          "target": "l2_tbl_ff45195b9f",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -862,6 +879,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016ws2.ws_warehouse_sk@L4 \u2192 ws2@L6\u2016",
+          "source": "l2_tbl_3ec29efe3d",
+          "target": "l2_tbl_e3a25e3ace",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 6,
+          "id": "l2e_4ed5576ec672",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016ws2.ws_order_number@L7 \u2192 ws2@L6\u2016",
           "source": "l2_tbl_3ec29efe3d",
           "target": "l2_tbl_e3a25e3ace",
           "width": 1
@@ -1066,6 +1100,57 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016ws1.ws_order_number@L22 \u2192 ws1@L12\u2016",
+          "source": "l2_tbl_3ec29efe3d",
+          "target": "l2_tbl_ac4bcca77c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 12,
+          "id": "l2e_574f2b73ca9f",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016ws1.ws_web_site_sk@L20 \u2192 ws1@L12\u2016",
+          "source": "l2_tbl_3ec29efe3d",
+          "target": "l2_tbl_ac4bcca77c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 12,
+          "id": "l2e_d6f528e6e789",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016ws1.ws_ship_addr_sk@L18 \u2192 ws1@L12\u2016",
+          "source": "l2_tbl_3ec29efe3d",
+          "target": "l2_tbl_ac4bcca77c",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 12,
+          "id": "l2e_e7cc8e5a653c",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016ws1.ws_ship_date_sk@L17 \u2192 ws1@L12\u2016",
           "source": "l2_tbl_3ec29efe3d",
           "target": "l2_tbl_ac4bcca77c",
           "width": 1
@@ -1651,7 +1736,7 @@
         "data": {
           "context": "CTE{ws_wh}",
           "defined_in": "FROM",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_ff45195b9f",
           "label": "ws1@5",
           "line_end": 8,
@@ -1666,7 +1751,7 @@
         "data": {
           "context": "CTE{ws_wh}",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_e3a25e3ace",
           "label": "ws2@6",
           "line_end": 8,
@@ -1695,7 +1780,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "FROM",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_ac4bcca77c",
           "label": "ws1@12",
           "line_end": 29,
@@ -2070,7 +2155,7 @@
     "script_name": "95.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 63,
+    "total_edges": 68,
     "total_nodes": 41
   },
   "script_name": "95.sql",

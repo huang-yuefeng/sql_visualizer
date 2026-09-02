@@ -67,6 +67,12 @@ export const ELK_ALGORITHM = 'layered';
 export const TBL_PAD_TOP = 14;
 export const TBL_PAD_BOT = 14;
 
+// Horizontal chip offset from the table centre (model px). A chip's x is
+// always table.x + FIELD_OFFSET_X — the same value in computeFieldRelPos()
+// and in the flow-view compaction (utils/flowCompaction.js), so a compacted
+// box keeps its chips on exactly the same column as the full box.
+export const FIELD_OFFSET_X = 8;
+
 // ── CSS selectors ──────────────────────────────────────────────────
 export const TABLE_SELECTOR = '[type$="_table"], [type="query_output"], [type="cte_table"]';
 export const FIELD_SELECTOR = '[type="field"]';

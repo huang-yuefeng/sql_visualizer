@@ -320,10 +320,11 @@ export default function DataFlowApp({
   const applyL2Result = useCallback((result) => {
     setL2Graph(result.graph);
     setL2Result(result);
-    // L2 view toggle: default to 'flow-merged' (the line-merged closure,
-    // one SQL line ≈ one edge) whenever the response carries the field-flow
-    // closure (matched search); null (disabled) when there is no search seed
-    // or the search did not match.
+    // L2 view: the product is FLOW-ONLY (user ruling 2026-09-02 — the Full
+    // view and the two detailed views are postponed, source code kept).
+    // 'flow-merged' (the line-merged closure, one SQL line ≈ one edge)
+    // whenever the response carries a matched search; null (disabled) when
+    // there is no search seed or the search did not match.
     setL2ViewMode(resolveFlowOnly(result) === true ? 'flow-merged' : null);
     // R25: every L2 entry path lands on a fresh graph — no stale edge
     // selection from a previous script.

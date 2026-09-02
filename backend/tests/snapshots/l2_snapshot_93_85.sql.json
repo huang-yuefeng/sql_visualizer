@@ -396,6 +396,40 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 9,
+          "id": "l2e_f38d3bbcdd5f",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016cd1.cd_education_status@L25 \u2192 cd1@L9\u2016",
+          "source": "l2_tbl_e060330f71",
+          "target": "l2_tbl_5278c36274",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 9,
+          "id": "l2e_51f7ea4d0143",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016cd1.cd_marital_status@L23 \u2192 cd1@L9\u2016",
+          "source": "l2_tbl_e060330f71",
+          "target": "l2_tbl_5278c36274",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "flow",
           "color": "#2ECC71",
           "desc": "Table feeds output",
@@ -423,6 +457,40 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016cd2.cd_demo_sk@L20 \u2192 cd2@L10\u2016",
+          "source": "l2_tbl_e060330f71",
+          "target": "l2_tbl_bbc4336560",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 10,
+          "id": "l2e_2f533cda3d2c",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016cd2.cd_education_status@L26 \u2192 cd2@L10\u2016",
+          "source": "l2_tbl_e060330f71",
+          "target": "l2_tbl_bbc4336560",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 10,
+          "id": "l2e_43a4e4d5cb3c",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016cd2.cd_marital_status@L24 \u2192 cd2@L10\u2016",
           "source": "l2_tbl_e060330f71",
           "target": "l2_tbl_bbc4336560",
           "width": 1
@@ -1359,7 +1427,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_5278c36274",
           "label": "cd1@9",
           "line_end": 42,
@@ -1374,7 +1442,7 @@
         "data": {
           "context": "TOP0",
           "defined_in": "JOIN",
-          "flow_role": "waypoint",
+          "flow_role": "target",
           "id": "l2_tbl_bbc4336560",
           "label": "cd2@10",
           "line_end": 42,
@@ -1831,7 +1899,7 @@
     "script_name": "85.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 71,
+    "total_edges": 75,
     "total_nodes": 55
   },
   "script_name": "85.sql",

@@ -115,6 +115,90 @@ _MERGE_COLUMN_CLAUSES = {
 }
 
 
+def _case_alias_spans(sql_text: str) -> dict[tuple[int, str], int]:
+    """(END line, alias) → the first line of the CASE that alias closes.
+
+    Rule 4e's producing-expression resolution (2026-08-28.14): a CASE
+    output column's variable anchors at its AS-alias line, so the alias
+    named at `END AS <alias>` is the key that identifies the CASE producing
+    the value, and the span [CASE line, END line] is the expression's own
+    lines. Same tokenizer as `line_clause_map`, and the same nesting count
+    the extractor's `_case_arm_roles` walks — `END` pushes, `CASE` pops, so
+    a nested CASE inside an arm never closes the outer one. An alias that
+    is not preceded by `END AS` (`SELECT x AS y`) never enters the map, and
+    an untokenizable script yields an empty map (callers keep every anchor
+    they had — the rule never guesses).
+    """
+    out: dict[tuple[int, str], int] = {}
+    if not sql_text:
+        return out
+    try:
+        toks = list(_Tokenizer().tokenize(sql_text))
+    except Exception:            # mirror of the extractor: no tokens → no spans
+        return out
+    n = len(toks)
+    for i, tok in enumerate(toks):
+        if tok.text.lower() != "as" \
+                or tok.token_type == _TokenType.STRING:
+            continue
+        if i == 0 or toks[i - 1].token_type != _TokenType.END:
+            continue
+        if i + 1 >= n or toks[i + 1].token_type not in (
+                _TokenType.VAR, _TokenType.IDENTIFIER):
+            continue
+        alias = toks[i + 1].text
+        depth = 0
+        k = i - 1
+        while k >= 0:
+            tt = toks[k].token_type
+            if tt == _TokenType.END:
+                depth += 1
+            elif tt == _TokenType.CASE:
+                depth -= 1
+                if depth == 0:
+                    out[(toks[i - 1].line, alias.casefold())] = toks[k].line
+                    break
+            k -= 1
+    return out
+
+
+def _producer_occurrence_in_span(
+    variables: list, src, lo: int, hi: int,
+):
+    """The occurrence twin of `src`'s field INSIDE [lo, hi] — rule 4e's
+    anchor, or None when no such variable exists (the keeper anchor stays).
+
+    Identity is the pair the extraction layer already records: the SAME
+    owner (`source_tables[0]`, case-insensitive — an unattributed source is
+    never re-parented onto a guessed owner) and the SAME field part (the
+    name's last dot-segment: `a.charge_department` and its owner-qualified
+    twin `bdm_acc_entrusted_payment.charge_department` are the same field
+    spelled through an alias handle and through its owner). The candidate
+    must be a COLUMN of the source's own context inside the span, and the
+    first candidate in registration order wins — script order is the
+    corpus's determinism convention (Phase 3's last-writer-wins pick uses
+    the same order), so the re-anchor is a set function of the SQL text.
+    """
+    if not src.source_tables:
+        return None
+    owner = src.source_tables[0].casefold()
+    part = src.name.rsplit(".", 1)[-1].casefold()
+    for v in variables:
+        if v.id == src.id or v.variable_type != VariableType.COLUMN:
+            continue
+        if (v.context or "TOP") != (src.context or "TOP"):
+            continue
+        line = int(v.line_start or 0)
+        if not line or line < lo or line > hi:
+            continue
+        if not v.source_tables or v.source_tables[0].casefold() != owner:
+            continue
+        if v.name.rsplit(".", 1)[-1].casefold() != part:
+            continue
+        return v
+    return None
+
+
 def _statement_scope(context: str | None) -> str:
     """The statement-level scope of a (possibly nested) context — the
     dependency-graph half of the extractor's `_scope_top` folding.
@@ -1462,6 +1546,107 @@ def build_dependency_graph(
             # rule is a Phase-9-local change — no extraction re-round.
             continue
         _add_edge(v, anchors[0], "FILTER", "ROW_SELECTION")
+    # ── Phase 9b (2026-08-28.14): rule 4e — PRODUCER-OCCURRENCE ANCHORING ──
+    # A COMPUTED edge that carries a producer column's value INTO a CASE
+    # output column anchors where Phase 3's source pick put it: the
+    # collapsed group's KEEPER, i.e. the producer's FIRST occurrence in the
+    # statement — which for a CASE-arm operand is another statement's line
+    # altogether (EAST5 × BBZ, measured on 2026-08-28.13: the
+    # `a.charge_department` edge anchored L51, the stzfdxzh CASE's own WHEN
+    # line, and the `A.ccy_code` edge anchored L47, the SIBLING column bz's
+    # birth line — while the CASE producing BBZ is L70-73 and its arms read
+    # both fields there). The value the edge carries is produced at the arm
+    # line, and the arm line is where the reader looks.
+    #
+    #   RULE 4e: an edge carrying the searched field's value from a
+    #   producer column anchors at the producer occurrence INSIDE the
+    #   searched field's own expression (the arm line), never at another
+    #   statement line where the same producer occurs (the collapsed
+    #   group's keeper first-occurrence line).
+    #
+    # Resolution is the AS-alias mapping at the END line (`END AS BBZ`):
+    # a CASE output var anchors at its alias line, and the span that alias's
+    # END closes is the producing expression's own lines — the same span
+    # read the extractor's family 5 mints twins on
+    # (`_register_case_producer_twins`). The move is a RE-ANCHOR, never a
+    # new edge: Phase 3's edge is re-pointed onto the in-span occurrence
+    # twin of the same (owner, field), so the served set keeps exactly one
+    # producer leg per producer and only its anchor changes. A producer
+    # already anchored inside the span stays exactly where it is (`a.remark`
+    # @70, `B.ccy_code` @71), a producer with no in-span occurrence keeps
+    # the keeper anchor (never a guess), and an empty `sql_text` (graph
+    # built from a pre-extracted result) keeps every anchor as it was.
+    #
+    # ORDER — appended AFTER the Phase-9 arm pass, and the two rules are
+    # deliberately allowed to tell an occurrence twin TWO true stories: the
+    # arm pass's `FILTER/ROW_SELECTION` into the scope's anchor (this
+    # occurrence's condition selects the rows that flow) and rule 4e's
+    # `COMPUTED` into the CASE output whose expression reads it (this
+    # occurrence produces the value that flows). Running this pass FIRST and
+    # leaning on the arm pass's "no OUTGOING flow edge yet" guard would keep
+    # one story per twin — but it would SILENCE the arm row-selection of
+    # every twin a producer leg lands on (three R46d pins red, the doc's
+    # §4a arm rows unlit), so the arm story stays and the corpus pin
+    # `test_no_second_story_for_a_twin_with_its_own_flow` reads one story
+    # WIDER now: Phase 9 itself still never adds a second one.
+    case_spans = _case_alias_spans(sql_text) if sql_text else {}
+    if case_spans:
+        _drop: list[int] = []                  # python id() of edges to drop
+        for tgt in variables:
+            if tgt.variable_type != VariableType.CASE or not tgt.line_start:
+                continue
+            span_lo = case_spans.get((tgt.line_start, tgt.name.casefold()))
+            if not span_lo:
+                continue
+            # Group the movable edges by (in-span occurrence, relationship).
+            # Phase 3 walks `source_columns` — a SET — so for a producer the
+            # statement spells through two alias spellings (`a.x` and `A.X`,
+            # two distinct vars) it emits TWO edges into the same CASE output
+            # in hash order. Re-pointing whichever arrives first and blocking
+            # on the second would make the served set a function of
+            # PYTHONHASHSEED (measured, EAST5's charge_department →
+            # stzfdxhm): seed 0 kept `a.CHARGE_DEPARTMENT`@51, seeds 1-3 kept
+            # `a.charge_department`@51. Rule 4e leaves nothing at the keeper
+            # line anyway, so the group is folded: ONE edge is re-pointed
+            # onto the occurrence, the rest — the same producer value flow
+            # duplicated through another spelling — are dropped. Which
+            # member arrives first then changes nothing: the surviving edge
+            # is the occurrence's, and no keeper-anchored one remains.
+            groups: dict[tuple[str, str], list] = {}
+            for d in deps:
+                if d.target_id != tgt.id or d.relationship != "COMPUTED":
+                    continue
+                src = id_index.get(d.source_id)
+                if src is None or src.variable_type != VariableType.COLUMN:
+                    continue
+                src_line = int(src.line_start or 0)
+                if not src_line or span_lo <= src_line <= tgt.line_start:
+                    continue  # already anchored inside the expression it feeds
+                repl = _producer_occurrence_in_span(
+                    variables, src, span_lo, tgt.line_start)
+                if repl is not None:
+                    groups.setdefault((repl.id, d.relationship),
+                                      []).append((d, src, repl))
+            for (repl_id, rel), members in groups.items():
+                ek_new = (repl_id, tgt.id, rel)
+                if ek_new in seen_edges:
+                    # the occurrence already carries this edge — every member
+                    # is a keeper-anchored duplicate of it.
+                    for d, src, _r in members:
+                        seen_edges.discard((src.id, tgt.id, rel))
+                        _drop.append(id(d))
+                    continue
+                seen_edges.add(ek_new)
+                d0, src0, repl = members[0]
+                for d, src, _r in members[1:]:
+                    seen_edges.discard((src.id, tgt.id, rel))
+                    _drop.append(id(d))
+                seen_edges.discard((src0.id, tgt.id, rel))
+                d0.source_id = repl_id
+                d0.sql_context = f"{repl.name} → {tgt.name}"
+        if _drop:
+            deps[:] = [d for d in deps if id(d) not in set(_drop)]
+
 
     # ── V8 walker determinism: the CANONICAL DEPENDENCY ORDER ──
     # The emitted list is a SET function of the SQL text but never was an

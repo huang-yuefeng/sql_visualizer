@@ -159,6 +159,57 @@
       },
       {
         "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 1,
+          "id": "l2e_8cc07afda750",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016extended_price@L6 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_169466fec6",
+          "target": "l2_tbl_cdfaa8488e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 1,
+          "id": "l2e_6bed3ccff2e8",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016extended_tax@L7 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_169466fec6",
+          "target": "l2_tbl_cdfaa8488e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 1,
+          "id": "l2e_47172a9cbdfb",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read (read into output) \u2014 \u2016list_price@L8 \u2192 \u27d0 output@L1\u2016",
+          "source": "l2_tbl_169466fec6",
+          "target": "l2_tbl_cdfaa8488e",
+          "width": 1
+        }
+      },
+      {
+        "data": {
           "category": "structure",
           "color": "#3498DB",
           "desc": "Table\u2192Column ownership",
@@ -662,6 +713,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016\u27d0 dn.ss_ticket_number@L33 \u2192 customer_address@L20\u2016",
+          "source": "l2_tbl_09a95704ad",
+          "target": "l2_tbl_c75609693b",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 20,
+          "id": "l2e_c11196e1b258",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016\u27d0 dn.ss_customer_sk@L34 \u2192 customer_address@L20\u2016",
           "source": "l2_tbl_09a95704ad",
           "target": "l2_tbl_c75609693b",
           "width": 1
@@ -1223,6 +1291,23 @@
           "label": "REF",
           "line_style": "solid",
           "reason": "read \u2014 \u2016current_addr.ca_city@L41 \u2192 current_addr@L38\u2016",
+          "source": "l2_tbl_c75609693b",
+          "target": "l2_tbl_b3b2be9e5f",
+          "width": 1
+        }
+      },
+      {
+        "data": {
+          "category": "copy",
+          "color": "#27AE60",
+          "desc": "Column reference",
+          "edge_type": "REF",
+          "flow_kind": "read",
+          "highlight_line": 38,
+          "id": "l2e_ac8389d8e890",
+          "label": "REF",
+          "line_style": "solid",
+          "reason": "read \u2014 \u2016current_addr.ca_address_sk@L40 \u2192 current_addr@L38\u2016",
           "source": "l2_tbl_c75609693b",
           "target": "l2_tbl_b3b2be9e5f",
           "width": 1
@@ -1974,7 +2059,7 @@
     "script_name": "68.sql",
     "search_matched": true,
     "target": ".",
-    "total_edges": 75,
+    "total_edges": 80,
     "total_nodes": 52
   },
   "script_name": "68.sql",

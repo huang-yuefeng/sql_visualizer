@@ -358,11 +358,13 @@ def test_every_display_edge_has_model_witness():
     # `CASE WHEN p1.charge_department = 'GTRF_CoreTrade_EPBL_MYRZ'`
     # (L182, reserved_field7's CASE). SQL-text-verified, and the witness
     # loop below still passes with `uncovered == []`.
-    assert len(new_edges) == 669, (
+    assert len(new_edges) == 812, (
         f"flagship display edge count drifted: {len(new_edges)} "
         f"(H11/X1 PROVENANCE determinism + guard 3b re-pin, 2026-08-31; "
         f"R46d continuation-twin row-selection +1, 2026-09-01; "
-        f"see the comment above)")
+        f"669 -> 812: the 2026-09-01/02 rulings + rule 4e — 3a sibling "
+        f"belongs-to/chip prune, 7-A write-leg-only, 4e producer-occurrence "
+        f"arm edges and the .14 occurrence twins; see the comment above)")
     uncovered = []
     for E in new_edges:
         src_ref = display_endpoint(E["source"], by_tid, by_fid, model)

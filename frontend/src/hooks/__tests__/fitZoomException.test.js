@@ -169,7 +169,7 @@ describe('FIT-only zoom exception', () => {
  * levels (DataFlowGraph renders L1 and the inline L2 and hands each the same
  * callback), so this is where "the fit may go below the floor, the manual
  * zoom may not" has to hold for L1 as much as for L2. The L2 flow-only
- * branch (fitAllElements) must be under the same lifted floor.
+ * branch (fitVisibleElements) must be under the same lifted floor.
  */
 describe('FIT-only zoom exception — the hook fit path (L1 and L2)', () => {
   beforeEach(() => { stubCanvas(); });
@@ -201,7 +201,7 @@ describe('FIT-only zoom exception — the hook fit path (L1 and L2)', () => {
     }
   });
 
-  it('the L2 flow-only branch (fitAllElements) is under the same lifted floor', () => {
+  it('the L2 flow-only branch (fitVisibleElements) is under the same lifted floor', () => {
     const elements = makeGrid(3, 60);
     const ref = { current: container() };
     const { result, unmount } = renderHook(

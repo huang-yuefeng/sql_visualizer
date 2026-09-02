@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import DataFlowGraph, {
   computeFlowCone, applyFlowCone, clearFlowCone, isValueFlowEdge,
 } from '../DataFlowGraph';
@@ -295,8 +295,10 @@ describe('DataFlowGraph — VT output(X) display label decoration', () => {
   });
 });
 
-// ── #331: L2 4-way view toggle (flow / full / flow-merged / full-merged) ──
-describe('DataFlowGraph — L2 4-way view toggle', () => {
+// ── #331 + user ruling 2026-09-02: L2 view toggle — the two DETAILED
+// views ('flow'/'full') are REMOVED for simplicity; only the line-merged
+// pair remains ('flow-merged' Flow only / 'full-merged' Full).
+describe('DataFlowGraph — L2 view toggle (merged pair)', () => {
   const flowProps = {
     flowNodeIds: ['n1', 'n2'],
     flowEdgeIds: ['e1'],
@@ -323,14 +325,10 @@ describe('DataFlowGraph — L2 4-way view toggle', () => {
     expect(lastHookOptions().flowOnly).toBe(false);
   });
 
-  it('renders the 4-option select, merged views first', () => {
+  it('renders NO mode select — the product is flow-only (ruling 2026-09-02)', () => {
     render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} />);
-    const sel = screen.getByRole('combobox');
-    expect(sel).toBeInTheDocument();
-    expect(sel.value).toBe('flow-merged');
-    expect(Array.from(sel.options).map(o => o.textContent)).toEqual([
-      'Flow only', 'Full', 'Flow only (detailed)', 'Full (detailed)',
-    ]);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByText('Flow only')).toBeInTheDocument();
   });
 
   it('does not render the select when viewMode is null (no seed / not matched)', () => {
@@ -343,14 +341,13 @@ describe('DataFlowGraph — L2 4-way view toggle', () => {
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
-  it('changing the mode calls onViewModeChange(value) and does NOT call relayout', () => {
+  it('without a select there is no mode-change path and no relayout', () => {
     const onChange = vi.fn();
     render(<DataFlowGraph graphData={graphData} level="L2" layoutMode="snake"
       {...flowProps} onViewModeChange={onChange} />);
     relayoutMock.mockClear();
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'full' } });
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith('full');
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
     // mode switching is driven by the parent (payload swap / visibility) —
     // the graph component never re-layouts on its own
     expect(relayoutMock).not.toHaveBeenCalled();
@@ -370,11 +367,12 @@ describe('DataFlowGraph — L2 4-way view toggle', () => {
     expect(lastHookOptions().mergedView).toBe(false);
   });
 
-  it('selecting a merged mode calls onViewModeChange with the merged value', () => {
-    const onChange = vi.fn();
-    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} onViewModeChange={onChange} />);
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'full-merged' } });
-    expect(onChange).toHaveBeenCalledWith('full-merged');
+  it('flow-only label renders for a matched seed and not for null viewMode', () => {
+    render(<DataFlowGraph graphData={graphData} level="L2" {...flowProps} />);
+    expect(screen.getByText('Flow only')).toBeInTheDocument();
+    cleanup();
+    render(<DataFlowGraph graphData={graphData} level="L2" viewMode={null} onViewModeChange={vi.fn()} />);
+    expect(screen.queryByText('Flow only')).not.toBeInTheDocument();
   });
 });
 
