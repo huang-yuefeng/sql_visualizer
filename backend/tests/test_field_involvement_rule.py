@@ -1594,3 +1594,273 @@ def test_rfn_write_legs_stay_served_and_job_log_stays_dark():
     assert not any(n.get("table_name") == RFN_JOB_LOG_TARGET
                    for n in nodes.values()), (
         "the job-log write-target box is served as an edge-less box")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# The I-batch (2026-09-02, the 557-pair SUP_M+PL classification sweep):
+#   I-1 the sibling PARTITION write carrier   → a serve-time CARRIER RE-PICK
+#   I-2 the join-key co-operand               → rule 3b / canonical X1, drop
+#   I-3 the sibling AND-leg of the same JOIN  → rule 4b, drop
+#   I-4 the wrong-scope belongs-to            → rule 5e across CTE scopes,
+#                                               shipped behind its own switch
+# ═══════════════════════════════════════════════════════════════════════
+
+PL = SAMPLES / "BDM_ACC_LOAN_INFO_PL.sql"
+PL_NAME = "BDM_ACC_LOAN_INFO_PL.sql"
+SUP_M_NAME = FLAGSHIP_NAME
+
+# PL L19: `INSERT OVERWRITE TABLE bdm_acc_loan_info
+#          PARTITION(data_dt='${load_date}', CHARGE_DEPARTMENT='OPS_CLBS_PLoan')`
+# L91:     `ABROAD_LOAN_PURPOSE AS abroad_loan_purpose,` — the searched column
+# L250:    `LEFT JOIN BDM_PUB_HSBC_ACCT_BRANCH T_BRANCH
+#           ON a.ctcd||a.gmab||LPAD(a.acb,3,'0') = T_BRANCH.branch_code …`
+PL_WRITE_LINE = 19
+PL_COLUMN_LINE = 91
+PL_JOIN_LINE = 250
+PL_PARTITION_KEY = "data_dt"
+
+# PL L249: `ON a.acnw = p2.arrangement_local_number AND p2.rn = 1` — the
+# searched `cb_pointer` has no occurrence on that line; `p2.rn` is the
+# ROW_NUMBER alias of the derived table `p2`@248.
+PL_AND_LEG_LINE = 249
+
+
+def _build_pl(table, field, disable_rule=False):
+    """Served PL closure — the PARTITION write-carrier / join-key corpus."""
+    return _run(PL.read_text(encoding="utf-8"), PL_NAME, table, field,
+                disable_rule=disable_rule)
+
+
+def _write_legs(nodes, edges):
+    return [e for e in edges if e.get("flow_kind") == "write"
+            and not e.get("_value_edge")
+            and "output" in (_label(nodes, e, "source") or "").casefold()]
+
+
+def _join_reasons(edges):
+    return [e.get("reason") or "" for e in edges
+            if e.get("edge_type") == "JOIN"]
+
+
+def test_i1_write_carrier_never_names_a_sibling_partition_key():
+    """ACCEPTANCE I-1. Searching a write-target column served the routed
+    write leg with the STATIC PARTITION KEY's hop as its own segment
+    (`… ⟐ output@L19 → ‖data_dt@L19 → bdm_acc_loan_info@L19‖`) — 7-A rule 2
+    keeps the leg, so the carrier is RE-PICKED to the box hop the leg IS
+    (`‖⟐ output@L19 → bdm_acc_loan_info@L19‖`) and no served reason names the
+    sibling partition key. Count unchanged: the leg is kept, only renamed."""
+    nodes, edges = _build_pl("bdm_acc_loan_info", "ABROAD_LOAN_PURPOSE")
+    legs = _write_legs(nodes, edges)
+    assert legs, "the write leg went dark"
+    for e in legs:
+        assert f"‖⟐ output@L{PL_WRITE_LINE} → bdm_acc_loan_info@L{PL_WRITE_LINE}‖" \
+            in (e.get("reason") or ""), (
+            f"the write leg's carrier was not re-picked to the box hop: "
+            f"{e.get('reason')}")
+        assert PL_PARTITION_KEY not in (e.get("reason") or ""), (
+            f"a served reason still names the sibling partition key: "
+            f"{e.get('reason')}")
+    # the write VALUE leg's downstream continuation rides the same re-pick
+    values = [e for e in edges if "(write value)" in (e.get("reason") or "")]
+    assert values and all(PL_PARTITION_KEY not in (e.get("reason") or "")
+                          for e in values), (
+        f"the write-value edge still renders the partition key: "
+        f"{[e.get('reason') for e in values]}")
+    # a re-pick never drops: the served count is the pre-fix count (the
+    # rule-disabled build serves the whole unfiltered fold, so the two are
+    # not comparable — it only proves the leg existed before)
+    _, edges0 = _build_pl("bdm_acc_loan_info", "ABROAD_LOAN_PURPOSE",
+                          disable_rule=True)
+    assert len(edges) == 3 and len(edges0) > len(edges), (
+        f"the re-pick moved the served count: {len(edges)} (pin: 3; "
+        f"rule-disabled fold: {len(edges0)})")
+
+
+def test_i1_searched_partition_key_keeps_its_own_carrier():
+    """7-A: when the searched field IS the column the write leg carries, the
+    carrier is truthful and stays — EAST5 × `p_dt` keeps
+    `‖p_dt@L41 → east5_stzfxxb@L41‖` and its 5 served edges."""
+    nodes, edges = _build_east5("east5_stzfxxb", "p_dt")
+    legs = _write_legs(nodes, edges)
+    assert legs, "the EAST5 p_dt write leg went dark"
+    for e in legs:
+        assert "‖p_dt@L41 → east5_stzfxxb@L41‖" in (e.get("reason") or ""), (
+            f"the searched column's own write carrier was re-picked away: "
+            f"{e.get('reason')}")
+    assert len(edges) == 5, (
+        f"the EAST5 × p_dt closure moved: {len(edges)} (pin: 5)")
+
+
+def test_i1_east5_bbz_and_dkje_write_carriers_repicked():
+    """The EAST5 spot classes: `BBZ` (10 edges, producers L70/L71) and
+    `dkje` (L48 `b.loan_amt AS dkje`) write into a PARTITIONed INSERT whose
+    static key is `p_dt` — their write legs carry the box hop, never the
+    partition key, and no served reason renders `p_dt@L41 → east5_stzfxxb`."""
+    for field, pin in (("BBZ", 10), ("dkje", 6)):
+        nodes, edges = _build_east5("east5_stzfxxb", field)
+        assert len(edges) == pin, (
+            f"EAST5 × {field} moved: {len(edges)} (pin: {pin})")
+        legs = _write_legs(nodes, edges)
+        assert legs and all(
+            "‖⟐ output@L41 → east5_stzfxxb@L41‖" in (e.get("reason") or "")
+            for e in legs), (
+            f"EAST5 × {field}: the write carrier was not re-picked — "
+            f"{[e.get('reason') for e in legs]}")
+        assert not any("p_dt@L41 → east5_stzfxxb" in (e.get("reason") or "")
+                       for e in edges), (
+            f"EAST5 × {field}: a served reason still names the partition key")
+
+
+def test_i2_join_key_cooperand_legs_drop():
+    """ACCEPTANCE I-2 (canonical X1, R46c). Searching ONE operand of the
+    `a.ctcd‖a.gmab‖LPAD(a.acb,3,'0')` key served the OTHER operands' JOIN
+    legs; the searched field sits on ONE side of the `=`, so an operand chip
+    is that operand's own flow — dropped. The searched field's own operand
+    leg and the LFS-class value copy stay."""
+    nodes, edges = _build_pl("a", "acb")
+    joins = _join_reasons(edges)
+    assert joins, "the join legs went dark entirely"
+    for r in joins:
+        assert "a.ctcd@L250" not in r and "a.gmab@L250" not in r, (
+            f"a co-operand JOIN leg is still served: {r}")
+    own = [r for r in joins if "a.acb@L250" in r]
+    assert own, f"the searched field's own operand leg went dark: {joins}"
+    # the pre-rule engine served both co-operand legs (the pin means
+    # something); with the rule disabled the served closure is the whole
+    # unfiltered fold, so the two counts are not comparable
+    _, edges0 = _build_pl("a", "acb", disable_rule=True)
+    co = [r for r in _join_reasons(edges0)
+          if "a.ctcd@L250" in r or "a.gmab@L250" in r]
+    assert len(co) == 2, (
+        f"the pre-rule engine should serve both co-operand legs, got {co}")
+    assert len(edges) == 12, (
+        f"the a.acb closure moved: {len(edges)} (pin: 12)")
+
+
+def test_i3_sibling_and_legs_stay_dark():
+    """ACCEPTANCE I-3 (rule 4b). `ON a.acnw = p2.arrangement_local_number AND
+    p2.rn = 1` — the searched `cb_pointer` has no occurrence on L249, so the
+    sibling AND-leg's line stays dark; both served renderings (`p2.rn` and
+    the phantom-owned `bdm_fin_lrr_key_base_info.rn` — `rn` is the
+    ROW_NUMBER alias of derived table `p2`@248, not a column of that table)
+    drop, and every surviving JOIN edge anchors on a line the searched field
+    occupies."""
+    sql = PL.read_text(encoding="utf-8")
+    nodes, edges = _build_pl("bdm_fin_lrr_key_base_info", "cb_pointer")
+    joins = [e for e in edges if e.get("edge_type") == "JOIN"]
+    assert not [e for e in joins if e.get("highlight_line") == PL_AND_LEG_LINE], (
+        f"the sibling AND-leg @249 is still served: "
+        f"{[e.get('reason') for e in joins]}")
+    # the 5f-style phantom-owner variant served the leg with the ROW_NUMBER
+    # alias labelled as a column of `bdm_fin_lrr_key_base_info`; no served
+    # leg's OWN segment may name it (a downstream walk may still traverse the
+    # dark line — the audit's class is the served leg)
+    assert not any("‖bdm_fin_lrr_key_base_info.rn@L249" in (e.get("reason") or "")
+                   for e in edges), (
+        "the phantom-owned `bdm_fin_lrr_key_base_info.rn` leg is still served")
+    # every surviving JOIN edge anchors on a line the searched field occupies
+    field_lines = set()
+    for ln, line in enumerate(sql.splitlines(), start=1):
+        if "cb_pointer" in line.lower():
+            field_lines.add(ln)
+    assert field_lines, "the corpus lost its cb_pointer occurrences"
+    for e in joins:
+        assert e.get("highlight_line") in field_lines, (
+            f"a JOIN edge anchors on a line the searched field does not "
+            f"occupy: @{e.get('highlight_line')} {e.get('reason')}")
+    # the searched field's own join legs elsewhere are untouched
+    _, edges0 = _build_pl("bdm_fin_lrr_key_base_info", "cb_pointer",
+                          disable_rule=True)
+    dark = [e for e in edges0 if e.get("edge_type") == "JOIN"
+            and e.get("highlight_line") == PL_AND_LEG_LINE]
+    assert len(dark) == 2, (
+        f"the pre-rule engine should serve both AND-legs, got {dark}")
+
+
+def test_i3_lending_ref_surviving_join_edges_anchor_on_own_lines():
+    """The lending_ref closure's JOIN edges survive I-2/I-3 (they all carry
+    the searched field's own occurrence) and every one of them anchors on a
+    line `lending_ref` occupies."""
+    sql = FLAGSHIP.read_text(encoding="utf-8")
+    nodes, edges = _build("bdm_acc_loan_info", "lending_ref")
+    joins = [e for e in edges if e.get("edge_type") == "JOIN"]
+    assert len(joins) == 7, (
+        f"the lending_ref join site count moved: {len(joins)} (pin: 7)")
+    own_lines = {ln for ln, line in enumerate(sql.splitlines(), start=1)
+                 if "lending_ref" in line.lower()}
+    for e in joins:
+        assert e.get("highlight_line") in own_lines, (
+            f"a lending_ref JOIN edge anchors on a foreign line: "
+            f"@{e.get('highlight_line')}")
+        assert "lending_ref" in (e.get("reason") or ""), (
+            f"a served JOIN edge does not carry the searched field: "
+            f"{e.get('reason')}")
+
+
+def test_i4_own_scope_belongsto_drops_wrong_scope_instances():
+    """ACCEPTANCE I-4 (rule 5e across CTE scopes), pinned against its own
+    switch in the `_VALUE_CONE_GATE` shape. With
+    `LB._OWN_SCOPE_BELONGS_TO = True`, `p1.charge_department@44` — an
+    occurrence scoped to `CTE{rollover_loan_info}/subq1/subq` — is claimed
+    ONLY by its own scope instance `p1@29`, never by the same-named
+    `p1@84`/`p1@198` instances another scope's FROM line owns; the
+    scope-correct instance stays."""
+    nodes, edges = _build("bdm_acc_loan_info", "charge_department")
+    real = LB._OWN_SCOPE_BELONGS_TO
+    LB._OWN_SCOPE_BELONGS_TO = True
+    try:
+        nodes_on, edges_on = _build("bdm_acc_loan_info", "charge_department")
+    finally:
+        LB._OWN_SCOPE_BELONGS_TO = real
+    def _belongs(ns, es):
+        return [(e.get("reason") or "") for e in es
+                if e.get("edge_type") == "SCHEMA"
+                and (e.get("_op") or "").upper() != "OUTPUT"
+                and "charge_department@L44" in (e.get("reason") or "")]
+    served_on = _belongs(nodes_on, edges_on)
+    assert served_on == ["structure — ‖p1@L29 → p1.charge_department@L44‖"], (
+        f"the @44 chip's belongs-to is not its own scope instance only: "
+        f"{served_on}")
+    # the rule only ever removes, and it removes exactly the fold duplicates
+    served_off = _belongs(nodes, edges)
+    assert len(served_off) - len(served_on) == 2, (
+        f"the wrong-scope drop moved {len(served_off) - len(served_on)} edges: "
+        f"{served_off}")
+    assert len(edges_on) < len(edges), "the rule must only ever remove"
+
+
+def test_i4_switch_default_keeps_the_canonical_renderings():
+    """The shipped default is OFF, because the canonical ground truth
+    REQUIRES the multi-instance belongs-to renderings the rule drops —
+    jaccard_canonical G8 ("one belongs-to per in-scope p1 alias instance":
+    LFS130/LFS141/LFS142) and the `bdm` SUP_M rows S3/MA1 are the same
+    wrong-scope shape. So the default must serve `p1.data_dt@43` from BOTH
+    instances and keep the jaccard gate at 20/20; the switch's OFF state is
+    byte-identical with the rule absent."""
+    real = LB._OWN_SCOPE_BELONGS_TO
+    assert real is False, (
+        "the shipped default moved — the jaccard gate re-pins first")
+    nodes, edges = _build("bdm_acc_loan_info", "data_dt")
+    LB._OWN_SCOPE_BELONGS_TO = True
+    try:
+        _, edges_on = _build("bdm_acc_loan_info", "data_dt")
+    finally:
+        LB._OWN_SCOPE_BELONGS_TO = real
+    _, edges_off = _build("bdm_acc_loan_info", "data_dt", disable_rule=True)
+    assert len(edges) == len(edges_off), (
+        f"the OFF default is not byte-identical with the rule absent: "
+        f"{len(edges_off)} -> {len(edges)}")
+    # the canonical's S3/MA1 rows stay served under the default
+    def _rows(es):
+        return sorted((e.get("highlight_line"), e.get("edge_type"),
+                       e.get("id")) for e in es
+                      if e.get("edge_type") == "SCHEMA"
+                      and (e.get("_op") or "").upper() != "OUTPUT"
+                      and "data_dt@L43" in (e.get("reason") or "")
+                      or e.get("edge_type") == "SCHEMA"
+                      and "data_dt@L158" in (e.get("reason") or ""))
+    assert _rows(edges) == _rows(edges_off) and _rows(edges), (
+        "the canonical's multi-instance belongs-to rows moved under the OFF "
+        f"default: {[_rows(edges), _rows(edges_off)]}")
+    assert len(_rows(edges_on)) < len(_rows(edges)), (
+        "the switch's ON state did not drop the fold duplicates")

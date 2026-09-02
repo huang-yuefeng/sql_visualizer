@@ -1369,6 +1369,14 @@ def _carry_edge_info(src_nd: dict, tgt_nd: dict, raw_edge: dict) -> dict:
         "_src_tables": list(src_tables),
         "_tgt_tables": list(tgt_tables),
         "_src_ctx": src_nd.get("context", ""),
+        # Field-involvement admission, Class I-4 (2026-09-02, the
+        # wrong-scope belongs-to): the TARGET occurrence's own scope, read
+        # off the same node dict `_src_ctx` reads. A belongs-to whose source
+        # instance sits in another scope is the fold's same-named-instance
+        # duplicate, and only the two contexts together can tell that — the
+        # target's resolved owner (`_tgt_canon`) is already echoed by every
+        # same-named instance.
+        "_tgt_ctx": tgt_nd.get("context", ""),
         # Field-involvement admission (2026-08-31): the clause each raw
         # endpoint occurrence was COLLECTED in (the extraction-time
         # `defined_in` stamp) — the write-projection read leg is told from
@@ -2511,6 +2519,28 @@ _VALUE_CARRIER_TYPES = frozenset({
     "TABLE_FLOW", "REF", "COMPUTED", "TRANSFORM", "AGGREGATE", "WINDOW",
 })
 
+# Class I-4's own switch (2026-09-02), in the `_VALUE_CONE_GATE` shape: the
+# switch IS the rule, so the before/after pins flip it and the "before" side is
+# the real previous engine.
+#
+# ON drops a belongs-to whose source instance sits outside the target
+# occurrence's own scope whenever some other source of the SAME occurrence
+# sits in it (`p1.charge_department@44` — scoped to
+# `CTE{rollover_loan_info}/subq1/subq` — claimed by p1@29, p1@84 AND p1@198).
+#
+# OFF (shipped default) keeps the pre-I-4 closure byte-exactly, because the
+# canonical ground truth REQUIRES the multi-instance renderings this rule
+# drops: jaccard_canonical G8 ("one belongs-to per in-scope p1 alias
+# instance", rows LFS130/LFS141/LFS142 for `lending_ref`@41/@163 and the
+# LFS126 pairing) and the `bdm` SUP_M rows S3 (`p1@84 -> p1.data_dt@43`) and
+# MA1 (`p1@29 -> data_dt@158`) are the same wrong-scope shape this rule
+# refuses. Turning it ON costs exactly two benchmark cases
+# (lending_ref↓SUP_M edges recall 0.9032, bdm↓SUP_M 0.9310; precision stays
+# 1.0000) until those rows are re-derived — a jaccard_canonical.py edit this
+# team does not own. The audit's I-4 class and the canonical's G8 ruling
+# cannot both hold; the user rules on the ground truth.
+_OWN_SCOPE_BELONGS_TO = False
+
 
 def _apply_field_involvement(new_edges: list, field: str,
                              relevance_filter: bool,
@@ -2530,6 +2560,52 @@ def _apply_field_involvement(new_edges: list, field: str,
     belongs-to drop reachable for a sibling that shares the searched
     field's name. Empty (the legacy signature) ⇒ no ownership evidence ⇒
     the legacy field-part behaviour stands.
+
+    ── The I-batch (2026-09-02, the 557-pair SUP_M+PL classification sweep)
+    ──────────────────────────────────────────────────────────────────────
+    Four further illegal classes, all inside this pass's post-processing:
+
+      Class I-1 — the sibling PARTITION write carrier. A routed DML write
+        leg is the writing statement's own skeleton, but its carried OWN
+        segment is whatever written-column occurrence the raw DML edge was
+        minted from — on a PARTITIONed INSERT that is the static partition
+        key (`‖data_dt@L19 → bdm_acc_loan_info@L19‖` served under the
+        ABROAD_LOAN_PURPOSE search). 7-A rule 2 keeps the leg (the
+        statement writes the searched column), so this is a CARRIER
+        RE-PICK, never a drop: the segment is re-picked to the box hop the
+        leg IS (`‖⟐ output@19 → bdm_acc_loan_info@19‖` — the EAST5 form),
+        while the searched column's own leg keeps its own hop. Serve-time
+        only: `_src_label`/`_src_line` stay the extraction truth they were,
+        the SERVED walk and its reason are what get re-picked (no cache, no
+        EXTRACTOR_VERSION move).
+
+      Class I-2 — the join-key co-operand. Searching one operand of a
+        `‖`/CONCAT/LPAD key served the OTHER operands' JOIN legs
+        (`a.acb` → `‖a.ctcd@L250 → ⟐output@L19‖`). Canonical class X1
+        (R46c): the searched field sits on ONE side of the `=`, so an
+        operand chip is that operand's own flow — rule 3b, dropped.
+
+      Class I-3 — the sibling AND-leg of the same JOIN (`cb_pointer` →
+        `‖p2.rn@L249 → ⟐output@L19‖` on
+        `ON a.acnw = p2.arrangement_local_number AND p2.rn = 1`). Rule 4b:
+        a sibling leg's line stays dark. Both I-2 and I-3 are the ONE test
+        at the Class-1 site: a JOIN leg whose OWN carried segment is a
+        FIELD occurrence of another name is that sibling's flow.
+
+      Class I-4 — the wrong-scope belongs-to. Duplicate alias names in one
+        script (p1 ×3, p2 ×3) made the fold attribute a chip's belongs-to
+        to EVERY same-named instance instead of the occurrence's own scope
+        instance (`p1.charge_department@44` — scoped to
+        `CTE{rollover_loan_info}/subq1/subq` — was claimed by p1@29, p1@84
+        AND p1@198). Rule 5e extended across CTE scopes: when some
+        belongs-to source sits in the target occurrence's OWN scope, the
+        sources that do not are the fold's duplicates and drop. No
+        same-scope source ⇒ no scope evidence ⇒ nothing drops (the
+        container shape — a CTE box declaring its own column — has no
+        same-scope instance by construction and keeps its edge). SHIPPED
+        BEHIND `_OWN_SCOPE_BELONGS_TO` (below, default OFF): the canonical's
+        own G8 rows require the multi-instance renderings, so the drop
+        waits on that ground truth being re-derived.
     """
     if (not new_edges) or (not relevance_filter) or not (field or "").strip():
         return new_edges
@@ -2966,6 +3042,31 @@ def _apply_field_involvement(new_edges: list, field: str,
                                column=e.get("_tgt_vt") != "literal")
 
     clauses = line_clause_map(sql_text)
+    # ── Class I-4 evidence: which belongs-to targets have a source in the
+    # target occurrence's OWN scope. Read off the CARRIED contexts (the
+    # extraction-time scope of each raw endpoint node) before anything is
+    # dropped, so the evidence is the whole closure's and not whatever
+    # survived an earlier branch. The group is the TARGET OCCURRENCE — the
+    # (label, line) pair the walker's occurrence index is keyed on — never
+    # the folded display node: the fold maps several scopes' chips onto one
+    # node, and a same-scope instance of ONE of them is no evidence about
+    # the others. A target whose every source sits elsewhere carries no
+    # scope evidence at all — nothing may drop on it (the container shape:
+    # `‖rollover_loan_info@L9 → lending_ref@L13‖` has no same-scope
+    # instance, because the CTE box's def site lives in the ENCLOSING scope
+    # while its columns live in the CTE's own).
+    own_scope_targets = set()
+    for _b in new_edges:
+        if (_b.get("edge_type") or "") != "SCHEMA":
+            continue
+        if ((_b.get("_op") or "").upper() == "OUTPUT"):
+            continue
+        _tctx = (_b.get("_tgt_ctx") or "").strip()
+        _sctx = (_b.get("_src_ctx") or "").strip()
+        if _tctx and _sctx and _sctx == _tctx:
+            own_scope_targets.add(((_b.get("_tgt_label") or "").strip().casefold(),
+                                   _safe_int(_b.get("_tgt_line"))))
+
     kept = []
     for e in new_edges:
         etype = e.get("edge_type") or ""
@@ -2974,6 +3075,26 @@ def _apply_field_involvement(new_edges: list, field: str,
             anchor = _safe_int(e.get("highlight_line")) or 0
             if anchor >= 1 and clauses.get(anchor) != "on":
                 continue
+            # ── Classes I-2 / I-3 (2026-09-02): the leg's OWN carried
+            # segment. An ON line is the relationship's own site, but a leg
+            # of that relationship is still not the searched field's flow
+            # when its own segment is a FIELD occurrence of another name:
+            #   I-2 — the other operand of the searched field's key
+            #     (`a.acb` → `‖a.ctcd@L250 → ⟐output@L19‖`; canonical X1,
+            #     the searched field sits on ONE side of the `=`), and
+            #   I-3 — a sibling AND-leg of the same JOIN (`cb_pointer` →
+            #     `‖p2.rn@L249 → …‖` on `… AND p2.rn = 1`; rule 4b, a
+            #     sibling leg's line stays dark).
+            # A BOX-carried own segment (the row-source skeleton, 6d) and a
+            # missing segment (no model / no walk) are NOT evidence — the
+            # legacy contract stands, nothing drops on an unknown kind.
+            _own = _own_hop(e)
+            if _own is not None:
+                _fld = _hop_is_field(_own[0], _own[1])
+                if _fld is None:
+                    _fld = bool(e.get("_src_field_like"))
+                if _fld and _part(_own[0]) != seed:
+                    continue
             kept.append(e)
             continue
         src_part = _part(e.get("_src_label"))
@@ -2986,8 +3107,27 @@ def _apply_field_involvement(new_edges: list, field: str,
         # drop was unreachable for it. The exemption is now the occurrence
         # identity in `_own_belongs_to`.
         if etype == "SCHEMA" and op != "OUTPUT":
-            if _own_belongs_to(e, tgt_part):
-                kept.append(e)
+            if not _own_belongs_to(e, tgt_part):
+                continue
+            # ── Class I-4 (2026-09-02): the occurrence's OWN scope instance.
+            # Gated on `_OWN_SCOPE_BELONGS_TO` (module level, default OFF —
+            # the canonical's G8 rows require these renderings; see there).
+            # The fold hands a chip's belongs-to to EVERY same-named
+            # instance (`p1.charge_department@44`, scoped to
+            # `CTE{rollover_loan_info}/subq1/subq`, was claimed by p1@29,
+            # p1@84 AND p1@198); rule 5e across CTE scopes says the
+            # belongs-to's source must be the occurrence's own instance.
+            # The extraction-time contexts are that test: when some source
+            # of the same chip sits in the target occurrence's own scope,
+            # a source that does not is a fold duplicate. No same-scope
+            # source ⇒ no evidence ⇒ the edge stays.
+            _tctx = (e.get("_tgt_ctx") or "").strip()
+            _sctx = (e.get("_src_ctx") or "").strip()
+            if (_OWN_SCOPE_BELONGS_TO and _tctx and _sctx and _sctx != _tctx
+                    and ((e.get("_tgt_label") or "").strip().casefold(),
+                         _safe_int(e.get("_tgt_line"))) in own_scope_targets):
+                continue
+            kept.append(e)
             continue
         # ── Class 2: is the searched field involved? ──
         # The seed chip / a same-name copy. Deliberately the field NAME, not
@@ -3049,6 +3189,71 @@ def _apply_field_involvement(new_edges: list, field: str,
         # the searched field ⇒ involved. Anything else is a sibling's flow.
         if carrier is None or carrier == seed:
             kept.append(e)
+
+    # ── Class I-1: the sibling PARTITION write carrier — a CARRIER RE-PICK.
+    # A kept routed write leg names, as its OWN carried segment, the written
+    # column occurrence the raw DML edge was minted from. When that
+    # occurrence is another column (on PL's PARTITIONed INSERT it is the
+    # static partition key `data_dt`@19), the served reason names a sibling
+    # column's hop for a leg 7-A keeps BECAUSE the statement writes the
+    # searched column. The leg is a box hop — the trunk → write-target hop —
+    # so that is what the segment is re-picked to (`‖⟐ output@19 →
+    # bdm_acc_loan_info@19‖`, the EAST5 form). The searched column's own
+    # write leg keeps its own hop: there the carrier IS truthful.
+    #
+    # Serve-time only, and only the SERVED walk: `_src_label`/`_src_line`
+    # keep the extraction-time facts they carried (which written-column
+    # occurrence the DML edge was minted from), the `_path_hops` walk and
+    # the reason derived from it are the display projection — so no cache
+    # key, no EXTRACTOR_VERSION and no snapshot content set moves. Every
+    # edge whose walk renders that segment (the write leg itself, and the
+    # value edge whose downstream continuation runs through it) re-renders.
+    if kept:
+        _seg_renames = []
+        for _w in kept:
+            if not (_w.get("_dml_origin") and not _w.get("_value_edge")):
+                continue
+            _own = _own_hop(_w)
+            if _own is None or _part(_own[0]) == seed:
+                continue
+            # already a box-level segment (⟐ output → target): nothing to
+            # re-pick; a NON-field segment is the skeleton's own form
+            if _hop_is_field(_own[0], _own[1]) is False:
+                continue
+            # The box hop the leg IS: the walk's own previous hop — the last
+            # hop before the segment, which for a routed write leg is the
+            # trunk's own (label, line), stamped by J12-18 when the value
+            # edge was re-targeted onto it. No walk before the segment
+            # (the trunk unreachable from the seed) ⇒ no box evidence ⇒
+            # the edge keeps the carrier it had.
+            _idx = _safe_int(_w.get("_own_seg_idx"))
+            _hops = _w.get("_path_hops") or []
+            if not (1 <= _idx < len(_hops)):
+                continue
+            _lbl, _lnn = _hops[_idx - 1]
+            _tlbl = _w.get("_tgt_label")
+            _tlnn = _safe_int(_w.get("_tgt_line"))
+            if not _lbl or _lnn < 1 or not _tlbl or _tlnn < 1:
+                continue
+            _seg_renames.append(((_own, (_tlbl, _tlnn)), (_lbl, _lnn)))
+        if _seg_renames:
+            _strategy = get_strategy("single_line")
+            for _e in kept:
+                _hops = _e.get("_path_hops") or []
+                _new = list(_hops)
+                _hit = False
+                for _i in range(len(_new) - 1):
+                    for (_osrc, _otgt), _nsrc in _seg_renames:
+                        if _new[_i] == _osrc and _new[_i + 1] == _otgt:
+                            _new[_i] = _nsrc
+                            _hit = True
+                if not _hit:
+                    continue
+                _e["_path_hops"] = _new
+                _payload = _strategy(_e)
+                _e["highlight_line"] = _payload["highlight_line"]
+                _e["flow_kind"] = _payload["flow_kind"]
+                _e["reason"] = _payload["reason"]
     return kept
 
 
