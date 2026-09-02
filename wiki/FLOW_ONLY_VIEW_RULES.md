@@ -46,6 +46,13 @@ Everything below refines these two ideas.
 
 ## 3. SIBLING rules — other fields written by the same statement
 
+*2026-09-02: the Full view is cut from the requirement (source kept in the repo) (flow-only is the product view; user ruling —
+`requirements_v2.md` §"Amendment (2026-09-02)", traceability R53). The "full view" statements below
+describe the cut view's semantics and the payload contract, both kept unchanged in the
+codebase. The Full view's source code and this document's full-view rules are KEPT — nothing is
+removed from the git repository; only the UI entry point is closed (the L2 renders the flow-only
+view exclusively).*
+
 | # | Rule | Shown? | Example |
 |---|---|---|---|
 | 3a | A sibling field's **belongs-to** edge (structural fact: it exists on this line) | ❌ **(USER RULING 2026-09-01 — reversed, was ✅)** | `reserved_field8` written at L82 next to `lending_ref` — its belongs-to edge is **dropped** (mess, no data-flow contribution). The searched field's own belongs-to / Reappears edges are untouched — only a *sibling's* belongs-to drops. **CONFIRMED same day:** also remove the sibling chips this leaves floating edge-less — "If the sibling chips, which is not [the] searched target field, and doesn't have any edge, they are not contributing to the data flow. I think they should be removed." (USER RULING 2026-09-01, `_prune_orphan_sibling_chips`) |
@@ -671,14 +678,14 @@ Deep-dive sections above (§3a in full, Worked examples) are cross-referenced.
 - L213: `'$(load_date)' AS data_dt` — ❌ (no edge served @213 — the statement writes only literals + COUNT(1): ⚡ 7-A shapes this)
 - L223: `bdm_acc_loan_info_sup` — ❌ (no edge served @223 — the statement READS the searched table's output but the whole trunk drops)
 
-*Example 2 — the byte-identical trunk the engine DOES serve (EAST5 × `p_dt`)*
+*Example 2 — a trunk the engine still serves IN ERROR (EAST5 × `p_dt`) — 7-A corollary violation, fix ledgered*
 
 - Search field: `east5_stzfxxb.p_dt` (script: EAST5_STZFXXB_M.sql)
-- L179: `INSERT INTO TABLE rrcdm_job_log_exec_par( data_dt ,object_domain ,sub_src_system ,table_name ,job_name ,total_rows ,load_time ,STATUS ,remarks )` — ✅ (edge: TABLE_FLOW/write leg @179, `output@179` → `rrcdm_job_log_exec_par@179`)
-- L189: `FROM EAST5_STZFXXB` — ✅ (edge: TABLE_FLOW/chain (read into output) @189, `east5_stzfxxb@41` → `output@179`) (edge: REF/read @189, `p_dt@41` → `east5_stzfxxb@41`)
-- L190: `WHERE p_dt = '$(load_date)'` — ✅ (edge: FILTER/filter step @190, `p_dt@41` → `east5_stzfxxb@41`)
+- L179: `INSERT INTO TABLE rrcdm_job_log_exec_par( data_dt ,object_domain ,sub_src_system ,table_name ,job_name ,total_rows ,load_time ,STATUS ,remarks )` — ❌ **ILLEGAL (7-A corollary violation)** — the edge `TABLE_FLOW/write leg @179, output@179 → rrcdm_job_log_exec_par@179` IS served today, but the column list writes `data_dt ,object_domain ,sub_src_system ,table_name ,job_name ,total_rows ,load_time ,STATUS ,remarks` — **never `p_dt`** — and the SELECT feeds only literals + `COUNT(1)` + `getdate()`. The served edge is the log's own frame→write trunk, admitted through the carrier-is-None skeleton fallback (`_hop_carrier` returns None on the @179 frame, so the involvement filter never sees a sibling chip to refuse); the carried evidence proves it — the reason's own segment is `‖⟐ output@L179 → rrcdm_job_log_exec_par@L179‖` and `p_dt` appears only in the carried prefix `p_dt@L190 → east5_stzfxxb@L189`. Fix ledgered (suspended F3 item: test the edge's own carried segment, not its display endpoints).
+- L189: `FROM EAST5_STZFXXB` — ❌ (same trunk, same defect: the log's read-side chain `east5_stzfxxb@41 → output@179` + the table-level `REF/read @189` are served under the identical fallback)
+- L190: `WHERE p_dt = '$(load_date)'` — genuine `p_dt` occurrence (2d: the predicate exists and filters the log's read), **but** per 7-A's corollary the statement contributes nothing to `p_dt`'s closure because its write never carries `p_dt` — the trunk legs that predicate feeds (@179, @189 chain into `rrcdm_job_log_exec_par`) must drop; the FILTER row's final rendering is part of the same suspended fix.
 
-*Note:* post-7-A (resolved 2026-09-01, write leg only) this pair is no longer an inconsistency — it is the rule working. EAST5's trunk is served because the searched `p_dt` IS a column the log writes; PL's (@253/@254) likewise for `data_dt`; SUP_M's (searching `lending_ref`) and DL's (@549, searching `lending_ref`) drop because the log never writes those fields — corollary 3 of §7-A.
+*Note (corrected 2026-09-02 — the earlier note here was factually wrong):* the earlier text claimed "EAST5's trunk is served because the searched `p_dt` IS a column the log writes". **The L179 column list contains no `p_dt`** — the log writes `data_dt` + literals + `COUNT(1)`. Under §7-A's corollary the correct state is: the log contributes NOTHING to `p_dt`'s closure. What IS the rule working: PL's trunk (@253/@254) for `data_dt` — `data_dt` genuinely IS a written column there. SUP_M (searching `lending_ref`) and DL (@549, `lending_ref`) drop for the same corollary. The EAST5 residual is the suspended F3 defect (carrier-is-None skeleton admission + the compound fold hiding the sibling identity), not a rule gap.
 
 **6c — foreign-owner folds respected.**
 

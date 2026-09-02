@@ -734,3 +734,90 @@ engine (R46c/R46d).**
   (`wiki/FLOW_ONLY_VIEW_RULES.md` §7-A), which this amendment does not decide.
 
 
+---
+
+### Amendment (2026-09-02) — L2 flow-only-only UI: the Full view and the detailed views are CUT FROM THE REQUIREMENT (source kept; upgraded from POSTPONED later the same day)
+
+> **Status: ✅ LANDED in the UI (2026-09-02) — a POSTPONEMENT, not a removal.** USER RULING, verbatim:
+> *"just first close full view in UI, this requirement is postponed, the source code is kept and not
+> removed from git repo. We first release flow only view to user."*
+> Traceability row **R53** (`wiki/REQUIREMENTS_TRACEABILITY.md` §R53). Design decision `CLAUDE.md` #59.
+> This amendment mints no new engine requirement and deletes nothing: it narrows the L2 **user interface**
+> to one view and freezes the rest of the four-view design until the requirement is revived.
+
+**What the user sees now — ONE L2 view.** The product's only second-level view is the line-merged
+flow-only closure (`flow-merged`: one SQL line ≈ one edge, field chips collapsed to the searched
+field's flow). The L2 mode `<select>` is removed from the graph toolbar; where the selector used to
+sit, the toolbar now renders a **non-interactive static label reading "Flow only"** (`DataFlowGraph.jsx`
+renders `flow-mode-label` instead of `flow-mode-select`). A user cannot reach any other L2 view from
+the UI — there is no Full option, no detailed option, and no way to switch mode at all.
+
+**What is cut from the requirement (all of it still in the repo, none of it deleted).**
+
+- **The Full view** (`full-merged`) — the same line-merge rule applied over the whole script graph
+  instead of the flow-only closure. R32.2, shipped v3.3.166 and reachable in the UI until today.
+- **The two detailed (unmerged) views** (`flow` and `full`) — every edge rendered individually, added
+  with #331. Their UI entry was already removed earlier on 2026-09-02 for simplicity; this amendment
+  folds that into the same postponement so the L2 surface is exactly one view.
+- **The full-view sibling-filter extension** — the engine patch that would apply the 2026-09-01 rule-3a
+  sibling drop / edge-less chip prune to the Full view as well (today the pass runs behind the search
+  filter and the full view is byte-untouched, `CLAUDE.md` #58a). Work on it was started and then
+  cut under this same ruling; the owning team reverted its in-flight edits and the patch
+  stays ARCHIVED for when FULLVIEW reopens.
+
+**The explicit guarantees (this is a postponement, so these hold).**
+
+- **Source code is kept.** No view code path is deleted from the git repo: the four `viewMode` values
+  still parse, `flowVisibility.js`, the merged/detailed edge-id namespaces, the two-view client filter
+  and the layout-persistence keys (`l2:merged:{script}` / `l2:{script}`) all remain, untouched.
+- **The API payload is unchanged, server-side and byte-for-byte.** The L2 response still carries the
+  two-view contract — `flow_node_ids`/`flow_edge_ids` over the identical `full_graph` — plus
+  `flowVisibility` semantics and `relevance_filter`. No backend file, cache key, snapshot or benchmark
+  changes because of this ruling.
+- **Reopening FULLVIEW is a two-step job**: (1) re-expose the UI — restore the mode selector (or an
+  equivalent control) in `DataFlowGraph.jsx` and the mode wiring in `DataFlowApp.jsx`; (2) reapply the
+  archived full-view sibling-filter engine patch, then re-pin the full-view snapshot baselines it
+  changes. Nothing else is needed — which is exactly why nothing is deleted now.
+
+**Rationale (the user's own words, restated).** Simplicity first: one view, not four, and a release the
+user can actually use. The flow-only view is the one that answers the debugging question ("where does
+this field's value go?"), so that is what ships to users first; the Full and detailed views are
+deferred until there is user demand for them, with the code kept so reviving them costs a UI change,
+not a rebuild.
+
+#### Non-goals
+
+- No engine change, no payload change, no cache invalidation, no snapshot rebaseline, no versioned
+  artifact of any kind is touched by this amendment.
+- Nothing is retired: R30.8 (flow-only ↔ full), R32.1 (flow-only-merged), R32.2 (full-merged) and the
+  #331 detailed pair all stay on the books as CUT — they are marked AMENDED in the traceability
+  matrix, not erased.
+- The flow-only view's own rules are unaffected: `wiki/FLOW_ONLY_VIEW_RULES.md` keeps describing the
+  cut Full view's semantics as payload contract, with a single dated marker (its §3 heading).
+
+
+
+## Amendment (2026-09-02) — self-loop line style is the uniform edge style
+
+**Ruling (user, verbatim):** "the self loop line style should be the same to other
+edges, do not use a special red color."
+
+**Scope:** the merged flow-only self-loop (an absorbed FILTER rendered as a
+self-loop on its table box, class `filter-selfloop`) previously wore a special red
+treatment (`#E74C3C`, width 7, end-arrow scale 1.6), and a Field Story "Filtered"
+step re-coloured it `#FF6B6B` at width 9. Both are REMOVED. The self-loop keeps its
+GEOMETRY — the enlarged bezier (`loopstep`/`loopdir` data) that makes it render
+around the box, stay clickable, and highlight its absorbed SQL line — but its LINE
+STYLE is now exactly the uniform L2 edge style: `#7F8C8D`, width 2, mid-target
+arrow, arrow-scale 1.8. The retired `filter-loopline` selector is unified the same
+way (no live selector matches). The special `edge.filter-selfloop.story-active`
+story rule is removed: the generic `edge.story-active` (width 5) is the only
+emphasis, and since 5 > 2 the f648 invariant "a story step GROWS the loop, never
+shrinks" still holds.
+
+**Acceptance:** (1) the loop style rule's `line-color` equals `L2_UNIFORM_EDGE_COLOR`
+and its width is 2; (2) no `#E74C3C`/`#FF6B6B` remains in the composed self-loop or
+story style groups; (3) the loop stays visible, clickable, and side-assigned as
+before (geometry untouched); (4) browser capture shows the loop in the uniform grey
+with no red. Implementation: `graphStyles.js` (`FILTER_LOOP_GEOM_STYLES`,
+`FILTER_LOOPLINE_STYLES`, `STORY_STYLES`); pin: `selfLoopFilterLabel.test.js`.
