@@ -132,7 +132,7 @@ export function compactTableLayout(tableId, allIds, visibleIds) {
   }
 
   // Nothing visible at all: a header-only box with no content to wrap — it
-  // keeps its centre (dy 0) and just loses the dead band below the header.
+  // keeps its centre (dy 0) and collapses to the header-plus-one-chip height (tableHeight clamps the count at 1, so a header-only box keeps ~56px of the one-chip band — see tableHeight's max(count, 1) clamp).
   return { dy: 0, height: tableHeight(0), rel: {}, visible };
 }
 
@@ -150,8 +150,10 @@ export function activeFieldRel(compaction, fullFieldRel) {
 
 /**
  * Table positions reported back to FULL space: a compacted box sits `dy`
- * below the place the persisted layout knows about, and the resume layout
- * must never learn a compacted coordinate.
+ * away from the place the persisted layout knows about (the sign is
+ * whichever way the surviving chips stack — frequently UP, since hidden
+ * siblings below pull the survivors up), and the resume layout must never
+ * learn a compacted coordinate.
  *
  * @returns {{ [tableId]: [x, y] }}
  */

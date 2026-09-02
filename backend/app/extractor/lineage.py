@@ -1775,12 +1775,13 @@ def compute_field_flow(graph_data, target_table, target_field,
         # set's hash order — with the DML admit's side effects being
         # order-sensitive (they fire only when the DML edge admits the
         # target), the traversal order is part of the admitted SET. Var
-        # ids are content-derived md5 digests (variable_extractor_v2's
-        # `_var_id` = md5(script:name)[:16]), so sorted(visited) walks
-        # LEXICOGRAPHIC DIGEST order — deterministic and process-stable
-        # (never a hash seed), though content-arbitrary in the sharper
-        # sense that renaming an unrelated variable reorders its digest
-        # against every sibling. Measured invariant on the flagships
+        # ids are md5(script:key_counter)[:16] (`_make_id` fed by
+        # `_next_id`'s per-key REGISTRATION counter) — so sorted(visited)
+        # walks LEXICOGRAPHIC DIGEST order: deterministic and
+        # process-stable (never a hash seed), but a function of the
+        # EXTRACTION SEQUENCE, not of the SQL text — an extra earlier
+        # registration of the same name shifts every later same-name id
+        # and hence this order. Measured invariant on the flagships
         # (2-id transposition, full permutation, 5 shuffles); a true
         # registration order (pm.occurrences insertion order) would be
         # strictly safer — ledgered as hardening, not done here.

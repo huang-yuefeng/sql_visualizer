@@ -561,7 +561,8 @@ export default function useCytoscapeGraph(containerRef, graphData, options = {})
           flowNodeIds: o.flowNodeIds,
           flowEdgeIds: o.flowEdgeIds,
           mergedView: o.mergedView,
-          // R41: an explicit Fit must SHOW THE WHOLE GRAPH — suppress the
+          // R41 (recenter:false) + the 2026-09-02 fit-visible amendment:
+          // an explicit Fit frames the VISIBLE closure — suppress the
           // post-visibility centerOnSeed that re-pans onto the seed inside
           // the same click (measured: kept 2/7 nodes off-screen even with
           // the floor lifted). View-mode toggles keep the default recenter.

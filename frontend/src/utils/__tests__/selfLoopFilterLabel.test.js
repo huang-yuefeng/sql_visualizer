@@ -6,6 +6,7 @@ import cytoscape from 'cytoscape';
 // module-link error that would kill the whole file. `import * as` yields
 // undefined instead, so the landing-gated suites below can skip cleanly.
 import * as graphStylesModule from '../graphStyles';
+// STORY_STYLES is read via the module namespace below (f648 width pin).
 import { applyFlowVisibility } from '../flowVisibility';
 import { CY_CORE_OPTIONS } from '../../hooks/useCytoscapeGraph';
 
@@ -478,5 +479,21 @@ describe('scope guards that survive the self-loop change', () => {
     expect(appSource).toMatch(/export\s+function\s+selfLoopFilterLabels/);
     expect(appSource).not.toMatch(/^\s*import[^\n]*l2_builder\b/m);
     expect(appSource).not.toMatch(/build_line_merged_edges\s*\(/);
+  });
+});
+
+
+describe('f648 invariant under the uniform-style ruling — story emphasis grows, never shrinks', () => {
+  // REVIEW-FRONTEND F6 (2026-09-02): with the loop flattened to the uniform
+  // width 2, the "story step grows the curve" invariant rests on
+  // story-width (5) > uniform-width (2). Pin the numbers so a future width
+  // bump cannot silently erase story emphasis.
+  it('STORY_STYLES width stays strictly greater than the uniform self-loop width', () => {
+    const geom = graphStylesModule.FILTER_LOOP_GEOM_STYLES[0];
+    const loopWidth = Number(geom.style.width);
+    const story = graphStylesModule.STORY_STYLES.find(
+      s => s.selector === 'edge.story-active' && s.style.width !== undefined);
+    expect(Number(story.style.width)).toBeGreaterThan(loopWidth);
+    expect(loopWidth).toBe(2);
   });
 });

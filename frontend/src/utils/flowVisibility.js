@@ -171,9 +171,13 @@ function hideEdgelessFieldChips(cy) {
 // 0.75 × halfW ≈ 0.7425 × SELFLOOP_BULGE, independent of box size (the
 // halfW terms cancel: that is the point of the per-edge step). Screen size
 // over the merged view's working zoom range: 31 px @0.28, 17 px @0.15,
-// 8.9 px @0.08 — readable and hittable at the fit floor, so the constant
-// stays 150; growing it would buy nothing at the floor and would start
-// swallowing the neighbour box to the left at working zooms.
+// 8.9 px @0.08 at the original width 7 — readable and hittable at the fit
+// floor, so the constant stayed 150. The uniform-style ruling (2026-09-02)
+// narrowed the stroke to width 2, so the DRAWN bulge at the floor is
+// ~2.5 px now and the floor-hit target is narrower; the geometry constant
+// stays 150 (growing it would swallow the neighbour box at working zooms)
+// — hit tolerance at extreme zoom-outs is accepted narrower by the same
+// ruling that flattened the style.
 const SELFLOOP_BULGE = 150;
 
 // v3.3.194 — parallel self-loops on ONE table (the full-merged view can put

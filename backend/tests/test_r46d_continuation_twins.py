@@ -510,19 +510,26 @@ class TestPhaseNineAdmission:
                       if x.source_id == d.source_id
                       and x.relationship in own_flow
                       and (x.operation or "").upper() != "READ"]
-            stories = {(x.relationship, (x.operation or "").upper())
-                       for x in others}
-            assert len(stories) <= 2, (
-                f"{d.operation} from {d.source_id} sits next to "
-                f"{[(x.relationship, x.operation) for x in others]} — "
-                "a twin got a third story")
+            # REVIEW-EXTRACTOR F5 (2026-09-02): key the pin on
+            # (target, story) — two legitimate COMPUTED legs into two
+            # DIFFERENT CASE outputs is a real corpus shape (09.sql:
+            # ss_quantity/ss_ext_discount_amt feed 5 outputs each), and a
+            # target-blind count would false-red it. What the pin forbids:
+            # two stories into the SAME target (a duplicate), or two
+            # row-selections (the arm story itself).
+            per_target = {}
+            for x in others:
+                per_target.setdefault(x.target_id, []).append(
+                    (x.relationship, (x.operation or "").upper()))
+            for tid, stories in per_target.items():
+                assert len(stories) == 1, (
+                    f"{d.operation} from {d.source_id} into target {tid} "
+                    f"carries duplicate stories: {stories}")
             row_sel = [x for x in others
                        if (x.operation or "").upper() == "ROW_SELECTION"]
-            compute_legs = [x for x in others
-                            if x.relationship == "COMPUTED"]
-            assert len(row_sel) <= 1 and len(compute_legs) <= 1, (
-                f"{d.operation} from {d.source_id}: duplicates within a "
-                f"story class — {[(x.relationship, x.operation) for x in others]}")
+            assert len(row_sel) <= 1, (
+                f"{d.operation} from {d.source_id}: two row-selections — "
+                f"{[(x.relationship, x.operation) for x in others]}")
 
 
 # ══════════════════════════════════════════════════════════════════════

@@ -453,10 +453,12 @@ body { background: var(--bg-app); color: var(--ink-900); }
 /* L2 4-way view toggle (#331) — toolbar select, styled like the small
    toolbar buttons (replaces the flow-only checkbox). */
 .flow-mode-toggle {
+  /* static "Flow only" label (user ruling 2026-09-02: single view, no mode
+     select) — deliberately NOT button-styled: a pointer cursor or border
+     here promised a mode switch that no longer exists */
   display: inline-flex; align-items: center; gap: 4px;
-  font-size: 0.7rem; color: var(--ink-600); cursor: pointer;
-  padding: 2px 8px; border: 1px solid var(--border); border-radius: 3px;
-  background: var(--bg-surface); user-select: none; white-space: nowrap;
+  font-size: 0.7rem; color: var(--ink-600);
+  white-space: nowrap;
 }
 .flow-mode-toggle select.flow-mode-select {
   margin: 0; cursor: pointer; font-size: 0.7rem; color: var(--ink-600);
