@@ -2,7 +2,12 @@
 
 A practical walkthrough of the core workflow: **upload a folder of SQL scripts → (optionally) upload filter files → search a field → read the L1 and L2 views → walk the Field Story → compare with string matching**.
 
-Everything here is based on the deployed UI (v3.3.195 or later). No SQL or internals knowledge required.
+Everything here is based on the deployed UI (**v3.3.200**). No SQL or internals knowledge required.
+
+> **New in this release** — the L2 shows the **flow-only view only** (the Full view was cut from the
+> requirement; source kept server-side); **table boxes compact to their visible chips** (no more tall
+> half-empty boxes); **self-loops wear the standard gray edge style** (no special red); **Fit frames
+> exactly what you see**; and edges anchor at the exact CASE-arm line that reads your field (rule 4e).
 
 ---
 
@@ -68,8 +73,13 @@ Use L1 to answer: *which scripts touch this table, and in what order does data m
 The L2 canvas shows the searched field's flow **inside one script**:
 
 - Boxes are **tables/CTEs/aliases**; small chips are the **fields** on them.
-- By default you see the **flow-only** view: only the edges the searched field's value actually travels.
-- Toggle to the **full view** (the view bar) to see everything in the script as context — then toggle back.
+- The canvas is the **flow-only** view — the product's only L2 view: only the edges the searched
+  field's value actually travels, plus the boxes that carry them. Sibling columns and unrelated
+  machinery are intentionally absent (they are not part of this field's story).
+- **Table boxes compact to their visible chips** — a 55-column table showing one chip renders as a
+  small card, not a tall empty slab. Dragging a compacted box moves it with its chips.
+- **Fit frames what you see** — the Fit button bounds exactly the visible closure, not the hidden
+  rest of the script.
 - The **SQL panel** below always highlights the line behind whatever you click. The **Field Story bar** under it retells the same flow as ordered steps (next section).
 
 Use L2 to answer: *where does this field's value come from, and where does it go inside this script?*
@@ -122,7 +132,7 @@ Workspaces are shared by **capability link**:
 | Upload filter files | Left panel → **Filter** → **Upload filter** |
 | Search a field | **Search** area → table + field → **Search** |
 | Switch L1 ↔ L2 | View bar tabs at the top |
-| Flow-only ↔ full view | View-mode selector in the graph toolbar |
+| Fit the view | Graph toolbar → **Fit** — frames the visible closure |
 | Walk the story | Field Story bar under the SQL panel — click a step chip |
 | String-match diff | Field Story bar → the circle toggle; ◀/▶ to browse |
 | Script lines | SQL panel — click anything in the graph to highlight its line |

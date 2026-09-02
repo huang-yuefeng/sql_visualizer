@@ -1,7 +1,14 @@
 # Requirements Traceability Matrix — V3.3.190
 
 > Maps all requirements from REQUIREMENTS.md to implementation status.
-> Last updated: 2026-09-02 — **NEW §R54 (the BBZ/p_dt edge rules, USER APPROVED)** — four new
+> Last updated: 2026-09-02 — **v3.3.200 SHIPPED** (feature `5a3d64d`, release `4f94068`, deployed to
+> prod, pushed): the **frame statement-anchor fix at source** (`_statement_anchor` now matches the
+> Hive/ODPS `INSERT INTO TABLE` spelling; publishes `statement_anchor_lines`; `EXTRACTOR_VERSION
+> .15`; 6 swapped frame lines corpus-wide → 0, RFN re-pinned) and the **Class-3 identity
+> unification** (`_own_occurrence` is the single own-chip test; the column-level value sites keep
+> their ruling-backed reasons with measured costs — 0 served edges move). Review round: 4
+> adversarial teams over v3.3.198/199 (extractor, L2, frontend, docs-vs-code) — all cleared or
+> dispositioned. — **NEW §R54 (the BBZ/p_dt edge rules, USER APPROVED)** — four new
 > flow-only edge rules plus the prune that finishes them: **2h** provenance-linked AS-alias
 > routing (own-frames admission, F2 — ✅ shipped v3.3.198, USER CONFIRMED as a rule the same day),
 > **4e** producer-occurrence anchoring (extractor family 5 + `dependency_graph` Phase 9b,
@@ -1046,7 +1053,7 @@ contradicted the ✅ requirement rows (R31.2/R31.9/R1.8) since v3.3.165.
 | ✅ Code review rounds 2026-08-30/31 | Field Story audits FSA/FSB/FSC (FSA's 28% finding fixed by G6 → 95.8%; FSB/FSC are v3.3.195-program), multi-user audits M1/M2/MSC (MSC-1 CRITICAL wedge fixed; MSC-3/MSC-6 fixed; +104 backend tests), and the R40.13 cross-check (layer PASSED, acceptance FAILED on engine closure defects RC-A/RC-B/RC-C) — record: `wiki/CODE_REVIEW_2026-08-29.md` §6–§9 |
 | ✅ Code review rounds 2026-09-01 (v3.3.195 wave) | FSC-2 model persistence (R49 — the snapshot-integrity hole), H11's 7 MERGE-column connectivity defects (R50, blast radius exactly 7 corpus-wide edges, waiver reconciled), the X1 PROVENANCE relay (R51 — total-order producer pick, guard 3b, the phase KEPT), the X1/X2 review rounds (5 X2 fixes: the stats-gate OR-form, the index-run refcount, the utf-8 trail reads, the meta-404, the atomic CAS consolidation), and R40.13 cross-check round 2 (45/12/1/4, RC-A still ledgered) — record: `wiki/CODE_REVIEW_2026-08-29.md` §10–§16. **Shipped 2026-09-01 (commit `34bd521`) together with: the canonical re-derivation R46c/R46d (§R46 — 20/20 at 1.0000/1.0000, the two ruled-red `lending_ref` cases green), V7's g1/d2 admission fixes (§V7) and H12's model-build perf (§H12)** |
 | K4 rulings | 4 recorded 2026-08-28 as design decisions (see the "K4 rulings" section) |
-| Version | **3.3.199 RELEASED 2026-09-02** (feature commit `8c5c6a4`, release commit `f4970e7`, deployed to prod, pushed to `origin/main`) — `EXTRACTOR_VERSION 2026-08-28.14`, `GRAPH_CACHE_PREFIX graph_3_2_25`, `MODEL_CACHE_PREFIX model`. Prior: **3.3.198** (`5e9dd67`), then **3.3.195** 2026-09-01 (release commit `34bd521`; `EXTRACTOR_VERSION 2026-08-28.12`) |
+| Version | **3.3.200 RELEASED 2026-09-02** (feature commit `5a3d64d`, release commit `4f94068`, deployed to prod, pushed to `origin/main`) — `EXTRACTOR_VERSION 2026-08-28.15` (the frame statement-anchor fix), `GRAPH_CACHE_PREFIX graph_3_2_25`, `MODEL_CACHE_PREFIX model`. Prior: **3.3.199** (`f4970e7`; `EXTRACTOR_VERSION 2026-08-28.14`, rule 4e), then **3.3.198** (`5e9dd67`), **3.3.195** 2026-09-01 (release commit `34bd521`; `EXTRACTOR_VERSION 2026-08-28.12`) |
 
 ## Key Fixes since V3.2.1
 | Fix | Description |
