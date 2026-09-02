@@ -602,6 +602,10 @@ question for the user, not a settled requirement; the access model is still exac
 > criteria: `//` comment stripping, the email-only deploy log line, and the gitignore +
 > `users.allowlist.json.example` posture. Purely additive — this amendment supersedes nothing and
 > amends no earlier section: **the R31 model is unchanged** (provisioned local accounts, no
+> restart-time user management beyond this deploy flow — **a 2026-09-02 user ruling REMOVED the
+> "no-restart admin user management" idea entirely: this is a local tool with few users, and
+> edit-file-plus-deploy is the final management flow** — no watcher, no admin API, no in-app
+> user management).
 > self-registration, one creator per workspace with any number of read-only participants). R31.35
 > only decides WHERE the provisioning allowlist lives and HOW a deploy activates it.
 
