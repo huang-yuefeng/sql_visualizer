@@ -2669,17 +2669,28 @@ def _apply_field_involvement(new_edges: list, field: str,
     # The identity is the searched `table.field`: the chip's part must be
     # the searched field, and its RESOLVED OWNER must be the searched table
     # (`_tgt_canon` for a belongs-to target — the extractor's own I2
-    # source-table resolution). Three provisos, all extraction-time facts:
-    #   no owner evidence (no searched table — the legacy unit-test shapes —
-    #     or an ownerless chip) ⇒ own: never drop on missing evidence;
+    # source-table resolution). Four provisos, all extraction-time facts,
+    # and the ORDER is part of the identity (REVIEW-200 item A,
+    # 2026-09-03): the written-chip proviso is decided BEFORE the echo and
+    # literal fallbacks, because both of those read missing owner evidence
+    # as "own" and either one first would re-open the hole v3.3.199 closed
+    # — a bare UNATTRIBUTED chip the statement writes under its own name
+    # kept a belongs-to the 3a sibling ruling drops, while the attributed
+    # written chip beside it dropped.
+    #   no searched table (the legacy unit-test shapes) and the searched
+    #     table's OWN attribution ⇒ own, before any proviso: 7-A keeps the
+    #     searched column's own write legs served;
+    #   a COLUMN chip the statement writes under its own name ⇒ sibling
+    #     (the F1 written-chip proviso) — a second column of that name,
+    #     whatever its (missing) owner evidence says;
+    #   no owner evidence (an ownerless chip, or the label echo the caller
+    #     collapsed to "") ⇒ own: never drop on missing evidence;
     #   a LITERAL chip owns nothing (its `source_tables[0]` is the box the
     #     constant is written into — a write target, never an owner), so it
-    #     is never a foreign column of the searched name;
-    #   a foreign-owned same-named COLUMN is STILL the searched value
-    #     carried through a container (a CTE/VT/derived column) while it is
-    #     not a written column of its own — a chip the statement writes
-    #     under its own name is a second column of that name, a sibling
-    #     (the F1 written-chip proviso).
+    #     is never a foreign column of the searched name; and a
+    #     foreign-owned same-named COLUMN that survives the written-chip
+    #     proviso is STILL the searched value carried through a container
+    #     (a CTE/VT/derived column).
     written_chips = {e.get("source") for e in new_edges
                      if e.get("_value_edge") and e.get("_tgt_output")}
 
@@ -2687,17 +2698,30 @@ def _apply_field_involvement(new_edges: list, field: str,
         if part != seed:
             return False
         owner = (owner or "").strip().casefold()
-        if not table_key or not owner or owner == table_key:
+        if not table_key or owner == table_key:
             return True
-        if not column:
-            # a constant projection carries no column ownership at all: the
-            # extractor puts the box the constant is written INTO in its
-            # `source_tables`, which is a write target, never an owner — so
-            # there is no foreign column here to be a sibling of (7-A rule
-            # 1's own case: `'$(load_date)' AS data_dt` writes the searched
-            # column as a literal).
+        if column and chip_id in written_chips:
+            # the F1 written-chip proviso, BEFORE the two fallbacks below:
+            # `_own_belongs_to` collapses a label ECHO (`_tgt_canon` echoing
+            # the chip's own label — no ownership evidence) into `owner=""`,
+            # so an owner-only read would call an unattributed written chip
+            # "own" on missing evidence. Column-scoped: the literal rule
+            # below stays the 7-A constant-write case's own answer.
+            return False
+        if not owner:
+            # no owner evidence (an ownerless chip, or the label echo the
+            # caller collapsed): never drop on missing extraction-time
+            # evidence — the legacy unit-test contract.
             return True
-        return chip_id not in written_chips
+        # a constant projection carries no column ownership at all: the
+        # extractor puts the box the constant is written INTO in its
+        # `source_tables`, which is a write target, never an owner — so
+        # there is no foreign column here to be a sibling of (7-A rule
+        # 1's own case: `'$(load_date)' AS data_dt` writes the searched
+        # column as a literal). A foreign-owned same-named COLUMN that
+        # survives the written-chip proviso is the searched value carried
+        # through a container.
+        return True
 
     # The write projection a statement publishes is read off the carried
     # chips: the value edges' own source chip IS the written value, and the
@@ -3029,7 +3053,16 @@ def _apply_field_involvement(new_edges: list, field: str,
         sibling — and its belongs-to is the sibling's own fact (the 3a
         ruling). No carried owner (the legacy unit-test shapes) ⇒ the
         legacy field-part behaviour stands: never drop on missing
-        extraction-time evidence."""
+        extraction-time evidence.
+
+        PRECEDENCE (REVIEW-200 item A, 2026-09-03): the echo below is a
+        no-evidence case, never a foreign owner, but it is also not an
+        exemption from the written-chip proviso — the proviso is decided
+        first inside `_own_occurrence`, so an UNATTRIBUTED chip the
+        statement writes under its own name drops exactly as the
+        attributed one always did. A LITERAL chip is exempt from the
+        proviso (`column=False`): it is the 7-A constant-write case, whose
+        write leg the ruling keeps served."""
         # the target-side evidence corrections: `_tgt_canon` falls back to
         # ECHOING the chip's own label when the extractor resolved nothing —
         # an echo is no ownership evidence, never a foreign owner — and a

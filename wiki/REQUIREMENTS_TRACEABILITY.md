@@ -4,7 +4,10 @@
 > Last updated: 2026-09-02 — **v3.3.200 SHIPPED** (feature `5a3d64d`, release `4f94068`, deployed to
 > prod, pushed): the **frame statement-anchor fix at source** (`_statement_anchor` now matches the
 > Hive/ODPS `INSERT INTO TABLE` spelling; publishes `statement_anchor_lines`; `EXTRACTOR_VERSION
-> .15`; 6 swapped frame lines corpus-wide → 0, RFN re-pinned) and the **Class-3 identity
+> .15`; 6 frames outside their own statement corpus-wide → 0, of which exactly ONE
+> swap pair (RFN TOP1↔TOP2 — the other four already carried their own statement's
+> keyword line and only the published anchor was wrong; recounted 2026-09-03,
+> REVIEW-200 F-2), RFN re-pinned) and the **Class-3 identity
 > unification** (`_own_occurrence` is the single own-chip test; the column-level value sites keep
 > their ruling-backed reasons with measured costs — 0 served edges move). Review round: 4
 > adversarial teams over v3.3.198/199 (extractor, L2, frontend, docs-vs-code) — all cleared or

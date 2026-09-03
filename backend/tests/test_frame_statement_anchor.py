@@ -43,8 +43,26 @@ is built from ``(frame_label, frame_line)`` pairs read off the edges' carried
 
 Corpus: ``sql_sample_v1`` + ``tpcds_qualified`` — the L2 snapshot harness's
 own script set (the flagship frame-heavy scripts are all in ``sql_sample_v1``).
-The wider workspace corpus was measured separately: 338 scripts / 457
-⟐ output frames, 6 frames outside their own statement before the fix, 0 after.
+The wider corpus was re-measured at the 2026-09-03 review (338 sample
+scripts / 457 ⟐ output frames, the pre-fix tree staged with ONLY the
+variant-head candidates removed): **6 frames carried a line outside their
+own context's anchor-bounded span before the fix, 0 after — but only TWO of
+the six were actually misplaced.** The two are RFN's TOP1/TOP2, the swap
+pair above (ONE swap = 2 frame-line assignments, not 6). The other four
+(DL TOP1 @549, PL TOP1 @253, SUP_M TOP1 @211, EAST5 TOP11 @179) already
+carried their OWN statement's keyword line; what disagreed was the
+PUBLISHED anchor, which recorded the body SELECT's line (keyword + 1)
+because the DML statement itself anchored 0 — so the def-site range floor
+sat one line past the DML keyword and the frame looked "outside" its own
+span. Under the stricter reading (frame line ≠ its context's published
+anchor) the pre-fix count is 8, the two extras being MERGE frames whose
+line is the USING/body SELECT's own line inside the statement — the
+deliberate MERGE/CREATE carve-out of ``_DML_STATEMENTS`` below. After the
+fix every published anchor is its statement's own keyword line and the
+frame agrees: 0 under both readings. The blast radius is unchanged:
+extraction output moves in exactly ONE script (RFN, 5 rows out / 5 rows
+in); the other four scripts' anchors move onto their keyword line and no
+variable moves.
 """
 
 from __future__ import annotations
@@ -55,6 +73,9 @@ import pytest
 
 from app.extractor.variable_extractor_v2 import (
     EXTRACTOR_VERSION,
+    ExtractionResult,
+    _is_as_keyword,
+    _RoleBasedExtractor,
     extract_variables_from_sql,
 )
 
@@ -260,6 +281,121 @@ def test_two_insert_into_table_statements_keep_their_own_frames():
         f"INSERT @6 (the two statements swapped)")
     assert result.statement_anchor_lines["TOP0"] == 2
     assert result.statement_anchor_lines["TOP1"] == 6
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# the OVERWRITE twin of the same keyword class (REVIEW-200 item B)
+# ═══════════════════════════════════════════════════════════════════════
+
+def test_two_insert_overwrite_table_statements_keep_their_own_frames():
+    """``INSERT OVERWRITE TABLE`` is the same statement-anchor class as
+    ``INSERT INTO TABLE`` — a Hive/ODPS ``TABLE`` keyword the render may
+    not reproduce — so `_statement_anchor` keys its variant-head list on
+    the DML keyword PAIR, never on ``into`` alone. Smallest repro: two
+    ``INSERT OVERWRITE TABLE`` statements in one script, each frame on ITS
+    OWN keyword line. A render that dropped the keyword under OVERWRITE
+    the way it does under INTO would send both statements to the generic
+    2-token run (``head_run[:2]`` = ["insert", "overwrite"]) and they would
+    land on each other's line — this pin holds the pair key against that.
+
+    MEASURED (sqlglot 30.12.0, and 30.8.0 in the host venv): today's render
+    KEEPS the ``TABLE`` keyword for OVERWRITE — only ``INSERT INTO TABLE``
+    loses it — so these anchors are carried by the plain 6-token head, the
+    variant list is inert for OVERWRITE, and the corpus census over all 338
+    sample scripts moves 0 anchors. This is a hardening pin for the render
+    class, not a behaviour change; the EXTRACTOR_VERSION stays put for the
+    same reason."""
+    sql = (
+        "-- first overwrite\n"
+        "INSERT OVERWRITE TABLE alpha_part PARTITION (data_dt = '1')\n"
+        "SELECT a.cust_no FROM src_a a;\n"
+        "\n"
+        "-- second overwrite\n"
+        "INSERT OVERWRITE TABLE beta_part PARTITION (data_dt = '2')\n"
+        "SELECT b.cust_no FROM src_b b;\n"
+    )
+    result = _extract(sql, "frame_overwrite_probe.sql")
+    frames = dict(_frames(result))
+    assert set(frames) == {"TOP0", "TOP1"}, sorted(frames)
+    assert frames["TOP0"] == 2, (
+        f"first OVERWRITE statement's frame is @L{frames['TOP0']}, expected "
+        f"its own INSERT OVERWRITE @2")
+    assert frames["TOP1"] == 6, (
+        f"second OVERWRITE statement's frame is @L{frames['TOP1']}, expected "
+        f"its own INSERT OVERWRITE @6 (the two statements swapped)")
+    assert result.statement_anchor_lines["TOP0"] == 2
+    assert result.statement_anchor_lines["TOP1"] == 6
+    assert len(set(frames.values())) == len(frames), (
+        f"two statements' frames share a line: {frames}")
+
+
+def test_dialect_files_insert_overwrite_land_on_their_own_lines():
+    """The two synthetic OVERWRITE dialect files — the corpus's only
+    `INSERT OVERWRITE TABLE` scripts outside `sqlglot_mega_test.sql` —
+    anchor every OVERWRITE statement on its OWN keyword line, never on a
+    neighbour's.
+
+    Measured on the v3.3.200 tree (and re-measured, unchanged, when the
+    variant-head pair key landed): MaxCompute's single `INSERT OVERWRITE
+    TABLE dwd_fact_orders PARTITION (dt)` anchors @3, and Hive's two-arm
+    multi-insert anchors its arms @3 and @5 — both by their own head run,
+    not by the generic 2-token fallback. Both statements here carry a
+    PARTITION argument list, so a head run that had to reach past it (the
+    way `INSERT INTO TABLE rrcdm_job_log_exec_par(data_dt, …)`'s does)
+    would degrade to the keyword pair and become swap-shaped."""
+    maxcompute = (SAMPLES_DIR / "dialect_test"
+                  / "maxcompute_insert_overwrite.sql")
+    result = _extract(maxcompute.read_text(encoding="utf-8"),
+                      maxcompute.name)
+    anchors = result.statement_anchor_lines
+    assert anchors.get("TOP0") == 3, anchors
+    for ctx, line in _frames(result):
+        assert line == anchors.get(ctx), (ctx, line, anchors.get(ctx))
+
+    hive = SAMPLES_DIR / "dialect_test" / "hive_multi_insert.sql"
+    result = _extract(hive.read_text(encoding="utf-8"), hive.name)
+    anchors = result.statement_anchor_lines
+    assert anchors.get("TOP0/hive_arm0") == 3, anchors
+    assert anchors.get("TOP0/hive_arm1") == 5, anchors
+    for ctx, line in _frames(result):
+        assert line == anchors.get(ctx), (ctx, line, anchors.get(ctx))
+
+
+def test_overwrite_variant_head_is_keyed_on_the_keyword_pair():
+    """The variant list itself: an OVERWRITE render head must produce the
+    source-faithful candidate (`insert overwrite table …`) exactly as an
+    INTO head does, so the hardening covers the whole keyword class.
+
+    Read off `_statement_anchor`'s own candidate build — the render is
+    forced to the keyword-dropping spelling sqlglot produces for
+    `INSERT INTO TABLE`, and the head the matcher is left with must be
+    tried BOTH ways."""
+    from sqlglot import Tokenizer
+
+    class _DroppingInsert:
+        """A statement whose render loses the source's TABLE keyword."""
+
+        args = {"with": None, "with_": None}
+
+        def sql(self, dialect=None):
+            return "INSERT OVERWRITE alpha_part PARTITION(data_dt = '1')"
+
+    extractor = _RoleBasedExtractor(
+        ExtractionResult(script_name="variant_probe.sql"),
+        "variant_probe.sql",
+        "INSERT OVERWRITE TABLE alpha_part PARTITION (data_dt = '1')\n"
+        "SELECT a.cust_no FROM src_a a;\n")
+    expr = _DroppingInsert()
+    line = extractor._statement_anchor(expr)
+    assert line == 1, (
+        f"the OVERWRITE variant head did not match its own keyword line, "
+        f"anchored @L{line}")
+    # and the plain render really is the keyword-dropping shape, so the
+    # assertion above exercised the variant and not the plain head
+    plain = [t.text.lower() for t in Tokenizer().tokenize(expr.sql("mysql"))
+             if not _is_as_keyword(t)][:6]
+    assert plain[:2] == ["insert", "overwrite"], plain
+    assert "table" not in plain, plain
 
 
 # ═══════════════════════════════════════════════════════════════════════

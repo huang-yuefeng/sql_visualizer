@@ -1447,6 +1447,83 @@ def test_seed_endpoint_exemption_is_the_occurrence_identity():
         table="bdm_acc_loan_info_sup") == [literal]
 
 
+def test_written_chip_proviso_is_decided_before_the_echo_fallback():
+    """REVIEW-200 item A (2026-09-03): the F1 written-chip proviso is
+    decided for the belongs-to context BEFORE `_own_occurrence`'s echo and
+    literal fallbacks, so a chip the statement writes under its own name is
+    a sibling whatever its owner evidence says.
+
+    The hole this pins shut: `_own_belongs_to` collapses a label ECHO —
+    `_tgt_canon` echoing the chip's own label, which `_canon` emits whenever
+    the extractor resolved no owner for a bare chip — into "no owner
+    evidence", and the identity read missing evidence as "own: never drop".
+    v3.3.199 dropped the bare unattributed written chip's belongs-to (its
+    echo fell through to the written-chip test); the v3.3.200 echo collapse
+    re-admitted it while the attributed written chip beside it kept
+    dropping — one chip, two answers, decided by whether the extractor
+    happened to resolve an owner.
+
+    Probe (the review's own): seed `data_dt` on `bdm_acc_loan_info`, a bare
+    written chip whose `_tgt_canon` echoes its label and whose node id is
+    the source of a value edge into an ⟐output frame."""
+    model = _east5_model()
+
+    def _belongs(tgt_id, tgt_canon, line=768):
+        return _carrier(et="SCHEMA", src="bdm_acc_loan_info", tgt="data_dt",
+                        line=line, op="TABLE_COLUMN", tgt_canon=tgt_canon,
+                        src_id="box", tgt_id=tgt_id)
+
+    def _write(src_id, tgt_id, line=768):
+        return _carrier(et="TABLE_FLOW", src="data_dt", tgt="bdm_acc_loan_info",
+                        line=line, op="INSERT", value_edge=True,
+                        tgt_output=True, src_id=src_id, tgt_id=tgt_id)
+
+    # 1. the bare UNATTRIBUTED written chip drops — the case v3.3.200
+    #    re-admitted
+    bare = _belongs("chip", "data_dt")
+    write = _write("chip", "frame")
+    served = _apply_field_involvement([bare, write], "data_dt", True,
+                                      physical_model=model,
+                                      table="bdm_acc_loan_info")
+    assert served == [write], (
+        "the bare unattributed written chip kept its belongs-to (the echo "
+        f"fallback outranked the written-chip proviso): "
+        f"{[e.get('_tgt_label') for e in served]}")
+
+    # 2. the same chip WITH foreign owner evidence was already a sibling's
+    #    belongs-to and stays dropped
+    attributed = _belongs("chip2", "other_box")
+    assert _apply_field_involvement(
+        [attributed, _write("chip2", "frame2")], "data_dt", True,
+        physical_model=model, table="bdm_acc_loan_info") == [
+        _write("chip2", "frame2")]
+
+    # 3. the searched table's OWN chip is decided before any proviso: the
+    #    7-A write leg and its own belongs-to stay served, written or not
+    own = _belongs("chip3", "bdm_acc_loan_info")
+    own_write = _write("chip3", "frame3")
+    assert _apply_field_involvement(
+        [own, own_write], "data_dt", True, physical_model=model,
+        table="bdm_acc_loan_info") == [own, own_write]
+
+    # 4. the proviso is COLUMN-scoped: a LITERAL chip written under the
+    #    searched name is the 7-A constant-write case (`'$(load_date)' AS
+    #    data_dt`), whose write the ruling keeps served — never a sibling
+    literal = _belongs("chip4", "data_dt", line=213)
+    literal["_tgt_vt"] = "literal"
+    assert _apply_field_involvement(
+        [literal, _write("chip4", "frame4", line=213)], "data_dt", True,
+        physical_model=model, table="bdm_acc_loan_info") == [
+        literal, _write("chip4", "frame4", line=213)]
+
+    # 5. and a chip with NO written evidence at all keeps the legacy
+    #    contract — never drop on missing extraction-time evidence
+    unwritten = _belongs("chip5", "data_dt")
+    assert _apply_field_involvement(
+        [unwritten], "data_dt", True, physical_model=model,
+        table="bdm_acc_loan_info") == [unwritten]
+
+
 def test_frame_is_own_only_when_a_value_edge_lands_the_searched_column():
     """The §7-A statement-level frame test, in isolation — the mechanism the
     FINDING-1 frame-identity class lives in: an ⟐output frame is the

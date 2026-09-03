@@ -1554,7 +1554,28 @@ class _RoleBasedExtractor:
                 # AFTER the plain head and only inserts the one dropped
                 # keyword, so a head that matches today still matches first
                 # and no other anchor moves.
-                if len(head) >= 3 and head[:2] == ["insert", "into"]:
+                #
+                # The OVERWRITE twin of the same keyword class (REVIEW-200
+                # item B, 2026-09-03): `INSERT OVERWRITE TABLE` shares the
+                # shape, so the variant list is keyed on the DML keyword
+                # PAIR, never on `into` alone. MEASURED on this tree
+                # (sqlglot 30.12.0 — host venv 30.8.0 behaves the same):
+                # today's render KEEPS the `TABLE` keyword for OVERWRITE —
+                # `INSERT OVERWRITE TABLE t` renders `INSERT OVERWRITE
+                # TABLE t`, only `INSERT INTO TABLE t` loses it — so the
+                # variant is INERT for OVERWRITE today and the corpus
+                # census over all 338 sample scripts moves 0 anchors (the
+                # two dialect files' OVERWRITE statements already anchor on
+                # their own keyword lines). The pair key is the hardening:
+                # a render that drops the keyword under OVERWRITE the way
+                # it does under INTO would otherwise fall back to the
+                # generic 2-token run (`head_run[:2]` = ["insert",
+                # "overwrite"]) and land on whichever OVERWRITE statement
+                # came next — the RFN swap mechanism under a different
+                # keyword. `EXTRACTOR_VERSION` deliberately stays put: no
+                # anchor moves, so version-matched caches stay valid.
+                if len(head) >= 3 and tuple(head[:2]) in {
+                        ("insert", "into"), ("insert", "overwrite")}:
                     heads = [head, head[:2] + ["table"] + head[2:]]
                 else:
                     heads = [head]
