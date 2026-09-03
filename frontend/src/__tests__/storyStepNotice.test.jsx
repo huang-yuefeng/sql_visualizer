@@ -134,7 +134,7 @@ async function mountToL2() {
   getLevel2Graph.mockResolvedValue(l2Payload());
   // the #400 banner's continuation — the same path an L1 double-click takes
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Open a.sql full graph' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open a.sql L2' }));
   });
   await screen.findByText(/Level 2 Detail/);
 }

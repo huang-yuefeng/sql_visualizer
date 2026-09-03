@@ -131,7 +131,7 @@ describe('DataFlowApp — T8 (#295) embedded MyWorkspaces in the left panel', ()
 // A no_flow search matches scripts (view.script_ids) but its L1 is EMPTY —
 // no script node to double-click — so the matched script's L2 was reachable
 // only by hand-crafting the child view through the API. The banner now
-// carries one "Open <script> full graph" affordance per matched script and
+// carries one "Open <script> L2" affordance per matched script and
 // calls the SAME path as the L1 double-click (handleOpenL2 → GET /level2 →
 // POST .../children).
 const NO_FLOW_RESULT = {
@@ -179,7 +179,7 @@ async function runSearch(result) {
   await act(async () => { fireEvent.click(screen.getByTestId('run-search')); });
 }
 
-describe('DataFlowApp — #400 no-flow banner opens the matched script’s full graph', () => {
+describe('DataFlowApp — #400 no-flow banner opens the matched script’s L2', () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.clearAllMocks();
@@ -193,7 +193,7 @@ describe('DataFlowApp — #400 no-flow banner opens the matched script’s full 
     expect(await screen.findByText(/No reading flow for tmp_km\.BAL - empty result view/)).toBeInTheDocument();
     for (const script of NO_FLOW_RESULT.script_ids) {
       const name = script.split('/').pop();
-      expect(screen.getByRole('button', { name: `Open ${name} full graph` })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: `Open ${name} L2` })).toBeInTheDocument();
     }
   });
 
@@ -203,7 +203,7 @@ describe('DataFlowApp — #400 no-flow banner opens the matched script’s full 
     await runSearch(NO_FLOW_RESULT);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_RFN.sql full graph' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_RFN.sql L2' }));
     });
 
     // GET /level2 with the rel_path script + filter=true + downstream — the
@@ -236,7 +236,7 @@ describe('DataFlowApp — #400 no-flow banner opens the matched script’s full 
     await mountWorkspaceSearcher();
     await runSearch(NO_FLOW_RESULT);
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_RFN.sql full graph' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_RFN.sql L2' }));
     });
     await screen.findByText(/Level 2 Detail/);
 
@@ -245,7 +245,7 @@ describe('DataFlowApp — #400 no-flow banner opens the matched script’s full 
     expect(await screen.findByText(/empty result view/)).toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_RFN.sql full graph' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_RFN.sql L2' }));
     });
     await screen.findByText(/Level 2 Detail/);
 
@@ -269,7 +269,7 @@ describe('DataFlowApp — #400 no-flow banner opens the matched script’s full 
     expect(await screen.findByText(/No matches: No script in this workspace references tmp_km\.BAL/))
       .toBeInTheDocument();
     expect(container.querySelector('.no-match-banner-actions')).toBeNull();
-    expect(screen.queryByRole('button', { name: /full graph/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /L2/ })).toBeNull();
 
     // an in-flow search has no banner at all — and no button either
     await runSearch({
@@ -286,7 +286,7 @@ describe('DataFlowApp — #400 no-flow banner opens the matched script’s full 
     });
     await screen.findByTestId('tab-v3');
     expect(container.querySelector('.no-match-banner')).toBeNull();
-    expect(screen.queryByRole('button', { name: /full graph/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /L2/ })).toBeNull();
   });
 });
 
@@ -296,7 +296,7 @@ describe('DataFlowApp — #400 no-flow banner opens the matched script’s full 
 // directional flow's script nodes (P2.P_DT matched 4, its L1 rendered 2).
 // The out-of-flow rest were reachable only through a no_flow banner, which an
 // exact-match view never renders — so the L1 view now carries the same
-// "Open <script> full graph" affordance for exactly the missing subset.
+// "Open <script> L2" affordance for exactly the missing subset.
 const IN_FLOW = ['BDM_ACC_LOAN_INFO_PL.sql', 'BDM_ACC_LOAN_INFO_SUP_M.sql'];
 const OUT_OF_FLOW = ['sub/BDM_ACC_LOAN_INFO_Digitallending.sql'];
 
@@ -332,10 +332,10 @@ describe('DataFlowApp — out-of-flow strip on a partially-rendered L1 (V2-N4)',
     const strip = await screen.findByTestId('not-in-flow-strip');
     expect(strip).toBeInTheDocument();
     // only the missing one — never the scripts the L1 already renders
-    expect(screen.getByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_Digitallending.sql full graph' }))
+    expect(screen.getByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_Digitallending.sql L2' }))
       .toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_PL.sql full graph' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_SUP_M.sql full graph' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_PL.sql L2' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_SUP_M.sql L2' })).toBeNull();
     // the strip is the slim L1 banner, not the no-match warning
     expect(strip.className).toContain('banner-strip');
     expect(container.querySelector('.no-match-banner:not(.banner-strip)')).toBeNull();
@@ -351,7 +351,7 @@ describe('DataFlowApp — out-of-flow strip on a partially-rendered L1 (V2-N4)',
     await screen.findByTestId('tab-v5');
     expect(screen.queryByTestId('not-in-flow-strip')).toBeNull();
     expect(container.querySelector('.banner-strip')).toBeNull();
-    expect(screen.queryByRole('button', { name: /full graph/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /L2/ })).toBeNull();
   });
 
   it('never competes with the #400 no-flow banner (empty L1 → banner owns the slot)', async () => {
@@ -363,13 +363,13 @@ describe('DataFlowApp — out-of-flow strip on a partially-rendered L1 (V2-N4)',
     expect(container.querySelector('.no-match-banner-actions')).not.toBeNull();
   });
 
-  it('the strip button opens the full graph through the same L1 double-click path', async () => {
+  it('the strip button opens the L2 through the same L1 double-click path', async () => {
     getLevel2Graph.mockResolvedValue(NOT_IN_FLOW_L2);
     await mountWorkspaceSearcher();
     await runSearch(PARTIAL_FLOW_RESULT);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_Digitallending.sql full graph' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_ACC_LOAN_INFO_Digitallending.sql L2' }));
     });
 
     expect(getLevel2Graph).toHaveBeenCalledWith(
@@ -435,7 +435,7 @@ describe('DataFlowApp — out-of-flow strip uses the view’s own graph (R3 3a)'
     // child through the tree — the global l1Graph now holds vB's graph while
     // the strip still describes vA.
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_DL.sql full graph' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_DL.sql L2' }));
     });
     await screen.findByText(/Level 2 Detail/);
     await runSearch(OTHER_SEARCH);
@@ -472,7 +472,7 @@ describe('DataFlowApp — strip open resolves the parent view id (R3 finding 1)'
 
     // First open — the ref still points at vA, so this already worked.
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_DL.sql full graph' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_DL.sql L2' }));
     });
     await screen.findByText(/Level 2 Detail/);
     expect(addViewChild).toHaveBeenCalledWith('ws1', 'vA', expect.objectContaining({
@@ -488,7 +488,7 @@ describe('DataFlowApp — strip open resolves the parent view id (R3 finding 1)'
     const callsBefore = addViewChild.mock.calls.length;
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_OTH.sql full graph' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Open BDM_OTH.sql L2' }));
     });
     await screen.findByText(/Level 2 Detail/);
 

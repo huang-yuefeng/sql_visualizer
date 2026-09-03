@@ -899,7 +899,7 @@ export default function DataFlowApp({
   // A `no_flow` search DOES match scripts (`view.script_ids`) but its L1
   // graph is EMPTY — no script node to double-click — so the matched
   // script's L2 was reachable only by hand-crafting the child view through
-  // the API. The banner therefore carries one "Open <script> full graph"
+  // the API. The banner therefore carries one "Open <script> L2"
   // affordance per matched script, calling the SAME path the L1
   // double-click uses (`handleOpenL2` → GET /level2 → POST .../children):
   // same fetch, same state updates, same child-view dedup. `no_matches`
@@ -925,7 +925,7 @@ export default function DataFlowApp({
   // that QUERY the searched field, while the L1 graph renders only the
   // directional flow's script nodes — P2.P_DT matched 4 scripts and its L1
   // rendered 2, with no UI path to the other two (the no_flow banner's
-  // "Open … full graph" affordance is a no_flow-only render). The strip below
+  // "Open … L2" affordance is a no_flow-only render). The strip below
   // names those scripts and reuses the SAME affordance + open path.
   const l1SearchView = useMemo(() => {
     if (!activeView) return null;
@@ -1705,9 +1705,9 @@ export default function DataFlowApp({
                     className="btn btn-outline btn-sm banner-open-script"
                     disabled={loading}
                     onClick={() => handleOpenNoFlowScript(s)}
-                    title={`Open ${scriptBaseName(s)}'s full Level 2 graph — the search matched this script, only this direction's flow is empty`}
+                    title={`Open ${scriptBaseName(s)}'s L2 view — the search matched this script, only this direction's flow is empty (the view renders the flow-only closure; R53 closed the Full view)`}
                   >
-                    Open {scriptBaseName(s)} full graph
+                    Open {scriptBaseName(s)} L2
                   </button>
                 ))}
               </div>
@@ -1730,9 +1730,9 @@ export default function DataFlowApp({
                   className="btn btn-outline btn-sm banner-open-script"
                   disabled={loading}
                   onClick={() => handleOpenNoFlowScript(s)}
-                  title={`Open ${scriptBaseName(s)}'s full Level 2 graph — the search matched this script, but it is not in this view's rendered flow`}
+                  title={`Open ${scriptBaseName(s)}'s L2 view — the search matched this script, but it is not in this view's rendered flow (the view renders the flow-only closure; R53 closed the Full view)`}
                 >
-                  Open {scriptBaseName(s)} full graph
+                  Open {scriptBaseName(s)} L2
                 </button>
               </span>
             ))}

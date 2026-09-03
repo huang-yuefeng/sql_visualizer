@@ -173,7 +173,7 @@ async function mountToL2() {
   await act(async () => { fireEvent.click(screen.getByTestId('run-search')); });
   getLevel2Graph.mockResolvedValue(l2Payload());
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Open east5.sql full graph' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open east5.sql L2' }));
   });
   await screen.findByText(/Level 2 Detail/);
 }
